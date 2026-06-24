@@ -165,7 +165,7 @@ export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 					}
 					if (event.key === "Enter") {
 						event.preventDefault();
-						if (event.ctrlKey) {
+						if (event.ctrlKey || event.shiftKey) {
 							insertLineBreak(event.currentTarget);
 							return;
 						}
@@ -175,7 +175,7 @@ export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 				className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2 font-mono text-sm text-[var(--sea-ink)] focus:outline-none focus:ring-2 focus:ring-[var(--lagoon)]"
 			/>
 			<p className="mt-1.5 text-[11px] text-[var(--sea-ink-soft)]">
-				Preview updates live - Enter closes - Ctrl+Enter inserts a line
+				Preview updates live - Enter closes - Shift/Ctrl+Enter inserts a line
 			</p>
 		</div>
 	);
