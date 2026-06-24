@@ -9,6 +9,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
 import { EditorBubbleMenu } from "./EditorBubbleMenu";
+import { MarkdownPaste } from "./MarkdownPasteExtension";
 import { MathEditor, type MathSelection } from "./MathEditor";
 import { SlashCommand } from "./slash/slash-command";
 
@@ -138,6 +139,7 @@ export function RichTextEditor({
 		immediatelyRender: false,
 		extensions: [
 			StarterKit,
+			MarkdownPaste,
 			Placeholder.configure({
 				placeholder: placeholder ?? "Type '/' for commands",
 			}),

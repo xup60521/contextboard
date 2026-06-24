@@ -18,6 +18,7 @@ type MathEditorProps = {
 export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 	const { pos, type } = selection;
 	const [latex, setLatex] = useState(selection.latex);
+	const [isPositioned, setIsPositioned] = useState(false);
 	const popupRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -28,34 +29,41 @@ export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 			return;
 		}
 
-		const coords = editor.view.coordsAtPos(pos);
-		const rect = {
-			width: coords.right - coords.left,
-			height: coords.bottom - coords.top,
-			x: coords.left,
-			y: coords.top,
-			top: coords.top,
-			left: coords.left,
-			right: coords.right,
-			bottom: coords.bottom,
-			toJSON() {},
-		} satisfies DOMRect;
+		let cancelled = false;
+		setIsPositioned(false);
 
-		computePosition({ getBoundingClientRect: () => rect }, popup, {
-			placement: "bottom-start",
-			strategy: "fixed",
-			middleware: [offset(8), flip(), shift({ padding: 8 })],
-		}).then(({ x, y }) => {
+		computePosition(
+			{ getBoundingClientRect: () => getMathAnchorRect(editor, pos) },
+			popup,
+			{
+				placement: "bottom-start",
+				strategy: "fixed",
+				middleware: [offset(16), flip(), shift({ padding: 8 })],
+			},
+		).then(({ x, y }) => {
+			if (cancelled) {
+				return;
+			}
+
 			popup.style.left = `${x}px`;
 			popup.style.top = `${y}px`;
+			setIsPositioned(true);
 		});
+
+		return () => {
+			cancelled = true;
+		};
 	}, [editor, pos]);
 
 	// Focus the input when the editor opens.
 	useEffect(() => {
 		const textarea = textareaRef.current;
-		textarea?.focus();
-		textarea?.select();
+		if (!textarea) {
+			return;
+		}
+
+		textarea.focus({ preventScroll: true });
+		textarea.setSelectionRange(0, textarea.value.length);
 	}, []);
 
 	// Close when clicking outside (but not on another math node, which reopens).
@@ -103,22 +111,31 @@ export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 
 	function removeMath() {
 		if (type === "inline") {
-			editor.chain().focus().deleteInlineMath({ pos }).run();
+			editor
+				.chain()
+				.deleteInlineMath({ pos })
+				.focus(undefined, { scrollIntoView: false })
+				.run();
 		} else {
-			editor.chain().focus().deleteBlockMath({ pos }).run();
+			editor
+				.chain()
+				.deleteBlockMath({ pos })
+				.focus(undefined, { scrollIntoView: false })
+				.run();
 		}
 		onClose();
 	}
 
 	function closeAndFocus() {
 		onClose();
-		editor.commands.focus();
+		editor.commands.focus(undefined, { scrollIntoView: false });
 	}
 
 	return (
 		<div
 			ref={popupRef}
-			className="fixed top-0 left-0 z-50 w-80 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-3 shadow-[0_18px_44px_rgba(23,58,64,0.18)] backdrop-blur-md"
+			className="fixed top-0 left-0 z-50 w-80 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-3 shadow-[0_18px_44px_rgba(23,58,64,0.18)] backdrop-blur-md transition-opacity"
+			style={{ opacity: isPositioned ? 1 : 0 }}
 		>
 			<div className="mb-1.5 flex items-center justify-between">
 				<span className="text-xs font-semibold tracking-wide text-[var(--sea-ink-soft)] uppercase">
@@ -162,4 +179,25 @@ export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 			</p>
 		</div>
 	);
+}
+
+function getMathAnchorRect(editor: Editor, pos: number): DOMRect {
+	const node = editor.view.nodeDOM(pos);
+
+	if (node instanceof Element) {
+		return node.getBoundingClientRect();
+	}
+
+	const coords = editor.view.coordsAtPos(pos);
+	return {
+		width: Math.max(coords.right - coords.left, 1),
+		height: Math.max(coords.bottom - coords.top, 1),
+		x: coords.left,
+		y: coords.top,
+		top: coords.top,
+		left: coords.left,
+		right: coords.right,
+		bottom: coords.bottom,
+		toJSON() {},
+	} satisfies DOMRect;
 }
