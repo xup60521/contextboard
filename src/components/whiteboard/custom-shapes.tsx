@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import type { JSONContent } from "@tiptap/core";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import {
 	BaseBoxShapeUtil,
 	createShapeId,
@@ -14,6 +15,7 @@ import {
 	useIsEditing,
 	type VecLike,
 } from "tldraw";
+import { RichTextEditor } from "../editor/RichTextEditor";
 
 declare module "@tldraw/tlschema" {
 	interface TLGlobalShapePropsMap {
@@ -21,6 +23,11 @@ declare module "@tldraw/tlschema" {
 			w: number;
 			h: number;
 			text: string;
+		};
+		"markdown-card": {
+			w: number;
+			h: number;
+			content: string;
 		};
 		"subwhiteboard-link": {
 			w: number;
@@ -40,6 +47,15 @@ export type TextCardShape = TLBaseShape<
 	}
 >;
 
+export type MarkdownCardShape = TLBaseShape<
+	"markdown-card",
+	{
+		w: number;
+		h: number;
+		content: string;
+	}
+>;
+
 export type SubwhiteboardLinkShape = TLBaseShape<
 	"subwhiteboard-link",
 	{
@@ -55,6 +71,12 @@ export const textCardShapeProps = {
 	h: T.number,
 	text: T.string,
 } satisfies RecordProps<TextCardShape>;
+
+export const markdownCardShapeProps = {
+	w: T.number,
+	h: T.number,
+	content: T.string,
+} satisfies RecordProps<MarkdownCardShape>;
 
 export const subwhiteboardLinkShapeProps = {
 	w: T.number,
@@ -128,6 +150,127 @@ function TextCardComponent({ shape }: { shape: TextCardShape }) {
 	);
 }
 
+function parseMarkdownContent(content: string): JSONContent | null {
+	if (!content) return null;
+
+	try {
+		return JSON.parse(content) as JSONContent;
+	} catch {
+		return null;
+	}
+}
+
+function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
+	const editor = useEditor();
+	const isEditing = useIsEditing(shape.id);
+	const cardRef = useRef<HTMLDivElement>(null);
+	const latestPropsRef = useRef(shape.props);
+	// The TipTap editor is the source of truth after mount, so read the persisted
+	// content only once.
+	const initialContentRef = useRef<JSONContent | null>(
+		parseMarkdownContent(shape.props.content),
+	);
+
+	latestPropsRef.current = shape.props;
+
+	useLayoutEffect(() => {
+		const card = cardRef.current;
+		if (!card) return;
+
+		let frame: number | null = null;
+
+		const syncHeight = () => {
+			frame = null;
+			const nextHeight = Math.max(64, Math.ceil(card.scrollHeight));
+			const latestProps = latestPropsRef.current;
+
+			if (Math.abs(nextHeight - latestProps.h) < 1) {
+				return;
+			}
+
+			editor.updateShape<MarkdownCardShape>({
+				id: shape.id,
+				type: "markdown-card",
+				props: {
+					...latestProps,
+					h: nextHeight,
+				},
+			});
+		};
+
+		const scheduleSyncHeight = () => {
+			if (frame !== null) return;
+			frame = window.requestAnimationFrame(syncHeight);
+		};
+
+		scheduleSyncHeight();
+
+		const resizeObserver = new ResizeObserver(scheduleSyncHeight);
+		resizeObserver.observe(card);
+
+		return () => {
+			resizeObserver.disconnect();
+			if (frame !== null) {
+				window.cancelAnimationFrame(frame);
+			}
+		};
+	}, [editor, shape.id]);
+
+	return (
+		<HTMLContainer>
+			{/** biome-ignore lint/a11y/noStaticElementInteractions: tldraw shapes guard pointer/keyboard events here. */}
+			<div
+				ref={cardRef}
+				className="w-full rounded-md border border-[#d7c897] bg-[#fffdf3] px-3 py-2 text-[#243438] shadow-[0_10px_22px_rgba(88,78,36,0.16)] transition focus-within:border-[#5eb7ad] focus-within:bg-white"
+				style={{ pointerEvents: isEditing ? "auto" : "none" }}
+				onPointerDown={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onPointerUp={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onClick={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onDoubleClick={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onKeyDown={(e) => {
+					if (!isEditing) return;
+					editor.markEventAsHandled(e);
+
+					if (e.key === "Escape") {
+						editor.setEditingShape(null);
+					}
+				}}
+				onPaste={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onWheel={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+			>
+				<RichTextEditor
+					editable={isEditing}
+					content={initialContentRef.current}
+					contentClassName="min-h-6"
+					placeholder="Type '/' for commands"
+					onChange={(value) => {
+						editor.updateShape<MarkdownCardShape>({
+							id: shape.id,
+							type: "markdown-card",
+							props: {
+								...latestPropsRef.current,
+								content: JSON.stringify(value),
+							},
+						});
+					}}
+				/>
+			</div>
+		</HTMLContainer>
+	);
+}
+
 export function makeSubwhiteboardId() {
 	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
 		return crypto.randomUUID();
@@ -188,6 +331,72 @@ export class TextCardShapeUtil extends BaseBoxShapeUtil<TextCardShape> {
 
 	override component(shape: TextCardShape) {
 		return <TextCardComponent shape={shape} />;
+	}
+}
+
+export class MarkdownCardShapeUtil extends BaseBoxShapeUtil<MarkdownCardShape> {
+	static override type = "markdown-card" as const;
+	static override props = markdownCardShapeProps;
+
+	override getDefaultProps(): MarkdownCardShape["props"] {
+		return {
+			w: 360,
+			h: 240,
+			content: "",
+		};
+	}
+
+	override canResize() {
+		return true;
+	}
+
+	override canEdit() {
+		return true;
+	}
+
+	override hideSelectionBoundsBg(shape: MarkdownCardShape) {
+		return this.editor.getEditingShapeId() === shape.id;
+	}
+
+	override hideSelectionBoundsFg(shape: MarkdownCardShape) {
+		return this.editor.getEditingShapeId() === shape.id;
+	}
+
+	override isAspectRatioLocked() {
+		return false;
+	}
+
+	override getGeometry(shape: MarkdownCardShape) {
+		return new Rectangle2d({
+			width: shape.props.w,
+			height: shape.props.h,
+			isFilled: true,
+		});
+	}
+
+	override getIndicatorPath(shape: MarkdownCardShape): Path2D {
+		const path = new Path2D();
+		path.rect(0, 0, shape.props.w, shape.props.h);
+		return path;
+	}
+
+	override onResize(
+		shape: MarkdownCardShape,
+		info: TLResizeInfo<MarkdownCardShape>,
+	) {
+		const resized = resizeBox(shape, info, { minWidth: 220, minHeight: 64 });
+
+		return {
+			...resized,
+			props: {
+				...resized.props,
+				h: shape.props.h,
+			},
+		};
+	}
+
+	override component(shape: MarkdownCardShape) {
+		return <MarkdownCardComponent shape={shape} />;
 	}
 }
 
@@ -257,6 +466,11 @@ export const whiteboardShapeUtils = [
 	SubwhiteboardLinkShapeUtil,
 ] as const;
 
+export const markdownWhiteboardShapeUtils = [
+	MarkdownCardShapeUtil,
+	SubwhiteboardLinkShapeUtil,
+] as const;
+
 export function createTextCardShape(
 	editor: Editor,
 	point: VecLike,
@@ -271,6 +485,27 @@ export function createTextCardShape(
 	editor.createShape<TextCardShape>({
 		id,
 		type: "text-card",
+		x,
+		y,
+		props,
+	});
+	editor.select(id);
+}
+
+export function createMarkdownCardShape(
+	editor: Editor,
+	point: VecLike,
+	options: { centered?: boolean } = {},
+) {
+	const props = new MarkdownCardShapeUtil(editor).getDefaultProps();
+	const id = createShapeId();
+	const x = options.centered ? point.x - props.w / 2 : point.x;
+	const y = options.centered ? point.y - props.h / 2 : point.y;
+
+	editor.markHistoryStoppingPoint("create markdown card");
+	editor.createShape<MarkdownCardShape>({
+		id,
+		type: "markdown-card",
 		x,
 		y,
 		props,

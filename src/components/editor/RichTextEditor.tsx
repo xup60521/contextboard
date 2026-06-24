@@ -7,7 +7,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { NodeSelection, type Transaction } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EditorBubbleMenu } from "./EditorBubbleMenu";
 import { MathEditor, type MathSelection } from "./MathEditor";
 import { SlashCommand } from "./slash/slash-command";
@@ -18,6 +18,10 @@ type RichTextEditorProps = {
 	onChange?: (value: JSONContent) => void;
 	placeholder?: string;
 	className?: string;
+	/** When false, the editor is read-only. Defaults to true. */
+	editable?: boolean;
+	/** Class applied to the editing surface (e.g. min-height). */
+	contentClassName?: string;
 };
 
 type MathCandidate = MathSelection & {
@@ -115,11 +119,14 @@ export function RichTextEditor({
 	onChange,
 	placeholder,
 	className,
+	editable = true,
+	contentClassName = "min-h-[60vh]",
 }: RichTextEditorProps) {
 	const [mathSelection, setMathSelection] = useState<MathSelection | null>(
 		null,
 	);
 	const mathSelectionRef = useRef<MathSelection | null>(null);
+	const wasEditableRef = useRef(editable);
 
 	function openMathSelection(selection: MathSelection | null) {
 		mathSelectionRef.current = selection;
@@ -157,8 +164,7 @@ export function RichTextEditor({
 		content: content ?? "",
 		editorProps: {
 			attributes: {
-				class:
-					"prose dark:prose-invert max-w-none focus:outline-none min-h-[60vh]",
+				class: `prose dark:prose-invert max-w-none focus:outline-none ${contentClassName}`,
 			},
 			// When a math node is selected, Enter opens its editor instead of
 			// inserting a new line.
@@ -196,6 +202,23 @@ export function RichTextEditor({
 			onChange?.(instance.getJSON());
 		},
 	});
+
+	// `useEditor` reads `editable` only at creation, so keep it in sync. Focus the
+	// editor when it transitions into edit mode (e.g. a card enters editing) without
+	// stealing focus on an always-editable page's initial mount.
+	useEffect(() => {
+		if (!editor) {
+			return;
+		}
+
+		editor.setEditable(editable);
+
+		if (editable && !wasEditableRef.current) {
+			editor.commands.focus("end");
+		}
+
+		wasEditableRef.current = editable;
+	}, [editor, editable]);
 
 	if (!editor) {
 		return null;
