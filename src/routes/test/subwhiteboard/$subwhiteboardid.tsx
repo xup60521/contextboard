@@ -1,10 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Tldraw } from "tldraw";
+import { Tldraw, type TldrawOptions } from "tldraw";
 import "tldraw/tldraw.css";
 
 export const Route = createFileRoute("/test/subwhiteboard/$subwhiteboardid")({
 	component: RouteComponent,
 });
+
+// Disable right-click panning so the context menu opens via the native
+// contextmenu path. With panning on, tldraw opens the menu through a synthetic
+// contextmenu dispatched on pointer-up and gated on `inputs.isPanning`, which
+// could get stuck and make the menu only openable once per window-focus.
+const whiteboardOptions = {
+	rightClickPanning: false,
+} satisfies Partial<TldrawOptions>;
 
 function RouteComponent() {
 	const { subwhiteboardid } = Route.useParams();
@@ -21,6 +29,7 @@ function RouteComponent() {
 			</div>
 			<div className="relative min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--line)] bg-white shadow-[0_18px_38px_rgba(23,58,64,0.12)]">
 				<Tldraw
+					options={whiteboardOptions}
 					persistenceKey={`contextboard-subwhiteboard-${subwhiteboardid}`}
 				/>
 			</div>

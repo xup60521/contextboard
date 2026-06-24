@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import {
 	BaseBoxShapeUtil,
 	createShapeId,
@@ -9,6 +10,8 @@ import {
 	T,
 	type TLBaseShape,
 	type TLResizeInfo,
+	useEditor,
+	useIsEditing,
 	type VecLike,
 } from "tldraw";
 
@@ -60,6 +63,71 @@ export const subwhiteboardLinkShapeProps = {
 	subwhiteboardId: T.string,
 } satisfies RecordProps<SubwhiteboardLinkShape>;
 
+function TextCardComponent({ shape }: { shape: TextCardShape }) {
+	const editor = useEditor();
+	const isEditing = useIsEditing(shape.id);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+	useEffect(() => {
+		if (!isEditing) return;
+
+		const textarea = textareaRef.current;
+		if (!textarea) return;
+
+		textarea.focus();
+		const caretPosition = textarea.value.length;
+		textarea.setSelectionRange(caretPosition, caretPosition);
+	}, [isEditing]);
+
+	return (
+		<HTMLContainer>
+			<textarea
+				ref={textareaRef}
+				className="h-full w-full resize-none rounded-md border border-[#d7c897] bg-[#fff8d7] px-3 py-2 text-[15px] leading-5 text-[#243438] shadow-[0_10px_22px_rgba(88,78,36,0.16)] outline-none transition focus:border-[#5eb7ad] focus:bg-[#fffbea]"
+				value={shape.props.text}
+				placeholder="Type..."
+				spellCheck
+				readOnly={!isEditing}
+				tabIndex={isEditing ? 0 : -1}
+				style={{ pointerEvents: isEditing ? "auto" : "none" }}
+				onPointerDown={(e) => editor.markEventAsHandled(e)}
+				onPointerUp={(e) => editor.markEventAsHandled(e)}
+				onClick={(e) => editor.markEventAsHandled(e)}
+				onDoubleClick={(e) => editor.markEventAsHandled(e)}
+				onKeyDown={(e) => {
+					editor.markEventAsHandled(e);
+
+					if (e.key === "Escape") {
+						editor.setEditingShape(null);
+						return;
+					}
+
+					if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+						editor.complete();
+					}
+				}}
+				onPaste={(e) => editor.markEventAsHandled(e)}
+				onWheel={(e) => editor.markEventAsHandled(e)}
+				onBlur={() => {
+					if (editor.getEditingShapeId() === shape.id) {
+						editor.setEditingShape(null);
+					}
+				}}
+				onChange={(e) => {
+					editor.updateShape<TextCardShape>({
+						id: shape.id,
+						type: "text-card",
+						props: {
+							...shape.props,
+							text: e.currentTarget.value,
+						},
+					});
+				}}
+			/>
+		</HTMLContainer>
+	);
+}
+
 export function makeSubwhiteboardId() {
 	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
 		return crypto.randomUUID();
@@ -82,6 +150,18 @@ export class TextCardShapeUtil extends BaseBoxShapeUtil<TextCardShape> {
 
 	override canResize() {
 		return true;
+	}
+
+	override canEdit() {
+		return true;
+	}
+
+	override hideSelectionBoundsBg(shape: TextCardShape) {
+		return this.editor.getEditingShapeId() === shape.id;
+	}
+
+	override hideSelectionBoundsFg(shape: TextCardShape) {
+		return this.editor.getEditingShapeId() === shape.id;
 	}
 
 	override isAspectRatioLocked() {
@@ -107,34 +187,7 @@ export class TextCardShapeUtil extends BaseBoxShapeUtil<TextCardShape> {
 	}
 
 	override component(shape: TextCardShape) {
-		const editor = this.editor;
-
-		return (
-			<HTMLContainer>
-				<textarea
-					className="h-full w-full resize-none rounded-md border border-[#d7c897] bg-[#fff8d7] px-3 py-2 text-[15px] leading-5 text-[#243438] shadow-[0_10px_22px_rgba(88,78,36,0.16)] outline-none transition focus:border-[#5eb7ad] focus:bg-[#fffbea]"
-					value={shape.props.text}
-					placeholder="Type..."
-					spellCheck
-					onPointerDown={(e) => editor.markEventAsHandled(e)}
-					onPointerUp={(e) => editor.markEventAsHandled(e)}
-					onClick={(e) => editor.markEventAsHandled(e)}
-					onDoubleClick={(e) => editor.markEventAsHandled(e)}
-					onKeyDown={(e) => editor.markEventAsHandled(e)}
-					onWheel={(e) => editor.markEventAsHandled(e)}
-					onChange={(e) => {
-						editor.updateShape<TextCardShape>({
-							id: shape.id,
-							type: "text-card",
-							props: {
-								...shape.props,
-								text: e.currentTarget.value,
-							},
-						});
-					}}
-				/>
-			</HTMLContainer>
-		);
+		return <TextCardComponent shape={shape} />;
 	}
 }
 

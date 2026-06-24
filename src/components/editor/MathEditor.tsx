@@ -89,6 +89,18 @@ export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 		}
 	}
 
+	function insertLineBreak(textarea: HTMLTextAreaElement) {
+		const start = textarea.selectionStart;
+		const end = textarea.selectionEnd;
+		const next = `${latex.slice(0, start)}\n${latex.slice(end)}`;
+
+		applyLatex(next);
+		requestAnimationFrame(() => {
+			textarea.selectionStart = start + 1;
+			textarea.selectionEnd = start + 1;
+		});
+	}
+
 	function removeMath() {
 		if (type === "inline") {
 			editor.chain().focus().deleteInlineMath({ pos }).run();
@@ -110,7 +122,7 @@ export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 		>
 			<div className="mb-1.5 flex items-center justify-between">
 				<span className="text-xs font-semibold tracking-wide text-[var(--sea-ink-soft)] uppercase">
-					{type === "inline" ? "Inline math" : "Block math"} · LaTeX
+					{type === "inline" ? "Inline math" : "Block math"} - LaTeX
 				</span>
 				<button
 					type="button"
@@ -134,15 +146,19 @@ export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 						event.preventDefault();
 						closeAndFocus();
 					}
-					if (event.key === "Enter" && type === "inline" && !event.shiftKey) {
+					if (event.key === "Enter") {
 						event.preventDefault();
+						if (event.ctrlKey) {
+							insertLineBreak(event.currentTarget);
+							return;
+						}
 						closeAndFocus();
 					}
 				}}
 				className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2 font-mono text-sm text-[var(--sea-ink)] focus:outline-none focus:ring-2 focus:ring-[var(--lagoon)]"
 			/>
 			<p className="mt-1.5 text-[11px] text-[var(--sea-ink-soft)]">
-				Preview updates live · Esc to close
+				Preview updates live - Enter closes - Ctrl+Enter inserts a line
 			</p>
 		</div>
 	);
