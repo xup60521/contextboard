@@ -30,6 +30,13 @@ export default function Header() {
           >
             About
           </Link>
+          <Link
+            to="/test"
+            className="nav-link"
+            activeProps={{ className: 'nav-link is-active' }}
+          >
+            Test
+          </Link>
           <a
             href="https://tanstack.com/start/latest/docs/framework/react/overview"
             className="nav-link"
@@ -55,34 +62,6 @@ export default function Header() {
               >
                 TanStack Query
               </a>
-            </div>
-          </details>
-          <details className="relative w-full sm:w-auto">
-            <summary className="nav-link list-none cursor-pointer">
-              Tests
-            </summary>
-            <div className="mt-2 min-w-56 rounded-xl border border-[var(--line)] bg-[var(--header-bg)] p-2 shadow-lg sm:absolute sm:right-0">
-              <Link
-                to="/test/markdown"
-                className="block rounded-lg px-3 py-2 text-sm text-[var(--sea-ink-soft)] no-underline transition hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
-                activeProps={{ className: 'block rounded-lg px-3 py-2 text-sm text-[var(--sea-ink)] bg-[var(--link-bg-hover)] no-underline transition' }}
-              >
-                Markdown
-              </Link>
-              <Link
-                to="/test/markdown-in-whiteboard"
-                className="block rounded-lg px-3 py-2 text-sm text-[var(--sea-ink-soft)] no-underline transition hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
-                activeProps={{ className: 'block rounded-lg px-3 py-2 text-sm text-[var(--sea-ink)] bg-[var(--link-bg-hover)] no-underline transition' }}
-              >
-                Markdown in Whiteboard
-              </Link>
-              <Link
-                to="/test/whiteboard-in-whiteboard"
-                className="block rounded-lg px-3 py-2 text-sm text-[var(--sea-ink-soft)] no-underline transition hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
-                activeProps={{ className: 'block rounded-lg px-3 py-2 text-sm text-[var(--sea-ink)] bg-[var(--link-bg-hover)] no-underline transition' }}
-              >
-                Whiteboard in Whiteboard
-              </Link>
             </div>
           </details>
         </div>

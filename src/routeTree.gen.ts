@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TestIndexRouteImport } from './routes/test/index'
 import { Route as TestWhiteboardInWhiteboardRouteImport } from './routes/test/whiteboard-in-whiteboard'
 import { Route as TestMarkdownInWhiteboardRouteImport } from './routes/test/markdown-in-whiteboard'
 import { Route as TestMarkdownRouteImport } from './routes/test/markdown'
@@ -26,6 +27,11 @@ const AboutRoute = AboutRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestIndexRoute = TestIndexRouteImport.update({
+  id: '/test/',
+  path: '/test/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TestWhiteboardInWhiteboardRoute =
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
+  '/test/': typeof TestIndexRoute
   '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 export interface FileRoutesByTo {
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
+  '/test': typeof TestIndexRoute
   '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 export interface FileRoutesById {
@@ -91,6 +99,7 @@ export interface FileRoutesById {
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
+  '/test/': typeof TestIndexRoute
   '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 export interface FileRouteTypes {
@@ -103,6 +112,7 @@ export interface FileRouteTypes {
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
     | '/test/whiteboard-in-whiteboard'
+    | '/test/'
     | '/test/subwhiteboard/$subwhiteboardid'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -113,6 +123,7 @@ export interface FileRouteTypes {
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
     | '/test/whiteboard-in-whiteboard'
+    | '/test'
     | '/test/subwhiteboard/$subwhiteboardid'
   id:
     | '__root__'
@@ -123,6 +134,7 @@ export interface FileRouteTypes {
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
     | '/test/whiteboard-in-whiteboard'
+    | '/test/'
     | '/test/subwhiteboard/$subwhiteboardid'
   fileRoutesById: FileRoutesById
 }
@@ -134,6 +146,7 @@ export interface RootRouteChildren {
   TestMarkdownRoute: typeof TestMarkdownRoute
   TestMarkdownInWhiteboardRoute: typeof TestMarkdownInWhiteboardRoute
   TestWhiteboardInWhiteboardRoute: typeof TestWhiteboardInWhiteboardRoute
+  TestIndexRoute: typeof TestIndexRoute
   TestSubwhiteboardSubwhiteboardidRoute: typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 
@@ -151,6 +164,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test/': {
+      id: '/test/'
+      path: '/test'
+      fullPath: '/test/'
+      preLoaderRoute: typeof TestIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/test/whiteboard-in-whiteboard': {
@@ -206,6 +226,7 @@ const rootRouteChildren: RootRouteChildren = {
   TestMarkdownRoute: TestMarkdownRoute,
   TestMarkdownInWhiteboardRoute: TestMarkdownInWhiteboardRoute,
   TestWhiteboardInWhiteboardRoute: TestWhiteboardInWhiteboardRoute,
+  TestIndexRoute: TestIndexRoute,
   TestSubwhiteboardSubwhiteboardidRoute: TestSubwhiteboardSubwhiteboardidRoute,
 }
 export const routeTree = rootRouteImport
