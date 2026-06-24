@@ -1,0 +1,26 @@
+{
+  "projectName": "contextboard",
+  "mode": "file-router",
+  "typescript": true,
+  "packageManager": "bun",
+  "includeExamples": true,
+  "tailwind": true,
+  "addOnOptions": {},
+  "envVarValues": {
+    "CONVEX_DEPLOYMENT": "dev:brainy-crane-920",
+    "VITE_CONVEX_URL": "https://brainy-crane-920.convex.cloud"
+  },
+  "git": true,
+  "install": true,
+  "routerOnly": false,
+  "version": 1,
+  "framework": "react",
+  "chosenAddOns": [
+    "biome",
+    "cloudflare",
+    "convex",
+    "compiler",
+    "shadcn",
+    "tanstack-query"
+  ]
+}

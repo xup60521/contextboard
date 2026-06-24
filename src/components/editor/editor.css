@@ -1,0 +1,81 @@
+/* Empty-line placeholder hint (TipTap Placeholder extension). */
+.tiptap p.is-editor-empty:first-child::before {
+	content: attr(data-placeholder);
+	float: left;
+	height: 0;
+	pointer-events: none;
+	color: var(--sea-ink-soft);
+	opacity: 0.7;
+}
+
+.tiptap:focus {
+	outline: none;
+}
+
+.tiptap > * + * {
+	margin-top: 0.75em;
+}
+
+/* ProseMirror selected node (e.g. divider, math) highlight. */
+.tiptap .ProseMirror-selectednode {
+	outline: 2px solid var(--lagoon);
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
+/* KaTeX math nodes. */
+.tiptap [data-type="inline-math"] {
+	display: inline-block;
+	cursor: pointer;
+	padding: 0 1px;
+}
+
+.tiptap [data-type="block-math"] {
+	display: block;
+	cursor: pointer;
+	margin: 0.75em 0;
+	text-align: center;
+}
+
+.tiptap .tiptap-mathematics-render--editable {
+	border-radius: 4px;
+	transition:
+		background-color 120ms ease,
+		box-shadow 120ms ease;
+}
+
+.tiptap .tiptap-mathematics-render--editable:hover {
+	background: color-mix(in oklab, var(--lagoon) 14%, transparent);
+	box-shadow: inset 0 0 0 1px
+		color-mix(in oklab, var(--lagoon-deep) 35%, transparent);
+}
+
+/* Slash command menu items (popup is portaled to <body>, so not .tiptap-scoped). */
+.slash-item {
+	transition:
+		background-color 120ms ease,
+		box-shadow 120ms ease;
+}
+
+.slash-item:hover {
+	background: color-mix(in oklab, var(--lagoon) 12%, transparent);
+}
+
+.slash-item[data-active="true"] {
+	background: color-mix(in oklab, var(--lagoon) 22%, transparent);
+	box-shadow: inset 0 0 0 1px
+		color-mix(in oklab, var(--lagoon-deep) 48%, transparent);
+}
+
+.tiptap .inline-math-error,
+.tiptap .block-math-error {
+	color: var(--destructive);
+	background: color-mix(in oklab, var(--destructive) 12%, transparent);
+	border-radius: 4px;
+	padding: 0 2px;
+}
+
+/* Keep KaTeX legible against the dark theme. */
+.dark .tiptap .katex {
+	color: var(--sea-ink);
+}
