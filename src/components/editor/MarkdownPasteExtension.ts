@@ -3,7 +3,43 @@ import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import MarkdownIt from "markdown-it";
 
-const md = new MarkdownIt("commonmark", { breaks: true, html: false });
+const md = new MarkdownIt({ breaks: true, html: false });
+
+export const skipMathEditorAutoOpenMeta =
+	"markdownPaste.skipMathEditorAutoOpen";
+
+md.block.ruler.before("fence", "details_block", (state, startLine, endLine) => {
+	const start = state.bMarks[startLine] + state.tShift[startLine];
+	const max = state.eMarks[startLine];
+	const firstLine = state.src.slice(start, max);
+	const match = firstLine.match(/^:::\s*details(?:\s+(.*))?$/i);
+
+	if (!match) {
+		return false;
+	}
+
+	const lines: string[] = [];
+	for (let line = startLine + 1; line < endLine; line++) {
+		const lineStart = state.bMarks[line] + state.tShift[line];
+		const lineEnd = state.eMarks[line];
+		const lineText = state.src.slice(lineStart, lineEnd);
+
+		if (/^:::\s*$/.test(lineText)) {
+			const token = state.push("details_block", "details", 0);
+			token.block = true;
+			token.markup = ":::";
+			token.info = match[1]?.trim() || "Details";
+			token.content = lines.join("\n").trim();
+			token.map = [startLine, line + 1];
+			state.line = line + 1;
+			return true;
+		}
+
+		lines.push(lineText);
+	}
+
+	return false;
+});
 
 md.block.ruler.before(
 	"paragraph",
@@ -111,7 +147,40 @@ md.renderer.rules.math_inline = (tokens, idx) => {
 	return `<span data-type="inline-math" data-latex="${escapeAttribute(token.content)}"></span>`;
 };
 
+md.renderer.rules.details_block = (tokens, idx) => {
+	const token = tokens[idx];
+	if (!token) return "";
+
+	const summary = token.info ? md.renderInline(token.info) : "Details";
+	const content = token.content ? md.render(token.content) : "<p></p>";
+
+	return `<details open><summary>${summary}</summary><div data-type="detailsContent">${content}</div></details>`;
+};
+
+function hasMarkdownTable(text: string): boolean {
+	const lines = text.split("\n");
+	for (let index = 0; index < lines.length - 1; index++) {
+		const header = lines[index]?.trim();
+		const separator = lines[index + 1]?.trim();
+
+		if (!header || !separator) {
+			continue;
+		}
+
+		if (
+			header.includes("|") &&
+			/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(separator)
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 function looksLikeMarkdown(text: string): boolean {
+	if (hasMarkdownTable(text)) return true;
+
 	const lines = text.split("\n");
 	for (const line of lines) {
 		if (/^\s{0,3}(#{1,6})\s/.test(line)) return true;
@@ -122,6 +191,7 @@ function looksLikeMarkdown(text: string): boolean {
 		if (/^\s{0,3}---\s*$/.test(line)) return true;
 		if (/^\s{0,3}\*\*\*?\s*$/.test(line)) return true;
 		if (/^\s{0,3}\$\$/.test(line)) return true;
+		if (/^\s*:::\s*details(?:\s|$)/i.test(line)) return true;
 	}
 	if (/\*\*[^*]+\*\*/.test(text)) return true;
 	if (/\*[^*]+\*/.test(text)) return true;
@@ -172,7 +242,12 @@ export const MarkdownPaste = Extension.create({
 						}
 
 						event.preventDefault();
-						view.dispatch(state.tr.replaceSelection(slice).scrollIntoView());
+						view.dispatch(
+							state.tr
+								.replaceSelection(slice)
+								.scrollIntoView()
+								.setMeta(skipMathEditorAutoOpenMeta, true),
+						);
 						return true;
 					},
 				},

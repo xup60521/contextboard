@@ -5,11 +5,13 @@ import {
 	Heading2,
 	Heading3,
 	List,
+	ListCollapse,
 	ListOrdered,
 	Minus,
 	Quote,
 	Sigma,
 	SquareSigma,
+	Table2,
 	Text,
 } from "lucide-react";
 import type { ComponentType } from "react";
@@ -113,6 +115,45 @@ export const slashCommandItems: SlashCommandItem[] = [
 		searchTerms: ["ordered", "numbered", "list", "ol"],
 		command: ({ editor, range }) =>
 			editor.chain().focus().deleteRange(range).toggleOrderedList().run(),
+	},
+	{
+		title: "Table",
+		subtitle: "3 x 3 table",
+		icon: Table2,
+		searchTerms: ["table", "grid", "cells", "rows", "columns"],
+		command: ({ editor, range }) =>
+			editor
+				.chain()
+				.focus()
+				.deleteRange(range)
+				.insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+				.run(),
+	},
+	{
+		title: "Dropdown",
+		subtitle: "Collapsible section",
+		icon: ListCollapse,
+		searchTerms: ["dropdown", "details", "summary", "collapse", "toggle"],
+		command: ({ editor, range }) =>
+			replaceSlashRangeWithContent(editor, range, {
+				type: "details",
+				attrs: { open: true },
+				content: [
+					{
+						type: "detailsSummary",
+						content: [{ type: "text", text: "Dropdown" }],
+					},
+					{
+						type: "detailsContent",
+						content: [
+							{
+								type: "paragraph",
+								content: [{ type: "text", text: "Hidden content" }],
+							},
+						],
+					},
+				],
+			}),
 	},
 	{
 		title: "Quote",

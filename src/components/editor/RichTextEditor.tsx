@@ -2,16 +2,26 @@ import "katex/dist/katex.min.css";
 import "./editor.css";
 
 import type { JSONContent } from "@tiptap/core";
+import {
+	Details,
+	DetailsContent,
+	DetailsSummary,
+} from "@tiptap/extension-details";
 import { Mathematics } from "@tiptap/extension-mathematics";
 import Placeholder from "@tiptap/extension-placeholder";
+import { TableKit } from "@tiptap/extension-table";
 import { NodeSelection, type Transaction } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
 import { EditorBubbleMenu } from "./EditorBubbleMenu";
-import { MarkdownPaste } from "./MarkdownPasteExtension";
+import {
+	MarkdownPaste,
+	skipMathEditorAutoOpenMeta,
+} from "./MarkdownPasteExtension";
 import { MathEditor, type MathSelection } from "./MathEditor";
 import { SlashCommand } from "./slash/slash-command";
+import { cn } from "#/lib/utils";
 
 type RichTextEditorProps = {
 	/** Initial document (TipTap JSON). The editor is the source of truth after mount. */
@@ -139,6 +149,39 @@ export function RichTextEditor({
 		immediatelyRender: false,
 		extensions: [
 			StarterKit,
+			TableKit.configure({
+				table: {
+					HTMLAttributes: {
+						class: "editor-table",
+					},
+				},
+				tableCell: {},
+				tableHeader: {},
+				tableRow: {},
+			}),
+			Details.configure({
+				persist: true,
+				HTMLAttributes: {
+					class: "editor-details",
+				},
+				renderToggleButton: ({ element, isOpen }) => {
+					element.setAttribute(
+						"aria-label",
+						isOpen ? "Collapse dropdown" : "Expand dropdown",
+					);
+					element.dataset.state = isOpen ? "open" : "closed";
+				},
+			}),
+			DetailsSummary.configure({
+				HTMLAttributes: {
+					class: "editor-details-summary",
+				},
+			}),
+			DetailsContent.configure({
+				HTMLAttributes: {
+					class: "editor-details-content",
+				},
+			}),
 			MarkdownPaste,
 			Placeholder.configure({
 				placeholder: placeholder ?? "Type '/' for commands",
@@ -195,6 +238,10 @@ export function RichTextEditor({
 				return;
 			}
 
+			if (transaction.getMeta(skipMathEditorAutoOpenMeta)) {
+				return;
+			}
+
 			const insertedMathSelection = findInsertedMathSelection(transaction);
 			if (insertedMathSelection) {
 				openMathSelection(insertedMathSelection);
@@ -227,7 +274,7 @@ export function RichTextEditor({
 	}
 
 	return (
-		<div className={className}>
+		<div className={cn(className, "cursor-text")}>
 			<EditorBubbleMenu editor={editor} />
 			<EditorContent editor={editor} />
 			{mathSelection && (

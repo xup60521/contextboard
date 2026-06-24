@@ -184,6 +184,78 @@ $$`,
 			type: "blockMath",
 			attrs: { latex: "\\int_0^1 x^2\\,dx" },
 		});
+		expect(container.querySelector("textarea")).toBeNull();
+	});
+
+	test("converts markdown tables when pasted", async () => {
+		const { container, onChange } = setup();
+
+		await paste(
+			container,
+			`| Name | Value |
+| --- | --- |
+| Alpha | 1 |
+| Beta | 2 |`,
+		);
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+
+		const doc = getLatestDocument(onChange);
+		expect(
+			findNode(doc?.content, (node) => node.type === "table"),
+		).toBeDefined();
+		expect(
+			findNode(doc?.content, (node) => node.type === "tableHeader"),
+		).toMatchObject({
+			type: "tableHeader",
+			content: [
+				{
+					type: "paragraph",
+					content: [{ type: "text", text: "Name" }],
+				},
+			],
+		});
+		expect(
+			findNode(
+				doc?.content,
+				(node) =>
+					node.type === "text" && (node.text === "Alpha" || node.text === "2"),
+			),
+		).toBeDefined();
+	});
+
+	test("converts details dropdown blocks when pasted", async () => {
+		const { container, onChange } = setup();
+
+		await paste(
+			container,
+			`:::details More info
+Hidden **bold** answer.
+:::`,
+		);
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+
+		const doc = getLatestDocument(onChange);
+		expect(
+			findNode(doc?.content, (node) => node.type === "details"),
+		).toMatchObject({
+			type: "details",
+			attrs: { open: true },
+		});
+		expect(
+			findNode(doc?.content, (node) => node.type === "detailsSummary"),
+		).toMatchObject({
+			type: "detailsSummary",
+			content: [{ type: "text", text: "More info" }],
+		});
+		expect(
+			findNode(doc?.content, (node) => node.type === "detailsContent"),
+		).toBeDefined();
+		expect(findTextNodeWithMark(doc?.content, "bold")).toMatchObject({
+			type: "text",
+			text: "bold",
+		});
 	});
 
 	test("handles empty paste gracefully", async () => {

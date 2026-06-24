@@ -16,6 +16,102 @@
 	margin-top: 0.75em;
 }
 
+.tiptap .tableWrapper {
+	overflow-x: auto;
+	margin: 1em 0;
+}
+
+.tiptap table {
+	width: 100%;
+	border-collapse: collapse;
+	table-layout: fixed;
+	overflow: hidden;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+}
+
+.tiptap th,
+.tiptap td {
+	position: relative;
+	min-width: 6rem;
+	border: 1px solid var(--line);
+	padding: 0.45rem 0.6rem;
+	vertical-align: top;
+}
+
+.tiptap th {
+	background: color-mix(in oklab, var(--lagoon) 12%, transparent);
+	font-weight: 650;
+	color: var(--sea-ink);
+}
+
+.tiptap th p,
+.tiptap td p {
+	margin: 0;
+}
+
+.tiptap .selectedCell::after {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	pointer-events: none;
+	content: "";
+	background: color-mix(in oklab, var(--lagoon) 18%, transparent);
+}
+
+.tiptap [data-type="details"] {
+	display: grid;
+	grid-template-columns: 1.75rem minmax(0, 1fr);
+	gap: 0.35rem 0.25rem;
+	margin: 1em 0;
+	padding: 0.65rem 0.75rem;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: color-mix(in oklab, var(--surface-strong) 88%, transparent);
+}
+
+.tiptap [data-type="details"] > button {
+	display: flex;
+	width: 1.45rem;
+	height: 1.45rem;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--sea-ink-soft);
+	cursor: pointer;
+}
+
+.tiptap [data-type="details"] > button:hover {
+	background: var(--link-bg-hover);
+	color: var(--sea-ink);
+}
+
+.tiptap [data-type="details"] > button::before {
+	width: 0;
+	height: 0;
+	border-block: 0.28rem solid transparent;
+	border-left: 0.42rem solid currentColor;
+	content: "";
+	transition: transform 120ms ease;
+}
+
+.tiptap [data-type="details"] > button[data-state="open"]::before {
+	transform: rotate(90deg);
+}
+
+.tiptap .editor-details-summary {
+	align-self: center;
+	font-weight: 650;
+}
+
+.tiptap .editor-details-content {
+	grid-column: 2;
+	min-width: 0;
+	padding-top: 0.25rem;
+}
+
 /* ProseMirror selected node (e.g. divider, math) highlight. */
 .tiptap .ProseMirror-selectednode {
 	outline: 2px solid var(--lagoon);
