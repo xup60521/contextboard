@@ -63,6 +63,14 @@ export default defineSchema({
 		.index("by_card", ["cardId"])
 		.index("by_childWhiteboard", ["childWhiteboardId"]),
 
+	tldrawDocuments: defineTable({
+		whiteboardId: v.union(v.id("whiteboards"), v.null()),
+		snapshot: v.any(),
+		version: v.number(),
+		revision: v.number(),
+		updatedAt: v.number(),
+	}).index("by_whiteboard", ["whiteboardId"]),
+
 	todos: defineTable({
 		text: v.string(),
 		completed: v.boolean(),

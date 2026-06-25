@@ -18,6 +18,7 @@ import {
 	type TLEventInfo,
 	type TLShape,
 	type TLShapeId,
+	type TLStoreSnapshot,
 	type TLUiContextMenuProps,
 	Tldraw,
 	type TldrawOptions,
@@ -45,6 +46,10 @@ import {
 	shouldClearOptimisticFrame,
 	type WhiteboardFrame,
 } from "./frame-sync";
+import {
+	filterSnapshotForPersistence,
+	isManagedWhiteboardShapeRecord,
+} from "./tldraw-persistence";
 import "tldraw/tldraw.css";
 
 type BoardItemResult = {
@@ -74,6 +79,17 @@ type BoardItemResult = {
 	} | null;
 };
 
+type TldrawDocumentResult = {
+	snapshot: TLStoreSnapshot;
+	revision: number;
+} | null;
+
+type PendingDrawingSave = {
+	whiteboardId: Id<"whiteboards"> | null;
+	snapshot: TLStoreSnapshot;
+	expectedRevision?: number;
+};
+
 type ManagedShapePartial =
 	| ({ id: TLShapeId } & TLCreateShapePartial<MarkdownCardShape>)
 	| ({ id: TLShapeId } & TLCreateShapePartial<SubwhiteboardLinkShape>);
@@ -96,6 +112,10 @@ const whiteboardComponents = {
 const WhiteboardContextMenuContext =
 	createContext<WhiteboardContextMenuValue | null>(null);
 
+function getWhiteboardKey(whiteboardId: Id<"whiteboards"> | null) {
+	return whiteboardId ?? "root";
+}
+
 export function WhiteboardCanvas({
 	whiteboardId,
 }: {
@@ -115,19 +135,30 @@ export function WhiteboardCanvas({
 		{ whiteboardId },
 		{ initialNumItems: 200 },
 	);
+	const tldrawDocument = useQuery(api.tldrawDocuments.get, {
+		whiteboardId,
+	}) as TldrawDocumentResult | undefined;
 	const createCardItem = useMutation(api.canvas.createCardItem);
 	const createSubwhiteboardItem = useMutation(
 		api.canvas.createSubwhiteboardItem,
 	);
 	const updateItemFrame = useMutation(api.canvas.updateItemFrame);
 	const archiveItem = useMutation(api.canvas.archiveItem);
+	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
 
 	const [editor, setEditor] = useState<Editor | null>(null);
+	const [loadedDrawingKey, setLoadedDrawingKey] = useState<string | null>(null);
 	const themeMode = useThemeMode();
+	const whiteboardKey = getWhiteboardKey(whiteboardId);
 	const hydratingRef = useRef(false);
 	const itemIdByShapeIdRef = useRef(new Map<string, Id<"boardItems">>());
 	const contextMenuPointRef = useRef<VecLike | null>(null);
 	const pendingEditShapeIdRef = useRef<TLShapeId | null>(null);
+	const loadedDrawingKeyRef = useRef<string | null>(null);
+	const emptyDrawingSnapshotRef = useRef<TLStoreSnapshot | null>(null);
+	const tldrawDocumentRevisionRef = useRef<number | null>(null);
+	const saveDrawingTimerRef = useRef<number | null>(null);
+	const pendingDrawingSaveRef = useRef<PendingDrawingSave | null>(null);
 	const latestItemsRef = useRef(new Map<Id<"boardItems">, BoardItemResult>());
 	const queuedFrameUpdatesRef = useRef(
 		new Map<Id<"boardItems">, SequencedFrame>(),
@@ -165,6 +196,44 @@ export function WhiteboardCanvas({
 			});
 		}
 	}, [editor, updateItemFrame]);
+
+	const flushDrawingSave = useCallback(() => {
+		saveDrawingTimerRef.current = null;
+		const pendingSave = pendingDrawingSaveRef.current;
+		pendingDrawingSaveRef.current = null;
+		if (!pendingSave) return;
+
+		void saveTldrawDocument({
+			whiteboardId: pendingSave.whiteboardId,
+			snapshot: pendingSave.snapshot,
+			expectedRevision: pendingSave.expectedRevision,
+		})
+			.then(({ revision }: { revision: number }) => {
+				if (pendingSave.whiteboardId === whiteboardId) {
+					tldrawDocumentRevisionRef.current = revision;
+				}
+			})
+			.catch((error) => {
+				console.warn("Failed to save tldraw document", error);
+			});
+	}, [saveTldrawDocument, whiteboardId]);
+
+	const queueDrawingSave = useCallback(
+		(snapshot: TLStoreSnapshot) => {
+			pendingDrawingSaveRef.current = {
+				whiteboardId,
+				snapshot,
+				expectedRevision: tldrawDocumentRevisionRef.current ?? undefined,
+			};
+
+			if (saveDrawingTimerRef.current !== null) {
+				window.clearTimeout(saveDrawingTimerRef.current);
+			}
+
+			saveDrawingTimerRef.current = window.setTimeout(flushDrawingSave, 750);
+		},
+		[flushDrawingSave, whiteboardId],
+	);
 
 	const queueFrameUpdate = useCallback(
 		(itemId: Id<"boardItems">, frame: WhiteboardFrame) => {
@@ -238,16 +307,49 @@ export function WhiteboardCanvas({
 			window.clearTimeout(flushTimerRef.current);
 			flushFrameUpdates();
 		}
+		if (saveDrawingTimerRef.current !== null) {
+			window.clearTimeout(saveDrawingTimerRef.current);
+			flushDrawingSave();
+		}
 
 		itemIdByShapeIdRef.current = new Map();
 		optimisticFramesRef.current = new Map();
 		queuedFrameUpdatesRef.current = new Map();
 		pendingEditShapeIdRef.current = null;
+		pendingDrawingSaveRef.current = null;
 		pendingCameraResetRef.current = true;
-	}, [editor, whiteboardId]);
+		setLoadedDrawingKey(null);
+		loadedDrawingKeyRef.current = null;
+	}, [editor, flushDrawingSave, flushFrameUpdates, whiteboardId]);
+
+	useEffect(() => {
+		tldrawDocumentRevisionRef.current = tldrawDocument?.revision ?? null;
+	}, [tldrawDocument?.revision]);
+
+	useEffect(() => {
+		loadedDrawingKeyRef.current = loadedDrawingKey;
+	}, [loadedDrawingKey]);
+
+	useEffect(() => {
+		if (!editor || tldrawDocument === undefined) return;
+		if (loadedDrawingKeyRef.current === whiteboardKey) return;
+
+		const snapshot =
+			tldrawDocument?.snapshot ?? emptyDrawingSnapshotRef.current;
+		hydratingRef.current = true;
+		if (snapshot) {
+			editor.loadSnapshot(snapshot);
+		}
+
+		setLoadedDrawingKey(whiteboardKey);
+		window.setTimeout(() => {
+			hydratingRef.current = false;
+		}, 0);
+	}, [editor, tldrawDocument, whiteboardKey]);
 
 	useEffect(() => {
 		if (!editor) return;
+		if (loadedDrawingKey !== whiteboardKey) return;
 
 		const itemIdByShapeId = new Map<string, Id<"boardItems">>();
 		const latestItems = new Map<Id<"boardItems">, BoardItemResult>();
@@ -314,7 +416,7 @@ export function WhiteboardCanvas({
 			editor.select(pendingEditShapeId);
 			editor.setEditingShape(pendingEditShapeId);
 		}, 0);
-	}, [editor, items]);
+	}, [editor, items, loadedDrawingKey, whiteboardKey]);
 
 	// After switching boards, reset the camera once the new board's first page
 	// has loaded so it opens at a sensible viewport instead of inheriting the
@@ -374,6 +476,14 @@ export function WhiteboardCanvas({
 						zIndex: zIndexByShapeId.get(changed.id) ?? 0,
 					});
 				}
+
+				if (hasPersistableDrawingChange(changes)) {
+					queueDrawingSave(
+						filterSnapshotForPersistence(
+							editor.store.getStoreSnapshot("document"),
+						),
+					);
+				}
 			},
 			{ source: "user", scope: "document" },
 		);
@@ -381,7 +491,7 @@ export function WhiteboardCanvas({
 		return () => {
 			removeListener();
 		};
-	}, [archiveItem, editor, queueFrameUpdate]);
+	}, [archiveItem, editor, queueDrawingSave, queueFrameUpdate]);
 
 	// Canvas interactions (right-click point capture, double-click to open a
 	// sub-whiteboard or create an item). Registered in an effect rather than
@@ -472,8 +582,12 @@ export function WhiteboardCanvas({
 				window.clearTimeout(flushTimerRef.current);
 				flushFrameUpdates();
 			}
+			if (saveDrawingTimerRef.current !== null) {
+				window.clearTimeout(saveDrawingTimerRef.current);
+				flushDrawingSave();
+			}
 		};
-	}, [flushFrameUpdates]);
+	}, [flushDrawingSave, flushFrameUpdates]);
 
 	const contextValue: WhiteboardContextMenuValue = {
 		createCardAt: whiteboardId ? createCardAt : null,
@@ -538,6 +652,8 @@ export function WhiteboardCanvas({
 					<Tldraw
 						components={whiteboardComponents}
 						onMount={(mountedEditor) => {
+							emptyDrawingSnapshotRef.current =
+								mountedEditor.store.getStoreSnapshot("document");
 							setEditor(mountedEditor);
 
 							return () => {
@@ -713,6 +829,26 @@ function isManagedWhiteboardShape(
 		((shape as { type: string }).type === "markdown-card" ||
 			(shape as { type: string }).type === "subwhiteboard-link")
 	);
+}
+
+function hasPersistableDrawingChange(changes: {
+	added: Record<string, unknown>;
+	updated: Record<string, [unknown, unknown]>;
+	removed: Record<string, unknown>;
+}) {
+	for (const record of Object.values(changes.added)) {
+		if (!isManagedWhiteboardShapeRecord(record)) return true;
+	}
+
+	for (const [, nextRecord] of Object.values(changes.updated)) {
+		if (!isManagedWhiteboardShapeRecord(nextRecord)) return true;
+	}
+
+	for (const record of Object.values(changes.removed)) {
+		if (!isManagedWhiteboardShapeRecord(record)) return true;
+	}
+
+	return false;
 }
 
 function openSubwhiteboardShape(
