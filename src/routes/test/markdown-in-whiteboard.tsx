@@ -22,6 +22,11 @@ import {
 	createSubwhiteboardLinkShape,
 	markdownWhiteboardShapeUtils,
 } from "../../components/whiteboard/custom-shapes";
+import {
+	singlePageTldrawComponents,
+	singlePageTldrawOptions,
+	singlePageTldrawUiOverrides,
+} from "../../components/whiteboard/tldraw-single-page";
 import "tldraw/tldraw.css";
 
 export const Route = createFileRoute("/test/markdown-in-whiteboard")({
@@ -29,6 +34,7 @@ export const Route = createFileRoute("/test/markdown-in-whiteboard")({
 });
 
 const whiteboardOptions = {
+	...singlePageTldrawOptions,
 	createTextOnCanvasDoubleClick: false,
 	// Keep right-click drag panning enabled. Static right-clicks still open the
 	// controlled context menu via tldraw's synthetic contextmenu-on-pointerup path.
@@ -36,6 +42,7 @@ const whiteboardOptions = {
 } satisfies Partial<TldrawOptions>;
 
 const whiteboardComponents = {
+	...singlePageTldrawComponents,
 	ContextMenu: WhiteboardContextMenu,
 } satisfies TLComponents;
 
@@ -120,6 +127,7 @@ function RouteComponent() {
 							};
 						}}
 						options={whiteboardOptions}
+						overrides={singlePageTldrawUiOverrides}
 						persistenceKey="contextboard-markdown-whiteboard-poc"
 						shapeUtils={markdownWhiteboardShapeUtils}
 					/>

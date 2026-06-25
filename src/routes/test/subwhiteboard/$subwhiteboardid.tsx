@@ -7,6 +7,11 @@ import {
 	type TldrawOptions,
 } from "tldraw";
 import { ControlledTldrawContextMenu } from "../../../components/whiteboard/ControlledTldrawContextMenu";
+import {
+	singlePageTldrawComponents,
+	singlePageTldrawOptions,
+	singlePageTldrawUiOverrides,
+} from "../../../components/whiteboard/tldraw-single-page";
 import "tldraw/tldraw.css";
 
 export const Route = createFileRoute("/test/subwhiteboard/$subwhiteboardid")({
@@ -14,10 +19,12 @@ export const Route = createFileRoute("/test/subwhiteboard/$subwhiteboardid")({
 });
 
 const whiteboardOptions = {
+	...singlePageTldrawOptions,
 	rightClickPanning: true,
 } satisfies Partial<TldrawOptions>;
 
 const whiteboardComponents = {
+	...singlePageTldrawComponents,
 	ContextMenu: WhiteboardContextMenu,
 } satisfies TLComponents;
 
@@ -38,6 +45,7 @@ function RouteComponent() {
 				<Tldraw
 					components={whiteboardComponents}
 					options={whiteboardOptions}
+					overrides={singlePageTldrawUiOverrides}
 					persistenceKey={`contextboard-subwhiteboard-${subwhiteboardid}`}
 				/>
 			</div>

@@ -46,11 +46,16 @@ import {
 	shouldClearOptimisticFrame,
 	type WhiteboardFrame,
 } from "./frame-sync";
+import { getHydratedMarkdownCardHeight } from "./markdown-card-sizing";
 import {
 	filterSnapshotForPersistence,
 	isManagedWhiteboardShapeRecord,
 } from "./tldraw-persistence";
-import { getHydratedMarkdownCardHeight } from "./markdown-card-sizing";
+import {
+	singlePageTldrawComponents,
+	singlePageTldrawOptions,
+	singlePageTldrawUiOverrides,
+} from "./tldraw-single-page";
 import "tldraw/tldraw.css";
 
 type BoardItemResult = {
@@ -102,11 +107,13 @@ type WhiteboardContextMenuValue = {
 };
 
 const whiteboardOptions = {
+	...singlePageTldrawOptions,
 	createTextOnCanvasDoubleClick: false,
 	rightClickPanning: true,
 } satisfies Partial<TldrawOptions>;
 
 const whiteboardComponents = {
+	...singlePageTldrawComponents,
 	ContextMenu: WhiteboardContextMenu,
 } satisfies TLComponents;
 
@@ -442,6 +449,7 @@ export function WhiteboardCanvas({
 	// Navigate & focus: when a `focus` shape id is present (set by the command
 	// palette via the route's search param), select and zoom to that shape once
 	// the board has hydrated, then clear the param so re-selecting re-triggers.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: items re-runs after hydration creates the focused shape.
 	useEffect(() => {
 		if (!focusShapeId) {
 			handledFocusRef.current = null;
@@ -709,6 +717,7 @@ export function WhiteboardCanvas({
 							};
 						}}
 						options={whiteboardOptions}
+						overrides={singlePageTldrawUiOverrides}
 						shapeUtils={markdownWhiteboardShapeUtils}
 					/>
 				</WhiteboardContextMenuContext.Provider>
