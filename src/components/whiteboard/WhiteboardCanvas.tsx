@@ -147,6 +147,7 @@ export function WhiteboardCanvas({
 	);
 	const updateItemFrame = useMutation(api.canvas.updateItemFrame);
 	const archiveItem = useMutation(api.canvas.archiveItem);
+	const restoreItem = useMutation(api.canvas.restoreItem);
 	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
 
 	const [editor, setEditor] = useState<Editor | null>(null);
@@ -474,6 +475,13 @@ export function WhiteboardCanvas({
 			({ changes }) => {
 				if (hydratingRef.current) return;
 
+				for (const record of Object.values(changes.added)) {
+					if (!isManagedWhiteboardShape(record)) continue;
+					if (record.type !== "markdown-card") continue; // cards only
+					if (itemIdByShapeIdRef.current.has(record.id)) continue; // already-tracked → not a restore
+					void restoreItem({ whiteboardId, shapeId: record.id });
+				}
+
 				for (const shape of Object.values(changes.removed)) {
 					if (!isManagedWhiteboardShape(shape)) continue;
 
@@ -524,7 +532,14 @@ export function WhiteboardCanvas({
 		return () => {
 			removeListener();
 		};
-	}, [archiveItem, editor, queueDrawingSave, queueFrameUpdate]);
+	}, [
+		archiveItem,
+		restoreItem,
+		whiteboardId,
+		editor,
+		queueDrawingSave,
+		queueFrameUpdate,
+	]);
 
 	// Canvas interactions (right-click point capture, double-click to open a
 	// sub-whiteboard or create an item). Registered in an effect rather than

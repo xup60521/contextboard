@@ -277,6 +277,45 @@ export const archiveItem = mutation({
 	},
 });
 
+export const restoreItem = mutation({
+	args: {
+		whiteboardId: v.union(v.id("whiteboards"), v.null()),
+		shapeId: v.string(),
+	},
+	handler: async (ctx, args) => {
+		const item = await getExistingItem(ctx, args.whiteboardId, args.shapeId);
+		if (!item || item.archivedAt === null) return null; // nothing archived to restore
+		if (item.kind !== "card" || !item.cardId) return null; // cards only (scope decision)
+
+		// Refuse to restore onto an archived/missing board.
+		const parent = args.whiteboardId
+			? await ctx.db.get(args.whiteboardId)
+			: null;
+		if (args.whiteboardId && (!parent || parent.archivedAt !== null)) {
+			return null;
+		}
+
+		const now = Date.now();
+		await ctx.db.patch(item._id, { archivedAt: null, updatedAt: now });
+
+		const card = await ctx.db.get(item.cardId);
+		if (card && card.archivedAt !== null) {
+			await ctx.db.patch(card._id, {
+				archivedAt: null,
+				whiteboardId: item.whiteboardId, // re-home in case it was orphaned
+				updatedAt: now,
+			});
+		}
+		if (parent) {
+			await ctx.db.patch(parent._id, {
+				cardCount: (parent.cardCount ?? 0) + 1, // symmetric with archiveItem's decrement
+				updatedAt: now,
+			});
+		}
+		return item._id;
+	},
+});
+
 async function getExistingItem(
 	ctx: MutationCtx,
 	whiteboardId: Id<"whiteboards"> | null,
