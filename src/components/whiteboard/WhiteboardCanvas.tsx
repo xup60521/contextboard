@@ -707,7 +707,7 @@ export function WhiteboardCanvas({
 				<WhiteboardContextMenuContext.Provider value={contextValue}>
 					<Tldraw
 						components={whiteboardComponents}
-                        licenseKey={import.meta.env.VITE_TLDRAW_LICENSE_KEY}
+                        licenseKey={process.env.VITE_TLDRAW_LICENSE_KEY}
 						onMount={(mountedEditor) => {
 							emptyDrawingSnapshotRef.current =
 								mountedEditor.store.getStoreSnapshot("document");
