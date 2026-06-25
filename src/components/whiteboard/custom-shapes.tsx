@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
+import { useMutation } from "convex/react";
 import { ExternalLink } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
 	BaseBoxShapeUtil,
 	createShapeId,
@@ -17,6 +18,8 @@ import {
 	useIsEditing,
 	type VecLike,
 } from "tldraw";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { RichTextEditor } from "../editor/RichTextEditor";
 
 declare module "@tldraw/tlschema" {
@@ -30,12 +33,16 @@ declare module "@tldraw/tlschema" {
 			w: number;
 			h: number;
 			content: string;
+			cardId?: string;
+			version?: number;
 		};
 		"subwhiteboard-link": {
 			w: number;
 			h: number;
 			label: string;
 			subwhiteboardId: string;
+			childWhiteboardId?: string;
+			depth?: number;
 		};
 	}
 }
@@ -55,6 +62,8 @@ export type MarkdownCardShape = TLBaseShape<
 		w: number;
 		h: number;
 		content: string;
+		cardId?: string;
+		version?: number;
 	}
 >;
 
@@ -65,6 +74,8 @@ export type SubwhiteboardLinkShape = TLBaseShape<
 		h: number;
 		label: string;
 		subwhiteboardId: string;
+		childWhiteboardId?: string;
+		depth?: number;
 	}
 >;
 
@@ -78,6 +89,8 @@ export const markdownCardShapeProps = {
 	w: T.number,
 	h: T.number,
 	content: T.string,
+	cardId: T.string.optional(),
+	version: T.number.optional(),
 } satisfies RecordProps<MarkdownCardShape>;
 
 export const subwhiteboardLinkShapeProps = {
@@ -85,6 +98,8 @@ export const subwhiteboardLinkShapeProps = {
 	h: T.number,
 	label: T.string,
 	subwhiteboardId: T.string,
+	childWhiteboardId: T.string.optional(),
+	depth: T.number.optional(),
 } satisfies RecordProps<SubwhiteboardLinkShape>;
 
 function TextCardComponent({ shape }: { shape: TextCardShape }) {
@@ -107,7 +122,7 @@ function TextCardComponent({ shape }: { shape: TextCardShape }) {
 		<HTMLContainer>
 			<textarea
 				ref={textareaRef}
-				className="h-full w-full resize-none rounded-md border border-[#d7c897] bg-[#fff8d7] px-3 py-2 text-[15px] leading-5 text-[#243438] shadow-[0_10px_22px_rgba(88,78,36,0.16)] outline-none transition focus:border-[#5eb7ad] focus:bg-[#fffbea]"
+				className="h-full w-full resize-none rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[15px] leading-5 text-[var(--card-foreground)] shadow-sm outline-none transition focus:border-[var(--ring)]"
 				value={shape.props.text}
 				placeholder="Type..."
 				spellCheck
@@ -163,6 +178,189 @@ function parseMarkdownContent(content: string): JSONContent | null {
 }
 
 function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
+	if (shape.props.cardId) {
+		return <ConvexMarkdownCardComponent shape={shape} />;
+	}
+
+	return <LocalMarkdownCardComponent shape={shape} />;
+}
+
+function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
+	const editor = useEditor();
+	const isEditing = useIsEditing(shape.id);
+	const updateContent = useMutation(api.cards.updateContent);
+	const cardRef = useRef<HTMLDivElement>(null);
+	const latestPropsRef = useRef(shape.props);
+	const pendingContentRef = useRef<JSONContent | null>(null);
+	const saveTimerRef = useRef<number | null>(null);
+	const initialContentRef = useRef<JSONContent | null>(
+		parseMarkdownContent(shape.props.content),
+	);
+
+	latestPropsRef.current = shape.props;
+
+	const flushSave = useCallback(() => {
+		if (saveTimerRef.current !== null) {
+			window.clearTimeout(saveTimerRef.current);
+			saveTimerRef.current = null;
+		}
+
+		const content = pendingContentRef.current;
+		pendingContentRef.current = null;
+		if (!content || !shape.props.cardId) return;
+
+		void updateContent({
+			cardId: shape.props.cardId as Id<"cards">,
+			content,
+		});
+	}, [shape.props.cardId, updateContent]);
+
+	const scheduleSave = useCallback(
+		(value: JSONContent) => {
+			const serializedContent = JSON.stringify(value);
+			pendingContentRef.current = value;
+
+			editor.updateShape<MarkdownCardShape>({
+				id: shape.id,
+				type: "markdown-card",
+				props: {
+					...latestPropsRef.current,
+					content: serializedContent,
+				},
+			});
+
+			if (saveTimerRef.current !== null) {
+				window.clearTimeout(saveTimerRef.current);
+			}
+
+			saveTimerRef.current = window.setTimeout(flushSave, 450);
+		},
+		[editor, flushSave, shape.id],
+	);
+
+	useEffect(() => {
+		return () => {
+			flushSave();
+		};
+	}, [flushSave]);
+
+	const HEADER_HEIGHT = 28;
+
+	useLayoutEffect(() => {
+		const card = cardRef.current;
+		if (!card) return;
+
+		let frame: number | null = null;
+
+		const syncHeight = () => {
+			frame = null;
+			const contentHeight = Math.ceil(card.scrollHeight) - HEADER_HEIGHT;
+			const nextHeight = Math.max(96, contentHeight + HEADER_HEIGHT);
+			const latestProps = latestPropsRef.current;
+
+			if (Math.abs(nextHeight - latestProps.h) < 1) {
+				return;
+			}
+
+			editor.updateShape<MarkdownCardShape>({
+				id: shape.id,
+				type: "markdown-card",
+				props: {
+					...latestProps,
+					h: nextHeight,
+				},
+			});
+		};
+
+		const scheduleSyncHeight = () => {
+			if (frame !== null) return;
+			frame = window.requestAnimationFrame(syncHeight);
+		};
+
+		scheduleSyncHeight();
+
+		const resizeObserver = new ResizeObserver(scheduleSyncHeight);
+		resizeObserver.observe(card);
+
+		return () => {
+			resizeObserver.disconnect();
+			if (frame !== null) {
+				window.cancelAnimationFrame(frame);
+			}
+		};
+	}, [editor, shape.id]);
+
+	if (!shape.props.cardId) return null;
+
+	return (
+		<HTMLContainer>
+			{/** biome-ignore lint/a11y/noStaticElementInteractions: tldraw shapes guard pointer/keyboard events here. */}
+			<div
+				ref={cardRef}
+				className="relative w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
+				style={{ pointerEvents: isEditing ? "auto" : "none" }}
+				onPointerDown={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onPointerUp={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onClick={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onDoubleClick={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onKeyDown={(e) => {
+					if (!isEditing) return;
+					editor.markEventAsHandled(e);
+
+					if (e.key === "Escape") {
+						editor.setEditingShape(null);
+					}
+				}}
+				onPaste={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+				onWheel={(e) => {
+					if (isEditing) editor.markEventAsHandled(e);
+				}}
+			>
+				<Link
+					to="/cards/$cardId"
+					params={{ cardId: shape.props.cardId }}
+					draggable={false}
+					onPointerDown={(e) => {
+						editor.markEventAsHandled(e);
+						e.stopPropagation();
+					}}
+					onPointerUp={(e) => {
+						editor.markEventAsHandled(e);
+						e.stopPropagation();
+					}}
+					onClick={(e) => {
+						editor.markEventAsHandled(e);
+						e.stopPropagation();
+					}}
+					className="absolute right-2 top-2 z-10 flex size-6 items-center justify-center rounded bg-[var(--card)] text-[var(--muted-foreground)] shadow-sm transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+					style={{ pointerEvents: "auto" }}
+					aria-label="Open card editor"
+				>
+					<ExternalLink className="size-3.5" />
+				</Link>
+				<RichTextEditor
+					editable={isEditing}
+					content={initialContentRef.current}
+					contentClassName="min-h-12 pr-7"
+					placeholder="Type '/' for commands"
+					onChange={scheduleSave}
+				/>
+			</div>
+		</HTMLContainer>
+	);
+}
+
+function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
 	const cardRef = useRef<HTMLDivElement>(null);
@@ -226,7 +424,7 @@ function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 			{/** biome-ignore lint/a11y/noStaticElementInteractions: tldraw shapes guard pointer/keyboard events here. */}
 			<div
 				ref={cardRef}
-				className="w-full rounded-md border border-[#d7c897] bg-[#fffdf3] px-3 py-2 text-[#243438] shadow-[0_10px_22px_rgba(88,78,36,0.16)] transition focus-within:border-[#5eb7ad] focus-within:bg-white"
+				className="w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
 				style={{ pointerEvents: isEditing ? "auto" : "none" }}
 				onPointerDown={(e) => {
 					if (isEditing) editor.markEventAsHandled(e);
@@ -256,7 +454,7 @@ function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 				}}
 			>
 				<div
-					className="flex items-center justify-end border-b border-[#e8dcc0] px-2 py-1"
+					className="flex items-center justify-end border-b border-[var(--border)] px-2 py-1"
 					style={{ pointerEvents: "auto" }}
 					onPointerDown={(e) => {
 						if (isEditing) editor.markEventAsHandled(e);
@@ -277,7 +475,7 @@ function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 							editor.markEventAsHandled(e);
 							e.stopPropagation();
 						}}
-						className="flex size-5 items-center justify-center rounded text-[#8c7e5a] transition-colors hover:bg-[#e8dcc0] hover:text-[#5a4e30]"
+						className="flex size-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
 					>
 						<ExternalLink className="size-3.5" />
 					</Link>
@@ -432,6 +630,129 @@ export class MarkdownCardShapeUtil extends BaseBoxShapeUtil<MarkdownCardShape> {
 	}
 }
 
+function SubwhiteboardLinkComponent({
+	shape,
+}: {
+	shape: SubwhiteboardLinkShape;
+}) {
+	const editor = useEditor();
+	const isEditing = useIsEditing(shape.id);
+	const updateTitle = useMutation(api.whiteboards.updateTitle);
+	const inputRef = useRef<HTMLInputElement>(null);
+	const isFocusedRef = useRef(false);
+	const skipNextBlurSaveRef = useRef(false);
+	const [draftTitle, setDraftTitle] = useState(shape.props.label);
+	const displayedId = shape.props.childWhiteboardId ?? shape.props.subwhiteboardId;
+
+	useEffect(() => {
+		if (isFocusedRef.current) return;
+		setDraftTitle(shape.props.label);
+	}, [shape.props.label]);
+
+	useEffect(() => {
+		if (!isEditing) return;
+
+		const input = inputRef.current;
+		if (!input) return;
+
+		input.focus();
+		input.select();
+	}, [isEditing]);
+
+	const saveTitle = useCallback(() => {
+		const nextTitle =
+			draftTitle.replace(/\s+/g, " ").trim() || "Untitled whiteboard";
+
+		if (nextTitle !== shape.props.label) {
+			editor.updateShape<SubwhiteboardLinkShape>({
+				id: shape.id,
+				type: "subwhiteboard-link",
+				props: {
+					...shape.props,
+					label: nextTitle,
+				},
+			});
+		}
+
+		if (shape.props.childWhiteboardId) {
+			void updateTitle({
+				whiteboardId: shape.props.childWhiteboardId as Id<"whiteboards">,
+				title: nextTitle,
+			});
+		}
+
+		setDraftTitle(nextTitle);
+	}, [draftTitle, editor, shape.id, shape.props, updateTitle]);
+
+	return (
+		<HTMLContainer>
+			<div className="flex h-full w-full flex-col justify-between rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[var(--card-foreground)] shadow-sm">
+				<div className="flex items-center gap-2 text-[15px] font-bold leading-5">
+					<span className="grid h-7 w-7 shrink-0 place-items-center rounded bg-[var(--accent)] text-[16px] text-[var(--lagoon-deep)]">
+						-&gt;
+					</span>
+					<input
+						ref={inputRef}
+						className="min-w-0 flex-1 truncate rounded border border-transparent bg-transparent px-1 py-0.5 font-bold text-[var(--card-foreground)] outline-none transition focus:border-[var(--border)] focus:bg-[var(--background)]"
+						value={draftTitle}
+						aria-label="Whiteboard name"
+						spellCheck
+						style={{ pointerEvents: "auto" }}
+						onFocus={() => {
+							isFocusedRef.current = true;
+						}}
+						onPointerDown={(event) => {
+							editor.markEventAsHandled(event);
+							event.stopPropagation();
+						}}
+						onPointerUp={(event) => {
+							editor.markEventAsHandled(event);
+							event.stopPropagation();
+						}}
+						onClick={(event) => {
+							editor.markEventAsHandled(event);
+							event.stopPropagation();
+						}}
+						onDoubleClick={(event) => {
+							editor.markEventAsHandled(event);
+							event.stopPropagation();
+						}}
+						onChange={(event) => setDraftTitle(event.currentTarget.value)}
+						onKeyDown={(event) => {
+							editor.markEventAsHandled(event);
+
+							if (event.key === "Enter") {
+								event.preventDefault();
+								inputRef.current?.blur();
+							}
+
+							if (event.key === "Escape") {
+								event.preventDefault();
+								skipNextBlurSaveRef.current = true;
+								setDraftTitle(shape.props.label);
+								inputRef.current?.blur();
+							}
+						}}
+						onBlur={() => {
+							isFocusedRef.current = false;
+							if (skipNextBlurSaveRef.current) {
+								skipNextBlurSaveRef.current = false;
+								return;
+							}
+							saveTitle();
+						}}
+					/>
+				</div>
+				<div className="truncate font-mono text-[11px] leading-4 text-[var(--muted-foreground)]">
+					{shape.props.depth !== undefined
+						? `depth ${shape.props.depth} - ${displayedId}`
+						: displayedId}
+				</div>
+			</div>
+		</HTMLContainer>
+	);
+}
+
 export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLinkShape> {
 	static override type = "subwhiteboard-link" as const;
 	static override props = subwhiteboardLinkShapeProps;
@@ -446,6 +767,10 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 	}
 
 	override canResize() {
+		return true;
+	}
+
+	override canEdit() {
 		return true;
 	}
 
@@ -475,21 +800,7 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 	}
 
 	override component(shape: SubwhiteboardLinkShape) {
-		return (
-			<HTMLContainer>
-				<div className="flex h-full w-full flex-col justify-between rounded-md border border-[#7aa7a2] bg-[#eef9f6] px-3 py-2 text-[#173a40] shadow-[0_10px_22px_rgba(23,58,64,0.14)]">
-					<div className="flex items-center gap-2 text-[15px] font-bold leading-5">
-						<span className="grid h-7 w-7 shrink-0 place-items-center rounded bg-[#d7f1eb] text-[16px]">
-							-&gt;
-						</span>
-						<span className="min-w-0 truncate">{shape.props.label}</span>
-					</div>
-					<div className="truncate font-mono text-[11px] leading-4 text-[#416166]">
-						{shape.props.subwhiteboardId}
-					</div>
-				</div>
-			</HTMLContainer>
-		);
+		return <SubwhiteboardLinkComponent shape={shape} />;
 	}
 }
 

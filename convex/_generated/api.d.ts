@@ -8,7 +8,12 @@
  * @module
  */
 
+import type * as canvas from "../canvas.js";
+import type * as cards from "../cards.js";
+import type * as migrations from "../migrations.js";
+import type * as model_cardMetadata from "../model/cardMetadata.js";
 import type * as todos from "../todos.js";
+import type * as whiteboards from "../whiteboards.js";
 
 import type {
   ApiFromModules,
@@ -17,7 +22,12 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  canvas: typeof canvas;
+  cards: typeof cards;
+  migrations: typeof migrations;
+  "model/cardMetadata": typeof model_cardMetadata;
   todos: typeof todos;
+  whiteboards: typeof whiteboards;
 }>;
 
 /**

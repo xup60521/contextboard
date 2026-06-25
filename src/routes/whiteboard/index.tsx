@@ -1,9 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
+import { WhiteboardCanvas } from "#/components/whiteboard/WhiteboardCanvas";
 
-export const Route = createFileRoute('/whiteboard/')({
-  component: RouteComponent,
-})
+export const Route = createFileRoute("/whiteboard/")({
+	ssr: false,
+	component: RouteComponent,
+});
 
 function RouteComponent() {
-  return <div>Hello "/whiteboard/"!</div>
+	return <WhiteboardCanvas whiteboardId={null} />;
 }

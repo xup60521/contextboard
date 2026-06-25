@@ -13,11 +13,14 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WhiteboardIndexRouteImport } from './routes/whiteboard/index'
 import { Route as TestIndexRouteImport } from './routes/test/index'
+import { Route as WhiteboardWhiteboardIdRouteImport } from './routes/whiteboard/$whiteboardId'
 import { Route as TestWhiteboardInWhiteboardRouteImport } from './routes/test/whiteboard-in-whiteboard'
 import { Route as TestMarkdownInWhiteboardRouteImport } from './routes/test/markdown-in-whiteboard'
 import { Route as TestMarkdownRouteImport } from './routes/test/markdown'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as DemoConvexRouteImport } from './routes/demo/convex'
+import { Route as CardsOrphansRouteImport } from './routes/cards/orphans'
+import { Route as CardsCardIdRouteImport } from './routes/cards/$cardId'
 import { Route as TestSubwhiteboardSubwhiteboardidRouteImport } from './routes/test/subwhiteboard/$subwhiteboardid'
 
 const AboutRoute = AboutRouteImport.update({
@@ -38,6 +41,11 @@ const WhiteboardIndexRoute = WhiteboardIndexRouteImport.update({
 const TestIndexRoute = TestIndexRouteImport.update({
   id: '/test/',
   path: '/test/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WhiteboardWhiteboardIdRoute = WhiteboardWhiteboardIdRouteImport.update({
+  id: '/whiteboard/$whiteboardId',
+  path: '/whiteboard/$whiteboardId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TestWhiteboardInWhiteboardRoute =
@@ -67,6 +75,16 @@ const DemoConvexRoute = DemoConvexRouteImport.update({
   path: '/demo/convex',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CardsOrphansRoute = CardsOrphansRouteImport.update({
+  id: '/cards/orphans',
+  path: '/cards/orphans',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CardsCardIdRoute = CardsCardIdRouteImport.update({
+  id: '/cards/$cardId',
+  path: '/cards/$cardId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TestSubwhiteboardSubwhiteboardidRoute =
   TestSubwhiteboardSubwhiteboardidRouteImport.update({
     id: '/test/subwhiteboard/$subwhiteboardid',
@@ -77,11 +95,14 @@ const TestSubwhiteboardSubwhiteboardidRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/cards/$cardId': typeof CardsCardIdRoute
+  '/cards/orphans': typeof CardsOrphansRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
+  '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/test/': typeof TestIndexRoute
   '/whiteboard/': typeof WhiteboardIndexRoute
   '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
@@ -89,11 +110,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/cards/$cardId': typeof CardsCardIdRoute
+  '/cards/orphans': typeof CardsOrphansRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
+  '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/test': typeof TestIndexRoute
   '/whiteboard': typeof WhiteboardIndexRoute
   '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
@@ -102,11 +126,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/cards/$cardId': typeof CardsCardIdRoute
+  '/cards/orphans': typeof CardsOrphansRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
+  '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/test/': typeof TestIndexRoute
   '/whiteboard/': typeof WhiteboardIndexRoute
   '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
@@ -116,11 +143,14 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/cards/$cardId'
+    | '/cards/orphans'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
     | '/test/whiteboard-in-whiteboard'
+    | '/whiteboard/$whiteboardId'
     | '/test/'
     | '/whiteboard/'
     | '/test/subwhiteboard/$subwhiteboardid'
@@ -128,11 +158,14 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/cards/$cardId'
+    | '/cards/orphans'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
     | '/test/whiteboard-in-whiteboard'
+    | '/whiteboard/$whiteboardId'
     | '/test'
     | '/whiteboard'
     | '/test/subwhiteboard/$subwhiteboardid'
@@ -140,11 +173,14 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/cards/$cardId'
+    | '/cards/orphans'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
     | '/test/whiteboard-in-whiteboard'
+    | '/whiteboard/$whiteboardId'
     | '/test/'
     | '/whiteboard/'
     | '/test/subwhiteboard/$subwhiteboardid'
@@ -153,11 +189,14 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  CardsCardIdRoute: typeof CardsCardIdRoute
+  CardsOrphansRoute: typeof CardsOrphansRoute
   DemoConvexRoute: typeof DemoConvexRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
   TestMarkdownRoute: typeof TestMarkdownRoute
   TestMarkdownInWhiteboardRoute: typeof TestMarkdownInWhiteboardRoute
   TestWhiteboardInWhiteboardRoute: typeof TestWhiteboardInWhiteboardRoute
+  WhiteboardWhiteboardIdRoute: typeof WhiteboardWhiteboardIdRoute
   TestIndexRoute: typeof TestIndexRoute
   WhiteboardIndexRoute: typeof WhiteboardIndexRoute
   TestSubwhiteboardSubwhiteboardidRoute: typeof TestSubwhiteboardSubwhiteboardidRoute
@@ -191,6 +230,13 @@ declare module '@tanstack/react-router' {
       path: '/test'
       fullPath: '/test/'
       preLoaderRoute: typeof TestIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/whiteboard/$whiteboardId': {
+      id: '/whiteboard/$whiteboardId'
+      path: '/whiteboard/$whiteboardId'
+      fullPath: '/whiteboard/$whiteboardId'
+      preLoaderRoute: typeof WhiteboardWhiteboardIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/test/whiteboard-in-whiteboard': {
@@ -228,6 +274,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoConvexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cards/orphans': {
+      id: '/cards/orphans'
+      path: '/cards/orphans'
+      fullPath: '/cards/orphans'
+      preLoaderRoute: typeof CardsOrphansRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cards/$cardId': {
+      id: '/cards/$cardId'
+      path: '/cards/$cardId'
+      fullPath: '/cards/$cardId'
+      preLoaderRoute: typeof CardsCardIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/test/subwhiteboard/$subwhiteboardid': {
       id: '/test/subwhiteboard/$subwhiteboardid'
       path: '/test/subwhiteboard/$subwhiteboardid'
@@ -241,11 +301,14 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  CardsCardIdRoute: CardsCardIdRoute,
+  CardsOrphansRoute: CardsOrphansRoute,
   DemoConvexRoute: DemoConvexRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
   TestMarkdownRoute: TestMarkdownRoute,
   TestMarkdownInWhiteboardRoute: TestMarkdownInWhiteboardRoute,
   TestWhiteboardInWhiteboardRoute: TestWhiteboardInWhiteboardRoute,
+  WhiteboardWhiteboardIdRoute: WhiteboardWhiteboardIdRoute,
   TestIndexRoute: TestIndexRoute,
   WhiteboardIndexRoute: WhiteboardIndexRoute,
   TestSubwhiteboardSubwhiteboardidRoute: TestSubwhiteboardSubwhiteboardidRoute,
