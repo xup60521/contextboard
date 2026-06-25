@@ -12,6 +12,7 @@ import type * as canvas from "../canvas.js";
 import type * as cards from "../cards.js";
 import type * as migrations from "../migrations.js";
 import type * as model_cardMetadata from "../model/cardMetadata.js";
+import type * as search from "../search.js";
 import type * as tldrawDocuments from "../tldrawDocuments.js";
 import type * as todos from "../todos.js";
 import type * as whiteboards from "../whiteboards.js";
@@ -27,6 +28,7 @@ declare const fullApi: ApiFromModules<{
   cards: typeof cards;
   migrations: typeof migrations;
   "model/cardMetadata": typeof model_cardMetadata;
+  search: typeof search;
   tldrawDocuments: typeof tldrawDocuments;
   todos: typeof todos;
   whiteboards: typeof whiteboards;

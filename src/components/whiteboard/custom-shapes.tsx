@@ -2,7 +2,13 @@ import { Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useMutation } from "convex/react";
 import { ExternalLink } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import {
 	BaseBoxShapeUtil,
 	createShapeId,
@@ -21,6 +27,7 @@ import {
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { RichTextEditor } from "../editor/RichTextEditor";
+import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
 
 declare module "@tldraw/tlschema" {
 	interface TLGlobalShapePropsMap {
@@ -187,6 +194,33 @@ function parseMarkdownContent(content: string): JSONContent | null {
 	}
 }
 
+function isMarkdownCardVisible(card: HTMLDivElement | null) {
+	return Boolean(card && card.getClientRects().length > 0);
+}
+
+function getMeasuredMarkdownCardHeight({
+	card,
+	currentHeight,
+	headerHeight,
+	minHeight,
+	isEditorReady,
+}: {
+	card: HTMLDivElement | null;
+	currentHeight: number;
+	headerHeight: number;
+	minHeight: number;
+	isEditorReady: boolean;
+}) {
+	return resolveMarkdownCardHeight({
+		currentHeight,
+		measuredScrollHeight: card ? Math.ceil(card.scrollHeight) : null,
+		headerHeight,
+		minHeight,
+		isEditorReady,
+		isVisible: isMarkdownCardVisible(card),
+	});
+}
+
 function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	if (shape.props.cardId) {
 		return <ConvexMarkdownCardComponent shape={shape} />;
@@ -203,11 +237,45 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	const latestPropsRef = useRef(shape.props);
 	const pendingContentRef = useRef<JSONContent | null>(null);
 	const saveTimerRef = useRef<number | null>(null);
+	const syncFrameRef = useRef<number | null>(null);
+	const [isEditorReady, setIsEditorReady] = useState(false);
 	const initialContentRef = useRef<JSONContent | null>(
 		parseMarkdownContent(shape.props.content),
 	);
 
 	latestPropsRef.current = shape.props;
+	const HEADER_HEIGHT = 28;
+	const MIN_HEIGHT = 96;
+
+	const syncHeight = useCallback(() => {
+		syncFrameRef.current = null;
+		const latestProps = latestPropsRef.current;
+		const nextHeight = getMeasuredMarkdownCardHeight({
+			card: cardRef.current,
+			currentHeight: latestProps.h,
+			headerHeight: HEADER_HEIGHT,
+			minHeight: MIN_HEIGHT,
+			isEditorReady,
+		});
+
+		if (Math.abs(nextHeight - latestProps.h) < 1) {
+			return;
+		}
+
+		editor.updateShape<MarkdownCardShape>({
+			id: shape.id,
+			type: "markdown-card",
+			props: {
+				...latestProps,
+				h: nextHeight,
+			},
+		});
+	}, [editor, isEditorReady, shape.id]);
+
+	const scheduleSyncHeight = useCallback(() => {
+		if (syncFrameRef.current !== null) return;
+		syncFrameRef.current = window.requestAnimationFrame(syncHeight);
+	}, [syncHeight]);
 
 	const flushSave = useCallback(() => {
 		if (saveTimerRef.current !== null) {
@@ -229,13 +297,22 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 		(value: JSONContent) => {
 			const serializedContent = JSON.stringify(value);
 			pendingContentRef.current = value;
+			const latestProps = latestPropsRef.current;
+			const nextHeight = getMeasuredMarkdownCardHeight({
+				card: cardRef.current,
+				currentHeight: latestProps.h,
+				headerHeight: HEADER_HEIGHT,
+				minHeight: MIN_HEIGHT,
+				isEditorReady,
+			});
 
 			editor.updateShape<MarkdownCardShape>({
 				id: shape.id,
 				type: "markdown-card",
 				props: {
-					...latestPropsRef.current,
+					...latestProps,
 					content: serializedContent,
+					h: nextHeight,
 				},
 			});
 
@@ -245,7 +322,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 
 			saveTimerRef.current = window.setTimeout(flushSave, 450);
 		},
-		[editor, flushSave, shape.id],
+		[editor, flushSave, isEditorReady, shape.id],
 	);
 
 	useEffect(() => {
@@ -254,38 +331,9 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 		};
 	}, [flushSave]);
 
-	const HEADER_HEIGHT = 28;
-
 	useLayoutEffect(() => {
 		const card = cardRef.current;
 		if (!card) return;
-
-		let frame: number | null = null;
-
-		const syncHeight = () => {
-			frame = null;
-			const contentHeight = Math.ceil(card.scrollHeight) - HEADER_HEIGHT;
-			const nextHeight = Math.max(96, contentHeight + HEADER_HEIGHT);
-			const latestProps = latestPropsRef.current;
-
-			if (Math.abs(nextHeight - latestProps.h) < 1) {
-				return;
-			}
-
-			editor.updateShape<MarkdownCardShape>({
-				id: shape.id,
-				type: "markdown-card",
-				props: {
-					...latestProps,
-					h: nextHeight,
-				},
-			});
-		};
-
-		const scheduleSyncHeight = () => {
-			if (frame !== null) return;
-			frame = window.requestAnimationFrame(syncHeight);
-		};
 
 		scheduleSyncHeight();
 
@@ -294,11 +342,17 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 
 		return () => {
 			resizeObserver.disconnect();
-			if (frame !== null) {
-				window.cancelAnimationFrame(frame);
+			if (syncFrameRef.current !== null) {
+				window.cancelAnimationFrame(syncFrameRef.current);
+				syncFrameRef.current = null;
 			}
 		};
-	}, [editor, shape.id]);
+	}, [scheduleSyncHeight]);
+
+	useEffect(() => {
+		if (!isEditorReady) return;
+		scheduleSyncHeight();
+	}, [isEditorReady, scheduleSyncHeight]);
 
 	if (!shape.props.cardId) return null;
 
@@ -364,7 +418,10 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 					contentClassName="min-h-12 pr-7"
 					placeholder="Type '/' for commands"
 					onChange={scheduleSave}
-					defaultFocusPosition={isEmptyCardContent(initialContentRef.current) ? "start" : "end"}
+					onReady={() => setIsEditorReady(true)}
+					defaultFocusPosition={
+						isEmptyCardContent(initialContentRef.current) ? "start" : "end"
+					}
 					selectContentOnFocus={isEmptyCardContent(initialContentRef.current)}
 				/>
 			</div>
@@ -377,6 +434,8 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	const isEditing = useIsEditing(shape.id);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
+	const syncFrameRef = useRef<number | null>(null);
+	const [isEditorReady, setIsEditorReady] = useState(false);
 	// The TipTap editor is the source of truth after mount, so read the persisted
 	// content only once.
 	const initialContentRef = useRef<JSONContent | null>(
@@ -384,39 +443,42 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	);
 
 	latestPropsRef.current = shape.props;
-
 	const HEADER_HEIGHT = 28;
+	const MIN_HEIGHT = 64;
+
+	const syncHeight = useCallback(() => {
+		syncFrameRef.current = null;
+		const latestProps = latestPropsRef.current;
+		const nextHeight = getMeasuredMarkdownCardHeight({
+			card: cardRef.current,
+			currentHeight: latestProps.h,
+			headerHeight: HEADER_HEIGHT,
+			minHeight: MIN_HEIGHT,
+			isEditorReady,
+		});
+
+		if (Math.abs(nextHeight - latestProps.h) < 1) {
+			return;
+		}
+
+		editor.updateShape<MarkdownCardShape>({
+			id: shape.id,
+			type: "markdown-card",
+			props: {
+				...latestProps,
+				h: nextHeight,
+			},
+		});
+	}, [editor, isEditorReady, shape.id]);
+
+	const scheduleSyncHeight = useCallback(() => {
+		if (syncFrameRef.current !== null) return;
+		syncFrameRef.current = window.requestAnimationFrame(syncHeight);
+	}, [syncHeight]);
 
 	useLayoutEffect(() => {
 		const card = cardRef.current;
 		if (!card) return;
-
-		let frame: number | null = null;
-
-		const syncHeight = () => {
-			frame = null;
-			const contentHeight = Math.ceil(card.scrollHeight) - HEADER_HEIGHT;
-			const nextHeight = Math.max(64, contentHeight + HEADER_HEIGHT);
-			const latestProps = latestPropsRef.current;
-
-			if (Math.abs(nextHeight - latestProps.h) < 1) {
-				return;
-			}
-
-			editor.updateShape<MarkdownCardShape>({
-				id: shape.id,
-				type: "markdown-card",
-				props: {
-					...latestProps,
-					h: nextHeight,
-				},
-			});
-		};
-
-		const scheduleSyncHeight = () => {
-			if (frame !== null) return;
-			frame = window.requestAnimationFrame(syncHeight);
-		};
 
 		scheduleSyncHeight();
 
@@ -425,11 +487,17 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 
 		return () => {
 			resizeObserver.disconnect();
-			if (frame !== null) {
-				window.cancelAnimationFrame(frame);
+			if (syncFrameRef.current !== null) {
+				window.cancelAnimationFrame(syncFrameRef.current);
+				syncFrameRef.current = null;
 			}
 		};
-	}, [editor, shape.id]);
+	}, [scheduleSyncHeight]);
+
+	useEffect(() => {
+		if (!isEditorReady) return;
+		scheduleSyncHeight();
+	}, [isEditorReady, scheduleSyncHeight]);
 
 	return (
 		<HTMLContainer>
@@ -498,16 +566,29 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 					contentClassName="min-h-6"
 					placeholder="Type '/' for commands"
 					onChange={(value) => {
+						const latestProps = latestPropsRef.current;
+						const nextHeight = getMeasuredMarkdownCardHeight({
+							card: cardRef.current,
+							currentHeight: latestProps.h,
+							headerHeight: HEADER_HEIGHT,
+							minHeight: MIN_HEIGHT,
+							isEditorReady,
+						});
+
 						editor.updateShape<MarkdownCardShape>({
 							id: shape.id,
 							type: "markdown-card",
 							props: {
-								...latestPropsRef.current,
+								...latestProps,
 								content: JSON.stringify(value),
+								h: nextHeight,
 							},
 						});
 					}}
-					defaultFocusPosition={isEmptyCardContent(initialContentRef.current) ? "start" : "end"}
+					onReady={() => setIsEditorReady(true)}
+					defaultFocusPosition={
+						isEmptyCardContent(initialContentRef.current) ? "start" : "end"
+					}
 					selectContentOnFocus={isEmptyCardContent(initialContentRef.current)}
 				/>
 			</div>
@@ -656,7 +737,8 @@ function SubwhiteboardLinkComponent({
 	const isFocusedRef = useRef(false);
 	const skipNextBlurSaveRef = useRef(false);
 	const [draftTitle, setDraftTitle] = useState(shape.props.label);
-	const displayedId = shape.props.childWhiteboardId ?? shape.props.subwhiteboardId;
+	const displayedId =
+		shape.props.childWhiteboardId ?? shape.props.subwhiteboardId;
 
 	useEffect(() => {
 		if (isFocusedRef.current) return;

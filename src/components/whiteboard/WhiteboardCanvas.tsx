@@ -50,6 +50,7 @@ import {
 	filterSnapshotForPersistence,
 	isManagedWhiteboardShapeRecord,
 } from "./tldraw-persistence";
+import { getHydratedMarkdownCardHeight } from "./markdown-card-sizing";
 import "tldraw/tldraw.css";
 
 type BoardItemResult = {
@@ -118,8 +119,10 @@ function getWhiteboardKey(whiteboardId: Id<"whiteboards"> | null) {
 
 export function WhiteboardCanvas({
 	whiteboardId,
+	focusShapeId = null,
 }: {
 	whiteboardId: Id<"whiteboards"> | null;
+	focusShapeId?: string | null;
 }) {
 	const navigate = useNavigate();
 	const whiteboard = useQuery(
@@ -169,6 +172,7 @@ export function WhiteboardCanvas({
 	const frameUpdateSeqRef = useRef(0);
 	const flushTimerRef = useRef<number | null>(null);
 	const pendingCameraResetRef = useRef(true);
+	const handledFocusRef = useRef<string | null>(null);
 
 	const flushFrameUpdates = useCallback(() => {
 		flushTimerRef.current = null;
@@ -433,6 +437,35 @@ export function WhiteboardCanvas({
 			editor.setCamera({ x: 0, y: 0, z: 1 });
 		}
 	}, [editor, items, itemQuery.status]);
+
+	// Navigate & focus: when a `focus` shape id is present (set by the command
+	// palette via the route's search param), select and zoom to that shape once
+	// the board has hydrated, then clear the param so re-selecting re-triggers.
+	useEffect(() => {
+		if (!focusShapeId) {
+			handledFocusRef.current = null;
+			return;
+		}
+		if (!editor || loadedDrawingKey !== whiteboardKey) return;
+		if (handledFocusRef.current === focusShapeId) return;
+
+		const shapeId = focusShapeId as TLShapeId;
+		if (!editor.getShape(shapeId)) return; // shape not hydrated yet; will re-run
+
+		handledFocusRef.current = focusShapeId;
+		pendingCameraResetRef.current = false;
+		editor.select(shapeId);
+		const bounds = editor.getShapePageBounds(shapeId);
+		if (bounds) {
+			editor.zoomToBounds(bounds, { animation: { duration: 300 }, inset: 128 });
+		}
+
+		void navigate({
+			to: ".",
+			replace: true,
+			search: (prev: { focus?: string }) => ({ ...prev, focus: undefined }),
+		});
+	}, [editor, focusShapeId, items, loadedDrawingKey, navigate, whiteboardKey]);
 
 	useEffect(() => {
 		if (!editor) return;
@@ -709,16 +742,16 @@ function EditableWhiteboardTitle({
 	}, [draftTitle, title, updateTitle, whiteboardId]);
 
 	return (
-		<span className="inline-grid max-w-[min(42vw,28rem)] items-center">
+		<span className="relative inline-block min-w-0 max-w-[min(42vw,28rem)] align-middle">
 			<span
 				aria-hidden
-				className="invisible col-start-1 row-start-1 truncate whitespace-pre border border-transparent px-1 py-0.5 font-semibold"
+				className="invisible block truncate whitespace-pre border border-transparent px-1 py-0.5 font-semibold"
 			>
 				{draftTitle || " "}
 			</span>
 			<input
 				ref={inputRef}
-				className="col-start-1 row-start-1 w-full min-w-0 rounded border border-transparent bg-transparent px-1 py-0.5 font-semibold text-[var(--card-foreground)] outline-none transition focus:border-[var(--border)] focus:bg-[var(--background)]"
+				className="absolute inset-0 h-full w-full min-w-0 rounded border border-transparent bg-transparent px-1 py-0.5 font-semibold text-[var(--card-foreground)] outline-none transition focus:border-[var(--border)] focus:bg-[var(--background)]"
 				value={draftTitle}
 				aria-label="Whiteboard name"
 				spellCheck
@@ -762,13 +795,15 @@ function colorSchemeToMode(scheme: TLColorScheme | undefined): ThemeMode {
 	return scheme === "light" || scheme === "dark" ? scheme : "auto";
 }
 
-function itemToShape(
+export function itemToShape(
 	item: BoardItemResult,
 	frame = frameFromItem(item),
 ): ManagedShapePartial {
 	const id = item.shapeId as TLShapeId;
 
 	if (item.kind === "card") {
+		const content = item.card ? JSON.stringify(item.card.content) : "";
+
 		return {
 			id,
 			type: "markdown-card",
@@ -777,8 +812,13 @@ function itemToShape(
 			rotation: frame.rotation,
 			props: {
 				w: frame.w,
-				h: frame.h,
-				content: item.card ? JSON.stringify(item.card.content) : "",
+				h: getHydratedMarkdownCardHeight({
+					content,
+					width: frame.w,
+					serverHeight: frame.h,
+					minHeight: 96,
+				}),
+				content,
 				cardId: item.cardId ?? undefined,
 				version: item.card?.version,
 			},
@@ -872,20 +912,23 @@ function preserveEditingCardContent(
 	nextShape: ManagedShapePartial,
 ) {
 	if (
-		existingShape.id !== editor.getEditingShapeId() ||
 		existingShape.type !== "markdown-card" ||
 		nextShape.type !== "markdown-card"
 	) {
 		return nextShape;
 	}
 
+	const preserve: { h: number; content?: string } = {
+		h: existingShape.props.h,
+	};
+
+	if (existingShape.id === editor.getEditingShapeId()) {
+		preserve.content = existingShape.props.content;
+	}
+
 	return {
 		...nextShape,
-		props: {
-			...nextShape.props,
-			content: existingShape.props.content,
-			h: existingShape.props.h,
-		},
+		props: { ...nextShape.props, ...preserve },
 	};
 }
 

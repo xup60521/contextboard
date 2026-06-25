@@ -27,6 +27,7 @@ type RichTextEditorProps = {
 	/** Initial document (TipTap JSON). The editor is the source of truth after mount. */
 	content?: JSONContent | null;
 	onChange?: (value: JSONContent) => void;
+	onReady?: () => void;
 	placeholder?: string;
 	className?: string;
 	/** When false, the editor is read-only. Defaults to true. */
@@ -142,6 +143,7 @@ function selectionBelongsToEditor(
 export function RichTextEditor({
 	content,
 	onChange,
+	onReady,
 	placeholder,
 	className,
 	editable = true,
@@ -154,6 +156,7 @@ export function RichTextEditor({
 	);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const mathSelectionRef = useRef<MathSelection | null>(null);
+	const didNotifyReadyRef = useRef(false);
 	const wasEditableRef = useRef(editable);
 
 	function openMathSelection(selection: MathSelection | null) {
@@ -311,6 +314,29 @@ export function RichTextEditor({
 
 		wasEditableRef.current = editable;
 	}, [editor, editable, defaultFocusPosition, selectContentOnFocus]);
+
+	useEffect(() => {
+		if (!editor || !onReady || didNotifyReadyRef.current) {
+			return;
+		}
+
+		const frame = window.requestAnimationFrame(() => {
+			if (didNotifyReadyRef.current) {
+				return;
+			}
+
+			if (!containerRef.current?.querySelector(".ProseMirror")) {
+				return;
+			}
+
+			didNotifyReadyRef.current = true;
+			onReady();
+		});
+
+		return () => {
+			window.cancelAnimationFrame(frame);
+		};
+	}, [editor, onReady]);
 
 	if (!editor) {
 		return null;

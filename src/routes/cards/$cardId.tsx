@@ -1,8 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
-import { useMutation, useQuery } from "convex/react";
-import { useCallback, useEffect, useRef } from "react";
-import { RichTextEditor } from "#/components/editor/RichTextEditor";
+import { useQuery } from "convex/react";
+import { CardEditorPane } from "#/components/editor/CardEditorPane";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
@@ -15,44 +14,6 @@ function RouteComponent() {
 	const { cardId } = Route.useParams();
 	const typedCardId = cardId as Id<"cards">;
 	const data = useQuery(api.cards.get, { cardId: typedCardId });
-	const updateContent = useMutation(api.cards.updateContent);
-	const pendingContentRef = useRef<JSONContent | null>(null);
-	const saveTimerRef = useRef<number | null>(null);
-
-	const flushSave = useCallback(() => {
-		if (saveTimerRef.current !== null) {
-			window.clearTimeout(saveTimerRef.current);
-			saveTimerRef.current = null;
-		}
-
-		const content = pendingContentRef.current;
-		pendingContentRef.current = null;
-		if (!content) return;
-
-		void updateContent({
-			cardId: typedCardId,
-			content,
-		});
-	}, [typedCardId, updateContent]);
-
-	const scheduleSave = useCallback(
-		(content: JSONContent) => {
-			pendingContentRef.current = content;
-
-			if (saveTimerRef.current !== null) {
-				window.clearTimeout(saveTimerRef.current);
-			}
-
-			saveTimerRef.current = window.setTimeout(flushSave, 450);
-		},
-		[flushSave],
-	);
-
-	useEffect(() => {
-		return () => {
-			flushSave();
-		};
-	}, [flushSave]);
 
 	if (data === undefined) {
 		return <CardEditorShell label="Loading card..." />;
@@ -114,15 +75,12 @@ function RouteComponent() {
 				)}
 			</header>
 
-			<section 
+			<section
             // className="island-shell rounded-2xl p-6 sm:p-8"
             >
-				<RichTextEditor
-					key={data.card._id}
+				<CardEditorPane
+					cardId={data.card._id}
 					content={data.card.content as JSONContent}
-					onChange={scheduleSave}
-					className="notion-editor seamless"
-					contentClassName="min-h-[60vh] bg-[var(--bg-base)]"
 				/>
 			</section>
 		</main>

@@ -22,7 +22,11 @@ export default defineSchema({
 			"sortKey",
 		])
 		.index("by_archived_path", ["archivedAt", "pathKey"])
-		.index("by_archived_depth_path", ["archivedAt", "depth", "pathKey"]),
+		.index("by_archived_depth_path", ["archivedAt", "depth", "pathKey"])
+		.searchIndex("search_title", {
+			searchField: "title",
+			filterFields: ["archivedAt", "parentWhiteboardId"],
+		}),
 
 	cards: defineTable({
 		whiteboardId: v.union(v.id("whiteboards"), v.null()),
@@ -33,11 +37,16 @@ export default defineSchema({
 		version: v.number(),
 		archivedAt: v.union(v.number(), v.null()),
 		updatedAt: v.number(),
-	}).index("by_whiteboard_archived_updated", [
-		"whiteboardId",
-		"archivedAt",
-		"updatedAt",
-	]),
+	})
+		.index("by_whiteboard_archived_updated", [
+			"whiteboardId",
+			"archivedAt",
+			"updatedAt",
+		])
+		.searchIndex("search_text", {
+			searchField: "plainText",
+			filterFields: ["archivedAt", "whiteboardId"],
+		}),
 
 	boardItems: defineTable({
 		whiteboardId: v.union(v.id("whiteboards"), v.null()),
