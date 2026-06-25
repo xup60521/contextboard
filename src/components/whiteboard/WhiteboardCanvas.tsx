@@ -19,11 +19,11 @@ import {
 	type TLShape,
 	type TLShapeId,
 	type TLUiContextMenuProps,
-	react as tldrawReact,
 	Tldraw,
 	type TldrawOptions,
 	TldrawUiMenuGroup,
 	TldrawUiMenuItem,
+	react as tldrawReact,
 	useEditor,
 	Vec,
 	type VecLike,
@@ -38,6 +38,13 @@ import {
 	markdownWhiteboardShapeUtils,
 	type SubwhiteboardLinkShape,
 } from "./custom-shapes";
+import {
+	frameFromItem,
+	resolveFrameForHydration,
+	type SequencedFrame,
+	shouldClearOptimisticFrame,
+	type WhiteboardFrame,
+} from "./frame-sync";
 import "tldraw/tldraw.css";
 
 type BoardItemResult = {
@@ -65,15 +72,6 @@ type BoardItemResult = {
 		cardCount: number;
 		childWhiteboardCount: number;
 	} | null;
-};
-
-type FrameUpdate = {
-	x: number;
-	y: number;
-	w: number;
-	h: number;
-	rotation: number;
-	zIndex: number;
 };
 
 type ManagedShapePartial =
@@ -130,22 +128,53 @@ export function WhiteboardCanvas({
 	const itemIdByShapeIdRef = useRef(new Map<string, Id<"boardItems">>());
 	const contextMenuPointRef = useRef<VecLike | null>(null);
 	const pendingEditShapeIdRef = useRef<TLShapeId | null>(null);
-	const pendingFramesRef = useRef(new Map<Id<"boardItems">, FrameUpdate>());
+	const latestItemsRef = useRef(new Map<Id<"boardItems">, BoardItemResult>());
+	const queuedFrameUpdatesRef = useRef(
+		new Map<Id<"boardItems">, SequencedFrame>(),
+	);
+	const optimisticFramesRef = useRef(
+		new Map<Id<"boardItems">, SequencedFrame>(),
+	);
+	const frameUpdateSeqRef = useRef(0);
 	const flushTimerRef = useRef<number | null>(null);
+	const pendingCameraResetRef = useRef(true);
 
 	const flushFrameUpdates = useCallback(() => {
 		flushTimerRef.current = null;
-		const pendingFrames = pendingFramesRef.current;
-		pendingFramesRef.current = new Map();
+		const queuedFrames = queuedFrameUpdatesRef.current;
+		queuedFrameUpdatesRef.current = new Map();
 
-		for (const [itemId, frame] of pendingFrames) {
-			void updateItemFrame({ itemId, ...frame });
+		for (const [itemId, sequencedFrame] of queuedFrames) {
+			void updateItemFrame({ itemId, ...sequencedFrame.frame }).catch(() => {
+				const currentFrame = optimisticFramesRef.current.get(itemId);
+				if (!shouldClearOptimisticFrame(currentFrame, sequencedFrame.seq)) {
+					return;
+				}
+
+				optimisticFramesRef.current.delete(itemId);
+				const latestItem = latestItemsRef.current.get(itemId);
+				if (!latestItem || !editor) return;
+
+				hydratingRef.current = true;
+				editor.run(() => rehydrateItemShape(editor, latestItem), {
+					history: "ignore",
+				});
+				window.setTimeout(() => {
+					hydratingRef.current = false;
+				}, 0);
+			});
 		}
-	}, [updateItemFrame]);
+	}, [editor, updateItemFrame]);
 
 	const queueFrameUpdate = useCallback(
-		(itemId: Id<"boardItems">, frame: FrameUpdate) => {
-			pendingFramesRef.current.set(itemId, frame);
+		(itemId: Id<"boardItems">, frame: WhiteboardFrame) => {
+			const sequencedFrame = {
+				seq: frameUpdateSeqRef.current + 1,
+				frame,
+			};
+			frameUpdateSeqRef.current = sequencedFrame.seq;
+			queuedFrameUpdatesRef.current.set(itemId, sequencedFrame);
+			optimisticFramesRef.current.set(itemId, sequencedFrame);
 
 			if (flushTimerRef.current !== null) {
 				window.clearTimeout(flushTimerRef.current);
@@ -198,14 +227,49 @@ export function WhiteboardCanvas({
 
 	const items = (itemQuery.results ?? []) as BoardItemResult[];
 
+	// The editor is now persistent across whiteboard navigation, so reset the
+	// per-board bookkeeping whenever the active board changes. Any pending frame
+	// writes for the previous board are flushed first so moves aren't lost.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on whiteboardId; flushFrameUpdates is stable.
+	useEffect(() => {
+		if (!editor) return;
+
+		if (flushTimerRef.current !== null) {
+			window.clearTimeout(flushTimerRef.current);
+			flushFrameUpdates();
+		}
+
+		itemIdByShapeIdRef.current = new Map();
+		optimisticFramesRef.current = new Map();
+		queuedFrameUpdatesRef.current = new Map();
+		pendingEditShapeIdRef.current = null;
+		pendingCameraResetRef.current = true;
+	}, [editor, whiteboardId]);
+
 	useEffect(() => {
 		if (!editor) return;
 
 		const itemIdByShapeId = new Map<string, Id<"boardItems">>();
+		const latestItems = new Map<Id<"boardItems">, BoardItemResult>();
+		const wantedItemIds = new Set<Id<"boardItems">>();
 		for (const item of items) {
 			itemIdByShapeId.set(item.shapeId, item._id);
+			latestItems.set(item._id, item);
+			wantedItemIds.add(item._id);
 		}
 		itemIdByShapeIdRef.current = itemIdByShapeId;
+		latestItemsRef.current = latestItems;
+
+		for (const itemId of optimisticFramesRef.current.keys()) {
+			if (!wantedItemIds.has(itemId)) {
+				optimisticFramesRef.current.delete(itemId);
+			}
+		}
+		for (const itemId of queuedFrameUpdatesRef.current.keys()) {
+			if (!wantedItemIds.has(itemId)) {
+				queuedFrameUpdatesRef.current.delete(itemId);
+			}
+		}
 
 		const wantedShapeIds = new Set(items.map((item) => item.shapeId));
 		const currentManagedShapes = editor
@@ -224,16 +288,18 @@ export function WhiteboardCanvas({
 				}
 
 				for (const item of items) {
-					const nextShape = itemToShape(item);
-					const existingShape = editor.getShape(nextShape.id as TLShapeId);
+					const serverFrame = frameFromItem(item);
+					const optimisticFrame = optimisticFramesRef.current.get(item._id);
+					const frameResolution = resolveFrameForHydration(
+						serverFrame,
+						optimisticFrame,
+					);
 
-					if (existingShape) {
-						editor.updateShape(
-							preserveEditingCardContent(editor, existingShape, nextShape),
-						);
-					} else {
-						editor.createShape(nextShape);
+					if (frameResolution.acknowledged) {
+						optimisticFramesRef.current.delete(item._id);
 					}
+
+					rehydrateItemShape(editor, item, frameResolution.frame);
 				}
 			},
 			{ history: "ignore" },
@@ -249,6 +315,22 @@ export function WhiteboardCanvas({
 			editor.setEditingShape(pendingEditShapeId);
 		}, 0);
 	}, [editor, items]);
+
+	// After switching boards, reset the camera once the new board's first page
+	// has loaded so it opens at a sensible viewport instead of inheriting the
+	// previous board's pan/zoom. Runs after the hydration effect has created the
+	// new shapes (effects fire in definition order).
+	useEffect(() => {
+		if (!editor || !pendingCameraResetRef.current) return;
+		if (itemQuery.status === "LoadingFirstPage") return;
+
+		pendingCameraResetRef.current = false;
+		if (items.length > 0) {
+			editor.zoomToFit();
+		} else {
+			editor.setCamera({ x: 0, y: 0, z: 1 });
+		}
+	}, [editor, items, itemQuery.status]);
 
 	useEffect(() => {
 		if (!editor) return;
@@ -301,6 +383,66 @@ export function WhiteboardCanvas({
 		};
 	}, [archiveItem, editor, queueFrameUpdate]);
 
+	// Canvas interactions (right-click point capture, double-click to open a
+	// sub-whiteboard or create an item). Registered in an effect rather than
+	// `onMount` so the latest `whiteboardId`/create callbacks are used after
+	// navigating between boards on the now-persistent editor.
+	useEffect(() => {
+		if (!editor) return;
+
+		const handleEvent = (info: TLEventInfo) => {
+			if (info.type === "pointer" && info.name === "right_click") {
+				const point = editor.inputs.getCurrentPagePoint();
+				contextMenuPointRef.current = { x: point.x, y: point.y };
+			}
+
+			if (
+				info.type !== "click" ||
+				info.name !== "double_click" ||
+				info.phase !== "up"
+			) {
+				return;
+			}
+
+			const point = editor.inputs.getCurrentPagePoint();
+
+			if (info.target === "shape") {
+				openSubwhiteboardShape(navigate, info.shape);
+				return;
+			}
+
+			if (info.target !== "canvas") return;
+
+			const hitShape = getWhiteboardDoubleClickShape(editor, point);
+
+			if (hitShape) {
+				openSubwhiteboardShape(navigate, hitShape);
+				return;
+			}
+
+			const hitOverlay = editor.overlays.getOverlayAtPoint(
+				point,
+				editor.options.hitTestMargin / editor.getZoomLevel(),
+			);
+
+			if (hitOverlay || isPointInCurrentSelection(editor, point)) {
+				return;
+			}
+
+			if (whiteboardId) {
+				createCardAt(point);
+			} else {
+				createSubwhiteboardAt(point);
+			}
+		};
+
+		editor.on("event", handleEvent);
+
+		return () => {
+			editor.off("event", handleEvent);
+		};
+	}, [editor, whiteboardId, createCardAt, createSubwhiteboardAt, navigate]);
+
 	// App theme -> tldraw color scheme.
 	useEffect(() => {
 		if (!editor) return;
@@ -328,9 +470,10 @@ export function WhiteboardCanvas({
 		return () => {
 			if (flushTimerRef.current !== null) {
 				window.clearTimeout(flushTimerRef.current);
+				flushFrameUpdates();
 			}
 		};
-	}, []);
+	}, [flushFrameUpdates]);
 
 	const contextValue: WhiteboardContextMenuValue = {
 		createCardAt: whiteboardId ? createCardAt : null,
@@ -338,13 +481,15 @@ export function WhiteboardCanvas({
 		pointRef: contextMenuPointRef,
 	};
 
-	if (whiteboardId && (whiteboard === undefined || breadcrumbs === undefined)) {
-		return <WhiteboardLoading label="Loading whiteboard..." />;
-	}
-
-	if (whiteboardId && whiteboard === null) {
-		return <WhiteboardLoading label="Whiteboard not found." />;
-	}
+	// Render as an overlay above the persistent <Tldraw> instead of replacing it,
+	// so the editor is never unmounted while a board's data is (re)loading.
+	const overlayLabel = !whiteboardId
+		? null
+		: whiteboard === undefined || breadcrumbs === undefined
+			? "Loading whiteboard..."
+			: whiteboard === null
+				? "Whiteboard not found."
+				: null;
 
 	const displayedBreadcrumbs = whiteboardId ? (breadcrumbs ?? []) : [];
 
@@ -395,63 +540,7 @@ export function WhiteboardCanvas({
 						onMount={(mountedEditor) => {
 							setEditor(mountedEditor);
 
-							const handleEvent = (info: TLEventInfo) => {
-								if (info.type === "pointer" && info.name === "right_click") {
-									const point = mountedEditor.inputs.getCurrentPagePoint();
-									contextMenuPointRef.current = { x: point.x, y: point.y };
-								}
-
-								if (
-									info.type !== "click" ||
-									info.name !== "double_click" ||
-									info.phase !== "up"
-								) {
-									return;
-								}
-
-								const point = mountedEditor.inputs.getCurrentPagePoint();
-
-								if (info.target === "shape") {
-									openSubwhiteboardShape(navigate, info.shape);
-									return;
-								}
-
-								if (info.target !== "canvas") return;
-
-								const hitShape = getWhiteboardDoubleClickShape(
-									mountedEditor,
-									point,
-								);
-
-								if (hitShape) {
-									openSubwhiteboardShape(navigate, hitShape);
-									return;
-								}
-
-								const hitOverlay = mountedEditor.overlays.getOverlayAtPoint(
-									point,
-									mountedEditor.options.hitTestMargin /
-										mountedEditor.getZoomLevel(),
-								);
-
-								if (
-									hitOverlay ||
-									isPointInCurrentSelection(mountedEditor, point)
-								) {
-									return;
-								}
-
-								if (whiteboardId) {
-									createCardAt(point);
-								} else {
-									createSubwhiteboardAt(point);
-								}
-							};
-
-							mountedEditor.on("event", handleEvent);
-
 							return () => {
-								mountedEditor.off("event", handleEvent);
 								setEditor(null);
 							};
 						}}
@@ -460,17 +549,18 @@ export function WhiteboardCanvas({
 					/>
 				</WhiteboardContextMenuContext.Provider>
 			</div>
+			{overlayLabel && <WhiteboardLoadingOverlay label={overlayLabel} />}
 		</main>
 	);
 }
 
-function WhiteboardLoading({ label }: { label: string }) {
+function WhiteboardLoadingOverlay({ label }: { label: string }) {
 	return (
-		<main className="grid h-[calc(100dvh-80px)] min-h-[620px] place-items-center bg-[var(--background)] p-3">
+		<div className="absolute inset-0 z-20 grid place-items-center bg-[var(--background)] p-3">
 			<div className="rounded-md border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm font-semibold text-[var(--card-foreground)]">
 				{label}
 			</div>
-		</main>
+		</div>
 	);
 }
 
@@ -493,7 +583,8 @@ function EditableWhiteboardTitle({
 	}, [title]);
 
 	const saveTitle = useCallback(() => {
-		const nextTitle = draftTitle.replace(/\s+/g, " ").trim() || "Untitled whiteboard";
+		const nextTitle =
+			draftTitle.replace(/\s+/g, " ").trim() || "Untitled whiteboard";
 		setDraftTitle(nextTitle);
 
 		if (nextTitle !== title) {
@@ -555,19 +646,22 @@ function colorSchemeToMode(scheme: TLColorScheme | undefined): ThemeMode {
 	return scheme === "light" || scheme === "dark" ? scheme : "auto";
 }
 
-function itemToShape(item: BoardItemResult): ManagedShapePartial {
+function itemToShape(
+	item: BoardItemResult,
+	frame = frameFromItem(item),
+): ManagedShapePartial {
 	const id = item.shapeId as TLShapeId;
 
 	if (item.kind === "card") {
 		return {
 			id,
 			type: "markdown-card",
-			x: item.x,
-			y: item.y,
-			rotation: item.rotation,
+			x: frame.x,
+			y: frame.y,
+			rotation: frame.rotation,
 			props: {
-				w: item.w,
-				h: item.h,
+				w: frame.w,
+				h: frame.h,
 				content: item.card ? JSON.stringify(item.card.content) : "",
 				cardId: item.cardId ?? undefined,
 				version: item.card?.version,
@@ -578,18 +672,35 @@ function itemToShape(item: BoardItemResult): ManagedShapePartial {
 	return {
 		id,
 		type: "subwhiteboard-link",
-		x: item.x,
-		y: item.y,
-		rotation: item.rotation,
+		x: frame.x,
+		y: frame.y,
+		rotation: frame.rotation,
 		props: {
-			w: item.w,
-			h: item.h,
+			w: frame.w,
+			h: frame.h,
 			label: item.childWhiteboard?.title ?? "Sub-whiteboard",
 			subwhiteboardId: item.childWhiteboardId ?? "",
 			childWhiteboardId: item.childWhiteboardId ?? undefined,
 			depth: item.childWhiteboard?.depth,
 		},
 	};
+}
+
+function rehydrateItemShape(
+	editor: Editor,
+	item: BoardItemResult,
+	frame = frameFromItem(item),
+) {
+	const nextShape = itemToShape(item, frame);
+	const existingShape = editor.getShape(nextShape.id as TLShapeId);
+
+	if (existingShape) {
+		editor.updateShape(
+			preserveEditingCardContent(editor, existingShape, nextShape),
+		);
+	} else {
+		editor.createShape(nextShape);
+	}
 }
 
 function isManagedWhiteboardShape(

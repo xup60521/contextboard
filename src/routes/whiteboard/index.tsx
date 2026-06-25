@@ -1,11 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WhiteboardCanvas } from "#/components/whiteboard/WhiteboardCanvas";
 
+// The persistent canvas lives in the `/whiteboard` layout route
+// (`route.tsx`); this leaf only exists as a match target for the root board.
 export const Route = createFileRoute("/whiteboard/")({
-	ssr: false,
-	component: RouteComponent,
+	component: () => null,
 });
-
-function RouteComponent() {
-	return <WhiteboardCanvas whiteboardId={null} />;
-}

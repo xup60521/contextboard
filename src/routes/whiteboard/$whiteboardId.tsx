@@ -1,14 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WhiteboardCanvas } from "#/components/whiteboard/WhiteboardCanvas";
-import type { Id } from "../../../convex/_generated/dataModel";
 
+// The persistent canvas lives in the `/whiteboard` layout route
+// (`route.tsx`), which reads `whiteboardId` from this match. This leaf only
+// exists as a match target.
 export const Route = createFileRoute("/whiteboard/$whiteboardId")({
-	ssr: false,
-	component: RouteComponent,
+	component: () => null,
 });
-
-function RouteComponent() {
-	const { whiteboardId } = Route.useParams();
-
-	return <WhiteboardCanvas whiteboardId={whiteboardId as Id<"whiteboards">} />;
-}

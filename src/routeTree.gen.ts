@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as WhiteboardRouteRouteImport } from './routes/whiteboard/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WhiteboardIndexRouteImport } from './routes/whiteboard/index'
 import { Route as TestIndexRouteImport } from './routes/test/index'
@@ -28,15 +29,20 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WhiteboardRouteRoute = WhiteboardRouteRouteImport.update({
+  id: '/whiteboard',
+  path: '/whiteboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WhiteboardIndexRoute = WhiteboardIndexRouteImport.update({
-  id: '/whiteboard/',
-  path: '/whiteboard/',
-  getParentRoute: () => rootRouteImport,
+  id: '/',
+  path: '/',
+  getParentRoute: () => WhiteboardRouteRoute,
 } as any)
 const TestIndexRoute = TestIndexRouteImport.update({
   id: '/test/',
@@ -44,9 +50,9 @@ const TestIndexRoute = TestIndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const WhiteboardWhiteboardIdRoute = WhiteboardWhiteboardIdRouteImport.update({
-  id: '/whiteboard/$whiteboardId',
-  path: '/whiteboard/$whiteboardId',
-  getParentRoute: () => rootRouteImport,
+  id: '/$whiteboardId',
+  path: '/$whiteboardId',
+  getParentRoute: () => WhiteboardRouteRoute,
 } as any)
 const TestWhiteboardInWhiteboardRoute =
   TestWhiteboardInWhiteboardRouteImport.update({
@@ -94,6 +100,7 @@ const TestSubwhiteboardSubwhiteboardidRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
@@ -142,6 +150,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/whiteboard'
     | '/about'
     | '/cards/$cardId'
     | '/cards/orphans'
@@ -172,6 +181,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/whiteboard'
     | '/about'
     | '/cards/$cardId'
     | '/cards/orphans'
@@ -188,6 +198,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  WhiteboardRouteRoute: typeof WhiteboardRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   CardsCardIdRoute: typeof CardsCardIdRoute
   CardsOrphansRoute: typeof CardsOrphansRoute
@@ -196,9 +207,7 @@ export interface RootRouteChildren {
   TestMarkdownRoute: typeof TestMarkdownRoute
   TestMarkdownInWhiteboardRoute: typeof TestMarkdownInWhiteboardRoute
   TestWhiteboardInWhiteboardRoute: typeof TestWhiteboardInWhiteboardRoute
-  WhiteboardWhiteboardIdRoute: typeof WhiteboardWhiteboardIdRoute
   TestIndexRoute: typeof TestIndexRoute
-  WhiteboardIndexRoute: typeof WhiteboardIndexRoute
   TestSubwhiteboardSubwhiteboardidRoute: typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 
@@ -211,6 +220,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/whiteboard': {
+      id: '/whiteboard'
+      path: '/whiteboard'
+      fullPath: '/whiteboard'
+      preLoaderRoute: typeof WhiteboardRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -220,10 +236,10 @@ declare module '@tanstack/react-router' {
     }
     '/whiteboard/': {
       id: '/whiteboard/'
-      path: '/whiteboard'
+      path: '/'
       fullPath: '/whiteboard/'
       preLoaderRoute: typeof WhiteboardIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof WhiteboardRouteRoute
     }
     '/test/': {
       id: '/test/'
@@ -234,10 +250,10 @@ declare module '@tanstack/react-router' {
     }
     '/whiteboard/$whiteboardId': {
       id: '/whiteboard/$whiteboardId'
-      path: '/whiteboard/$whiteboardId'
+      path: '/$whiteboardId'
       fullPath: '/whiteboard/$whiteboardId'
       preLoaderRoute: typeof WhiteboardWhiteboardIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof WhiteboardRouteRoute
     }
     '/test/whiteboard-in-whiteboard': {
       id: '/test/whiteboard-in-whiteboard'
@@ -298,8 +314,23 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface WhiteboardRouteRouteChildren {
+  WhiteboardWhiteboardIdRoute: typeof WhiteboardWhiteboardIdRoute
+  WhiteboardIndexRoute: typeof WhiteboardIndexRoute
+}
+
+const WhiteboardRouteRouteChildren: WhiteboardRouteRouteChildren = {
+  WhiteboardWhiteboardIdRoute: WhiteboardWhiteboardIdRoute,
+  WhiteboardIndexRoute: WhiteboardIndexRoute,
+}
+
+const WhiteboardRouteRouteWithChildren = WhiteboardRouteRoute._addFileChildren(
+  WhiteboardRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  WhiteboardRouteRoute: WhiteboardRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   CardsCardIdRoute: CardsCardIdRoute,
   CardsOrphansRoute: CardsOrphansRoute,
@@ -308,9 +339,7 @@ const rootRouteChildren: RootRouteChildren = {
   TestMarkdownRoute: TestMarkdownRoute,
   TestMarkdownInWhiteboardRoute: TestMarkdownInWhiteboardRoute,
   TestWhiteboardInWhiteboardRoute: TestWhiteboardInWhiteboardRoute,
-  WhiteboardWhiteboardIdRoute: WhiteboardWhiteboardIdRoute,
   TestIndexRoute: TestIndexRoute,
-  WhiteboardIndexRoute: WhiteboardIndexRoute,
   TestSubwhiteboardSubwhiteboardidRoute: TestSubwhiteboardSubwhiteboardidRoute,
 }
 export const routeTree = rootRouteImport
