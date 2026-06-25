@@ -4,8 +4,10 @@ Contextboard is a canvas-first workspace for organizing markdown cards and neste
 
 # Story
 
-Originally, I was frustrated with the performance of Heptabase and wanted to find a better alternative. More than that, I always wanted to actually draw on a whiteboard rather than drag around pre-defined HTML elements — but there was no good candidate for it. Existing note-taking apps either focus entirely on markdown cards or go all-in on hand-written notes, with nothing in between.
+Originally, I was frustrated with the performance of Heptabase and wanted to find a better alternative. More than that, I always wanted to actually *draw* on a whiteboard rather than drag around pre-defined HTML elements — but there was no good candidate for it. Existing note-taking apps either focus entirely on markdown cards or go all-in on hand-written notes, with nothing in between.
+
 In June 2026, after finishing the semester, I finally had time to build something. The first thing that came to mind was a simple yet better note-taking app. The MVP turned out well: markdown cards work (both as a standalone editor and embedded in whiteboard view), hand-drawn strokes are properly stored, and sub-whiteboards made it in too.
+
 The only problem: I forgot to read the tldraw license. During development, the TanStack devtools panel covered the "Get a license for production" watermark. Not until I tried to deploy to Cloudflare did I realize that tldraw is not MIT-licensed the way Excalidraw is. So I decided to open source the project, even though I will probably not continue developing it. Considering how much I put into it (mostly with Claude Code and Codex), it has still been a great learning experience.
 
 ## Stack
