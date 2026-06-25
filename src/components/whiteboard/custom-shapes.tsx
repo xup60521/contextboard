@@ -102,6 +102,16 @@ export const subwhiteboardLinkShapeProps = {
 	depth: T.number.optional(),
 } satisfies RecordProps<SubwhiteboardLinkShape>;
 
+function isEmptyCardContent(content: JSONContent | null): boolean {
+	if (!content || content.type !== "doc" || !content.content) return false;
+	if (content.content.length !== 1) return false;
+	const heading = content.content[0];
+	if (heading.type !== "heading" || heading.attrs?.level !== 1) return false;
+	if (!heading.content || heading.content.length !== 1) return false;
+	const textNode = heading.content[0];
+	return textNode.type === "text" && textNode.text === "New card";
+}
+
 function TextCardComponent({ shape }: { shape: TextCardShape }) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
@@ -297,7 +307,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 			{/** biome-ignore lint/a11y/noStaticElementInteractions: tldraw shapes guard pointer/keyboard events here. */}
 			<div
 				ref={cardRef}
-				className="relative w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
+				className="relative w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-8 py-8 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
 				style={{ pointerEvents: isEditing ? "auto" : "none" }}
 				onPointerDown={(e) => {
 					if (isEditing) editor.markEventAsHandled(e);
@@ -354,6 +364,8 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 					contentClassName="min-h-12 pr-7"
 					placeholder="Type '/' for commands"
 					onChange={scheduleSave}
+					defaultFocusPosition={isEmptyCardContent(initialContentRef.current) ? "start" : "end"}
+					selectContentOnFocus={isEmptyCardContent(initialContentRef.current)}
 				/>
 			</div>
 		</HTMLContainer>
@@ -424,7 +436,7 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 			{/** biome-ignore lint/a11y/noStaticElementInteractions: tldraw shapes guard pointer/keyboard events here. */}
 			<div
 				ref={cardRef}
-				className="w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
+				className="w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-8 py-8 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
 				style={{ pointerEvents: isEditing ? "auto" : "none" }}
 				onPointerDown={(e) => {
 					if (isEditing) editor.markEventAsHandled(e);
@@ -495,6 +507,8 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 							},
 						});
 					}}
+					defaultFocusPosition={isEmptyCardContent(initialContentRef.current) ? "start" : "end"}
+					selectContentOnFocus={isEmptyCardContent(initialContentRef.current)}
 				/>
 			</div>
 		</HTMLContainer>

@@ -33,6 +33,10 @@ type RichTextEditorProps = {
 	editable?: boolean;
 	/** Class applied to the editing surface (e.g. min-height). */
 	contentClassName?: string;
+	/** Where to place the cursor when transitioning into edit mode. Defaults to "end". */
+	defaultFocusPosition?: "start" | "end";
+	/** When true, select all content in the first node on focus (e.g. to let user replace a placeholder title). */
+	selectContentOnFocus?: boolean;
 };
 
 type MathCandidate = MathSelection & {
@@ -125,6 +129,16 @@ function findInsertedMathSelection(
 	};
 }
 
+function selectionBelongsToEditor(
+	root: HTMLElement,
+	selection: Selection,
+): boolean {
+	return (
+		(selection.anchorNode !== null && root.contains(selection.anchorNode)) ||
+		(selection.focusNode !== null && root.contains(selection.focusNode))
+	);
+}
+
 export function RichTextEditor({
 	content,
 	onChange,
@@ -132,10 +146,13 @@ export function RichTextEditor({
 	className,
 	editable = true,
 	contentClassName = "min-h-[60vh]",
+	defaultFocusPosition = "end",
+	selectContentOnFocus = false,
 }: RichTextEditorProps) {
 	const [mathSelection, setMathSelection] = useState<MathSelection | null>(
 		null,
 	);
+	const containerRef = useRef<HTMLDivElement>(null);
 	const mathSelectionRef = useRef<MathSelection | null>(null);
 	const wasEditableRef = useRef(editable);
 
@@ -263,18 +280,44 @@ export function RichTextEditor({
 		editor.setEditable(editable);
 
 		if (editable && !wasEditableRef.current) {
-			editor.commands.focus("end");
+			editor.commands.focus(defaultFocusPosition);
+
+			if (selectContentOnFocus) {
+				const firstChild = editor.state.doc.content.firstChild;
+				if (firstChild) {
+					editor.commands.setTextSelection({
+						from: 1,
+						to: firstChild.nodeSize - 1,
+					});
+				}
+			}
+		}
+
+		if (!editable && wasEditableRef.current) {
+			editor.commands.blur();
+
+			const container = containerRef.current;
+			const selection = window.getSelection();
+
+			if (
+				container &&
+				selection &&
+				selection.rangeCount > 0 &&
+				selectionBelongsToEditor(container, selection)
+			) {
+				selection.removeAllRanges();
+			}
 		}
 
 		wasEditableRef.current = editable;
-	}, [editor, editable]);
+	}, [editor, editable, defaultFocusPosition, selectContentOnFocus]);
 
 	if (!editor) {
 		return null;
 	}
 
 	return (
-		<div className={cn(className, "cursor-text")}>
+		<div ref={containerRef} className={cn(className, "cursor-text")}>
 			<EditorBubbleMenu editor={editor} />
 			<EditorContent editor={editor} />
 			{mathSelection && (

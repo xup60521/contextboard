@@ -5,14 +5,16 @@ import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { deriveCardMetadata } from "./model/cardMetadata";
 
-const DEFAULT_CARD_WIDTH = 360;
+const DEFAULT_CARD_WIDTH = 576;
 const DEFAULT_CARD_HEIGHT = 160;
 const DEFAULT_SUBWHITEBOARD_WIDTH = 240;
 const DEFAULT_SUBWHITEBOARD_HEIGHT = 92;
 const EMPTY_CARD_CONTENT = {
-	type: "doc",
-	content: [],
-};
+  content: [
+    { attrs: { level: 1 }, type: "heading", content: [{ text: "New card", type: "text" }], },
+  ],
+  type: "doc",
+}
 const PATH_UPPER_BOUND_SUFFIX = "\uffff";
 
 export const listItems = query({

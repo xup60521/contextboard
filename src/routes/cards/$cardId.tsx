@@ -102,7 +102,7 @@ function RouteComponent() {
 						params={{ whiteboardId: data.whiteboard._id }}
 						className="rounded border border-[var(--line)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
 					>
-						Back to whiteboard
+						Back to orphan cards
 					</Link>
 				) : (
 					<Link
@@ -114,11 +114,15 @@ function RouteComponent() {
 				)}
 			</header>
 
-			<section className="island-shell rounded-2xl p-6 sm:p-8">
+			<section 
+            // className="island-shell rounded-2xl p-6 sm:p-8"
+            >
 				<RichTextEditor
 					key={data.card._id}
 					content={data.card.content as JSONContent}
 					onChange={scheduleSave}
+					className="notion-editor seamless"
+					contentClassName="min-h-[60vh] bg-[var(--bg-base)]"
 				/>
 			</section>
 		</main>

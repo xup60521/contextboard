@@ -65,7 +65,7 @@ const INITIAL_CONTENT: JSONContent = {
 	],
 };
 
-function RouteComponent() {
+	function RouteComponent() {
 	const [doc, setDoc] = useState<JSONContent>(INITIAL_CONTENT);
 
 	return (
@@ -82,9 +82,12 @@ function RouteComponent() {
 				</p>
 			</header>
 
-			<div className="island-shell rounded-2xl p-6 sm:p-8">
-				<RichTextEditor content={INITIAL_CONTENT} onChange={setDoc} />
-			</div>
+			<RichTextEditor
+				content={INITIAL_CONTENT}
+				onChange={setDoc}
+				className="notion-editor seamless"
+				contentClassName="min-h-[60vh] bg-[var(--bg-base)]"
+			/>
 
 			<details className="mt-6">
 				<summary className="cursor-pointer text-sm font-semibold text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]">

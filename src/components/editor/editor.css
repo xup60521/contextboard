@@ -175,3 +175,38 @@
 .dark .tiptap .katex {
 	color: var(--sea-ink);
 }
+
+/* Notion-style seamless markdown editor */
+.notion-editor {
+	border: none !important;
+	box-shadow: none !important;
+	background: transparent !important;
+}
+
+.notion-editor .tiptap {
+	border: none !important;
+	box-shadow: none !important;
+	background: transparent !important;
+}
+
+.notion-editor .tiptap::before {
+	content: none !important;
+}
+
+.notion-editor .editor-details,
+.notion-editor [data-type="details"],
+.notion-editor table {
+	border: 1px solid var(--border) !important;
+}
+
+.notion-editor.table-wrapper {
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+}
+
+.notion-editor th,
+.notion-editor td {
+	border-right: 1px solid var(--border) !important;
+	border-bottom: 1px solid var(--border) !important;
+}
