@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WhiteboardIndexRouteImport } from './routes/whiteboard/index'
 import { Route as TestIndexRouteImport } from './routes/test/index'
 import { Route as TestWhiteboardInWhiteboardRouteImport } from './routes/test/whiteboard-in-whiteboard'
 import { Route as TestMarkdownInWhiteboardRouteImport } from './routes/test/markdown-in-whiteboard'
@@ -27,6 +28,11 @@ const AboutRoute = AboutRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WhiteboardIndexRoute = WhiteboardIndexRouteImport.update({
+  id: '/whiteboard/',
+  path: '/whiteboard/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TestIndexRoute = TestIndexRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
   '/test/': typeof TestIndexRoute
+  '/whiteboard/': typeof WhiteboardIndexRoute
   '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 export interface FileRoutesByTo {
@@ -88,6 +95,7 @@ export interface FileRoutesByTo {
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
   '/test': typeof TestIndexRoute
+  '/whiteboard': typeof WhiteboardIndexRoute
   '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 export interface FileRoutesById {
@@ -100,6 +108,7 @@ export interface FileRoutesById {
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
   '/test/': typeof TestIndexRoute
+  '/whiteboard/': typeof WhiteboardIndexRoute
   '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 export interface FileRouteTypes {
@@ -113,6 +122,7 @@ export interface FileRouteTypes {
     | '/test/markdown-in-whiteboard'
     | '/test/whiteboard-in-whiteboard'
     | '/test/'
+    | '/whiteboard/'
     | '/test/subwhiteboard/$subwhiteboardid'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -124,6 +134,7 @@ export interface FileRouteTypes {
     | '/test/markdown-in-whiteboard'
     | '/test/whiteboard-in-whiteboard'
     | '/test'
+    | '/whiteboard'
     | '/test/subwhiteboard/$subwhiteboardid'
   id:
     | '__root__'
@@ -135,6 +146,7 @@ export interface FileRouteTypes {
     | '/test/markdown-in-whiteboard'
     | '/test/whiteboard-in-whiteboard'
     | '/test/'
+    | '/whiteboard/'
     | '/test/subwhiteboard/$subwhiteboardid'
   fileRoutesById: FileRoutesById
 }
@@ -147,6 +159,7 @@ export interface RootRouteChildren {
   TestMarkdownInWhiteboardRoute: typeof TestMarkdownInWhiteboardRoute
   TestWhiteboardInWhiteboardRoute: typeof TestWhiteboardInWhiteboardRoute
   TestIndexRoute: typeof TestIndexRoute
+  WhiteboardIndexRoute: typeof WhiteboardIndexRoute
   TestSubwhiteboardSubwhiteboardidRoute: typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 
@@ -164,6 +177,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/whiteboard/': {
+      id: '/whiteboard/'
+      path: '/whiteboard'
+      fullPath: '/whiteboard/'
+      preLoaderRoute: typeof WhiteboardIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/test/': {
@@ -227,6 +247,7 @@ const rootRouteChildren: RootRouteChildren = {
   TestMarkdownInWhiteboardRoute: TestMarkdownInWhiteboardRoute,
   TestWhiteboardInWhiteboardRoute: TestWhiteboardInWhiteboardRoute,
   TestIndexRoute: TestIndexRoute,
+  WhiteboardIndexRoute: WhiteboardIndexRoute,
   TestSubwhiteboardSubwhiteboardidRoute: TestSubwhiteboardSubwhiteboardidRoute,
 }
 export const routeTree = rootRouteImport

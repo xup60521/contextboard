@@ -1,4 +1,6 @@
+import { Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
+import { ExternalLink } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import {
 	BaseBoxShapeUtil,
@@ -173,6 +175,8 @@ function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 
 	latestPropsRef.current = shape.props;
 
+	const HEADER_HEIGHT = 28;
+
 	useLayoutEffect(() => {
 		const card = cardRef.current;
 		if (!card) return;
@@ -181,7 +185,8 @@ function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 
 		const syncHeight = () => {
 			frame = null;
-			const nextHeight = Math.max(64, Math.ceil(card.scrollHeight));
+			const contentHeight = Math.ceil(card.scrollHeight) - HEADER_HEIGHT;
+			const nextHeight = Math.max(64, contentHeight + HEADER_HEIGHT);
 			const latestProps = latestPropsRef.current;
 
 			if (Math.abs(nextHeight - latestProps.h) < 1) {
@@ -250,6 +255,33 @@ function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 					if (isEditing) editor.markEventAsHandled(e);
 				}}
 			>
+				<div
+					className="flex items-center justify-end border-b border-[#e8dcc0] px-2 py-1"
+					style={{ pointerEvents: "auto" }}
+					onPointerDown={(e) => {
+						if (isEditing) editor.markEventAsHandled(e);
+					}}
+				>
+					<Link
+						to="/test/markdown"
+						draggable={false}
+						onPointerDown={(e) => {
+							editor.markEventAsHandled(e);
+							e.stopPropagation();
+						}}
+						onPointerUp={(e) => {
+							editor.markEventAsHandled(e);
+							e.stopPropagation();
+						}}
+						onClick={(e) => {
+							editor.markEventAsHandled(e);
+							e.stopPropagation();
+						}}
+						className="flex size-5 items-center justify-center rounded text-[#8c7e5a] transition-colors hover:bg-[#e8dcc0] hover:text-[#5a4e30]"
+					>
+						<ExternalLink className="size-3.5" />
+					</Link>
+				</div>
 				<RichTextEditor
 					editable={isEditing}
 					content={initialContentRef.current}

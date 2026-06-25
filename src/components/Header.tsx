@@ -37,14 +37,13 @@ export default function Header() {
           >
             Test
           </Link>
-          <a
-            href="https://tanstack.com/start/latest/docs/framework/react/overview"
+          <Link
+            to="/whiteboard"
             className="nav-link"
-            target="_blank"
-            rel="noreferrer"
+            activeProps={{ className: 'nav-link is-active' }}
           >
-            Docs
-          </a>
+            Whiteboard
+          </Link>
           <details className="relative w-full sm:w-auto">
             <summary className="nav-link list-none cursor-pointer">
               Demos
