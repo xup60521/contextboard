@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { resolve } from 'node:path'
 
 const branch =
   process.env.WORKERS_CI_BRANCH ??
@@ -14,14 +15,19 @@ const productionBranch =
 
 const isPreviewBranch = Boolean(branch) && branch !== productionBranch
 
+const convexCliPath = resolve('node_modules/convex/bin/main.js')
+
 const deployArgs = [
-  'convex',
   'deploy',
   '--cmd=bun run build',
   '--cmd-url-env-var-name=VITE_CONVEX_URL',
 ]
 
 const env = { ...process.env }
+
+console.error(
+  `[build-cloudflare] branch=${branch ?? 'unknown'} productionBranch=${productionBranch} cli=${convexCliPath}`,
+)
 
 if (isPreviewBranch) {
   if (env.CONVEX_PREVIEW_DEPLOY_KEY) {
@@ -48,7 +54,7 @@ if (isPreviewBranch) {
   }
 }
 
-const result = spawnSync('bunx', deployArgs, {
+const result = spawnSync(process.execPath, [convexCliPath, ...deployArgs], {
   env,
   shell: process.platform === 'win32',
   stdio: 'inherit',
