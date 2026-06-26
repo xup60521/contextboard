@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useQuery } from "convex/react";
 import { ArrowUpRight, Crosshair, ExternalLink } from "lucide-react";
@@ -9,34 +9,55 @@ import {
 	DialogDescription,
 	DialogTitle,
 } from "#/components/ui/dialog";
+import { CARD_EDITOR_MAX_WIDTH } from "#/lib/constants";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { CardSearchResult } from "../../../convex/search";
 
 type CardPreviewDialogProps = {
-	card: CardSearchResult | null;
+	cardId: Id<"cards"> | null;
 	currentWhiteboardId: Id<"whiteboards"> | null;
 	onClose: () => void;
-	onFocus: (card: CardSearchResult) => void;
 };
 
 /**
- * In-place preview/edit popup for a card. Reuses the same debounced auto-save
- * editor as the full card page; closes on backdrop click or Escape (Radix).
+ * In-place preview/edit popup for a card. Takes only a `cardId`; the navigation
+ * context (which board holds the card's shape) is fetched alongside the card so
+ * the dialog can offer "focus on board" / "go to board" on its own. Reuses the
+ * same debounced auto-save editor as the full card page; closes on backdrop
+ * click or Escape (Radix).
  */
 export function CardPreviewDialog({
-	card,
+	cardId,
 	currentWhiteboardId,
 	onClose,
-	onFocus,
 }: CardPreviewDialogProps) {
-	const open = card !== null;
-	const data = useQuery(api.cards.get, card ? { cardId: card.id } : "skip");
+	const navigate = useNavigate();
+	const open = cardId !== null;
+	const data = useQuery(api.cards.get, cardId ? { cardId } : "skip");
+
 	// A card placed on a board has a shape we can navigate to. If that board is
 	// the one currently open we "Focus" (zoom in place); otherwise we "Go to" it.
-	const canNavigate = card?.shapeId != null;
+	const shapeId = data?.shapeId ?? null;
+	const boardWhiteboardId = data?.boardWhiteboardId ?? null;
+	const canNavigate = shapeId != null;
 	const isOnCurrentBoard =
-		canNavigate && card.boardWhiteboardId === currentWhiteboardId;
+		canNavigate && boardWhiteboardId === currentWhiteboardId;
+
+	function focusOnBoard() {
+		onClose();
+		if (boardWhiteboardId) {
+			void navigate({
+				to: "/whiteboard/$whiteboardId",
+				params: { whiteboardId: boardWhiteboardId },
+				search: shapeId ? { focus: shapeId } : {},
+			});
+		} else {
+			void navigate({
+				to: "/whiteboard",
+				search: shapeId ? { focus: shapeId } : {},
+			});
+		}
+	}
 
 	return (
 		<Dialog
@@ -47,7 +68,8 @@ export function CardPreviewDialog({
 		>
 			<DialogContent
 				showCloseButton={false}
-				className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+				className="flex max-h-[85vh] w-full flex-col gap-0 overflow-hidden p-0"
+				style={{ maxWidth: CARD_EDITOR_MAX_WIDTH }}
 			>
 				<DialogTitle className="sr-only">Card preview</DialogTitle>
 				<DialogDescription className="sr-only">
@@ -58,10 +80,10 @@ export function CardPreviewDialog({
 						{data?.card.derivedTitle || "Untitled card"}
 					</span>
 					<div className="flex shrink-0 items-center gap-1.5">
-						{card && canNavigate ? (
+						{canNavigate ? (
 							<button
 								type="button"
-								onClick={() => onFocus(card)}
+								onClick={focusOnBoard}
 								className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
 							>
 								{isOnCurrentBoard ? (
@@ -77,10 +99,10 @@ export function CardPreviewDialog({
 								)}
 							</button>
 						) : null}
-						{card ? (
+						{cardId ? (
 							<Link
 								to="/cards/$cardId"
-								params={{ cardId: card.id }}
+								params={{ cardId }}
 								onClick={onClose}
 								className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
 							>
@@ -101,6 +123,7 @@ export function CardPreviewDialog({
 						<CardEditorPane
 							cardId={data.card._id}
 							content={data.card.content as JSONContent}
+							whiteboardId={data.card.whiteboardId}
 							contentClassName="min-h-[50vh] bg-transparent"
 						/>
 					)}

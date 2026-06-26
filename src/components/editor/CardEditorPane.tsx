@@ -2,13 +2,17 @@ import type { JSONContent } from "@tiptap/core";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef } from "react";
 import { RichTextEditor } from "#/components/editor/RichTextEditor";
+import { useCardReferenceSupport } from "#/components/editor/useCardReferenceSupport";
 import { useImageUpload } from "#/components/editor/useImageUpload";
+import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 type CardEditorPaneProps = {
 	cardId: Id<"cards">;
 	content: JSONContent;
+	/** The card's home whiteboard, used for the empty-`@` recent-cards context. */
+	whiteboardId?: Id<"whiteboards"> | null;
 	className?: string;
 	contentClassName?: string;
 };
@@ -21,11 +25,14 @@ type CardEditorPaneProps = {
 export function CardEditorPane({
 	cardId,
 	content,
+	whiteboardId,
 	className = "notion-editor seamless",
 	contentClassName = "min-h-[60vh] bg-[var(--bg-base)]",
 }: CardEditorPaneProps) {
 	const updateContent = useMutation(api.cards.updateContent);
 	const handleImageUpload = useImageUpload();
+	const { support, previewCardId, closePreview } =
+		useCardReferenceSupport(whiteboardId);
 	const pendingContentRef = useRef<JSONContent | null>(null);
 	const saveTimerRef = useRef<number | null>(null);
 
@@ -62,13 +69,21 @@ export function CardEditorPane({
 	}, [flushSave]);
 
 	return (
-		<RichTextEditor
-			key={cardId}
-			content={content}
-			onChange={scheduleSave}
-			onImageUpload={handleImageUpload}
-			className={className}
-			contentClassName={contentClassName}
-		/>
+		<>
+			<RichTextEditor
+				key={cardId}
+				content={content}
+				onChange={scheduleSave}
+				onImageUpload={handleImageUpload}
+				cardReferenceSupport={support}
+				className={className}
+				contentClassName={contentClassName}
+			/>
+			<CardPreviewDialog
+				cardId={previewCardId}
+				currentWhiteboardId={whiteboardId ?? null}
+				onClose={closePreview}
+			/>
+		</>
 	);
 }

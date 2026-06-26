@@ -3,6 +3,7 @@ import { BubbleMenu } from "@tiptap/react/menus";
 import { Bold, Code, Italic, Link2, Strikethrough } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { cn } from "#/lib/utils";
+import { isTableCellSelection } from "./table/table-utils";
 
 type EditorBubbleMenuProps = {
 	editor: Editor;
@@ -66,6 +67,7 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
 			editor={editor}
 			shouldShow={({ editor: instance, from, to }) =>
 				from !== to &&
+				!isTableCellSelection(instance.state.selection) &&
 				!instance.isActive("codeBlock") &&
 				!instance.isActive("inlineMath") &&
 				!instance.isActive("blockMath")

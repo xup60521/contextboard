@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useQuery } from "convex/react";
 import { CardEditorPane } from "#/components/editor/CardEditorPane";
+import { CARD_EDITOR_MAX_WIDTH } from "#/lib/constants";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
@@ -24,8 +25,8 @@ function RouteComponent() {
 	}
 
 	return (
-		<main className="page-wrap py-6">
-			<header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+		<main>
+			<header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 bg-[var(--background)] px-4 py-2">
 				<nav className="flex min-w-0 items-center gap-2 text-sm">
 					<Link
 						to="/whiteboard"
@@ -76,11 +77,13 @@ function RouteComponent() {
 			</header>
 
 			<section
-            // className="island-shell rounded-2xl p-6 sm:p-8"
-            >
+				className="w-full px-4 pt-12"
+				style={{ maxWidth: CARD_EDITOR_MAX_WIDTH, marginInline: "auto" }}
+			>
 				<CardEditorPane
 					cardId={data.card._id}
 					content={data.card.content as JSONContent}
+					whiteboardId={data.card.whiteboardId}
 				/>
 			</section>
 		</main>

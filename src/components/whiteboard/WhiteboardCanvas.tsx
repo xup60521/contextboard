@@ -1,9 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import {
-	useMutation,
-	usePaginatedQuery,
-	useQuery,
-} from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
 	createContext,
 	useCallback,
@@ -45,6 +41,7 @@ import {
 	type MarkdownCardShape,
 	markdownWhiteboardShapeUtils,
 	type SubwhiteboardLinkShape,
+	WhiteboardCardContext,
 } from "./custom-shapes";
 import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import {
@@ -64,6 +61,8 @@ import {
 	singlePageTldrawOptions,
 	singlePageTldrawUiOverrides,
 } from "./tldraw-single-page";
+import { CardPreviewContext } from "../editor/card-reference/CardPreviewContext";
+import { CardPreviewDialog } from "../search/CardPreviewDialog";
 import "tldraw/tldraw.css";
 
 type BoardItemResult = {
@@ -223,6 +222,7 @@ export function WhiteboardCanvas({
 
 	const [editor, setEditor] = useState<Editor | null>(null);
 	const [loadedDrawingKey, setLoadedDrawingKey] = useState<string | null>(null);
+	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
 	const [whiteboardDeletePending, setWhiteboardDeletePending] = useState<{
 		itemId: Id<"boardItems">;
 		shape: ManagedWhiteboardShape;
@@ -927,22 +927,26 @@ export function WhiteboardCanvas({
 			</div>
 			<div className="absolute inset-0 overflow-hidden bg-[var(--background)]">
 				<WhiteboardContextMenuContext.Provider value={contextValue}>
-					<Tldraw
-						assets={assetStore}
-						components={whiteboardComponents}
-						onMount={(mountedEditor) => {
-							emptyDrawingSnapshotRef.current =
-								mountedEditor.store.getStoreSnapshot("document");
-							setEditor(mountedEditor);
+					<WhiteboardCardContext.Provider value={whiteboardId}>
+						<CardPreviewContext.Provider value={{ previewCardId, setPreviewCardId }}>
+							<Tldraw
+								assets={assetStore}
+								components={whiteboardComponents}
+								onMount={(mountedEditor) => {
+									emptyDrawingSnapshotRef.current =
+										mountedEditor.store.getStoreSnapshot("document");
+									setEditor(mountedEditor);
 
-							return () => {
-								setEditor(null);
-							};
-						}}
-						options={whiteboardOptions}
-						overrides={singlePageTldrawUiOverrides}
-						shapeUtils={markdownWhiteboardShapeUtils}
-					/>
+									return () => {
+										setEditor(null);
+									};
+								}}
+								options={whiteboardOptions}
+								overrides={singlePageTldrawUiOverrides}
+								shapeUtils={markdownWhiteboardShapeUtils}
+							/>
+						</CardPreviewContext.Provider>
+					</WhiteboardCardContext.Provider>
 				</WhiteboardContextMenuContext.Provider>
 			</div>
 			{overlayLabel && <WhiteboardLoadingOverlay label={overlayLabel} />}
@@ -975,6 +979,11 @@ export function WhiteboardCanvas({
 						setWhiteboardDeletePending(null);
 					}
 				}}
+			/>
+			<CardPreviewDialog
+				cardId={previewCardId}
+				currentWhiteboardId={whiteboardId}
+				onClose={() => setPreviewCardId(null)}
 			/>
 		</main>
 	);

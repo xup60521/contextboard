@@ -2,6 +2,7 @@ import { Extension } from "@tiptap/core";
 import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import MarkdownIt from "markdown-it";
+import { cardHref, parseCardIdFromHref } from "./card-reference/path";
 
 const md = new MarkdownIt({ breaks: true, html: false });
 
@@ -201,6 +202,21 @@ function looksLikeMarkdown(text: string): boolean {
 	return false;
 }
 
+/**
+ * Tags pasted `/cards/<id>` anchors as card references so they parse into
+ * card-link marks (in `custom` mode — the markdown author chose the label).
+ * External and other internal links are left untouched.
+ */
+function markCardReferenceLinks(container: HTMLElement): void {
+	for (const anchor of container.querySelectorAll("a[href]")) {
+		const cardId = parseCardIdFromHref(anchor.getAttribute("href"));
+		if (!cardId) continue;
+		anchor.setAttribute("href", cardHref(cardId));
+		anchor.setAttribute("data-card-id", cardId);
+		anchor.setAttribute("data-card-label-mode", "custom");
+	}
+}
+
 function escapeAttribute(value: string): string {
 	return value
 		.replace(/&/g, "&amp;")
@@ -232,6 +248,7 @@ export const MarkdownPaste = Extension.create({
 						const { state } = view;
 						const container = document.createElement("div");
 						container.innerHTML = html;
+						markCardReferenceLinks(container);
 
 						const slice = ProseMirrorDOMParser.fromSchema(
 							state.schema,

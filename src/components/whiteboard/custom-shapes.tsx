@@ -3,7 +3,9 @@ import type { JSONContent } from "@tiptap/core";
 import { useMutation } from "convex/react";
 import { ExternalLink } from "lucide-react";
 import {
+	createContext,
 	useCallback,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useRef,
@@ -28,8 +30,19 @@ import {
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { RichTextEditor } from "../editor/RichTextEditor";
+import { useCardPreviewContext } from "../editor/card-reference/CardPreviewContext";
+import { useCardReferenceSupport } from "../editor/useCardReferenceSupport";
 import { useImageUpload } from "../editor/useImageUpload";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
+
+/**
+ * The whiteboard a markdown card lives on, so its editor can offer card
+ * references scoped to the current board (empty-`@` recent cards). Provided by
+ * `WhiteboardCanvas`; null on the root board / when unavailable.
+ */
+export const WhiteboardCardContext = createContext<Id<"whiteboards"> | null>(
+	null,
+);
 
 export type TextCardShape = TLBaseShape<
 	"text-card",
@@ -224,6 +237,12 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	const isEditing = useIsEditing(shape.id);
 	const updateContent = useMutation(api.cards.updateContent);
 	const handleImageUpload = useImageUpload();
+	const boardWhiteboardId = useContext(WhiteboardCardContext);
+	const { previewCardId, setPreviewCardId } = useCardPreviewContext();
+	const { support } = useCardReferenceSupport(boardWhiteboardId, {
+		previewCardId,
+		setPreviewCardId,
+	});
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
 	const pendingContentRef = useRef<JSONContent | null>(null);
@@ -410,6 +429,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 						placeholder="Type '/' for commands"
 						onChange={scheduleSave}
 						onImageUpload={handleImageUpload}
+						cardReferenceSupport={support}
 						onReady={() => setIsEditorReady(true)}
 						defaultFocusPosition={
 							isEmptyCardContent(initialContentRef.current) ? "start" : "end"

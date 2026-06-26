@@ -23,6 +23,7 @@
     "@cloudflare/vite-plugin": "^1.26.0",
     "@convex-dev/react-query": "0.1.0",
     "@floating-ui/dom": "^1.7.6",
+    "@floating-ui/react": "^0.27.19",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-query": "latest",

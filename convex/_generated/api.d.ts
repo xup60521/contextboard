@@ -14,6 +14,7 @@ import type * as fileLifecycle from "../fileLifecycle.js";
 import type * as files from "../files.js";
 import type * as migrations from "../migrations.js";
 import type * as model_cardMetadata from "../model/cardMetadata.js";
+import type * as model_cardReferences from "../model/cardReferences.js";
 import type * as model_fileReferences from "../model/fileReferences.js";
 import type * as search from "../search.js";
 import type * as tldrawDocuments from "../tldrawDocuments.js";
@@ -33,6 +34,7 @@ declare const fullApi: ApiFromModules<{
   files: typeof files;
   migrations: typeof migrations;
   "model/cardMetadata": typeof model_cardMetadata;
+  "model/cardReferences": typeof model_cardReferences;
   "model/fileReferences": typeof model_fileReferences;
   search: typeof search;
   tldrawDocuments: typeof tldrawDocuments;

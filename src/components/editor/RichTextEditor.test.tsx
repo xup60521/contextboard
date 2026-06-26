@@ -1,9 +1,39 @@
 "use client";
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import type { JSONContent } from "@tiptap/core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { RichTextEditor } from "./RichTextEditor";
+
+if (!("getClientRects" in Text.prototype)) {
+	Object.defineProperty(Text.prototype, "getClientRects", {
+		value: () => [new DOMRect()],
+	});
+}
+
+if (!("getBoundingClientRect" in Text.prototype)) {
+	Object.defineProperty(Text.prototype, "getBoundingClientRect", {
+		value: () => new DOMRect(),
+	});
+}
+
+if (!("getClientRects" in Range.prototype)) {
+	Object.defineProperty(Range.prototype, "getClientRects", {
+		value: () => [new DOMRect()],
+	});
+}
+
+if (!("getBoundingClientRect" in Range.prototype)) {
+	Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+		value: () => new DOMRect(),
+	});
+}
 
 const INITIAL_CONTENT: JSONContent = {
 	type: "doc",
@@ -11,6 +41,86 @@ const INITIAL_CONTENT: JSONContent = {
 		{
 			type: "paragraph",
 			content: [{ type: "text", text: "Alpha Beta Gamma" }],
+		},
+	],
+};
+
+const TABLE_CONTENT: JSONContent = {
+	type: "doc",
+	content: [
+		{
+			type: "table",
+			content: [
+				{
+					type: "tableRow",
+					content: [
+						{
+							type: "tableHeader",
+							content: [
+								{
+									type: "paragraph",
+									content: [{ type: "text", text: "Name" }],
+								},
+							],
+						},
+						{
+							type: "tableHeader",
+							content: [
+								{
+									type: "paragraph",
+									content: [{ type: "text", text: "Value" }],
+								},
+							],
+						},
+					],
+				},
+				{
+					type: "tableRow",
+					content: [
+						{
+							type: "tableCell",
+							content: [
+								{
+									type: "paragraph",
+									content: [{ type: "text", text: "Alpha" }],
+								},
+							],
+						},
+						{
+							type: "tableCell",
+							content: [
+								{
+									type: "paragraph",
+									content: [{ type: "text", text: "1" }],
+								},
+							],
+						},
+					],
+				},
+				{
+					type: "tableRow",
+					content: [
+						{
+							type: "tableCell",
+							content: [
+								{
+									type: "paragraph",
+									content: [{ type: "text", text: "Beta" }],
+								},
+							],
+						},
+						{
+							type: "tableCell",
+							content: [
+								{
+									type: "paragraph",
+									content: [{ type: "text", text: "2" }],
+								},
+							],
+						},
+					],
+				},
+			],
 		},
 	],
 };
@@ -52,6 +162,18 @@ function getLatestDocument(onChange: ReturnType<typeof setup>["onChange"]) {
 	const latestCall = onChange.mock.calls.at(-1);
 	expect(latestCall).toBeDefined();
 	return latestCall?.[0];
+}
+
+function countTableRows(doc: JSONContent | undefined) {
+	return (
+		findNode(doc?.content, (node) => node.type === "table")?.content?.length ??
+		0
+	);
+}
+
+function countColumnsInFirstRow(doc: JSONContent | undefined) {
+	const table = findNode(doc?.content, (node) => node.type === "table");
+	return table?.content?.[0]?.content?.length ?? 0;
 }
 
 function findNode(
@@ -97,6 +219,76 @@ function selectNodeText(node: Node) {
 	selection.removeAllRanges();
 	selection.addRange(range);
 	return selection;
+}
+
+async function getEditorElement(
+	container: HTMLElement,
+	editable = true,
+): Promise<HTMLElement> {
+	let editor: HTMLElement | null = null;
+
+	await waitFor(() => {
+		editor = container.querySelector<HTMLElement>(
+			`.ProseMirror[contenteditable='${editable ? "true" : "false"}']`,
+		);
+		expect(editor).not.toBeNull();
+	});
+
+	if (!editor) {
+		throw new Error("TipTap editor was not rendered");
+	}
+
+	return editor;
+}
+
+function placeCaretInside(node: Node, offset = 0) {
+	const selection = window.getSelection();
+	expect(selection).not.toBeNull();
+	if (!selection) {
+		throw new Error("window.getSelection() returned null");
+	}
+
+	const range = document.createRange();
+	range.setStart(node, offset);
+	range.collapse(true);
+	selection.removeAllRanges();
+	selection.addRange(range);
+}
+
+async function focusTableCell(
+	container: HTMLElement,
+	text: string,
+	editable = true,
+) {
+	const editorElement = await getEditorElement(container, editable);
+	const textNode = Array.from(container.querySelectorAll("td, th"))
+		.map((cell) =>
+			cell.textContent === text ? cell.querySelector("p")?.firstChild : null,
+		)
+		.find(Boolean);
+	const cellElement = textNode?.parentElement?.closest("td, th");
+
+	expect(textNode).not.toBeNull();
+	if (!textNode) {
+		throw new Error(`Table cell "${text}" was not rendered`);
+	}
+	expect(cellElement).not.toBeNull();
+	if (!cellElement) {
+		throw new Error(`Table cell "${text}" container was not rendered`);
+	}
+
+	placeCaretInside(textNode, textNode.textContent?.length ?? 0);
+	fireEvent.focus(editorElement);
+	fireEvent.mouseUp(cellElement);
+	document.dispatchEvent(new Event("selectionchange"));
+	return cellElement;
+}
+
+async function activateTableControls(container: HTMLElement, text = "Alpha") {
+	const cellElement = await focusTableCell(container, text);
+	fireEvent.pointerMove(cellElement);
+	await screen.findByTestId("table-handles-overlay");
+	return cellElement;
 }
 
 describe("RichTextEditor - Markdown paste functionality", () => {
@@ -327,6 +519,38 @@ Hidden **bold** answer.
 		});
 	});
 
+	test("pasted /cards/ links become card references in custom mode", async () => {
+		const { container, onChange } = setup();
+
+		await paste(container, "See [My Card](/cards/abc123) here.");
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+
+		const doc = getLatestDocument(onChange);
+		const link = findTextNodeWithMark(doc?.content, "link");
+		const mark = link?.marks?.find((entry) => entry.type === "link");
+		expect(link?.text).toBe("My Card");
+		expect(mark?.attrs).toMatchObject({
+			href: "/cards/abc123",
+			cardId: "abc123",
+			cardLabelMode: "custom",
+		});
+	});
+
+	test("pasted external links stay plain links", async () => {
+		const { container, onChange } = setup();
+
+		await paste(container, "Visit [Example](https://example.com) now.");
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+
+		const doc = getLatestDocument(onChange);
+		const link = findTextNodeWithMark(doc?.content, "link");
+		const mark = link?.marks?.find((entry) => entry.type === "link");
+		expect(mark?.attrs?.href).toBe("https://example.com");
+		expect(mark?.attrs?.cardId ?? null).toBeNull();
+	});
+
 	test("does not clear selection outside the editor when editable becomes false", async () => {
 		const { container, rerender } = render(
 			<div>
@@ -370,5 +594,145 @@ Hidden **bold** answer.
 		});
 		expect(window.getSelection()?.rangeCount).toBe(1);
 		expect(window.getSelection()?.toString()).toBe("Outside selection");
+	});
+});
+
+describe("RichTextEditor - table controls", () => {
+	test("renders the visual insert trigger only in editable mode", async () => {
+		const { rerender } = render(
+			<RichTextEditor content={INITIAL_CONTENT} editable={true} />,
+		);
+
+		expect(
+			await screen.findByRole("button", { name: "Insert table" }),
+		).not.toBeNull();
+
+		rerender(<RichTextEditor content={INITIAL_CONTENT} editable={false} />);
+
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", { name: "Insert table" }),
+			).toBeNull();
+		});
+	});
+
+	test("inserts a selected table size from the visual grid", async () => {
+		const { onChange } = setup(INITIAL_CONTENT);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Insert table" }),
+		);
+		fireEvent.pointerEnter(
+			await screen.findByRole("button", { name: "Insert 2 by 4 table" }),
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Insert 2 by 4 table" }),
+		);
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+		const doc = getLatestDocument(onChange);
+		expect(countTableRows(doc)).toBe(2);
+		expect(countColumnsInFirstRow(doc)).toBe(4);
+	});
+
+	test("shows row and column handles in editable mode when a table is active", async () => {
+		const { container } = setup(TABLE_CONTENT);
+
+		await activateTableControls(container, "Alpha");
+
+		expect(
+			await screen.findByRole("button", { name: "Row 2 menu" }),
+		).not.toBeNull();
+		expect(screen.getByRole("button", { name: "Column 1 menu" })).not.toBeNull();
+		expect(screen.queryByRole("button", { name: "Table menu" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Delete table" })).toBeNull();
+	});
+
+	test("does not show overlays in read-only mode", async () => {
+		const { container } = render(
+			<RichTextEditor content={TABLE_CONTENT} editable={false} />,
+		);
+
+		const cellElement = await focusTableCell(container, "Alpha", false);
+		fireEvent.pointerMove(cellElement);
+
+		await waitFor(() => {
+			expect(
+				screen.queryByTestId("table-handles-overlay"),
+			).toBeNull();
+		});
+	});
+
+	test("adds a row below the current row", async () => {
+		const { container, onChange } = setup(TABLE_CONTENT);
+
+		await activateTableControls(container, "Alpha");
+		fireEvent.click(await screen.findByRole("button", { name: "Row 2 menu" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Add row below" }),
+		);
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+		expect(countTableRows(getLatestDocument(onChange))).toBe(4);
+	});
+
+	test("deletes the current row", async () => {
+		const { container, onChange } = setup(TABLE_CONTENT);
+
+		await activateTableControls(container, "Alpha");
+		fireEvent.click(await screen.findByRole("button", { name: "Row 2 menu" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Delete row" }));
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+		expect(countTableRows(getLatestDocument(onChange))).toBe(2);
+	});
+
+	test("adds a column to the right of the current column", async () => {
+		const { container, onChange } = setup(TABLE_CONTENT);
+
+		await activateTableControls(container, "Alpha");
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Column 1 menu" }),
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Add column right" }),
+		);
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+		expect(countColumnsInFirstRow(getLatestDocument(onChange))).toBe(3);
+	});
+
+	test("deletes the current column", async () => {
+		const { container, onChange } = setup(TABLE_CONTENT);
+
+		await activateTableControls(container, "Alpha");
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Column 1 menu" }),
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Delete column" }),
+		);
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+		expect(countColumnsInFirstRow(getLatestDocument(onChange))).toBe(1);
+		expect(
+			findNode(
+				getLatestDocument(onChange)?.content,
+				(node) => node.type === "text" && node.text === "Alpha",
+			),
+		).toBeUndefined();
+	});
+
+	test("extend buttons add a row and column", async () => {
+		const { container, onChange } = setup(TABLE_CONTENT);
+
+		await activateTableControls(container, "Alpha");
+		fireEvent.click(await screen.findByRole("button", { name: "Add row" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Add column" }));
+
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+		const doc = getLatestDocument(onChange);
+		expect(countTableRows(doc)).toBe(4);
+		expect(countColumnsInFirstRow(doc)).toBe(3);
 	});
 });

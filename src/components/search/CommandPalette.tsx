@@ -48,7 +48,7 @@ export function CommandPalette() {
 	const [query, setQuery] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
 	const [activeValue, setActiveValue] = useState("");
-	const [previewCard, setPreviewCard] = useState<CardSearchResult | null>(null);
+	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
 
 	// Global hotkeys: Ctrl/Cmd+O = global search, Ctrl/Cmd+P = search within the
 	// current whiteboard. Capture phase + stopPropagation so the keys reach us
@@ -148,29 +148,9 @@ export function CommandPalette() {
 	const openCardPreview = useCallback(
 		(card: CardSearchResult) => {
 			close();
-			setPreviewCard(card);
+			setPreviewCardId(card.id);
 		},
 		[close],
-	);
-
-	const focusCardOnBoard = useCallback(
-		(card: CardSearchResult) => {
-			close();
-			setPreviewCard(null);
-			if (card.boardWhiteboardId) {
-				void navigate({
-					to: "/whiteboard/$whiteboardId",
-					params: { whiteboardId: card.boardWhiteboardId },
-					search: card.shapeId ? { focus: card.shapeId } : {},
-				});
-			} else {
-				void navigate({
-					to: "/whiteboard",
-					search: card.shapeId ? { focus: card.shapeId } : {},
-				});
-			}
-		},
-		[close, navigate],
 	);
 
 	const openWhiteboard = useCallback(
@@ -278,10 +258,9 @@ export function CommandPalette() {
 			</Dialog>
 
 			<CardPreviewDialog
-				card={previewCard}
+				cardId={previewCardId}
 				currentWhiteboardId={currentWhiteboardId}
-				onClose={() => setPreviewCard(null)}
-				onFocus={focusCardOnBoard}
+				onClose={() => setPreviewCardId(null)}
 			/>
 		</>
 	);

@@ -2,6 +2,11 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
+import {
+	collectCardReferenceIds,
+	fetchCardTitles,
+	resolveCardReferenceTitles,
+} from "./model/cardReferences";
 
 const MAX_RESULTS_PER_KIND = 8;
 
@@ -31,6 +36,17 @@ export type WhiteboardSearchResult = {
 export type SearchResults = {
 	cards: CardSearchResult[];
 	whiteboards: WhiteboardSearchResult[];
+};
+
+/** A card suggestion offered when typing `@` inside a card editor. */
+export type CardReferenceSuggestion = {
+	id: Id<"cards">;
+	title: string;
+	preview: string;
+	/** The whiteboard whose canvas holds this card's shape (for navigate & focus). */
+	boardWhiteboardId: Id<"whiteboards"> | null;
+	/** The tldraw shape id of this card on its board, if placed. */
+	shapeId: string | null;
 };
 
 export const searchGlobal = query({
@@ -114,6 +130,57 @@ export const searchInWhiteboard = query({
 	},
 });
 
+export const searchCardsForReference = query({
+	args: {
+		term: v.string(),
+		whiteboardId: v.optional(v.id("whiteboards")),
+	},
+	handler: async (ctx, args): Promise<CardReferenceSuggestion[]> => {
+		const term = args.term.trim();
+		const whiteboardId = args.whiteboardId;
+
+		let cards: Doc<"cards">[];
+		if (term.length > 0) {
+			// Non-empty query: search globally across all cards.
+			cards = await ctx.db
+				.query("cards")
+				.withSearchIndex("search_text", (q) =>
+					q.search("plainText", term).eq("archivedAt", null),
+				)
+				.take(MAX_RESULTS_PER_KIND);
+		} else if (whiteboardId) {
+			// Empty query with whiteboard context: recent cards from that board.
+			cards = await ctx.db
+				.query("cards")
+				.withIndex("by_whiteboard_archived_updated", (q) =>
+					q.eq("whiteboardId", whiteboardId).eq("archivedAt", null),
+				)
+				.order("desc")
+				.take(MAX_RESULTS_PER_KIND);
+		} else {
+			// Empty query with no context: nothing to suggest.
+			return [];
+		}
+
+		return await Promise.all(
+			cards.map(async (card): Promise<CardReferenceSuggestion> => {
+				const item = await ctx.db
+					.query("boardItems")
+					.withIndex("by_card", (q) => q.eq("cardId", card._id))
+					.filter((q) => q.eq(q.field("archivedAt"), null))
+					.first();
+				return {
+					id: card._id,
+					title: card.derivedTitle,
+					preview: card.preview,
+					boardWhiteboardId: item?.whiteboardId ?? card.whiteboardId,
+					shapeId: item?.shapeId ?? null,
+				};
+			}),
+		);
+	},
+});
+
 async function enrichResults(
 	ctx: QueryCtx,
 	cards: Doc<"cards">[],
@@ -126,12 +193,20 @@ async function enrichResults(
 				.withIndex("by_card", (q) => q.eq("cardId", card._id))
 				.filter((q) => q.eq(q.field("archivedAt"), null))
 				.first();
+			const referenceIds = collectCardReferenceIds(card.content);
+			const content =
+				referenceIds.length > 0
+					? resolveCardReferenceTitles(
+							card.content,
+							await fetchCardTitles(ctx, referenceIds),
+						)
+					: card.content;
 			return {
 				kind: "card",
 				id: card._id,
 				title: card.derivedTitle,
 				preview: card.preview,
-				content: card.content,
+				content,
 				boardWhiteboardId: item?.whiteboardId ?? card.whiteboardId,
 				shapeId: item?.shapeId ?? null,
 			};

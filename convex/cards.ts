@@ -3,6 +3,12 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { reconcileCardFileRefs } from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
+import {
+	collectCardReferenceIds,
+	fetchCardTitles,
+	normalizeCardReferences,
+	resolveCardReferenceTitles,
+} from "./model/cardReferences";
 
 const MAX_CARD_CONTENT_BYTES = 250_000;
 
@@ -27,7 +33,32 @@ export const get = query({
 			breadcrumbs.push(whiteboard);
 		}
 
-		return { card, whiteboard, breadcrumbs };
+		// Resolve `auto` card references to their targets' current titles so a
+		// renamed card shows its latest name on a fresh read.
+		const referenceIds = collectCardReferenceIds(card.content);
+		const content =
+			referenceIds.length > 0
+				? resolveCardReferenceTitles(
+						card.content,
+						await fetchCardTitles(ctx, referenceIds),
+					)
+				: card.content;
+
+		// The card's placement on a board, so callers (e.g. the preview dialog)
+		// can offer "focus on board" / "go to board".
+		const boardItem = await ctx.db
+			.query("boardItems")
+			.withIndex("by_card", (q) => q.eq("cardId", card._id))
+			.filter((q) => q.eq(q.field("archivedAt"), null))
+			.first();
+
+		return {
+			card: { ...card, content },
+			whiteboard,
+			breadcrumbs,
+			boardWhiteboardId: boardItem?.whiteboardId ?? card.whiteboardId,
+			shapeId: boardItem?.shapeId ?? null,
+		};
 	},
 });
 
@@ -50,7 +81,21 @@ export const updateContent = mutation({
 			throw new Error("Card was updated elsewhere");
 		}
 
-		const nextContent = await reconcileCardFileRefs(ctx, card._id, args.content);
+		const reconciledContent = await reconcileCardFileRefs(
+			ctx,
+			card._id,
+			args.content,
+		);
+		// Normalize card-reference link marks: canonical href, auto/custom label
+		// tracking, and refreshed resolved titles.
+		const referenceIds = collectCardReferenceIds(reconciledContent);
+		const nextContent =
+			referenceIds.length > 0
+				? normalizeCardReferences(
+						reconciledContent,
+						await fetchCardTitles(ctx, referenceIds),
+					)
+				: reconciledContent;
 		const serializedContent = JSON.stringify(nextContent);
 		if (serializedContent.length > MAX_CARD_CONTENT_BYTES) {
 			throw new Error("Card content is too large");

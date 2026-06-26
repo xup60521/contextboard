@@ -17,6 +17,9 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "#/lib/utils";
+import { CardLink } from "./card-reference/card-link";
+import { CardReferenceExtension } from "./card-reference/card-reference";
+import type { CardReferenceSupport } from "./card-reference/types";
 import { EditorBubbleMenu } from "./EditorBubbleMenu";
 import { ImageInput, imageInputPluginKey } from "./ImageInputExtension";
 import {
@@ -30,6 +33,7 @@ import {
 import { MathEditor, type MathSelection } from "./MathEditor";
 import { ImageCommand } from "./slash/ImageCommand";
 import { SlashCommand } from "./slash/slash-command";
+import { TableHandlesOverlay } from "./table/TableHandlesOverlay";
 
 type RichTextEditorProps = {
 	/** Initial document (TipTap JSON). The editor is the source of truth after mount. */
@@ -52,6 +56,12 @@ type RichTextEditorProps = {
 	 * as base64 data URLs, and the `/upload image` slash command is enabled.
 	 */
 	onImageUpload?: ImageUploadHandler;
+	/**
+	 * Connects the editor to card references: the `@` picker and
+	 * modifier-click-to-preview. When omitted, the editor stays free of Convex
+	 * dependencies (card-reference link marks still render and round-trip).
+	 */
+	cardReferenceSupport?: CardReferenceSupport;
 };
 
 /** Reads a local file as a base64 data URL (fallback when no uploader is set). */
@@ -210,6 +220,7 @@ export function RichTextEditor({
 	defaultFocusPosition = "end",
 	selectContentOnFocus = false,
 	onImageUpload,
+	cardReferenceSupport,
 }: RichTextEditorProps) {
 	const [mathSelection, setMathSelection] = useState<MathSelection | null>(
 		null,
@@ -224,6 +235,12 @@ export function RichTextEditor({
 	// through a ref so paste/drop always use the current handler.
 	const onImageUploadRef = useRef(onImageUpload);
 	onImageUploadRef.current = onImageUpload;
+	// Same pattern for card-reference support, so the `@` search and
+	// modifier-click-to-preview always use the current handlers.
+	const cardReferenceSupportRef = useRef(cardReferenceSupport);
+	cardReferenceSupportRef.current = cardReferenceSupport;
+	// Whether to register the `@` picker is decided once, at editor creation.
+	const enableCardReferencesRef = useRef(Boolean(cardReferenceSupport));
 
 	function openMathSelection(selection: MathSelection | null) {
 		mathSelectionRef.current = selection;
@@ -234,7 +251,17 @@ export function RichTextEditor({
 		// Required under TanStack Start SSR to avoid a hydration mismatch.
 		immediatelyRender: false,
 		extensions: [
-			StarterKit,
+			StarterKit.configure({
+				// Card references handle their own open behavior (modifier-click);
+				// plain clicks must not navigate away from the editor.
+				link: { openOnClick: false },
+			}),
+			// Always register the card-reference link metadata so card links keep
+			// their identity even without connected support (e.g. read-only views).
+			CardLink.configure({
+				onOpenPreview: (cardId) =>
+					cardReferenceSupportRef.current?.onOpenPreview(cardId),
+			}),
 			EditorImage.configure({
 				inline: false,
 				allowBase64: true,
@@ -258,47 +285,53 @@ export function RichTextEditor({
 				onDrop: (editor, files, pos) => {
 					for (const file of files) {
 						if (!file.type.startsWith("image/")) continue;
-						void resolveImageSrc(file, onImageUploadRef.current).then((image) => {
-							if (!image) return;
-							editor
-								.chain()
-								.focus()
-								.command(({ tr, commands }) => {
-									const safePos = Math.min(pos, tr.doc.content.size);
-									return commands.insertContentAt(safePos, {
-										type: "image",
-										attrs: {
-											src: image.src,
-											...(image.fileId ? { fileId: image.fileId } : {}),
-										},
-									});
-								})
-								.run();
-						});
+						void resolveImageSrc(file, onImageUploadRef.current).then(
+							(image) => {
+								if (!image) return;
+								editor
+									.chain()
+									.focus()
+									.command(({ tr, commands }) => {
+										const safePos = Math.min(pos, tr.doc.content.size);
+										return commands.insertContentAt(safePos, {
+											type: "image",
+											attrs: {
+												src: image.src,
+												...(image.fileId ? { fileId: image.fileId } : {}),
+											},
+										});
+									})
+									.run();
+							},
+						);
 					}
 				},
 				onPaste: (editor, files) => {
 					for (const file of files) {
 						if (!file.type.startsWith("image/")) continue;
-						void resolveImageSrc(file, onImageUploadRef.current).then((image) => {
-							if (!image) return;
-							editor
-								.chain()
-								.focus()
-								.insertContent({
-									type: "image",
-									attrs: {
-										src: image.src,
-										...(image.fileId ? { fileId: image.fileId } : {}),
-									},
-								})
-								.run();
-						});
+						void resolveImageSrc(file, onImageUploadRef.current).then(
+							(image) => {
+								if (!image) return;
+								editor
+									.chain()
+									.focus()
+									.insertContent({
+										type: "image",
+										attrs: {
+											src: image.src,
+											...(image.fileId ? { fileId: image.fileId } : {}),
+										},
+									})
+									.run();
+							},
+						);
 					}
 				},
 			}),
 			TableKit.configure({
 				table: {
+					resizable: true,
+					cellMinWidth: 96,
 					HTMLAttributes: {
 						class: "editor-table",
 					},
@@ -356,6 +389,16 @@ export function RichTextEditor({
 			SlashCommand,
 			// Only enable the file-picker upload command when an uploader exists.
 			...(onImageUpload ? [createImageUploadExtension(onImageUpload)] : []),
+			// Only enable the `@` picker when card-reference support is wired in.
+			...(enableCardReferencesRef.current
+				? [
+						CardReferenceExtension.configure({
+							search: (query, signal) =>
+								cardReferenceSupportRef.current?.search(query, signal) ??
+								Promise.resolve([]),
+						}),
+					]
+				: []),
 		],
 		content: content ?? "",
 		editorProps: {
@@ -478,14 +521,42 @@ export function RichTextEditor({
 		};
 	}, [editor, onReady]);
 
+	// Toggle `ctrl-holding` class on the editor shell when Ctrl/Meta is held,
+	// so card-reference links show a pointer cursor (signalling the modifier
+	// gesture opens the preview).
+	useEffect(() => {
+		if (!editor) return;
+
+		function onKeyChange(event: KeyboardEvent) {
+			const active = event.ctrlKey || event.metaKey;
+			containerRef.current?.classList.toggle("ctrl-holding", active);
+		}
+
+		document.addEventListener("keydown", onKeyChange);
+		document.addEventListener("keyup", onKeyChange);
+
+		return () => {
+			document.removeEventListener("keydown", onKeyChange);
+			document.removeEventListener("keyup", onKeyChange);
+		};
+	}, [editor]);
+
 	if (!editor) {
 		return null;
 	}
 
 	return (
-		<div ref={containerRef} className={cn(className, "cursor-text")}>
+		<div
+			ref={containerRef}
+			className={cn(className, "rich-text-editor-shell relative cursor-text")}
+		>
 			<EditorBubbleMenu editor={editor} />
 			<EditorContent editor={editor} />
+			{editable && (
+				<>
+					<TableHandlesOverlay editor={editor} containerRef={containerRef} />
+				</>
+			)}
 			{imageInputPos !== null && <ImageCommand editor={editor} />}
 			{mathSelection && (
 				<MathEditor
