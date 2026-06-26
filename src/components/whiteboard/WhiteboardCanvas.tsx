@@ -820,7 +820,7 @@ export function WhiteboardCanvas({
 	const displayedBreadcrumbs = whiteboardId ? (breadcrumbs ?? []) : [];
 
 	return (
-		<main className="relative h-[calc(100dvh-80px)] min-h-[620px] w-full overflow-hidden bg-[var(--background)]">
+		<main className="relative h-dvh min-h-[620px] w-full overflow-hidden bg-[var(--background)]">
 			<div className="pointer-events-none absolute left-1/2 top-2 z-10 flex max-w-[min(92vw,40rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-sm text-[var(--card-foreground)] shadow-sm">
 				<nav className="pointer-events-auto flex min-w-0 items-center gap-2">
 					<Link

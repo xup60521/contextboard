@@ -49,13 +49,14 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				<script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
 				<HeadContent />
 			</head>
-			<body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">
+			<body className="font-sans antialiased h-screen [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">
 				<ConvexProvider>
 					{children}
 					<CommandPalette />
 					<TanStackDevtools
 						config={{
 							position: "bottom-right",
+                            
 						}}
 						plugins={[
 							{
