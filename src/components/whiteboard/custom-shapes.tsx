@@ -28,6 +28,7 @@ import {
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { RichTextEditor } from "../editor/RichTextEditor";
+import { useImageUpload } from "../editor/useImageUpload";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
 
 export type TextCardShape = TLBaseShape<
@@ -222,6 +223,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
 	const updateContent = useMutation(api.cards.updateContent);
+	const handleImageUpload = useImageUpload();
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
 	const pendingContentRef = useRef<JSONContent | null>(null);
@@ -407,6 +409,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 						contentClassName="min-h-12 pr-7"
 						placeholder="Type '/' for commands"
 						onChange={scheduleSave}
+						onImageUpload={handleImageUpload}
 						onReady={() => setIsEditorReady(true)}
 						defaultFocusPosition={
 							isEmptyCardContent(initialContentRef.current) ? "start" : "end"

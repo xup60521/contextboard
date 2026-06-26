@@ -1,6 +1,7 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { reconcileCardFileRefs } from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
 
 const MAX_CARD_CONTENT_BYTES = 250_000;
@@ -49,15 +50,16 @@ export const updateContent = mutation({
 			throw new Error("Card was updated elsewhere");
 		}
 
-		const serializedContent = JSON.stringify(args.content);
+		const nextContent = await reconcileCardFileRefs(ctx, card._id, args.content);
+		const serializedContent = JSON.stringify(nextContent);
 		if (serializedContent.length > MAX_CARD_CONTENT_BYTES) {
 			throw new Error("Card content is too large");
 		}
 
 		const now = Date.now();
-		const metadata = deriveCardMetadata(args.content);
+		const metadata = deriveCardMetadata(nextContent);
 		await ctx.db.patch(card._id, {
-			content: args.content,
+			content: nextContent,
 			derivedTitle: metadata.derivedTitle,
 			plainText: metadata.plainText,
 			preview: metadata.preview,

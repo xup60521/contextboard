@@ -2,6 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef } from "react";
 import { RichTextEditor } from "#/components/editor/RichTextEditor";
+import { useImageUpload } from "#/components/editor/useImageUpload";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
@@ -24,6 +25,7 @@ export function CardEditorPane({
 	contentClassName = "min-h-[60vh] bg-[var(--bg-base)]",
 }: CardEditorPaneProps) {
 	const updateContent = useMutation(api.cards.updateContent);
+	const handleImageUpload = useImageUpload();
 	const pendingContentRef = useRef<JSONContent | null>(null);
 	const saveTimerRef = useRef<number | null>(null);
 
@@ -64,6 +66,7 @@ export function CardEditorPane({
 			key={cardId}
 			content={content}
 			onChange={scheduleSave}
+			onImageUpload={handleImageUpload}
 			className={className}
 			contentClassName={contentClassName}
 		/>

@@ -7,6 +7,8 @@ import {
 	DetailsContent,
 	DetailsSummary,
 } from "@tiptap/extension-details";
+import FileHandler from "@tiptap/extension-file-handler";
+import Image from "@tiptap/extension-image";
 import { Mathematics } from "@tiptap/extension-mathematics";
 import Placeholder from "@tiptap/extension-placeholder";
 import { TableKit } from "@tiptap/extension-table";
@@ -14,14 +16,20 @@ import { NodeSelection, type Transaction } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
+import { cn } from "#/lib/utils";
 import { EditorBubbleMenu } from "./EditorBubbleMenu";
+import { ImageInput, imageInputPluginKey } from "./ImageInputExtension";
+import {
+	createImageUploadExtension,
+	type ImageUploadHandler,
+} from "./ImageUploadExtension";
 import {
 	MarkdownPaste,
 	skipMathEditorAutoOpenMeta,
 } from "./MarkdownPasteExtension";
 import { MathEditor, type MathSelection } from "./MathEditor";
+import { ImageCommand } from "./slash/ImageCommand";
 import { SlashCommand } from "./slash/slash-command";
-import { cn } from "#/lib/utils";
 
 type RichTextEditorProps = {
 	/** Initial document (TipTap JSON). The editor is the source of truth after mount. */
@@ -38,11 +46,62 @@ type RichTextEditorProps = {
 	defaultFocusPosition?: "start" | "end";
 	/** When true, select all content in the first node on focus (e.g. to let user replace a placeholder title). */
 	selectContentOnFocus?: boolean;
+	/**
+	 * Uploads a pasted/dropped/picked image and resolves to its URL. When
+	 * provided, images are stored externally (Convex) instead of being embedded
+	 * as base64 data URLs, and the `/upload image` slash command is enabled.
+	 */
+	onImageUpload?: ImageUploadHandler;
 };
+
+/** Reads a local file as a base64 data URL (fallback when no uploader is set). */
+function readFileAsDataUrl(file: File): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result));
+		reader.onerror = () => reject(reader.error);
+		reader.readAsDataURL(file);
+	});
+}
+
+/**
+ * Resolves an image file to an `src`: uploads it when an uploader is provided,
+ * otherwise falls back to an inline base64 data URL. Returns `null` if an upload
+ * fails so the caller can skip insertion.
+ */
+async function resolveImageSrc(
+	file: File,
+	upload: ImageUploadHandler | undefined,
+): Promise<{ src: string; fileId?: string | null } | null> {
+	if (!upload) {
+		return { src: await readFileAsDataUrl(file) };
+	}
+
+	try {
+		return await upload(file);
+	} catch (error) {
+		console.error("Image upload failed", error);
+		return null;
+	}
+}
 
 type MathCandidate = MathSelection & {
 	nodeSize: number;
 };
+
+const EditorImage = Image.extend({
+	addAttributes() {
+		return {
+			...this.parent?.(),
+			fileId: {
+				default: null,
+				parseHTML: (element) => element.getAttribute("data-file-id"),
+				renderHTML: (attributes) =>
+					attributes.fileId ? { "data-file-id": attributes.fileId } : {},
+			},
+		};
+	},
+});
 
 function clampPosition(pos: number, max: number) {
 	return Math.min(Math.max(pos, 0), max);
@@ -150,14 +209,21 @@ export function RichTextEditor({
 	contentClassName = "min-h-[60vh]",
 	defaultFocusPosition = "end",
 	selectContentOnFocus = false,
+	onImageUpload,
 }: RichTextEditorProps) {
 	const [mathSelection, setMathSelection] = useState<MathSelection | null>(
 		null,
 	);
+	const [imageInputPos, setImageInputPos] = useState<number | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const mathSelectionRef = useRef<MathSelection | null>(null);
+	const imageInputPosRef = useRef<number | null>(null);
 	const didNotifyReadyRef = useRef(false);
 	const wasEditableRef = useRef(editable);
+	// `useEditor` captures config once at creation; read the latest uploader
+	// through a ref so paste/drop always use the current handler.
+	const onImageUploadRef = useRef(onImageUpload);
+	onImageUploadRef.current = onImageUpload;
 
 	function openMathSelection(selection: MathSelection | null) {
 		mathSelectionRef.current = selection;
@@ -169,6 +235,68 @@ export function RichTextEditor({
 		immediatelyRender: false,
 		extensions: [
 			StarterKit,
+			EditorImage.configure({
+				inline: false,
+				allowBase64: true,
+				resize: {
+					enabled: true,
+					directions: ["top", "bottom", "left", "right"],
+					minWidth: 50,
+					minHeight: 50,
+				},
+				HTMLAttributes: {
+					class: "editor-image",
+				},
+			}),
+			FileHandler.configure({
+				allowedMimeTypes: [
+					"image/jpeg",
+					"image/png",
+					"image/gif",
+					"image/webp",
+				],
+				onDrop: (editor, files, pos) => {
+					for (const file of files) {
+						if (!file.type.startsWith("image/")) continue;
+						void resolveImageSrc(file, onImageUploadRef.current).then((image) => {
+							if (!image) return;
+							editor
+								.chain()
+								.focus()
+								.command(({ tr, commands }) => {
+									const safePos = Math.min(pos, tr.doc.content.size);
+									return commands.insertContentAt(safePos, {
+										type: "image",
+										attrs: {
+											src: image.src,
+											...(image.fileId ? { fileId: image.fileId } : {}),
+										},
+									});
+								})
+								.run();
+						});
+					}
+				},
+				onPaste: (editor, files) => {
+					for (const file of files) {
+						if (!file.type.startsWith("image/")) continue;
+						void resolveImageSrc(file, onImageUploadRef.current).then((image) => {
+							if (!image) return;
+							editor
+								.chain()
+								.focus()
+								.insertContent({
+									type: "image",
+									attrs: {
+										src: image.src,
+										...(image.fileId ? { fileId: image.fileId } : {}),
+									},
+								})
+								.run();
+						});
+					}
+				},
+			}),
 			TableKit.configure({
 				table: {
 					HTMLAttributes: {
@@ -203,6 +331,7 @@ export function RichTextEditor({
 				},
 			}),
 			MarkdownPaste,
+			ImageInput,
 			Placeholder.configure({
 				placeholder: placeholder ?? "Type '/' for commands",
 			}),
@@ -225,6 +354,8 @@ export function RichTextEditor({
 				},
 			}),
 			SlashCommand,
+			// Only enable the file-picker upload command when an uploader exists.
+			...(onImageUpload ? [createImageUploadExtension(onImageUpload)] : []),
 		],
 		content: content ?? "",
 		editorProps: {
@@ -254,6 +385,15 @@ export function RichTextEditor({
 			},
 		},
 		onTransaction: ({ transaction }) => {
+			if (editor) {
+				const imgState = imageInputPluginKey.getState(editor.state);
+				const imgPos = imgState?.pos ?? null;
+				if (imgPos !== imageInputPosRef.current) {
+					imageInputPosRef.current = imgPos;
+					setImageInputPos(imgPos);
+				}
+			}
+
 			if (mathSelectionRef.current) {
 				return;
 			}
@@ -346,6 +486,7 @@ export function RichTextEditor({
 		<div ref={containerRef} className={cn(className, "cursor-text")}>
 			<EditorBubbleMenu editor={editor} />
 			<EditorContent editor={editor} />
+			{imageInputPos !== null && <ImageCommand editor={editor} />}
 			{mathSelection && (
 				<MathEditor
 					key={mathSelection.pos}

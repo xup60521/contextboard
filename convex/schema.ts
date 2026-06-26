@@ -80,6 +80,38 @@ export default defineSchema({
 		updatedAt: v.number(),
 	}).index("by_whiteboard", ["whiteboardId"]),
 
+	files: defineTable({
+		storageId: v.id("_storage"),
+		url: v.string(),
+		kind: v.literal("image"),
+		status: v.union(
+			v.literal("active"),
+			v.literal("pending_delete"),
+			v.literal("deleted"),
+		),
+		refCount: v.number(),
+		contentType: v.optional(v.string()),
+		size: v.optional(v.number()),
+		sha256: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+		pendingDeleteAt: v.optional(v.union(v.number(), v.null())),
+		deletedAt: v.optional(v.union(v.number(), v.null())),
+	})
+		.index("by_storageId", ["storageId"])
+		.index("by_status_pendingDeleteAt", ["status", "pendingDeleteAt"])
+		.index("by_url", ["url"]),
+
+	fileReferences: defineTable({
+		fileId: v.id("files"),
+		targetKey: v.string(),
+		targetType: v.union(v.literal("card"), v.literal("tldrawDocument")),
+		createdAt: v.number(),
+	})
+		.index("by_targetKey", ["targetKey"])
+		.index("by_fileId_targetKey", ["fileId", "targetKey"])
+		.index("by_fileId", ["fileId"]),
+
 	todos: defineTable({
 		text: v.string(),
 		completed: v.boolean(),

@@ -42,6 +42,7 @@ async function paste(container: HTMLElement, text: string) {
 
 	fireEvent.paste(editorElement, {
 		clipboardData: {
+			files: [],
 			getData: (type: string) => (type === "text/plain" ? text : ""),
 		},
 	});

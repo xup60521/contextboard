@@ -1,10 +1,15 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import {
+	useMutation,
+	usePaginatedQuery,
+	useQuery,
+} from "convex/react";
 import {
 	createContext,
 	useCallback,
 	useContext,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -13,6 +18,7 @@ import {
 	DefaultContextMenuContent,
 	type Editor,
 	pointInPolygon,
+	type TLAssetStore,
 	type TLComponents,
 	type TLCursor,
 	type TLEventInfo,
@@ -33,12 +39,14 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { getThemeMode, setThemeMode, type ThemeMode } from "../../lib/theme";
+import { uploadImageToConvex } from "../editor/ImageUpload";
 import { ControlledTldrawContextMenu } from "./ControlledTldrawContextMenu";
 import {
 	type MarkdownCardShape,
 	markdownWhiteboardShapeUtils,
 	type SubwhiteboardLinkShape,
 } from "./custom-shapes";
+import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import {
 	frameFromItem,
 	resolveFrameForHydration,
@@ -188,13 +196,37 @@ export function WhiteboardCanvas({
 	);
 	const updateItemFrame = useMutation(api.canvas.updateItemFrame);
 	const archiveItem = useMutation(api.canvas.archiveItem);
-	const restoreOrAdoptCardItem = useMutation(
-		api.canvas.restoreOrAdoptCardItem,
-	);
+	const restoreOrAdoptCardItem = useMutation(api.canvas.restoreOrAdoptCardItem);
 	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
+	const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+	const finalizeUpload = useMutation(api.files.finalizeUpload);
+
+	// Store dropped/pasted images in Convex instead of inlining them as base64 in
+	// the tldraw snapshot. tldraw's default file handler computes the asset
+	// metadata and delegates the upload here via `editor.uploadAsset`.
+	const assetStore = useMemo<TLAssetStore>(
+		() => ({
+			async upload(_asset, file) {
+				const uploaded = await uploadImageToConvex(
+					generateUploadUrl,
+					finalizeUpload,
+					file,
+				);
+				return {
+					src: uploaded.src,
+					meta: { fileId: uploaded.fileId },
+				};
+			},
+		}),
+		[finalizeUpload, generateUploadUrl],
+	);
 
 	const [editor, setEditor] = useState<Editor | null>(null);
 	const [loadedDrawingKey, setLoadedDrawingKey] = useState<string | null>(null);
+	const [whiteboardDeletePending, setWhiteboardDeletePending] = useState<{
+		itemId: Id<"boardItems">;
+		shape: ManagedWhiteboardShape;
+	} | null>(null);
 	const themeMode = useThemeMode();
 	const whiteboardKey = getWhiteboardKey(whiteboardId);
 	const hydratingRef = useRef(false);
@@ -368,6 +400,7 @@ export function WhiteboardCanvas({
 		pendingEditShapeIdRef.current = null;
 		pendingDrawingSaveRef.current = null;
 		pendingCameraResetRef.current = true;
+		setWhiteboardDeletePending(null);
 		setLoadedDrawingKey(null);
 		loadedDrawingKeyRef.current = null;
 	}, [editor, flushDrawingSave, flushFrameUpdates, whiteboardId]);
@@ -550,13 +583,11 @@ export function WhiteboardCanvas({
 
 					const itemId = itemIdByShapeIdRef.current.get(shape.id);
 					if (itemId) {
-						const deleteCards =
-							shape.type === "subwhiteboard-link"
-								? window.confirm(
-										"Delete cards inside this whiteboard too?\n\nOK: delete cards\nCancel: keep cards as orphan cards",
-									)
-								: true;
-						void archiveItem({ itemId, deleteCards });
+						if (shape.type === "subwhiteboard-link") {
+							setWhiteboardDeletePending({ itemId, shape });
+						} else {
+							void archiveItem({ itemId, deleteCards: true });
+						}
 					}
 				}
 
@@ -682,7 +713,10 @@ export function WhiteboardCanvas({
 
 		const handlePointerDown = (event: PointerEvent) => {
 			if (event.button !== 2) return;
-			if (!(event.target instanceof Node) || !container.contains(event.target)) {
+			if (
+				!(event.target instanceof Node) ||
+				!container.contains(event.target)
+			) {
 				return;
 			}
 
@@ -754,7 +788,10 @@ export function WhiteboardCanvas({
 				Date.now() < suppressContextMenuUntilRef.current;
 
 			if (!shouldSuppress) return;
-			if (!(event.target instanceof Node) || !container.contains(event.target)) {
+			if (
+				!(event.target instanceof Node) ||
+				!container.contains(event.target)
+			) {
 				return;
 			}
 
@@ -777,7 +814,11 @@ export function WhiteboardCanvas({
 			container.removeEventListener("pointerdown", handlePointerDown, true);
 			ownerDocument.removeEventListener("pointermove", handlePointerMove, true);
 			ownerDocument.removeEventListener("pointerup", handlePointerUp, true);
-			ownerDocument.removeEventListener("pointercancel", handlePointerCancel, true);
+			ownerDocument.removeEventListener(
+				"pointercancel",
+				handlePointerCancel,
+				true,
+			);
 			container.removeEventListener("contextmenu", handleContextMenu, true);
 			ownerWindow?.removeEventListener("blur", handleWindowBlur);
 			finishRightDragPan();
@@ -881,6 +922,7 @@ export function WhiteboardCanvas({
 			<div className="absolute inset-0 overflow-hidden bg-[var(--background)]">
 				<WhiteboardContextMenuContext.Provider value={contextValue}>
 					<Tldraw
+						assets={assetStore}
 						components={whiteboardComponents}
 						onMount={(mountedEditor) => {
 							emptyDrawingSnapshotRef.current =
@@ -898,6 +940,36 @@ export function WhiteboardCanvas({
 				</WhiteboardContextMenuContext.Provider>
 			</div>
 			{overlayLabel && <WhiteboardLoadingOverlay label={overlayLabel} />}
+			<DeleteWhiteboardDialog
+				open={whiteboardDeletePending !== null}
+				onCancel={() => {
+					if (!whiteboardDeletePending) return;
+					hydratingRef.current = true;
+					editor?.createShape(whiteboardDeletePending.shape);
+					window.setTimeout(() => {
+						hydratingRef.current = false;
+					}, 0);
+					setWhiteboardDeletePending(null);
+				}}
+				onKeepCards={() => {
+					if (whiteboardDeletePending) {
+						void archiveItem({
+							itemId: whiteboardDeletePending.itemId,
+							deleteCards: false,
+						});
+						setWhiteboardDeletePending(null);
+					}
+				}}
+				onDeleteCards={() => {
+					if (whiteboardDeletePending) {
+						void archiveItem({
+							itemId: whiteboardDeletePending.itemId,
+							deleteCards: true,
+						});
+						setWhiteboardDeletePending(null);
+					}
+				}}
+			/>
 		</main>
 	);
 }
