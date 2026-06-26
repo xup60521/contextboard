@@ -113,6 +113,8 @@ type ManagedShapePartial =
 			props: SubwhiteboardLinkShape["props"];
 	  };
 
+type ManagedWhiteboardShape = MarkdownCardShape | SubwhiteboardLinkShape;
+
 type WhiteboardContextMenuValue = {
 	createCardAt: ((point: VecLike) => void) | null;
 	createSubwhiteboardAt: (point: VecLike) => void;
@@ -518,7 +520,7 @@ export function WhiteboardCanvas({
 				}
 
 				const sortedShapes = editor.getCurrentPageShapesSorted();
-				const zIndexByShapeId = new Map(
+				const zIndexByShapeId = new Map<TLShapeId, number>(
 					sortedShapes.map((shape, index) => [shape.id, index]),
 				);
 
@@ -879,7 +881,7 @@ function rehydrateItemShape(
 	frame = frameFromItem(item),
 ) {
 	const nextShape = itemToShape(item, frame);
-	const existingShape = editor.getShape(nextShape.id as TLShapeId);
+	const existingShape = editor.getShape(nextShape.id);
 
 	if (existingShape) {
 		editor.updateShape(
@@ -892,7 +894,7 @@ function rehydrateItemShape(
 
 function isManagedWhiteboardShape(
 	shape: unknown,
-): shape is MarkdownCardShape | SubwhiteboardLinkShape {
+): shape is ManagedWhiteboardShape {
 	return (
 		typeof shape === "object" &&
 		shape !== null &&
@@ -951,7 +953,7 @@ function preserveEditingCardContent(
 	editor: Editor,
 	existingShape: TLShape,
 	nextShape: ManagedShapePartial,
-) {
+): ManagedShapePartial {
 	if (
 		!isMarkdownCardShape(existingShape) ||
 		nextShape.type !== "markdown-card"
