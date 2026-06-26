@@ -34,6 +34,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { getThemeMode, setThemeMode, type ThemeMode } from "../../lib/theme";
 import { ControlledTldrawContextMenu } from "./ControlledTldrawContextMenu";
+import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import {
 	type MarkdownCardShape,
 	markdownWhiteboardShapeUtils,
@@ -195,6 +196,10 @@ export function WhiteboardCanvas({
 
 	const [editor, setEditor] = useState<Editor | null>(null);
 	const [loadedDrawingKey, setLoadedDrawingKey] = useState<string | null>(null);
+	const [whiteboardDeletePending, setWhiteboardDeletePending] = useState<{
+		itemId: Id<"boardItems">;
+		shape: ManagedWhiteboardShape;
+	} | null>(null);
 	const themeMode = useThemeMode();
 	const whiteboardKey = getWhiteboardKey(whiteboardId);
 	const hydratingRef = useRef(false);
@@ -368,6 +373,7 @@ export function WhiteboardCanvas({
 		pendingEditShapeIdRef.current = null;
 		pendingDrawingSaveRef.current = null;
 		pendingCameraResetRef.current = true;
+		setWhiteboardDeletePending(null);
 		setLoadedDrawingKey(null);
 		loadedDrawingKeyRef.current = null;
 	}, [editor, flushDrawingSave, flushFrameUpdates, whiteboardId]);
@@ -550,13 +556,11 @@ export function WhiteboardCanvas({
 
 					const itemId = itemIdByShapeIdRef.current.get(shape.id);
 					if (itemId) {
-						const deleteCards =
-							shape.type === "subwhiteboard-link"
-								? window.confirm(
-										"Delete cards inside this whiteboard too?\n\nOK: delete cards\nCancel: keep cards as orphan cards",
-									)
-								: true;
-						void archiveItem({ itemId, deleteCards });
+						if (shape.type === "subwhiteboard-link") {
+							setWhiteboardDeletePending({ itemId, shape });
+						} else {
+							void archiveItem({ itemId, deleteCards: true });
+						}
 					}
 				}
 
@@ -898,6 +902,36 @@ export function WhiteboardCanvas({
 				</WhiteboardContextMenuContext.Provider>
 			</div>
 			{overlayLabel && <WhiteboardLoadingOverlay label={overlayLabel} />}
+			<DeleteWhiteboardDialog
+				open={whiteboardDeletePending !== null}
+				onCancel={() => {
+					if (!whiteboardDeletePending) return;
+					hydratingRef.current = true;
+					editor?.createShape(whiteboardDeletePending.shape);
+					window.setTimeout(() => {
+						hydratingRef.current = false;
+					}, 0);
+					setWhiteboardDeletePending(null);
+				}}
+				onKeepCards={() => {
+					if (whiteboardDeletePending) {
+						void archiveItem({
+							itemId: whiteboardDeletePending.itemId,
+							deleteCards: false,
+						});
+						setWhiteboardDeletePending(null);
+					}
+				}}
+				onDeleteCards={() => {
+					if (whiteboardDeletePending) {
+						void archiveItem({
+							itemId: whiteboardDeletePending.itemId,
+							deleteCards: true,
+						});
+						setWhiteboardDeletePending(null);
+					}
+				}}
+			/>
 		</main>
 	);
 }
