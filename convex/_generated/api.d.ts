@@ -10,9 +10,11 @@
 
 import type * as canvas from "../canvas.js";
 import type * as cards from "../cards.js";
+import type * as fileLifecycle from "../fileLifecycle.js";
 import type * as files from "../files.js";
 import type * as migrations from "../migrations.js";
 import type * as model_cardMetadata from "../model/cardMetadata.js";
+import type * as model_fileReferences from "../model/fileReferences.js";
 import type * as search from "../search.js";
 import type * as tldrawDocuments from "../tldrawDocuments.js";
 import type * as todos from "../todos.js";
@@ -27,9 +29,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   canvas: typeof canvas;
   cards: typeof cards;
+  fileLifecycle: typeof fileLifecycle;
   files: typeof files;
   migrations: typeof migrations;
   "model/cardMetadata": typeof model_cardMetadata;
+  "model/fileReferences": typeof model_fileReferences;
   search: typeof search;
   tldrawDocuments: typeof tldrawDocuments;
   todos: typeof todos;

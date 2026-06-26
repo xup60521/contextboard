@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+import { reconcileTldrawFileRefs } from "./fileLifecycle";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 const MAX_TLDRAW_DOCUMENT_BYTES = 2_000_000;
@@ -30,7 +31,12 @@ export const save = mutation({
 			args.whiteboardId !== null
 				? await getActiveWhiteboard(ctx, args.whiteboardId)
 				: null;
-		assertSnapshotSize(args.snapshot);
+		const nextSnapshot = await reconcileTldrawFileRefs(
+			ctx,
+			args.whiteboardId,
+			args.snapshot,
+		);
+		assertSnapshotSize(nextSnapshot);
 
 		const existingDocument = await getDocumentByWhiteboardId(
 			ctx,
@@ -49,14 +55,14 @@ export const save = mutation({
 
 		if (existingDocument) {
 			await ctx.db.patch(existingDocument._id, {
-				snapshot: args.snapshot,
+				snapshot: nextSnapshot,
 				revision,
 				updatedAt: now,
 			});
 		} else {
 			await ctx.db.insert("tldrawDocuments", {
 				whiteboardId: args.whiteboardId,
-				snapshot: args.snapshot,
+				snapshot: nextSnapshot,
 				version: 1,
 				revision,
 				updatedAt: now,

@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core";
+import type { UploadedImage } from "./ImageUpload";
 
-export type ImageUploadHandler = (file: File) => Promise<string>;
+export type ImageUploadHandler = (file: File) => Promise<UploadedImage>;
 
 declare module "@tiptap/core" {
 	interface Commands<ReturnType> {
@@ -67,11 +68,17 @@ export function createImageUploadExtension(onImageUpload: ImageUploadHandler) {
 						void pickImageFile().then(async (file) => {
 							if (!file) return;
 							try {
-								const src = await onImageUpload(file);
+								const uploaded = await onImageUpload(file);
 								editor
 									.chain()
 									.focus()
-									.insertContent({ type: "image", attrs: { src } })
+									.insertContent({
+										type: "image",
+										attrs: {
+											src: uploaded.src,
+											fileId: uploaded.fileId,
+										},
+									})
 									.run();
 							} catch (error) {
 								console.error("Image upload failed", error);

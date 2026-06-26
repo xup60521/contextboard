@@ -3,6 +3,11 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
+import {
+	clearCardFileRefs,
+	clearTldrawFileRefs,
+	reconcileCardFileRefs,
+} from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
 
 const DEFAULT_CARD_WIDTH = 576;
@@ -361,6 +366,7 @@ export const restoreOrAdoptCardItem = mutation({
 			cardCount: (whiteboard.cardCount ?? 0) + 1,
 			updatedAt: now,
 		});
+		await reconcileCardFileRefs(ctx, cardId, content);
 
 		return itemId;
 	},
@@ -391,6 +397,9 @@ async function restoreArchivedCardItem(
 			whiteboardId: item.whiteboardId, // re-home in case it was orphaned
 			updatedAt: now,
 		});
+	}
+	if (card) {
+		await reconcileCardFileRefs(ctx, card._id, card.content);
 	}
 	if (parent) {
 		await ctx.db.patch(parent._id, {
@@ -442,6 +451,7 @@ async function archiveCard(
 	const card = await ctx.db.get(cardId);
 	if (!card || card.archivedAt !== null) return;
 
+	await clearCardFileRefs(ctx, cardId);
 	await ctx.db.patch(card._id, {
 		archivedAt,
 		updatedAt: archivedAt,
@@ -468,6 +478,7 @@ async function archiveWhiteboardTree(
 	options: { archivedAt: number; deleteCards: boolean },
 ) {
 	if (whiteboard.archivedAt === null) {
+		await clearTldrawFileRefs(ctx, whiteboard._id);
 		await ctx.db.patch(whiteboard._id, {
 			archivedAt: options.archivedAt,
 			updatedAt: options.archivedAt,
@@ -487,7 +498,8 @@ async function archiveWhiteboardTree(
 				.eq("archivedAt", null)
 				.gte("pathKey", lowerBound)
 				.lt("pathKey", upperBound),
-		)) {
+	)) {
+		await clearTldrawFileRefs(ctx, descendant._id);
 		await ctx.db.patch(descendant._id, {
 			archivedAt: options.archivedAt,
 			updatedAt: options.archivedAt,

@@ -1,8 +1,22 @@
+import type { Id } from "../../../convex/_generated/dataModel";
+
+export type UploadedImage = {
+	fileId: Id<"files">;
+	src: string;
+	storageId: Id<"_storage">;
+};
+
+type FinalizedUpload = {
+	fileId: Id<"files">;
+	storageId: Id<"_storage">;
+	url: string;
+};
+
 export async function uploadImageToConvex(
 	generateUploadUrl: () => Promise<string>,
-	getImageUrl: (args: { storageId: string }) => Promise<string | null>,
+	finalizeUpload: (args: { storageId: Id<"_storage"> }) => Promise<FinalizedUpload>,
 	file: File,
-): Promise<string> {
+): Promise<UploadedImage> {
 	const uploadUrl = await generateUploadUrl();
 
 	const response = await fetch(uploadUrl, {
@@ -10,13 +24,11 @@ export async function uploadImageToConvex(
 		headers: { "Content-Type": file.type },
 		body: file,
 	});
-	const { storageId } = (await response.json()) as { storageId: string };
-
-	const url = await getImageUrl({ storageId });
-
-	if (!url) {
-		throw new Error("Failed to get image URL");
-	}
-
-	return url;
+	const { storageId } = (await response.json()) as { storageId: Id<"_storage"> };
+	const uploaded = await finalizeUpload({ storageId });
+	return {
+		fileId: uploaded.fileId,
+		src: uploaded.url,
+		storageId: uploaded.storageId,
+	};
 }

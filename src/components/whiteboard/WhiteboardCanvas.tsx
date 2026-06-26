@@ -1,6 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
-	useConvex,
 	useMutation,
 	usePaginatedQuery,
 	useQuery,
@@ -200,7 +199,7 @@ export function WhiteboardCanvas({
 	const restoreOrAdoptCardItem = useMutation(api.canvas.restoreOrAdoptCardItem);
 	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
 	const generateUploadUrl = useMutation(api.files.generateUploadUrl);
-	const convex = useConvex();
+	const finalizeUpload = useMutation(api.files.finalizeUpload);
 
 	// Store dropped/pasted images in Convex instead of inlining them as base64 in
 	// the tldraw snapshot. tldraw's default file handler computes the asset
@@ -208,15 +207,18 @@ export function WhiteboardCanvas({
 	const assetStore = useMemo<TLAssetStore>(
 		() => ({
 			async upload(_asset, file) {
-				const src = await uploadImageToConvex(
+				const uploaded = await uploadImageToConvex(
 					generateUploadUrl,
-					(args) => convex.query(api.files.getImageUrl, args),
+					finalizeUpload,
 					file,
 				);
-				return { src };
+				return {
+					src: uploaded.src,
+					meta: { fileId: uploaded.fileId },
+				};
 			},
 		}),
-		[convex, generateUploadUrl],
+		[finalizeUpload, generateUploadUrl],
 	);
 
 	const [editor, setEditor] = useState<Editor | null>(null);

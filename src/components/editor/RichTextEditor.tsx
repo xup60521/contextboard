@@ -72,9 +72,9 @@ function readFileAsDataUrl(file: File): Promise<string> {
 async function resolveImageSrc(
 	file: File,
 	upload: ImageUploadHandler | undefined,
-): Promise<string | null> {
+): Promise<{ src: string; fileId?: string | null } | null> {
 	if (!upload) {
-		return readFileAsDataUrl(file);
+		return { src: await readFileAsDataUrl(file) };
 	}
 
 	try {
@@ -88,6 +88,20 @@ async function resolveImageSrc(
 type MathCandidate = MathSelection & {
 	nodeSize: number;
 };
+
+const EditorImage = Image.extend({
+	addAttributes() {
+		return {
+			...this.parent?.(),
+			fileId: {
+				default: null,
+				parseHTML: (element) => element.getAttribute("data-file-id"),
+				renderHTML: (attributes) =>
+					attributes.fileId ? { "data-file-id": attributes.fileId } : {},
+			},
+		};
+	},
+});
 
 function clampPosition(pos: number, max: number) {
 	return Math.min(Math.max(pos, 0), max);
@@ -221,7 +235,7 @@ export function RichTextEditor({
 		immediatelyRender: false,
 		extensions: [
 			StarterKit,
-			Image.configure({
+			EditorImage.configure({
 				inline: false,
 				allowBase64: true,
 				resize: {
@@ -244,8 +258,8 @@ export function RichTextEditor({
 				onDrop: (editor, files, pos) => {
 					for (const file of files) {
 						if (!file.type.startsWith("image/")) continue;
-						void resolveImageSrc(file, onImageUploadRef.current).then((src) => {
-							if (!src) return;
+						void resolveImageSrc(file, onImageUploadRef.current).then((image) => {
+							if (!image) return;
 							editor
 								.chain()
 								.focus()
@@ -253,7 +267,10 @@ export function RichTextEditor({
 									const safePos = Math.min(pos, tr.doc.content.size);
 									return commands.insertContentAt(safePos, {
 										type: "image",
-										attrs: { src },
+										attrs: {
+											src: image.src,
+											...(image.fileId ? { fileId: image.fileId } : {}),
+										},
 									});
 								})
 								.run();
@@ -263,12 +280,18 @@ export function RichTextEditor({
 				onPaste: (editor, files) => {
 					for (const file of files) {
 						if (!file.type.startsWith("image/")) continue;
-						void resolveImageSrc(file, onImageUploadRef.current).then((src) => {
-							if (!src) return;
+						void resolveImageSrc(file, onImageUploadRef.current).then((image) => {
+							if (!image) return;
 							editor
 								.chain()
 								.focus()
-								.insertContent({ type: "image", attrs: { src } })
+								.insertContent({
+									type: "image",
+									attrs: {
+										src: image.src,
+										...(image.fileId ? { fileId: image.fileId } : {}),
+									},
+								})
 								.run();
 						});
 					}
