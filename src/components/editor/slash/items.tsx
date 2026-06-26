@@ -4,6 +4,8 @@ import {
 	Heading1,
 	Heading2,
 	Heading3,
+	Image,
+	ImageUp,
 	List,
 	ListCollapse,
 	ListOrdered,
@@ -15,6 +17,7 @@ import {
 	Text,
 } from "lucide-react";
 import type { ComponentType } from "react";
+import { imageInputPluginKey } from "../ImageInputExtension";
 
 export type SlashCommandItem = {
 	title: string;
@@ -200,6 +203,44 @@ export const slashCommandItems: SlashCommandItem[] = [
 				type: "blockMath",
 				attrs: { latex: "\\int_0^1 x^2\\,dx" },
 			}),
+	},
+	{
+		title: "Image",
+		subtitle: "Embed an image from URL",
+		icon: Image,
+		searchTerms: ["image", "picture", "photo", "img", "upload", "url"],
+		command: ({ editor, range }) => {
+			const docSize = editor.state.doc.content.size;
+			const from = Math.min(range.from, docSize);
+			const to = Math.min(Math.max(range.to, from), docSize);
+
+			editor
+				.chain()
+				.focus()
+				.command(({ tr, commands }) => {
+					tr.delete(from, to);
+					const insertPos = tr.mapping.map(from);
+					return commands.insertContentAt(insertPos, {
+						type: "paragraph",
+						content: [],
+					});
+				})
+				.setMeta(imageInputPluginKey, {
+					pos: editor.state.selection.from,
+				})
+				.run();
+		},
+	},
+	{
+		title: "Upload Image",
+		subtitle: "Upload an image file",
+		icon: ImageUp,
+		searchTerms: ["upload", "image", "photo", "picture", "file", "img"],
+		command: ({ editor, range }) => {
+			editor.chain().focus().deleteRange(range).run();
+			// No-op when the editor has no upload handler (command unregistered).
+			editor.commands.uploadImageFromPicker?.();
+		},
 	},
 ];
 

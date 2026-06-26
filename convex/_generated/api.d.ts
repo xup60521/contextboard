@@ -10,6 +10,7 @@
 
 import type * as canvas from "../canvas.js";
 import type * as cards from "../cards.js";
+import type * as files from "../files.js";
 import type * as migrations from "../migrations.js";
 import type * as model_cardMetadata from "../model/cardMetadata.js";
 import type * as search from "../search.js";
@@ -26,6 +27,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   canvas: typeof canvas;
   cards: typeof cards;
+  files: typeof files;
   migrations: typeof migrations;
   "model/cardMetadata": typeof model_cardMetadata;
   search: typeof search;

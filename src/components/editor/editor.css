@@ -210,3 +210,84 @@
 	border-right: 1px solid var(--border) !important;
 	border-bottom: 1px solid var(--border) !important;
 }
+
+/* Image nodes */
+.tiptap .editor-image {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	border-radius: 6px;
+	margin: 0.75em 0;
+	cursor: default;
+}
+
+.tiptap .editor-image.ProseMirror-selectednode {
+	outline: 2px solid var(--lagoon);
+	outline-offset: 2px;
+}
+
+/* Resizable image handles */
+.tiptap .resize-wrapper {
+	position: relative;
+	display: inline-block;
+}
+
+.tiptap .resize-handle {
+	position: absolute;
+	background: var(--lagoon);
+	border-radius: 2px;
+	z-index: 10;
+}
+
+.tiptap .resize-handle::after {
+	content: "";
+	position: absolute;
+	background: white;
+	border-radius: 1px;
+}
+
+.tiptap .resize-handle--left,
+.tiptap .resize-handle--right {
+	top: 50%;
+	transform: translateY(-50%);
+	width: 6px;
+	height: 24px;
+	cursor: col-resize;
+}
+
+.tiptap .resize-handle--left {
+	left: -3px;
+}
+
+.tiptap .resize-handle--right {
+	right: -3px;
+}
+
+.tiptap .resize-handle--top,
+.tiptap .resize-handle--bottom {
+	left: 50%;
+	transform: translateX(-50%);
+	width: 24px;
+	height: 6px;
+	cursor: row-resize;
+}
+
+.tiptap .resize-handle--top {
+	top: -3px;
+}
+
+.tiptap .resize-handle--bottom {
+	bottom: -3px;
+}
+
+/* Image command inline input */
+.image-command-input {
+	transition:
+		border-color 150ms ease,
+		box-shadow 150ms ease;
+}
+
+.image-command-input:focus-within {
+	border-color: var(--lagoon);
+	box-shadow: 0 0 0 2px color-mix(in oklab, var(--lagoon) 20%, transparent);
+}

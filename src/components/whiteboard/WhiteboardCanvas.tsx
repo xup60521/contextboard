@@ -1,10 +1,16 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import {
+	useConvex,
+	useMutation,
+	usePaginatedQuery,
+	useQuery,
+} from "convex/react";
 import {
 	createContext,
 	useCallback,
 	useContext,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -13,6 +19,7 @@ import {
 	DefaultContextMenuContent,
 	type Editor,
 	pointInPolygon,
+	type TLAssetStore,
 	type TLComponents,
 	type TLCursor,
 	type TLEventInfo,
@@ -33,13 +40,14 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { getThemeMode, setThemeMode, type ThemeMode } from "../../lib/theme";
+import { uploadImageToConvex } from "../editor/ImageUpload";
 import { ControlledTldrawContextMenu } from "./ControlledTldrawContextMenu";
-import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import {
 	type MarkdownCardShape,
 	markdownWhiteboardShapeUtils,
 	type SubwhiteboardLinkShape,
 } from "./custom-shapes";
+import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import {
 	frameFromItem,
 	resolveFrameForHydration,
@@ -189,10 +197,27 @@ export function WhiteboardCanvas({
 	);
 	const updateItemFrame = useMutation(api.canvas.updateItemFrame);
 	const archiveItem = useMutation(api.canvas.archiveItem);
-	const restoreOrAdoptCardItem = useMutation(
-		api.canvas.restoreOrAdoptCardItem,
-	);
+	const restoreOrAdoptCardItem = useMutation(api.canvas.restoreOrAdoptCardItem);
 	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
+	const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+	const convex = useConvex();
+
+	// Store dropped/pasted images in Convex instead of inlining them as base64 in
+	// the tldraw snapshot. tldraw's default file handler computes the asset
+	// metadata and delegates the upload here via `editor.uploadAsset`.
+	const assetStore = useMemo<TLAssetStore>(
+		() => ({
+			async upload(_asset, file) {
+				const src = await uploadImageToConvex(
+					generateUploadUrl,
+					(args) => convex.query(api.files.getImageUrl, args),
+					file,
+				);
+				return { src };
+			},
+		}),
+		[convex, generateUploadUrl],
+	);
 
 	const [editor, setEditor] = useState<Editor | null>(null);
 	const [loadedDrawingKey, setLoadedDrawingKey] = useState<string | null>(null);
@@ -686,7 +711,10 @@ export function WhiteboardCanvas({
 
 		const handlePointerDown = (event: PointerEvent) => {
 			if (event.button !== 2) return;
-			if (!(event.target instanceof Node) || !container.contains(event.target)) {
+			if (
+				!(event.target instanceof Node) ||
+				!container.contains(event.target)
+			) {
 				return;
 			}
 
@@ -758,7 +786,10 @@ export function WhiteboardCanvas({
 				Date.now() < suppressContextMenuUntilRef.current;
 
 			if (!shouldSuppress) return;
-			if (!(event.target instanceof Node) || !container.contains(event.target)) {
+			if (
+				!(event.target instanceof Node) ||
+				!container.contains(event.target)
+			) {
 				return;
 			}
 
@@ -781,7 +812,11 @@ export function WhiteboardCanvas({
 			container.removeEventListener("pointerdown", handlePointerDown, true);
 			ownerDocument.removeEventListener("pointermove", handlePointerMove, true);
 			ownerDocument.removeEventListener("pointerup", handlePointerUp, true);
-			ownerDocument.removeEventListener("pointercancel", handlePointerCancel, true);
+			ownerDocument.removeEventListener(
+				"pointercancel",
+				handlePointerCancel,
+				true,
+			);
 			container.removeEventListener("contextmenu", handleContextMenu, true);
 			ownerWindow?.removeEventListener("blur", handleWindowBlur);
 			finishRightDragPan();
@@ -885,6 +920,7 @@ export function WhiteboardCanvas({
 			<div className="absolute inset-0 overflow-hidden bg-[var(--background)]">
 				<WhiteboardContextMenuContext.Provider value={contextValue}>
 					<Tldraw
+						assets={assetStore}
 						components={whiteboardComponents}
 						onMount={(mountedEditor) => {
 							emptyDrawingSnapshotRef.current =
