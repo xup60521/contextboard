@@ -32,6 +32,7 @@ import {
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useThemeMode } from "../../hooks/useThemeMode";
+import { getTldrawLicenseKey } from "../../lib/config.functions";
 import { getThemeMode, setThemeMode, type ThemeMode } from "../../lib/theme";
 import { ControlledTldrawContextMenu } from "./ControlledTldrawContextMenu";
 import {
@@ -148,6 +149,7 @@ export function WhiteboardCanvas({
 	const tldrawDocument = useQuery(api.tldrawDocuments.get, {
 		whiteboardId,
 	}) as TldrawDocumentResult | undefined;
+	const [licenseKey, setLicenseKey] = useState<string | null>(null);
 	const createCardItem = useMutation(api.canvas.createCardItem);
 	const createSubwhiteboardItem = useMutation(
 		api.canvas.createSubwhiteboardItem,
@@ -181,6 +183,10 @@ export function WhiteboardCanvas({
 	const flushTimerRef = useRef<number | null>(null);
 	const pendingCameraResetRef = useRef(true);
 	const handledFocusRef = useRef<string | null>(null);
+
+	useEffect(() => {
+		void getTldrawLicenseKey().then(setLicenseKey);
+	}, []);
 
 	const flushFrameUpdates = useCallback(() => {
 		flushTimerRef.current = null;
@@ -707,7 +713,7 @@ export function WhiteboardCanvas({
 				<WhiteboardContextMenuContext.Provider value={contextValue}>
 					<Tldraw
 						components={whiteboardComponents}
-                        licenseKey={process.env.VITE_TLDRAW_LICENSE_KEY}
+						licenseKey={licenseKey ?? undefined}
 						onMount={(mountedEditor) => {
 							emptyDrawingSnapshotRef.current =
 								mountedEditor.store.getStoreSnapshot("document");
