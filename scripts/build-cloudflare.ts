@@ -17,10 +17,8 @@ const isPreviewBranch = Boolean(branch) && branch !== productionBranch
 const deployArgs = [
   'convex',
   'deploy',
-  '--cmd',
-  'bun run build',
-  '--cmd-url-env-var-name',
-  'VITE_CONVEX_URL',
+  '--cmd=bun run build',
+  '--cmd-url-env-var-name=VITE_CONVEX_URL',
 ]
 
 const env = { ...process.env }
@@ -46,7 +44,7 @@ if (isPreviewBranch) {
   }
 
   if (env.CONVEX_DEPLOY_KEY.startsWith('preview:')) {
-    deployArgs.push('--preview-name', branch)
+    deployArgs.push(`--preview-name=${branch}`)
   }
 }
 
