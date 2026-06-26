@@ -150,6 +150,7 @@ export function WhiteboardCanvas({
 		whiteboardId,
 	}) as TldrawDocumentResult | undefined;
 	const [licenseKey, setLicenseKey] = useState<string | null>(null);
+	const [licenseKeyLoaded, setLicenseKeyLoaded] = useState(import.meta.env.DEV);
 	const createCardItem = useMutation(api.canvas.createCardItem);
 	const createSubwhiteboardItem = useMutation(
 		api.canvas.createSubwhiteboardItem,
@@ -185,7 +186,13 @@ export function WhiteboardCanvas({
 	const handledFocusRef = useRef<string | null>(null);
 
 	useEffect(() => {
-		void getTldrawLicenseKey().then(setLicenseKey);
+		if (import.meta.env.DEV) return;
+
+		void getTldrawLicenseKey()
+			.then(setLicenseKey)
+			.finally(() => {
+				setLicenseKeyLoaded(true);
+			});
 	}, []);
 
 	const flushFrameUpdates = useCallback(() => {
@@ -666,6 +673,7 @@ export function WhiteboardCanvas({
 			: whiteboard === null
 				? "Whiteboard not found."
 				: null;
+	const showLicenseLoadingOverlay = !import.meta.env.DEV && !licenseKeyLoaded;
 
 	const displayedBreadcrumbs = whiteboardId ? (breadcrumbs ?? []) : [];
 
@@ -711,24 +719,29 @@ export function WhiteboardCanvas({
 			</div>
 			<div className="absolute inset-0 overflow-hidden bg-[var(--background)]">
 				<WhiteboardContextMenuContext.Provider value={contextValue}>
-					<Tldraw
-						components={whiteboardComponents}
-						licenseKey={licenseKey ?? undefined}
-						onMount={(mountedEditor) => {
-							emptyDrawingSnapshotRef.current =
-								mountedEditor.store.getStoreSnapshot("document");
-							setEditor(mountedEditor);
+					{licenseKeyLoaded && (
+						<Tldraw
+							components={whiteboardComponents}
+							licenseKey={licenseKey ?? undefined}
+							onMount={(mountedEditor) => {
+								emptyDrawingSnapshotRef.current =
+									mountedEditor.store.getStoreSnapshot("document");
+								setEditor(mountedEditor);
 
-							return () => {
-								setEditor(null);
-							};
-						}}
-						options={whiteboardOptions}
-						overrides={singlePageTldrawUiOverrides}
-						shapeUtils={markdownWhiteboardShapeUtils}
-					/>
+								return () => {
+									setEditor(null);
+								};
+							}}
+							options={whiteboardOptions}
+							overrides={singlePageTldrawUiOverrides}
+							shapeUtils={markdownWhiteboardShapeUtils}
+						/>
+					)}
 				</WhiteboardContextMenuContext.Provider>
 			</div>
+			{showLicenseLoadingOverlay && (
+				<WhiteboardLoadingOverlay label="Loading whiteboard..." />
+			)}
 			{overlayLabel && <WhiteboardLoadingOverlay label={overlayLabel} />}
 		</main>
 	);
