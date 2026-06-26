@@ -7,8 +7,12 @@ import {
 
 const schema = { schemaVersion: 2, sequences: {} } as TLStoreSnapshot["schema"];
 
-function snapshot(store: TLStoreSnapshot["store"]): TLStoreSnapshot {
-	return { store, schema };
+function snapshot(store: Record<string, unknown>): TLStoreSnapshot {
+	return { store: store as TLStoreSnapshot["store"], schema };
+}
+
+function records(snapshot: TLStoreSnapshot): Record<string, unknown> {
+	return snapshot.store as unknown as Record<string, unknown>;
 }
 
 describe("tldraw persistence", () => {
@@ -63,13 +67,14 @@ describe("tldraw persistence", () => {
 					type: "text",
 					props: {},
 				},
-			} as TLStoreSnapshot["store"]),
+			}),
 		);
 
-		expect(filtered.store["shape:card"]).toBeUndefined();
-		expect(filtered.store["shape:sub"]).toBeUndefined();
-		expect(filtered.store["shape:draw"]).toBeDefined();
-		expect(filtered.store["shape:text"]).toBeDefined();
+		const store = records(filtered);
+		expect(store["shape:card"]).toBeUndefined();
+		expect(store["shape:sub"]).toBeUndefined();
+		expect(store["shape:draw"]).toBeDefined();
+		expect(store["shape:text"]).toBeDefined();
 	});
 
 	test("drops bindings touching managed shapes and keeps unmanaged bindings", () => {
@@ -109,11 +114,12 @@ describe("tldraw persistence", () => {
 					toId: "shape:b",
 					props: {},
 				},
-			} as TLStoreSnapshot["store"]),
+			}),
 		);
 
-		expect(filtered.store["binding:drop"]).toBeUndefined();
-		expect(filtered.store["binding:keep"]).toBeDefined();
+		const store = records(filtered);
+		expect(store["binding:drop"]).toBeUndefined();
+		expect(store["binding:keep"]).toBeDefined();
 	});
 
 	test("drops unreferenced assets and keeps referenced assets", () => {
@@ -137,11 +143,12 @@ describe("tldraw persistence", () => {
 					type: "image",
 					props: {},
 				},
-			} as TLStoreSnapshot["store"]),
+			}),
 		);
 
-		expect(filtered.store["asset:keep"]).toBeDefined();
-		expect(filtered.store["asset:drop"]).toBeUndefined();
+		const store = records(filtered);
+		expect(store["asset:keep"]).toBeDefined();
+		expect(store["asset:drop"]).toBeUndefined();
 	});
 
 	test("keeps unrelated document and page records", () => {
@@ -157,10 +164,11 @@ describe("tldraw persistence", () => {
 					typeName: "page",
 					name: "Page 1",
 				},
-			} as TLStoreSnapshot["store"]),
+			}),
 		);
 
-		expect(filtered.store["document:document"]).toBeDefined();
-		expect(filtered.store["page:page"]).toBeDefined();
+		const store = records(filtered);
+		expect(store["document:document"]).toBeDefined();
+		expect(store["page:page"]).toBeDefined();
 	});
 });

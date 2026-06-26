@@ -298,12 +298,15 @@ Hidden **bold** answer.
 			<RichTextEditor content={INITIAL_CONTENT} editable={true} />,
 		);
 
-		let editorElement: HTMLElement | null = null;
-		await waitFor(() => {
-			editorElement = container.querySelector(
+		const editorElement = await waitFor(() => {
+			const element = container.querySelector<HTMLElement>(
 				".ProseMirror[contenteditable='true']",
 			);
-			expect(editorElement).not.toBeNull();
+			expect(element).not.toBeNull();
+			if (!element) {
+				throw new Error("Editable editor was not rendered");
+			}
+			return element;
 		});
 
 		const textNode = editorElement?.querySelector("p")?.firstChild;
@@ -318,7 +321,7 @@ Hidden **bold** answer.
 		rerender(<RichTextEditor content={INITIAL_CONTENT} editable={false} />);
 
 		await waitFor(() => {
-			expect(editorElement).toHaveAttribute("contenteditable", "false");
+			expect(editorElement.getAttribute("contenteditable")).toBe("false");
 			expect(window.getSelection()?.rangeCount ?? 0).toBe(0);
 		});
 	});
@@ -331,16 +334,20 @@ Hidden **bold** answer.
 			</div>,
 		);
 
-		let editorElement: HTMLElement | null = null;
-		await waitFor(() => {
-			editorElement = container.querySelector(
+		const editorElement = await waitFor(() => {
+			const element = container.querySelector<HTMLElement>(
 				".ProseMirror[contenteditable='true']",
 			);
-			expect(editorElement).not.toBeNull();
+			expect(element).not.toBeNull();
+			if (!element) {
+				throw new Error("Editable editor was not rendered");
+			}
+			return element;
 		});
 
-		const outsideTextNode =
-			container.querySelector('[data-testid="outside"]')?.firstChild;
+		const outsideTextNode = container.querySelector(
+			'[data-testid="outside"]',
+		)?.firstChild;
 		expect(outsideTextNode).not.toBeNull();
 		if (!outsideTextNode) {
 			throw new Error("Outside text node was not rendered");
@@ -358,7 +365,7 @@ Hidden **bold** answer.
 		);
 
 		await waitFor(() => {
-			expect(editorElement).toHaveAttribute("contenteditable", "false");
+			expect(editorElement.getAttribute("contenteditable")).toBe("false");
 		});
 		expect(window.getSelection()?.rangeCount).toBe(1);
 		expect(window.getSelection()?.toString()).toBe("Outside selection");

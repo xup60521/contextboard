@@ -1,4 +1,4 @@
-import type { TLRecord, TLShapeId, TLStoreSnapshot } from "tldraw";
+import type { TLShapeId, TLStoreSnapshot } from "tldraw";
 
 type UnknownRecord = {
 	id?: unknown;
@@ -21,15 +21,16 @@ export function filterSnapshotForPersistence(
 	snapshot: TLStoreSnapshot,
 ): TLStoreSnapshot {
 	const removedShapeIds = new Set<TLShapeId>();
-	const storeWithoutManagedShapes: TLStoreSnapshot["store"] = {};
+	const store = snapshot.store as unknown as Record<string, unknown>;
+	const storeWithoutManagedShapes: Record<string, unknown> = {};
 
-	for (const [id, record] of Object.entries(snapshot.store)) {
+	for (const [id, record] of Object.entries(store)) {
 		if (isManagedWhiteboardShapeRecord(record)) {
 			removedShapeIds.add(id as TLShapeId);
 			continue;
 		}
 
-		storeWithoutManagedShapes[id as keyof TLStoreSnapshot["store"]] = record;
+		storeWithoutManagedShapes[id] = record;
 	}
 
 	const referencedAssetIds = new Set<string>();
@@ -41,22 +42,22 @@ export function filterSnapshotForPersistence(
 		}
 	}
 
-	const filteredStore: TLStoreSnapshot["store"] = {};
+	const filteredStore: Record<string, unknown> = {};
 	for (const [id, record] of Object.entries(storeWithoutManagedShapes)) {
 		if (isBindingTouchingRemovedShape(record, removedShapeIds)) continue;
 		if (isUnreferencedAsset(record, referencedAssetIds)) continue;
 
-		filteredStore[id as keyof TLStoreSnapshot["store"]] = record;
+		filteredStore[id] = record;
 	}
 
 	return {
 		...snapshot,
-		store: filteredStore,
+		store: filteredStore as TLStoreSnapshot["store"],
 	};
 }
 
 function isBindingTouchingRemovedShape(
-	record: TLRecord,
+	record: unknown,
 	removedShapeIds: Set<TLShapeId>,
 ) {
 	return (
@@ -69,10 +70,7 @@ function isBindingTouchingRemovedShape(
 	);
 }
 
-function isUnreferencedAsset(
-	record: TLRecord,
-	referencedAssetIds: Set<string>,
-) {
+function isUnreferencedAsset(record: unknown, referencedAssetIds: Set<string>) {
 	return (
 		isRecordObject(record) &&
 		record.typeName === "asset" &&

@@ -5,7 +5,6 @@ import {
 	type TLUiContextMenuProps,
 	TldrawUiMenuContextProvider,
 	useContainer,
-	useDirection,
 	useEditor,
 	useEditorComponents,
 	useMenuIsOpen,
@@ -31,7 +30,7 @@ export function ControlledTldrawContextMenu({
 	);
 
 	useEffect(() => {
-		const body = editor.getContainerDocument().body;
+		const body = editor.getContainer().ownerDocument.body;
 		return () => {
 			body.removeEventListener("keydown", preventEscapeFromLosingShapeFocus, {
 				capture: true,
@@ -43,7 +42,7 @@ export function ControlledTldrawContextMenu({
 
 	const handleRegistryOpenChange = useCallback(
 		(isOpen: boolean) => {
-			const body = editor.getContainerDocument().body;
+			const body = editor.getContainer().ownerDocument.body;
 
 			if (!isOpen) {
 				const onlySelectedShape = editor.getOnlySelectedShape();
@@ -56,9 +55,13 @@ export function ControlledTldrawContextMenu({
 				}
 
 				editor.timers.requestAnimationFrame(() => {
-					body.removeEventListener("keydown", preventEscapeFromLosingShapeFocus, {
-						capture: true,
-					});
+					body.removeEventListener(
+						"keydown",
+						preventEscapeFromLosingShapeFocus,
+						{
+							capture: true,
+						},
+					);
 				});
 				return;
 			}
@@ -71,7 +74,7 @@ export function ControlledTldrawContextMenu({
 				suppressDismissUntilRef.current = Date.now() + 500;
 
 				const selectedShapes = editor.getSelectedShapes();
-				const currentPagePoint = editor.inputs.getCurrentPagePoint();
+				const currentPagePoint = editor.inputs.currentPagePoint;
 				const shapesAtPoint = editor.getShapesAtPoint(currentPagePoint);
 
 				if (
@@ -92,7 +95,6 @@ export function ControlledTldrawContextMenu({
 	);
 
 	const container = useContainer();
-	const dir = useDirection();
 	const [isOpen, handleOpenChange] = useMenuIsOpen(
 		"context menu",
 		handleRegistryOpenChange,
@@ -100,7 +102,7 @@ export function ControlledTldrawContextMenu({
 
 	return (
 		<RadixContextMenu.Root
-			dir={dir}
+			dir="ltr"
 			modal={false}
 			open={isOpen}
 			onOpenChange={handleOpenChange}

@@ -20,7 +20,6 @@ export const Route = createFileRoute("/test/subwhiteboard/$subwhiteboardid")({
 
 const whiteboardOptions = {
 	...singlePageTldrawOptions,
-	rightClickPanning: true,
 } satisfies Partial<TldrawOptions>;
 
 const whiteboardComponents = {

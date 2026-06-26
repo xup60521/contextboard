@@ -14,7 +14,6 @@ import {
 	type Editor,
 	pointInPolygon,
 	type TLComponents,
-	type TLCreateShapePartial,
 	type TLEventInfo,
 	type TLShape,
 	type TLShapeId,
@@ -32,7 +31,6 @@ import {
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useThemeMode } from "../../hooks/useThemeMode";
-import { getTldrawLicenseKey } from "../../lib/config.functions";
 import { getThemeMode, setThemeMode, type ThemeMode } from "../../lib/theme";
 import { ControlledTldrawContextMenu } from "./ControlledTldrawContextMenu";
 import {
@@ -98,8 +96,22 @@ type PendingDrawingSave = {
 };
 
 type ManagedShapePartial =
-	| ({ id: TLShapeId } & TLCreateShapePartial<MarkdownCardShape>)
-	| ({ id: TLShapeId } & TLCreateShapePartial<SubwhiteboardLinkShape>);
+	| {
+			id: TLShapeId;
+			type: "markdown-card";
+			x: number;
+			y: number;
+			rotation: number;
+			props: MarkdownCardShape["props"];
+	  }
+	| {
+			id: TLShapeId;
+			type: "subwhiteboard-link";
+			x: number;
+			y: number;
+			rotation: number;
+			props: SubwhiteboardLinkShape["props"];
+	  };
 
 type WhiteboardContextMenuValue = {
 	createCardAt: ((point: VecLike) => void) | null;
@@ -110,7 +122,6 @@ type WhiteboardContextMenuValue = {
 const whiteboardOptions = {
 	...singlePageTldrawOptions,
 	createTextOnCanvasDoubleClick: false,
-	rightClickPanning: true,
 } satisfies Partial<TldrawOptions>;
 
 const whiteboardComponents = {
@@ -149,8 +160,6 @@ export function WhiteboardCanvas({
 	const tldrawDocument = useQuery(api.tldrawDocuments.get, {
 		whiteboardId,
 	}) as TldrawDocumentResult | undefined;
-	const [licenseKey, setLicenseKey] = useState<string | null>(null);
-	const [licenseKeyLoaded, setLicenseKeyLoaded] = useState(import.meta.env.DEV);
 	const createCardItem = useMutation(api.canvas.createCardItem);
 	const createSubwhiteboardItem = useMutation(
 		api.canvas.createSubwhiteboardItem,
@@ -184,18 +193,6 @@ export function WhiteboardCanvas({
 	const flushTimerRef = useRef<number | null>(null);
 	const pendingCameraResetRef = useRef(true);
 	const handledFocusRef = useRef<string | null>(null);
-
-	useEffect(() => {
-		if (import.meta.env.DEV) return;
-
-		void getTldrawLicenseKey()
-			.then((key)=>{setLicenseKey(key)
-                console.log(`Tldraw license key loaded. Length: ${key?.length}`)
-            })
-			.finally(() => {
-				setLicenseKeyLoaded(true);
-			});
-	}, []);
 
 	const flushFrameUpdates = useCallback(() => {
 		flushTimerRef.current = null;
@@ -501,7 +498,7 @@ export function WhiteboardCanvas({
 				for (const record of Object.values(changes.added)) {
 					if (!isManagedWhiteboardShape(record)) continue;
 					if (record.type !== "markdown-card") continue; // cards only
-					if (itemIdByShapeIdRef.current.has(record.id)) continue; // already-tracked → not a restore
+					if (itemIdByShapeIdRef.current.has(record.id)) continue; // already tracked; not a restore
 					void restoreItem({ whiteboardId, shapeId: record.id });
 				}
 
@@ -573,7 +570,7 @@ export function WhiteboardCanvas({
 
 		const handleEvent = (info: TLEventInfo) => {
 			if (info.type === "pointer" && info.name === "right_click") {
-				const point = editor.inputs.getCurrentPagePoint();
+				const point = editor.inputs.currentPagePoint;
 				contextMenuPointRef.current = { x: point.x, y: point.y };
 			}
 
@@ -585,7 +582,7 @@ export function WhiteboardCanvas({
 				return;
 			}
 
-			const point = editor.inputs.getCurrentPagePoint();
+			const point = editor.inputs.currentPagePoint;
 
 			if (info.target === "shape") {
 				openSubwhiteboardShape(navigate, info.shape);
@@ -601,12 +598,7 @@ export function WhiteboardCanvas({
 				return;
 			}
 
-			const hitOverlay = editor.overlays.getOverlayAtPoint(
-				point,
-				editor.options.hitTestMargin / editor.getZoomLevel(),
-			);
-
-			if (hitOverlay || isPointInCurrentSelection(editor, point)) {
+			if (isPointInCurrentSelection(editor, point)) {
 				return;
 			}
 
@@ -675,7 +667,6 @@ export function WhiteboardCanvas({
 			: whiteboard === null
 				? "Whiteboard not found."
 				: null;
-	const showLicenseLoadingOverlay = !import.meta.env.DEV && !licenseKeyLoaded;
 
 	const displayedBreadcrumbs = whiteboardId ? (breadcrumbs ?? []) : [];
 
@@ -721,29 +712,23 @@ export function WhiteboardCanvas({
 			</div>
 			<div className="absolute inset-0 overflow-hidden bg-[var(--background)]">
 				<WhiteboardContextMenuContext.Provider value={contextValue}>
-					{licenseKeyLoaded && (
-						<Tldraw
-							components={whiteboardComponents}
-							licenseKey={licenseKey ?? undefined}
-							onMount={(mountedEditor) => {
-								emptyDrawingSnapshotRef.current =
-									mountedEditor.store.getStoreSnapshot("document");
-								setEditor(mountedEditor);
+					<Tldraw
+						components={whiteboardComponents}
+						onMount={(mountedEditor) => {
+							emptyDrawingSnapshotRef.current =
+								mountedEditor.store.getStoreSnapshot("document");
+							setEditor(mountedEditor);
 
-								return () => {
-									setEditor(null);
-								};
-							}}
-							options={whiteboardOptions}
-							overrides={singlePageTldrawUiOverrides}
-							shapeUtils={markdownWhiteboardShapeUtils}
-						/>
-					)}
+							return () => {
+								setEditor(null);
+							};
+						}}
+						options={whiteboardOptions}
+						overrides={singlePageTldrawUiOverrides}
+						shapeUtils={markdownWhiteboardShapeUtils}
+					/>
 				</WhiteboardContextMenuContext.Provider>
 			</div>
-			{showLicenseLoadingOverlay && (
-				<WhiteboardLoadingOverlay label="Loading whiteboard..." />
-			)}
 			{overlayLabel && <WhiteboardLoadingOverlay label={overlayLabel} />}
 		</main>
 	);
@@ -941,7 +926,7 @@ function openSubwhiteboardShape(
 	navigate: ReturnType<typeof useNavigate>,
 	shape: TLShape,
 ) {
-	if (shape.type !== "subwhiteboard-link") return;
+	if (!isSubwhiteboardLinkShape(shape)) return;
 
 	const childWhiteboardId = shape.props.childWhiteboardId;
 	if (!childWhiteboardId) return;
@@ -952,13 +937,23 @@ function openSubwhiteboardShape(
 	});
 }
 
+function isSubwhiteboardLinkShape(
+	shape: TLShape,
+): shape is SubwhiteboardLinkShape {
+	return shape.type === "subwhiteboard-link";
+}
+
+function isMarkdownCardShape(shape: TLShape): shape is MarkdownCardShape {
+	return shape.type === "markdown-card";
+}
+
 function preserveEditingCardContent(
 	editor: Editor,
 	existingShape: TLShape,
 	nextShape: ManagedShapePartial,
 ) {
 	if (
-		existingShape.type !== "markdown-card" ||
+		!isMarkdownCardShape(existingShape) ||
 		nextShape.type !== "markdown-card"
 	) {
 		return nextShape;
@@ -1037,9 +1032,7 @@ function WhiteboardContextMenuContent() {
 
 	const getMenuPoint = () => {
 		const point = context.pointRef.current;
-		return point
-			? { x: point.x, y: point.y }
-			: editor.inputs.getCurrentPagePoint();
+		return point ? { x: point.x, y: point.y } : editor.inputs.currentPagePoint;
 	};
 
 	return (

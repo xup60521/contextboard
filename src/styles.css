@@ -194,7 +194,7 @@ code {
 
 /* Soften tldraw's dark canvas so it isn't near-black, matching the app surface. */
 .tl-theme__dark {
-  --tl-color-background: #1a1a1a;
+  --color-background: #1a1a1a;
 }
 
 pre code {

@@ -17,6 +17,7 @@ import {
 	type RecordProps,
 	Rectangle2d,
 	resizeBox,
+	stopEventPropagation,
 	T,
 	type TLBaseShape,
 	type TLResizeInfo,
@@ -28,31 +29,6 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { RichTextEditor } from "../editor/RichTextEditor";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
-
-declare module "@tldraw/tlschema" {
-	interface TLGlobalShapePropsMap {
-		"text-card": {
-			w: number;
-			h: number;
-			text: string;
-		};
-		"markdown-card": {
-			w: number;
-			h: number;
-			content: string;
-			cardId?: string;
-			version?: number;
-		};
-		"subwhiteboard-link": {
-			w: number;
-			h: number;
-			label: string;
-			subwhiteboardId: string;
-			childWhiteboardId?: string;
-			depth?: number;
-		};
-	}
-}
 
 export type TextCardShape = TLBaseShape<
 	"text-card",
@@ -146,12 +122,12 @@ function TextCardComponent({ shape }: { shape: TextCardShape }) {
 				readOnly={!isEditing}
 				tabIndex={isEditing ? 0 : -1}
 				style={{ pointerEvents: isEditing ? "auto" : "none" }}
-				onPointerDown={(e) => editor.markEventAsHandled(e)}
-				onPointerUp={(e) => editor.markEventAsHandled(e)}
-				onClick={(e) => editor.markEventAsHandled(e)}
-				onDoubleClick={(e) => editor.markEventAsHandled(e)}
+				onPointerDown={(e) => stopEventPropagation(e)}
+				onPointerUp={(e) => stopEventPropagation(e)}
+				onClick={(e) => stopEventPropagation(e)}
+				onDoubleClick={(e) => stopEventPropagation(e)}
 				onKeyDown={(e) => {
-					editor.markEventAsHandled(e);
+					stopEventPropagation(e);
 
 					if (e.key === "Escape") {
 						editor.setEditingShape(null);
@@ -162,8 +138,8 @@ function TextCardComponent({ shape }: { shape: TextCardShape }) {
 						editor.complete();
 					}
 				}}
-				onPaste={(e) => editor.markEventAsHandled(e)}
-				onWheel={(e) => editor.markEventAsHandled(e)}
+				onPaste={(e) => stopEventPropagation(e)}
+				onWheel={(e) => stopEventPropagation(e)}
 				onBlur={() => {
 					if (editor.getEditingShapeId() === shape.id) {
 						editor.setEditingShape(null);
@@ -219,6 +195,12 @@ function getMeasuredMarkdownCardHeight({
 		isEditorReady,
 		isVisible: isMarkdownCardVisible(card),
 	});
+}
+
+function getBoxIndicatorPath(width: number, height: number) {
+	const path = new Path2D();
+	path.rect(0, 0, width, height);
+	return path;
 }
 
 function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
@@ -364,30 +346,30 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 				className="relative w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-8 py-8 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
 				style={{ pointerEvents: isEditing ? "auto" : "none" }}
 				onPointerDown={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onPointerUp={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onClick={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onDoubleClick={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onKeyDown={(e) => {
 					if (!isEditing) return;
-					editor.markEventAsHandled(e);
+					stopEventPropagation(e);
 
 					if (e.key === "Escape") {
 						editor.setEditingShape(null);
 					}
 				}}
 				onPaste={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onWheel={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 			>
 				<Link
@@ -395,15 +377,15 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 					params={{ cardId: shape.props.cardId }}
 					draggable={false}
 					onPointerDown={(e) => {
-						editor.markEventAsHandled(e);
+						stopEventPropagation(e);
 						e.stopPropagation();
 					}}
 					onPointerUp={(e) => {
-						editor.markEventAsHandled(e);
+						stopEventPropagation(e);
 						e.stopPropagation();
 					}}
 					onClick={(e) => {
-						editor.markEventAsHandled(e);
+						stopEventPropagation(e);
 						e.stopPropagation();
 					}}
 					className="absolute right-2 top-2 z-10 flex size-6 items-center justify-center rounded bg-[var(--card)] text-[var(--muted-foreground)] shadow-sm transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
@@ -507,52 +489,52 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 				className="w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-8 py-8 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
 				style={{ pointerEvents: isEditing ? "auto" : "none" }}
 				onPointerDown={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onPointerUp={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onClick={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onDoubleClick={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onKeyDown={(e) => {
 					if (!isEditing) return;
-					editor.markEventAsHandled(e);
+					stopEventPropagation(e);
 
 					if (e.key === "Escape") {
 						editor.setEditingShape(null);
 					}
 				}}
 				onPaste={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 				onWheel={(e) => {
-					if (isEditing) editor.markEventAsHandled(e);
+					if (isEditing) stopEventPropagation(e);
 				}}
 			>
 				<div
 					className="flex items-center justify-end border-b border-[var(--border)] px-2 py-1"
 					style={{ pointerEvents: "auto" }}
 					onPointerDown={(e) => {
-						if (isEditing) editor.markEventAsHandled(e);
+						if (isEditing) stopEventPropagation(e);
 					}}
 				>
 					<Link
 						to="/test/markdown"
 						draggable={false}
 						onPointerDown={(e) => {
-							editor.markEventAsHandled(e);
+							stopEventPropagation(e);
 							e.stopPropagation();
 						}}
 						onPointerUp={(e) => {
-							editor.markEventAsHandled(e);
+							stopEventPropagation(e);
 							e.stopPropagation();
 						}}
 						onClick={(e) => {
-							editor.markEventAsHandled(e);
+							stopEventPropagation(e);
 							e.stopPropagation();
 						}}
 						className="flex size-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
@@ -644,10 +626,12 @@ export class TextCardShapeUtil extends BaseBoxShapeUtil<TextCardShape> {
 		});
 	}
 
-	override getIndicatorPath(shape: TextCardShape): Path2D {
-		const path = new Path2D();
-		path.rect(0, 0, shape.props.w, shape.props.h);
-		return path;
+	override indicator(shape: TextCardShape) {
+		return <rect width={shape.props.w} height={shape.props.h} />;
+	}
+
+	getIndicatorPath(shape: TextCardShape): Path2D {
+		return getBoxIndicatorPath(shape.props.w, shape.props.h);
 	}
 
 	override onResize(shape: TextCardShape, info: TLResizeInfo<TextCardShape>) {
@@ -699,10 +683,12 @@ export class MarkdownCardShapeUtil extends BaseBoxShapeUtil<MarkdownCardShape> {
 		});
 	}
 
-	override getIndicatorPath(shape: MarkdownCardShape): Path2D {
-		const path = new Path2D();
-		path.rect(0, 0, shape.props.w, shape.props.h);
-		return path;
+	override indicator(shape: MarkdownCardShape) {
+		return <rect width={shape.props.w} height={shape.props.h} />;
+	}
+
+	getIndicatorPath(shape: MarkdownCardShape): Path2D {
+		return getBoxIndicatorPath(shape.props.w, shape.props.h);
 	}
 
 	override onResize(
@@ -798,24 +784,24 @@ function SubwhiteboardLinkComponent({
 							isFocusedRef.current = true;
 						}}
 						onPointerDown={(event) => {
-							editor.markEventAsHandled(event);
+							stopEventPropagation(event);
 							event.stopPropagation();
 						}}
 						onPointerUp={(event) => {
-							editor.markEventAsHandled(event);
+							stopEventPropagation(event);
 							event.stopPropagation();
 						}}
 						onClick={(event) => {
-							editor.markEventAsHandled(event);
+							stopEventPropagation(event);
 							event.stopPropagation();
 						}}
 						onDoubleClick={(event) => {
-							editor.markEventAsHandled(event);
+							stopEventPropagation(event);
 							event.stopPropagation();
 						}}
 						onChange={(event) => setDraftTitle(event.currentTarget.value)}
 						onKeyDown={(event) => {
-							editor.markEventAsHandled(event);
+							stopEventPropagation(event);
 
 							if (event.key === "Enter") {
 								event.preventDefault();
@@ -882,10 +868,12 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 		});
 	}
 
-	override getIndicatorPath(shape: SubwhiteboardLinkShape): Path2D {
-		const path = new Path2D();
-		path.rect(0, 0, shape.props.w, shape.props.h);
-		return path;
+	override indicator(shape: SubwhiteboardLinkShape) {
+		return <rect width={shape.props.w} height={shape.props.h} />;
+	}
+
+	getIndicatorPath(shape: SubwhiteboardLinkShape): Path2D {
+		return getBoxIndicatorPath(shape.props.w, shape.props.h);
 	}
 
 	override onResize(

@@ -21,6 +21,7 @@ import {
 	createMarkdownCardShape,
 	createSubwhiteboardLinkShape,
 	markdownWhiteboardShapeUtils,
+	type SubwhiteboardLinkShape,
 } from "../../components/whiteboard/custom-shapes";
 import {
 	singlePageTldrawComponents,
@@ -36,9 +37,6 @@ export const Route = createFileRoute("/test/markdown-in-whiteboard")({
 const whiteboardOptions = {
 	...singlePageTldrawOptions,
 	createTextOnCanvasDoubleClick: false,
-	// Keep right-click drag panning enabled. Static right-clicks still open the
-	// controlled context menu via tldraw's synthetic contextmenu-on-pointerup path.
-	rightClickPanning: true,
 } satisfies Partial<TldrawOptions>;
 
 const whiteboardComponents = {
@@ -66,7 +64,7 @@ function RouteComponent() {
 						onMount={(editor) => {
 							const handleEvent = (info: TLEventInfo) => {
 								if (info.type === "pointer" && info.name === "right_click") {
-									const point = editor.inputs.getCurrentPagePoint();
+									const point = editor.inputs.currentPagePoint;
 									contextMenuPointRef.current = { x: point.x, y: point.y };
 								}
 
@@ -78,10 +76,10 @@ function RouteComponent() {
 									return;
 								}
 
-								const point = editor.inputs.getCurrentPagePoint();
+								const point = editor.inputs.currentPagePoint;
 
 								if (info.target === "shape") {
-									if (info.shape.type === "subwhiteboard-link") {
+									if (isSubwhiteboardLinkShape(info.shape)) {
 										void navigate({
 											to: "/test/subwhiteboard/$subwhiteboardid",
 											params: {
@@ -97,7 +95,7 @@ function RouteComponent() {
 								const hitShape = getWhiteboardDoubleClickShape(editor, point);
 
 								if (hitShape) {
-									if (hitShape.type === "subwhiteboard-link") {
+									if (isSubwhiteboardLinkShape(hitShape)) {
 										void navigate({
 											to: "/test/subwhiteboard/$subwhiteboardid",
 											params: {
@@ -109,13 +107,7 @@ function RouteComponent() {
 									return;
 								}
 
-								const hitOverlay = editor.overlays.getOverlayAtPoint(
-									point,
-									editor.options.hitTestMargin / editor.getZoomLevel(),
-								);
-
-								if (hitOverlay || isPointInCurrentSelection(editor, point))
-									return;
+								if (isPointInCurrentSelection(editor, point)) return;
 
 								createMarkdownCardShape(editor, point);
 							};
@@ -160,6 +152,12 @@ function getWhiteboardDoubleClickShape(
 	);
 }
 
+function isSubwhiteboardLinkShape(
+	shape: TLShape,
+): shape is SubwhiteboardLinkShape {
+	return shape.type === "subwhiteboard-link";
+}
+
 function isPointInCurrentSelection(editor: Editor, point: VecLike) {
 	const selectionBounds = editor.getSelectionRotatedPageBounds();
 
@@ -194,9 +192,7 @@ function WhiteboardContextMenuContent() {
 
 	const getMenuPoint = () => {
 		const point = contextMenuPointRef?.current;
-		return point
-			? { x: point.x, y: point.y }
-			: editor.inputs.getCurrentPagePoint();
+		return point ? { x: point.x, y: point.y } : editor.inputs.currentPagePoint;
 	};
 
 	return (
