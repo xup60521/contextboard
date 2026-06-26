@@ -96,3 +96,11 @@ bun --bun run deploy
 ```
 
 For production secrets, use `wrangler secret put` for the values from `.env.example`. Public non-secret values can be added under `vars` in `wrangler.jsonc`.
+
+For Cloudflare Git builds, use `bun run build:cloudflare` as the build command. The wrapper script keeps `main` on the current production deployment and lets non-production branches target a non-prod Convex backend:
+
+- `CONVEX_PREVIEW_DEPLOY_KEY`: recommended for one Convex preview deployment per branch.
+- `CONVEX_DEV_DEPLOY_KEY`: optional fallback if you want every non-production branch to share one Convex dev deployment instead.
+- `CONVEX_PRODUCTION_BRANCH`: optional override if your production branch is not `main`.
+
+If you are using Workers Builds, set the production trigger with your production `CONVEX_DEPLOY_KEY`, and set the preview trigger with either `CONVEX_PREVIEW_DEPLOY_KEY` or `CONVEX_DEV_DEPLOY_KEY`.

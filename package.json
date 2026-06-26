@@ -16,7 +16,7 @@
     "format": "biome format",
     "lint": "biome lint",
     "check": "biome check",
-    "build:cloudflare": "convex deploy --cmd \"bun run build\" --cmd-url-env-var-name VITE_CONVEX_URL",
+    "build:cloudflare": "bun run ./scripts/build-cloudflare.ts",
     "deploy": "bun run build && wrangler deploy"
   },
   "dependencies": {
