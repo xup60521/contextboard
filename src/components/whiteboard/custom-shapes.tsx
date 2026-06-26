@@ -112,7 +112,7 @@ function TextCardComponent({ shape }: { shape: TextCardShape }) {
 	}, [isEditing]);
 
 	return (
-		<HTMLContainer>
+		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
 			<textarea
 				ref={textareaRef}
 				className="h-full w-full resize-none rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[15px] leading-5 text-[var(--card-foreground)] shadow-sm outline-none transition focus:border-[var(--ring)]"
@@ -201,6 +201,13 @@ function getBoxIndicatorPath(width: number, height: number) {
 	const path = new Path2D();
 	path.rect(0, 0, width, height);
 	return path;
+}
+
+function getShapeContainerStyle(width: number, height: number) {
+	return {
+		width,
+		height,
+	};
 }
 
 function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
@@ -339,11 +346,10 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	if (!shape.props.cardId) return null;
 
 	return (
-		<HTMLContainer>
+		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
 			{/** biome-ignore lint/a11y/noStaticElementInteractions: tldraw shapes guard pointer/keyboard events here. */}
 			<div
-				ref={cardRef}
-				className="relative w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-8 py-8 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
+				className="relative h-full w-full overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
 				style={{ pointerEvents: isEditing ? "auto" : "none" }}
 				onPointerDown={(e) => {
 					if (isEditing) stopEventPropagation(e);
@@ -394,18 +400,20 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 				>
 					<ExternalLink className="size-3.5" />
 				</Link>
-				<RichTextEditor
-					editable={isEditing}
-					content={initialContentRef.current}
-					contentClassName="min-h-12 pr-7"
-					placeholder="Type '/' for commands"
-					onChange={scheduleSave}
-					onReady={() => setIsEditorReady(true)}
-					defaultFocusPosition={
-						isEmptyCardContent(initialContentRef.current) ? "start" : "end"
-					}
-					selectContentOnFocus={isEmptyCardContent(initialContentRef.current)}
-				/>
+				<div ref={cardRef} className="w-full px-8 py-8">
+					<RichTextEditor
+						editable={isEditing}
+						content={initialContentRef.current}
+						contentClassName="min-h-12 pr-7"
+						placeholder="Type '/' for commands"
+						onChange={scheduleSave}
+						onReady={() => setIsEditorReady(true)}
+						defaultFocusPosition={
+							isEmptyCardContent(initialContentRef.current) ? "start" : "end"
+						}
+						selectContentOnFocus={isEmptyCardContent(initialContentRef.current)}
+					/>
+				</div>
 			</div>
 		</HTMLContainer>
 	);
@@ -482,11 +490,10 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	}, [isEditorReady, scheduleSyncHeight]);
 
 	return (
-		<HTMLContainer>
+		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
 			{/** biome-ignore lint/a11y/noStaticElementInteractions: tldraw shapes guard pointer/keyboard events here. */}
 			<div
-				ref={cardRef}
-				className="w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-8 py-8 text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
+				className="h-full w-full overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)] shadow-sm transition focus-within:border-[var(--ring)]"
 				style={{ pointerEvents: isEditing ? "auto" : "none" }}
 				onPointerDown={(e) => {
 					if (isEditing) stopEventPropagation(e);
@@ -515,64 +522,70 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 					if (isEditing) stopEventPropagation(e);
 				}}
 			>
-				<div
-					className="flex items-center justify-end border-b border-[var(--border)] px-2 py-1"
-					style={{ pointerEvents: "auto" }}
-					onPointerDown={(e) => {
-						if (isEditing) stopEventPropagation(e);
-					}}
-				>
-					<Link
-						to="/test/markdown"
-						draggable={false}
+				<div ref={cardRef} className="w-full">
+					<div
+						className="flex items-center justify-end border-b border-[var(--border)] px-2 py-1"
+						style={{ pointerEvents: "auto" }}
 						onPointerDown={(e) => {
-							stopEventPropagation(e);
-							e.stopPropagation();
+							if (isEditing) stopEventPropagation(e);
 						}}
-						onPointerUp={(e) => {
-							stopEventPropagation(e);
-							e.stopPropagation();
-						}}
-						onClick={(e) => {
-							stopEventPropagation(e);
-							e.stopPropagation();
-						}}
-						className="flex size-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
 					>
-						<ExternalLink className="size-3.5" />
-					</Link>
-				</div>
-				<RichTextEditor
-					editable={isEditing}
-					content={initialContentRef.current}
-					contentClassName="min-h-6"
-					placeholder="Type '/' for commands"
-					onChange={(value) => {
-						const latestProps = latestPropsRef.current;
-						const nextHeight = getMeasuredMarkdownCardHeight({
-							card: cardRef.current,
-							currentHeight: latestProps.h,
-							headerHeight: HEADER_HEIGHT,
-							minHeight: MIN_HEIGHT,
-							isEditorReady,
-						});
+						<Link
+							to="/test/markdown"
+							draggable={false}
+							onPointerDown={(e) => {
+								stopEventPropagation(e);
+								e.stopPropagation();
+							}}
+							onPointerUp={(e) => {
+								stopEventPropagation(e);
+								e.stopPropagation();
+							}}
+							onClick={(e) => {
+								stopEventPropagation(e);
+								e.stopPropagation();
+							}}
+							className="flex size-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+						>
+							<ExternalLink className="size-3.5" />
+						</Link>
+					</div>
+					<div className="px-8 py-8">
+						<RichTextEditor
+							editable={isEditing}
+							content={initialContentRef.current}
+							contentClassName="min-h-6"
+							placeholder="Type '/' for commands"
+							onChange={(value) => {
+								const latestProps = latestPropsRef.current;
+								const nextHeight = getMeasuredMarkdownCardHeight({
+									card: cardRef.current,
+									currentHeight: latestProps.h,
+									headerHeight: HEADER_HEIGHT,
+									minHeight: MIN_HEIGHT,
+									isEditorReady,
+								});
 
-						editor.updateShape<MarkdownCardShape>({
-							id: shape.id,
-							type: "markdown-card",
-							props: {
-								...latestProps,
-								content: JSON.stringify(value),
-								h: nextHeight,
-							},
-						});
-					}}
-					onReady={() => setIsEditorReady(true)}
-					defaultFocusPosition={
-						isEmptyCardContent(initialContentRef.current) ? "start" : "end"
-					}
-					selectContentOnFocus={isEmptyCardContent(initialContentRef.current)}
-				/>
+								editor.updateShape<MarkdownCardShape>({
+									id: shape.id,
+									type: "markdown-card",
+									props: {
+										...latestProps,
+										content: JSON.stringify(value),
+										h: nextHeight,
+									},
+								});
+							}}
+							onReady={() => setIsEditorReady(true)}
+							defaultFocusPosition={
+								isEmptyCardContent(initialContentRef.current) ? "start" : "end"
+							}
+							selectContentOnFocus={isEmptyCardContent(
+								initialContentRef.current,
+							)}
+						/>
+					</div>
+				</div>
 			</div>
 		</HTMLContainer>
 	);
@@ -767,7 +780,7 @@ function SubwhiteboardLinkComponent({
 	}, [draftTitle, editor, shape.id, shape.props, updateTitle]);
 
 	return (
-		<HTMLContainer>
+		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
 			<div className="flex h-full w-full flex-col justify-between rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[var(--card-foreground)] shadow-sm">
 				<div className="flex items-center gap-2 text-[15px] font-bold leading-5">
 					<span className="grid h-7 w-7 shrink-0 place-items-center rounded bg-[var(--accent)] text-[16px] text-[var(--lagoon-deep)]">

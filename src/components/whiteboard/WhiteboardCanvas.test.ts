@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { itemToShape } from "./WhiteboardCanvas";
+import {
+	getRightDragPanNextCamera,
+	hasExceededRightDragPanThreshold,
+	itemToShape,
+} from "./WhiteboardCanvas";
 
 describe("itemToShape", () => {
 	test("uses a hydrated height floor for markdown cards", () => {
@@ -61,5 +65,38 @@ describe("itemToShape", () => {
 
 		expect(shape.type).toBe("subwhiteboard-link");
 		expect(shape.props.h).toBe(84);
+	});
+
+	test("starts right-drag panning only after a small movement threshold", () => {
+		expect(
+			hasExceededRightDragPanThreshold({
+				startClientX: 100,
+				startClientY: 100,
+				currentClientX: 104,
+				currentClientY: 104,
+			}),
+		).toBe(false);
+
+		expect(
+			hasExceededRightDragPanThreshold({
+				startClientX: 100,
+				startClientY: 100,
+				currentClientX: 106,
+				currentClientY: 100,
+			}),
+		).toBe(true);
+	});
+
+	test("converts screen-space right drag into zoom-aware camera panning", () => {
+		expect(
+			getRightDragPanNextCamera(
+				{ x: 10, y: 20, z: 2 },
+				{ x: 8, y: -4 },
+			),
+		).toEqual({
+			x: 14,
+			y: 18,
+			z: 2,
+		});
 	});
 });

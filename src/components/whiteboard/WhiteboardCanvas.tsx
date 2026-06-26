@@ -14,6 +14,7 @@ import {
 	type Editor,
 	pointInPolygon,
 	type TLComponents,
+	type TLCursor,
 	type TLEventInfo,
 	type TLShape,
 	type TLShapeId,
@@ -95,6 +96,22 @@ type PendingDrawingSave = {
 	expectedRevision?: number;
 };
 
+type CameraPosition = {
+	x: number;
+	y: number;
+	z: number;
+};
+
+type RightDragPanState = {
+	pointerId: number;
+	startClientX: number;
+	startClientY: number;
+	lastClientX: number;
+	lastClientY: number;
+	dragging: boolean;
+	previousCursor: Pick<TLCursor, "type" | "rotation">;
+};
+
 type ManagedShapePartial =
 	| {
 			id: TLShapeId;
@@ -125,6 +142,9 @@ const whiteboardOptions = {
 	...singlePageTldrawOptions,
 	createTextOnCanvasDoubleClick: false,
 } satisfies Partial<TldrawOptions>;
+
+const RIGHT_DRAG_PAN_THRESHOLD_PX = 6;
+const SUPPRESS_CONTEXT_MENU_AFTER_RIGHT_DRAG_MS = 250;
 
 const whiteboardComponents = {
 	...singlePageTldrawComponents,
@@ -195,6 +215,8 @@ export function WhiteboardCanvas({
 	const flushTimerRef = useRef<number | null>(null);
 	const pendingCameraResetRef = useRef(true);
 	const handledFocusRef = useRef<string | null>(null);
+	const rightDragPanStateRef = useRef<RightDragPanState | null>(null);
+	const suppressContextMenuUntilRef = useRef(0);
 
 	const flushFrameUpdates = useCallback(() => {
 		flushTimerRef.current = null;
@@ -618,6 +640,131 @@ export function WhiteboardCanvas({
 		};
 	}, [editor, whiteboardId, createCardAt, createSubwhiteboardAt, navigate]);
 
+	useEffect(() => {
+		if (!editor) return;
+
+		const container = editor.getContainer();
+		const ownerDocument = container.ownerDocument;
+		const ownerWindow = ownerDocument.defaultView;
+
+		const finishRightDragPan = (pointerId?: number) => {
+			const state = rightDragPanStateRef.current;
+			if (!state) return;
+			if (pointerId !== undefined && state.pointerId !== pointerId) return;
+
+			if (state.dragging) {
+				suppressContextMenuUntilRef.current =
+					Date.now() + SUPPRESS_CONTEXT_MENU_AFTER_RIGHT_DRAG_MS;
+				editor.setCursor(state.previousCursor);
+			}
+
+			rightDragPanStateRef.current = null;
+		};
+
+		const handlePointerDown = (event: PointerEvent) => {
+			if (event.button !== 2) return;
+			if (!(event.target instanceof Node) || !container.contains(event.target)) {
+				return;
+			}
+
+			const { type, rotation } = editor.getInstanceState().cursor;
+			rightDragPanStateRef.current = {
+				pointerId: event.pointerId,
+				startClientX: event.clientX,
+				startClientY: event.clientY,
+				lastClientX: event.clientX,
+				lastClientY: event.clientY,
+				dragging: false,
+				previousCursor: { type, rotation },
+			};
+		};
+
+		const handlePointerMove = (event: PointerEvent) => {
+			const state = rightDragPanStateRef.current;
+			if (!state || state.pointerId !== event.pointerId) return;
+
+			if (
+				!state.dragging &&
+				!hasExceededRightDragPanThreshold({
+					startClientX: state.startClientX,
+					startClientY: state.startClientY,
+					currentClientX: event.clientX,
+					currentClientY: event.clientY,
+				})
+			) {
+				return;
+			}
+
+			if (!state.dragging) {
+				state.dragging = true;
+				editor.stopCameraAnimation();
+				editor.menus.clearOpenMenus();
+				editor.setCursor({ type: "grabbing", rotation: 0 });
+			}
+
+			const deltaX = event.clientX - state.lastClientX;
+			const deltaY = event.clientY - state.lastClientY;
+			state.lastClientX = event.clientX;
+			state.lastClientY = event.clientY;
+
+			if (deltaX === 0 && deltaY === 0) return;
+
+			editor.setCamera(
+				getRightDragPanNextCamera(editor.getCamera(), {
+					x: deltaX,
+					y: deltaY,
+				}),
+				{ immediate: true },
+			);
+			event.preventDefault();
+			event.stopPropagation();
+		};
+
+		const handlePointerUp = (event: PointerEvent) => {
+			finishRightDragPan(event.pointerId);
+		};
+
+		const handlePointerCancel = (event: PointerEvent) => {
+			finishRightDragPan(event.pointerId);
+		};
+
+		const handleContextMenu = (event: MouseEvent) => {
+			const state = rightDragPanStateRef.current;
+			const shouldSuppress =
+				(state?.dragging ?? false) ||
+				Date.now() < suppressContextMenuUntilRef.current;
+
+			if (!shouldSuppress) return;
+			if (!(event.target instanceof Node) || !container.contains(event.target)) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+		};
+
+		const handleWindowBlur = () => {
+			finishRightDragPan();
+		};
+
+		container.addEventListener("pointerdown", handlePointerDown, true);
+		ownerDocument.addEventListener("pointermove", handlePointerMove, true);
+		ownerDocument.addEventListener("pointerup", handlePointerUp, true);
+		ownerDocument.addEventListener("pointercancel", handlePointerCancel, true);
+		container.addEventListener("contextmenu", handleContextMenu, true);
+		ownerWindow?.addEventListener("blur", handleWindowBlur);
+
+		return () => {
+			container.removeEventListener("pointerdown", handlePointerDown, true);
+			ownerDocument.removeEventListener("pointermove", handlePointerMove, true);
+			ownerDocument.removeEventListener("pointerup", handlePointerUp, true);
+			ownerDocument.removeEventListener("pointercancel", handlePointerCancel, true);
+			container.removeEventListener("contextmenu", handleContextMenu, true);
+			ownerWindow?.removeEventListener("blur", handleWindowBlur);
+			finishRightDragPan();
+		};
+	}, [editor]);
+
 	// App theme -> tldraw color scheme.
 	useEffect(() => {
 		if (!editor) return;
@@ -1015,6 +1162,34 @@ function isPointInCurrentSelection(editor: Editor, point: VecLike) {
 			Vec.RotWith(corner, selectionBounds.point, selectionRotation),
 		),
 	);
+}
+
+export function hasExceededRightDragPanThreshold({
+	startClientX,
+	startClientY,
+	currentClientX,
+	currentClientY,
+}: {
+	startClientX: number;
+	startClientY: number;
+	currentClientX: number;
+	currentClientY: number;
+}) {
+	return (
+		Math.hypot(currentClientX - startClientX, currentClientY - startClientY) >=
+		RIGHT_DRAG_PAN_THRESHOLD_PX
+	);
+}
+
+export function getRightDragPanNextCamera(
+	camera: CameraPosition,
+	screenDelta: Pick<VecLike, "x" | "y">,
+): CameraPosition {
+	return {
+		x: camera.x + screenDelta.x / camera.z,
+		y: camera.y + screenDelta.y / camera.z,
+		z: camera.z,
+	};
 }
 
 function WhiteboardContextMenu(props: TLUiContextMenuProps) {
