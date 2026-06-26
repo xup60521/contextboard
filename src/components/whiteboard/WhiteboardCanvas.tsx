@@ -762,6 +762,12 @@ export function WhiteboardCanvas({
 
 			if (deltaX === 0 && deltaY === 0) return;
 
+			syncRightDragPanPointer(editor, {
+				x: event.clientX,
+				y: event.clientY,
+				z: event.pressure,
+			});
+
 			editor.setCamera(
 				getRightDragPanNextCamera(editor.getCamera(), {
 					x: deltaX,
@@ -1281,6 +1287,22 @@ export function getRightDragPanNextCamera(
 		y: camera.y + screenDelta.y / camera.z,
 		z: camera.z,
 	};
+}
+
+export function syncRightDragPanPointer(
+	editor: Pick<Editor, "inputs" | "getViewportScreenBounds" | "screenToPage">,
+	point: VecLike,
+) {
+	const viewportBounds = editor.getViewportScreenBounds();
+
+	editor.inputs.previousScreenPoint.setTo(editor.inputs.currentScreenPoint);
+	editor.inputs.previousPagePoint.setTo(editor.inputs.currentPagePoint);
+
+	editor.inputs.currentScreenPoint.set(
+		point.x - viewportBounds.x,
+		point.y - viewportBounds.y,
+	);
+	editor.inputs.currentPagePoint.setTo(editor.screenToPage(point));
 }
 
 function WhiteboardContextMenu(props: TLUiContextMenuProps) {

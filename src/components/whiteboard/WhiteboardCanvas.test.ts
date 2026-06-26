@@ -1,8 +1,10 @@
+import { type Editor, Vec } from "tldraw";
 import { describe, expect, test } from "vitest";
 import {
 	getRightDragPanNextCamera,
 	hasExceededRightDragPanThreshold,
 	itemToShape,
+	syncRightDragPanPointer,
 } from "./WhiteboardCanvas";
 
 describe("itemToShape", () => {
@@ -98,5 +100,34 @@ describe("itemToShape", () => {
 			y: 18,
 			z: 2,
 		});
+	});
+
+	test("syncs right-drag pan pointer to the real cursor position", () => {
+		const pagePoint = new Vec(42, 84, 0.25);
+		const editor = {
+			inputs: {
+				previousScreenPoint: new Vec(1, 2),
+				previousPagePoint: new Vec(3, 4),
+				currentScreenPoint: new Vec(11, 22),
+				currentPagePoint: new Vec(33, 44),
+			},
+			getViewportScreenBounds: () => ({ x: 10, y: 20 }),
+			screenToPage: () => pagePoint,
+		} as unknown as Pick<
+			Editor,
+			"inputs" | "getViewportScreenBounds" | "screenToPage"
+		>;
+
+		syncRightDragPanPointer(editor, { x: 110, y: 220, z: 0.25 });
+
+		expect(editor.inputs.currentScreenPoint.x).toBe(100);
+		expect(editor.inputs.currentScreenPoint.y).toBe(200);
+		expect(editor.inputs.previousScreenPoint.x).toBe(11);
+		expect(editor.inputs.previousScreenPoint.y).toBe(22);
+		expect(editor.inputs.previousPagePoint.x).toBe(33);
+		expect(editor.inputs.previousPagePoint.y).toBe(44);
+		expect(editor.inputs.currentPagePoint.x).toBe(42);
+		expect(editor.inputs.currentPagePoint.y).toBe(84);
+		expect(editor.inputs.currentPagePoint.z).toBe(0.25);
 	});
 });
