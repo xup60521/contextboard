@@ -189,7 +189,9 @@ export function WhiteboardCanvas({
 		if (import.meta.env.DEV) return;
 
 		void getTldrawLicenseKey()
-			.then(setLicenseKey)
+			.then((key)=>{setLicenseKey(key)
+                console.log(`Tldraw license key loaded. Length: ${key?.length}`)
+            })
 			.finally(() => {
 				setLicenseKeyLoaded(true);
 			});
