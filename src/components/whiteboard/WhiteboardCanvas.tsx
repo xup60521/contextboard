@@ -188,7 +188,9 @@ export function WhiteboardCanvas({
 	);
 	const updateItemFrame = useMutation(api.canvas.updateItemFrame);
 	const archiveItem = useMutation(api.canvas.archiveItem);
-	const restoreItem = useMutation(api.canvas.restoreItem);
+	const restoreOrAdoptCardItem = useMutation(
+		api.canvas.restoreOrAdoptCardItem,
+	);
 	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
 
 	const [editor, setEditor] = useState<Editor | null>(null);
@@ -522,8 +524,25 @@ export function WhiteboardCanvas({
 				for (const record of Object.values(changes.added)) {
 					if (!isManagedWhiteboardShape(record)) continue;
 					if (record.type !== "markdown-card") continue; // cards only
-					if (itemIdByShapeIdRef.current.has(record.id)) continue; // already tracked; not a restore
-					void restoreItem({ whiteboardId, shapeId: record.id });
+					if (itemIdByShapeIdRef.current.has(record.id)) continue; // already tracked; not a restore/adopt
+
+					if (!whiteboardId) {
+						// Root board can't host cards; drop the orphan so it doesn't
+						// ghost on screen until the next reload strips it.
+						editor.deleteShapes([record.id]);
+						continue;
+					}
+
+					void restoreOrAdoptCardItem({
+						whiteboardId,
+						shapeId: record.id,
+						content: record.props.content,
+						x: record.x,
+						y: record.y,
+						w: record.props.w,
+						h: record.props.h,
+						rotation: record.rotation,
+					});
 				}
 
 				for (const shape of Object.values(changes.removed)) {
@@ -578,7 +597,7 @@ export function WhiteboardCanvas({
 		};
 	}, [
 		archiveItem,
-		restoreItem,
+		restoreOrAdoptCardItem,
 		whiteboardId,
 		editor,
 		queueDrawingSave,

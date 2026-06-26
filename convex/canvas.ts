@@ -15,7 +15,29 @@ const EMPTY_CARD_CONTENT = {
   ],
   type: "doc",
 }
+const MAX_CARD_CONTENT_BYTES = 250_000;
 const PATH_UPPER_BOUND_SUFFIX = "\uffff";
+
+// Parse the serialized TipTap content carried on a pasted markdown-card shape.
+// Falls back to an empty card for missing, malformed, oversized, or non-doc input.
+function parseCardContent(serialized: string | undefined): unknown {
+	if (!serialized || serialized.length > MAX_CARD_CONTENT_BYTES) {
+		return EMPTY_CARD_CONTENT;
+	}
+	try {
+		const parsed = JSON.parse(serialized);
+		if (
+			typeof parsed === "object" &&
+			parsed !== null &&
+			(parsed as { type?: unknown }).type === "doc"
+		) {
+			return parsed;
+		}
+	} catch {
+		// fall through
+	}
+	return EMPTY_CARD_CONTENT;
+}
 
 export const listItems = query({
 	args: {
@@ -277,44 +299,107 @@ export const archiveItem = mutation({
 	},
 });
 
-export const restoreItem = mutation({
+// Handle a newly-added markdown-card shape. tldraw re-adds a shape with its
+// original id on undo-of-delete (restore the archived item), but assigns a fresh
+// id on paste/duplicate (adopt the carried content into a new independent card).
+// Both cases are resolved here atomically so the client needn't know which it is.
+export const restoreOrAdoptCardItem = mutation({
 	args: {
 		whiteboardId: v.union(v.id("whiteboards"), v.null()),
 		shapeId: v.string(),
+		content: v.optional(v.string()), // serialized TipTap JSON from shape props
+		x: v.number(),
+		y: v.number(),
+		w: v.number(),
+		h: v.number(),
+		rotation: v.number(),
 	},
 	handler: async (ctx, args) => {
-		const item = await getExistingItem(ctx, args.whiteboardId, args.shapeId);
-		if (!item || item.archivedAt === null) return null; // nothing archived to restore
-		if (item.kind !== "card" || !item.cardId) return null; // cards only (scope decision)
+		const existing = await getExistingItem(ctx, args.whiteboardId, args.shapeId);
 
-		// Refuse to restore onto an archived/missing board.
-		const parent = args.whiteboardId
-			? await ctx.db.get(args.whiteboardId)
-			: null;
-		if (args.whiteboardId && (!parent || parent.archivedAt !== null)) {
-			return null;
+		// (a) Undo-of-delete: a row already exists for this shapeId.
+		if (existing) {
+			if (existing.archivedAt === null) return existing._id; // already active
+			return await restoreArchivedCardItem(ctx, existing, args.whiteboardId);
 		}
 
+		// (b) Paste / duplicate: brand-new shapeId, no row. Adopt the carried
+		// content into a fresh, independent card. Cards require a real whiteboard.
+		if (!args.whiteboardId) return null; // root board hosts no cards
+		const whiteboard = await getActiveWhiteboard(ctx, args.whiteboardId);
+
+		const content = parseCardContent(args.content);
 		const now = Date.now();
-		await ctx.db.patch(item._id, { archivedAt: null, updatedAt: now });
+		const metadata = deriveCardMetadata(content);
+		const cardId = await ctx.db.insert("cards", {
+			whiteboardId: whiteboard._id,
+			content,
+			derivedTitle: metadata.derivedTitle,
+			plainText: metadata.plainText,
+			preview: metadata.preview,
+			version: 1,
+			archivedAt: null,
+			updatedAt: now,
+		});
+		const itemId = await ctx.db.insert("boardItems", {
+			whiteboardId: whiteboard._id,
+			kind: "card",
+			cardId,
+			childWhiteboardId: null,
+			shapeId: args.shapeId,
+			x: args.x,
+			y: args.y,
+			w: args.w,
+			h: args.h,
+			rotation: args.rotation,
+			zIndex: now,
+			archivedAt: null,
+			updatedAt: now,
+		});
 
-		const card = await ctx.db.get(item.cardId);
-		if (card && card.archivedAt !== null) {
-			await ctx.db.patch(card._id, {
-				archivedAt: null,
-				whiteboardId: item.whiteboardId, // re-home in case it was orphaned
-				updatedAt: now,
-			});
-		}
-		if (parent) {
-			await ctx.db.patch(parent._id, {
-				cardCount: (parent.cardCount ?? 0) + 1, // symmetric with archiveItem's decrement
-				updatedAt: now,
-			});
-		}
-		return item._id;
+		await ctx.db.patch(whiteboard._id, {
+			cardCount: (whiteboard.cardCount ?? 0) + 1,
+			updatedAt: now,
+		});
+
+		return itemId;
 	},
 });
+
+// Unarchive an archived card boardItem (and its card), restoring it onto its
+// board. Returns null if it isn't a restorable card item or the board is gone.
+async function restoreArchivedCardItem(
+	ctx: MutationCtx,
+	item: Doc<"boardItems">,
+	whiteboardId: Id<"whiteboards"> | null,
+) {
+	if (item.kind !== "card" || !item.cardId) return null; // cards only (scope decision)
+
+	// Refuse to restore onto an archived/missing board.
+	const parent = whiteboardId ? await ctx.db.get(whiteboardId) : null;
+	if (whiteboardId && (!parent || parent.archivedAt !== null)) {
+		return null;
+	}
+
+	const now = Date.now();
+	await ctx.db.patch(item._id, { archivedAt: null, updatedAt: now });
+
+	const card = await ctx.db.get(item.cardId);
+	if (card && card.archivedAt !== null) {
+		await ctx.db.patch(card._id, {
+			archivedAt: null,
+			whiteboardId: item.whiteboardId, // re-home in case it was orphaned
+			updatedAt: now,
+		});
+	}
+	if (parent) {
+		await ctx.db.patch(parent._id, {
+			cardCount: (parent.cardCount ?? 0) + 1, // symmetric with archiveItem's decrement
+			updatedAt: now,
+		});
+	}
+	return item._id;
+}
 
 async function getExistingItem(
 	ctx: MutationCtx,
