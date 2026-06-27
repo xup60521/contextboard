@@ -78,7 +78,7 @@ export function sortCards<T extends SortableCard>(
 	cards: readonly T[],
 	sortBy: CardSortBy = DEFAULT_CARD_SORT_BY,
 ): T[] {
-	return cards.toSorted((left, right) => {
+	return [...cards].sort((left: T, right: T) => {
 		switch (sortBy) {
 			case "title":
 				return (
