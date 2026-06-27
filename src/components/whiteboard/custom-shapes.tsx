@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useMutation } from "convex/react";
+import { useSetAtom } from "jotai";
 import { ExternalLink } from "lucide-react";
 import {
 	createContext,
@@ -29,8 +30,8 @@ import {
 } from "tldraw";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
 import { RichTextEditor } from "../editor/RichTextEditor";
-import { useCardPreviewContext } from "../editor/card-reference/CardPreviewContext";
 import { useCardReferenceSupport } from "../editor/useCardReferenceSupport";
 import { useImageUpload } from "../editor/useImageUpload";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
@@ -238,10 +239,9 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	const updateContent = useMutation(api.cards.updateContent);
 	const handleImageUpload = useImageUpload();
 	const boardWhiteboardId = useContext(WhiteboardCardContext);
-	const { previewCardId, setPreviewCardId } = useCardPreviewContext();
+	const openWhiteboardPreview = useSetAtom(whiteboardPreviewCardIdAtom);
 	const { support } = useCardReferenceSupport(boardWhiteboardId, {
-		previewCardId,
-		setPreviewCardId,
+		onOpenPreview: openWhiteboardPreview,
 	});
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);

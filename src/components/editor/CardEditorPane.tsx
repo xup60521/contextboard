@@ -15,6 +15,7 @@ type CardEditorPaneProps = {
 	whiteboardId?: Id<"whiteboards"> | null;
 	className?: string;
 	contentClassName?: string;
+	onEditorReady?: () => void;
 };
 
 /**
@@ -28,6 +29,7 @@ export function CardEditorPane({
 	whiteboardId,
 	className = "notion-editor seamless",
 	contentClassName = "min-h-[60vh] bg-[var(--bg-base)]",
+	onEditorReady,
 }: CardEditorPaneProps) {
 	const updateContent = useMutation(api.cards.updateContent);
 	const handleImageUpload = useImageUpload();
@@ -74,6 +76,7 @@ export function CardEditorPane({
 				key={cardId}
 				content={content}
 				onChange={scheduleSave}
+				onReady={onEditorReady}
 				onImageUpload={handleImageUpload}
 				cardReferenceSupport={support}
 				className={className}

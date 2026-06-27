@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useQuery } from "convex/react";
 import { ArrowUpRight, Crosshair, ExternalLink } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CardEditorPane } from "#/components/editor/CardEditorPane";
 import {
 	Dialog,
@@ -19,6 +20,16 @@ type CardPreviewDialogProps = {
 	onClose: () => void;
 };
 
+export const CARD_PREVIEW_EDITOR_MOUNT_DELAY_MS = 200;
+
+function markPreviewPerformance(stage: string) {
+	if (!import.meta.env.DEV || typeof performance === "undefined") {
+		return;
+	}
+
+	performance.mark(`card-preview:${stage}`);
+}
+
 /**
  * In-place preview/edit popup for a card. Takes only a `cardId`; the navigation
  * context (which board holds the card's shape) is fetched alongside the card so
@@ -34,6 +45,11 @@ export function CardPreviewDialog({
 	const navigate = useNavigate();
 	const open = cardId !== null;
 	const data = useQuery(api.cards.get, cardId ? { cardId } : "skip");
+	const mountFrameRef = useRef<number | null>(null);
+	const mountTimerRef = useRef<number | null>(null);
+	const [shouldMountEditor, setShouldMountEditor] = useState(false);
+	const [isOpening, setIsOpening] = useState(false);
+	const [mountedCardId, setMountedCardId] = useState<Id<"cards"> | null>(null);
 
 	// A card placed on a board has a shape we can navigate to. If that board is
 	// the one currently open we "Focus" (zoom in place); otherwise we "Go to" it.
@@ -43,7 +59,45 @@ export function CardPreviewDialog({
 	const isOnCurrentBoard =
 		canNavigate && boardWhiteboardId === currentWhiteboardId;
 
-	function focusOnBoard() {
+	const clearDeferredMount = useCallback(() => {
+		if (mountFrameRef.current !== null) {
+			window.cancelAnimationFrame(mountFrameRef.current);
+			mountFrameRef.current = null;
+		}
+		if (mountTimerRef.current !== null) {
+			window.clearTimeout(mountTimerRef.current);
+			mountTimerRef.current = null;
+		}
+	}, []);
+
+	useEffect(() => {
+		clearDeferredMount();
+		setShouldMountEditor(false);
+		setMountedCardId(null);
+
+		if (!open || !cardId) {
+			setIsOpening(false);
+			return;
+		}
+
+		setIsOpening(true);
+		markPreviewPerformance(`open-requested:${cardId}`);
+		mountFrameRef.current = window.requestAnimationFrame(() => {
+			markPreviewPerformance(`shell-painted:${cardId}`);
+			mountFrameRef.current = null;
+			mountTimerRef.current = window.setTimeout(() => {
+				markPreviewPerformance(`editor-mount-start:${cardId}`);
+				setMountedCardId(cardId);
+				setShouldMountEditor(true);
+				setIsOpening(false);
+				mountTimerRef.current = null;
+			}, CARD_PREVIEW_EDITOR_MOUNT_DELAY_MS);
+		});
+
+		return clearDeferredMount;
+	}, [cardId, clearDeferredMount, open]);
+
+	const focusOnBoard = useCallback(() => {
 		onClose();
 		if (boardWhiteboardId) {
 			void navigate({
@@ -57,7 +111,13 @@ export function CardPreviewDialog({
 				search: shapeId ? { focus: shapeId } : {},
 			});
 		}
-	}
+	}, [boardWhiteboardId, navigate, onClose, shapeId]);
+
+	const canRenderEditor =
+		data !== undefined &&
+		data !== null &&
+		shouldMountEditor &&
+		mountedCardId === data.card._id;
 
 	return (
 		<Dialog
@@ -112,19 +172,39 @@ export function CardPreviewDialog({
 						) : null}
 					</div>
 				</header>
-				<div className="overflow-y-auto px-6 py-5">
+				<div className="h-[75vh] overflow-y-auto px-6 py-5">
 					{data === undefined ? (
-						<p className="text-sm text-[var(--sea-ink-soft)]">Loading…</p>
+						<div className="flex flex-col gap-4">
+							<div className="h-5 w-32 rounded bg-[var(--line)]" />
+							<div className="flex flex-col gap-2.5">
+								<div className="h-3.5 w-full rounded bg-[var(--line)]" />
+								<div className="h-3.5 w-[90%] rounded bg-[var(--line)]" />
+								<div className="h-3.5 w-[75%] rounded bg-[var(--line)]" />
+								<div className="h-3.5 w-[60%] rounded bg-[var(--line)]" />
+							</div>
+							<div className="flex flex-col gap-2.5">
+								<div className="h-3.5 w-[85%] rounded bg-[var(--line)]" />
+								<div className="h-3.5 w-[95%] rounded bg-[var(--line)]" />
+								<div className="h-3.5 w-[40%] rounded bg-[var(--line)]" />
+							</div>
+						</div>
 					) : data === null ? (
 						<p className="text-sm text-[var(--sea-ink-soft)]">
 							Card not found.
 						</p>
+					) : !canRenderEditor ? (
+						<div className="flex min-h-[50vh] items-center justify-center rounded-md border border-dashed border-[var(--line)] bg-[var(--surface-strong)]/35 px-4 py-8 text-sm text-[var(--sea-ink-soft)]">
+							{isOpening ? "Preparing editor..." : "Loading editor..."}
+						</div>
 					) : (
 						<CardEditorPane
 							cardId={data.card._id}
 							content={data.card.content as JSONContent}
 							whiteboardId={data.card.whiteboardId}
 							contentClassName="min-h-[50vh] bg-transparent"
+							onEditorReady={() =>
+								markPreviewPerformance(`editor-ready:${data.card._id}`)
+							}
 						/>
 					)}
 				</div>

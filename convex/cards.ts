@@ -1,7 +1,8 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { reconcileCardFileRefs } from "./fileLifecycle";
+import type { Doc, Id } from "./_generated/dataModel";
+import { clearCardFileRefs, reconcileCardFileRefs } from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
 import {
 	collectCardReferenceIds,
@@ -140,14 +141,173 @@ export const listByWhiteboard = query({
 export const listOrphans = query({
 	args: {
 		paginationOpts: paginationOptsValidator,
+		searchTerm: v.optional(v.string()),
 	},
 	handler: async (ctx, args) => {
-		return await ctx.db
+		const activeCards = await ctx.db
 			.query("cards")
-			.withIndex("by_whiteboard_archived_updated", (q) =>
-				q.eq("whiteboardId", null).eq("archivedAt", null),
+			.filter((q) => q.eq(q.field("archivedAt"), null))
+			.collect();
+
+		const activeCardsFiltered =
+			args.searchTerm?.trim()
+				? activeCards.filter((card) => {
+						const term = args.searchTerm!.toLowerCase();
+						return (
+							card.plainText.toLowerCase().includes(term) ||
+							card.derivedTitle.toLowerCase().includes(term)
+						);
+					})
+				: activeCards;
+
+		const whiteboardIds = Array.from(
+			new Set(
+				activeCardsFiltered.flatMap((card) =>
+					card.whiteboardId === null ? [] : [card.whiteboardId],
+				),
 			)
-			.order("desc")
-			.paginate(args.paginationOpts);
+		);
+		const whiteboards = await Promise.all(
+			whiteboardIds.map((whiteboardId) => ctx.db.get(whiteboardId)),
+		);
+		const activeWhiteboardIds = new Set(
+			whiteboards.flatMap((whiteboard, index) =>
+				isActiveWhiteboard(whiteboard) ? [whiteboardIds[index]] : [],
+			),
+		);
+		const orphans = activeCardsFiltered
+			.filter(
+				(card) =>
+					card.whiteboardId === null ||
+					!activeWhiteboardIds.has(card.whiteboardId),
+			)
+			.sort((a, b) => b.updatedAt - a.updatedAt);
+		const start = parseOffsetCursor(args.paginationOpts.cursor);
+		const end = Math.min(start + args.paginationOpts.numItems, orphans.length);
+
+		return {
+			isDone: end >= orphans.length,
+			page: orphans.slice(start, end),
+			continueCursor: String(end),
+		};
 	},
 });
+
+export const archiveCard = mutation({
+	args: { cardId: v.id("cards") },
+	handler: async (ctx, args) => {
+		const card = await ctx.db.get(args.cardId);
+		if (!card || card.archivedAt !== null) return;
+
+		const now = Date.now();
+
+		if (card.whiteboardId) {
+			const boardItem = await ctx.db
+				.query("boardItems")
+				.withIndex("by_card", (q) => q.eq("cardId", card._id))
+				.filter((q) => q.eq(q.field("archivedAt"), null))
+				.first();
+
+			if (boardItem) {
+				await ctx.db.patch(boardItem._id, {
+					archivedAt: now,
+					updatedAt: now,
+				});
+			}
+
+			const whiteboard = await ctx.db.get(card.whiteboardId);
+			if (whiteboard && whiteboard.archivedAt === null) {
+				await ctx.db.patch(whiteboard._id, {
+					cardCount: Math.max(0, (whiteboard.cardCount ?? 0) - 1),
+					updatedAt: now,
+				});
+			}
+		}
+
+		await clearCardFileRefs(ctx, card._id);
+		await ctx.db.patch(card._id, {
+			archivedAt: now,
+			updatedAt: now,
+		});
+	},
+});
+
+export const appendToWhiteboard = mutation({
+	args: {
+		cardId: v.id("cards"),
+		whiteboardId: v.id("whiteboards"),
+	},
+	handler: async (ctx, args) => {
+		const card = await ctx.db.get(args.cardId);
+		if (!card || card.archivedAt !== null) {
+			throw new Error("Card not found");
+		}
+		if (card.whiteboardId !== null) {
+			throw new Error("Card is already on a whiteboard");
+		}
+
+		const whiteboard = await ctx.db.get(args.whiteboardId);
+		if (!whiteboard || whiteboard.archivedAt !== null) {
+			throw new Error("Whiteboard not found");
+		}
+
+		const now = Date.now();
+		const shapeId = `card-${card._id}`;
+		const existingItem = await ctx.db
+			.query("boardItems")
+			.withIndex("by_whiteboard_shape", (q) =>
+				q.eq("whiteboardId", whiteboard._id).eq("shapeId", shapeId),
+			)
+			.first();
+
+		if (!existingItem || existingItem.archivedAt !== null) {
+			await ctx.db.insert("boardItems", {
+				whiteboardId: whiteboard._id,
+				kind: "card",
+				cardId: card._id,
+				childWhiteboardId: null,
+				shapeId,
+				x: 0,
+				y: (whiteboard.cardCount ?? 0) * 40,
+				w: 576,
+				h: 160,
+				rotation: 0,
+				zIndex: now,
+				archivedAt: null,
+				updatedAt: now,
+			});
+		}
+
+		if (existingItem && existingItem.archivedAt !== null) {
+			await ctx.db.patch(existingItem._id, {
+				archivedAt: null,
+				updatedAt: now,
+			});
+		}
+
+		await ctx.db.patch(card._id, {
+			whiteboardId: whiteboard._id,
+			updatedAt: now,
+		});
+
+		await ctx.db.patch(whiteboard._id, {
+			cardCount: (whiteboard.cardCount ?? 0) + 1,
+			updatedAt: now,
+		});
+	},
+});
+
+function isActiveWhiteboard(
+	whiteboard: Doc<"whiteboards"> | null,
+): whiteboard is Doc<"whiteboards"> {
+	return !!whiteboard && whiteboard.archivedAt === null;
+}
+
+function parseOffsetCursor(cursor: string | null) {
+	if (cursor === null) {
+		return 0;
+	}
+
+	const offset = Number.parseInt(cursor, 10);
+	return Number.isFinite(offset) && offset >= 0 ? offset : 0;
+}
