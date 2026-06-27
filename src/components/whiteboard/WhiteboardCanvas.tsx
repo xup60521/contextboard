@@ -1128,6 +1128,39 @@ export function itemToShape(
 	};
 }
 
+function managedShapeChanged(
+	existing: TLShape,
+	next: ManagedShapePartial,
+): boolean {
+	if (
+		existing.x !== next.x ||
+		existing.y !== next.y ||
+		existing.rotation !== next.rotation
+	) {
+		return true;
+	}
+
+	if (isMarkdownCardShape(existing) && next.type === "markdown-card") {
+		return (
+			existing.props.w !== next.props.w ||
+			existing.props.content !== next.props.content ||
+			existing.props.cardId !== next.props.cardId ||
+			existing.props.version !== next.props.version
+		);
+	}
+
+	if (isSubwhiteboardLinkShape(existing) && next.type === "subwhiteboard-link") {
+		return (
+			existing.props.w !== next.props.w ||
+			existing.props.h !== next.props.h ||
+			existing.props.label !== next.props.label ||
+			existing.props.childWhiteboardId !== next.props.childWhiteboardId
+		);
+	}
+
+	return false;
+}
+
 function rehydrateItemShape(
 	editor: Editor,
 	item: BoardItemResult,
@@ -1137,9 +1170,14 @@ function rehydrateItemShape(
 	const existingShape = editor.getShape(nextShape.id);
 
 	if (existingShape) {
-		editor.updateShape(
-			preserveEditingCardContent(editor, existingShape, nextShape),
+		const updatedShape = preserveEditingCardContent(
+			editor,
+			existingShape,
+			nextShape,
 		);
+		if (managedShapeChanged(existingShape, updatedShape)) {
+			editor.updateShape(updatedShape);
+		}
 	} else {
 		editor.createShape(nextShape);
 	}
