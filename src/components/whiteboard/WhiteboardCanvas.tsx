@@ -1355,14 +1355,15 @@ export function syncRightDragPanPointer(
 function WhiteboardContextMenu(props: TLUiContextMenuProps) {
 	return (
 		<ControlledTldrawContextMenu {...props}>
-			<DefaultContextMenuContent />
 			<WhiteboardContextMenuContent />
+			<DefaultContextMenuContent />
 		</ControlledTldrawContextMenu>
 	);
 }
 
 function WhiteboardContextMenuContent() {
 	const editor = useEditor();
+	const navigate = useNavigate();
 	const context = useContext(WhiteboardContextMenuContext);
 
 	if (!context) return null;
@@ -1371,6 +1372,12 @@ function WhiteboardContextMenuContent() {
 		const point = context.pointRef.current;
 		return point ? { x: point.x, y: point.y } : editor.inputs.currentPagePoint;
 	};
+
+	const onlySelectedShape = editor.getOnlySelectedShape();
+	const canEnterFullscreen =
+		onlySelectedShape &&
+		(isMarkdownCardShape(onlySelectedShape) ||
+			isSubwhiteboardLinkShape(onlySelectedShape));
 
 	return (
 		<TldrawUiMenuGroup id="whiteboard-convex">
@@ -1388,6 +1395,36 @@ function WhiteboardContextMenuContent() {
 				}
 				onSelect={() => context.createSubwhiteboardAt(getMenuPoint())}
 			/>
+			{canEnterFullscreen && (
+				<TldrawUiMenuItem
+					id="enter-fullscreen"
+					label="Enter fullscreen"
+					onSelect={() => {
+						if (
+							isMarkdownCardShape(onlySelectedShape) &&
+							onlySelectedShape.props.cardId
+						) {
+							void navigate({
+								to: "/cards/$cardId",
+								params: {
+									cardId: onlySelectedShape.props.cardId as Id<"cards">,
+								},
+							});
+						} else if (
+							isSubwhiteboardLinkShape(onlySelectedShape) &&
+							onlySelectedShape.props.childWhiteboardId
+						) {
+							void navigate({
+								to: "/whiteboard/$whiteboardId",
+								params: {
+									whiteboardId: onlySelectedShape.props
+										.childWhiteboardId as Id<"whiteboards">,
+								},
+							});
+						}
+					}}
+				/>
+			)}
 		</TldrawUiMenuGroup>
 	);
 }
