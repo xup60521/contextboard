@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { PanelLeft } from "lucide-react";
 import {
 	createContext,
 	useCallback,
@@ -13,6 +14,7 @@ import {
 	createShapeId,
 	DefaultContextMenuContent,
 	type Editor,
+	PORTRAIT_BREAKPOINT,
 	pointInPolygon,
 	type TLAssetStore,
 	type TLComponents,
@@ -26,8 +28,15 @@ import {
 	type TldrawOptions,
 	TldrawUiMenuGroup,
 	TldrawUiMenuItem,
+	TldrawUiToolbar,
+	TldrawUiToolbarButton,
 	react as tldrawReact,
+	useBreakpoint,
 	useEditor,
+	usePassThroughWheelEvents,
+	useTldrawUiComponents,
+	useTranslation,
+	useValue,
 	Vec,
 	type VecLike,
 } from "tldraw";
@@ -52,6 +61,7 @@ import {
 	type WhiteboardFrame,
 } from "./frame-sync";
 import { getHydratedMarkdownCardHeight } from "./markdown-card-sizing";
+import { useSidebarContext } from "./SidebarContext";
 import {
 	filterSnapshotForPersistence,
 	isManagedWhiteboardShapeRecord,
@@ -61,8 +71,7 @@ import {
 	singlePageTldrawOptions,
 	singlePageTldrawUiOverrides,
 } from "./tldraw-single-page";
-import { CardPreviewContext } from "../editor/card-reference/CardPreviewContext";
-import { CardPreviewDialog } from "../search/CardPreviewDialog";
+import { WhiteboardCardPreviewLayer } from "./WhiteboardCardPreviewLayer";
 import "tldraw/tldraw.css";
 
 type BoardItemResult = {
@@ -153,9 +162,63 @@ const whiteboardOptions = {
 const RIGHT_DRAG_PAN_THRESHOLD_PX = 6;
 const SUPPRESS_CONTEXT_MENU_AFTER_RIGHT_DRAG_MS = 250;
 
+function CustomMenuPanel() {
+	const { isOpen, open } = useSidebarContext();
+	const breakpoint = useBreakpoint();
+	const msg = useTranslation();
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const ref = useRef(null) as any;
+	usePassThroughWheelEvents(ref);
+	const { MainMenu, QuickActions, ActionsMenu, PageMenu } =
+		useTldrawUiComponents();
+	const editor = useEditor();
+	const isSinglePageMode = useValue(
+		"isSinglePageMode",
+		() => editor.options.maxPages <= 1,
+		[editor],
+	);
+	const showQuickActions =
+		editor.options.actionShortcutsLocation === "menu"
+			? true
+			: editor.options.actionShortcutsLocation === "toolbar"
+				? false
+				: breakpoint >= PORTRAIT_BREAKPOINT.TABLET;
+	if (!MainMenu && !PageMenu && !showQuickActions) return null;
+	return (
+		<nav ref={ref} className="tlui-menu-zone">
+			<div className="tlui-buttons__horizontal">
+				{isOpen ? null : (
+					<TldrawUiToolbar label="Whiteboard sidebar">
+						<TldrawUiToolbarButton
+							type="icon"
+							title="Open sidebar"
+							aria-label="Open sidebar"
+							onClick={open}
+						>
+							<PanelLeft size={16} />
+						</TldrawUiToolbarButton>
+					</TldrawUiToolbar>
+				)}
+				{MainMenu && <MainMenu />}
+				{PageMenu && !isSinglePageMode && <PageMenu />}
+				{showQuickActions ? (
+					<TldrawUiToolbar
+						className="tlui-buttons__horizontal"
+						label={msg("actions-menu.title")}
+					>
+						{QuickActions && <QuickActions />}
+						{ActionsMenu && <ActionsMenu />}
+					</TldrawUiToolbar>
+				) : null}
+			</div>
+		</nav>
+	);
+}
+
 const whiteboardComponents = {
 	...singlePageTldrawComponents,
 	ContextMenu: WhiteboardContextMenu,
+	MenuPanel: CustomMenuPanel,
 } satisfies TLComponents;
 
 const WhiteboardContextMenuContext =
@@ -222,7 +285,6 @@ export function WhiteboardCanvas({
 
 	const [editor, setEditor] = useState<Editor | null>(null);
 	const [loadedDrawingKey, setLoadedDrawingKey] = useState<string | null>(null);
-	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
 	const [whiteboardDeletePending, setWhiteboardDeletePending] = useState<{
 		itemId: Id<"boardItems">;
 		shape: ManagedWhiteboardShape;
@@ -886,49 +948,49 @@ export function WhiteboardCanvas({
 	const displayedBreadcrumbs = whiteboardId ? (breadcrumbs ?? []) : [];
 
 	return (
-		<main className="relative h-dvh min-h-[620px] w-full overflow-hidden bg-[var(--background)]">
-			<div className="pointer-events-none absolute left-1/2 top-2 z-10 flex max-w-[min(92vw,40rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-sm text-[var(--card-foreground)] shadow-sm">
-				<nav className="pointer-events-auto flex min-w-0 items-center gap-2">
-					<Link
-						to="/whiteboard"
-						className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
-					>
-						Root
-					</Link>
-					{displayedBreadcrumbs.map((crumb) => (
-						<span key={crumb._id} className="flex min-w-0 items-center gap-2">
-							<span className="text-[var(--muted-foreground)]">/</span>
-							{crumb._id === whiteboardId ? (
-								<EditableWhiteboardTitle
-									whiteboardId={crumb._id}
-									title={crumb.title}
-								/>
-							) : (
-								<Link
-									to="/whiteboard/$whiteboardId"
-									params={{ whiteboardId: crumb._id }}
-									className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
-								>
-									{crumb.title}
-								</Link>
-							)}
-						</span>
-					))}
-				</nav>
-				{itemQuery.status === "CanLoadMore" && (
-					<button
-						type="button"
-						className="pointer-events-auto shrink-0 rounded border border-[var(--border)] px-2 py-0.5 text-xs font-semibold text-[var(--card-foreground)] hover:bg-[var(--accent)]"
-						onClick={() => itemQuery.loadMore(100)}
-					>
-						Load more
-					</button>
-				)}
-			</div>
-			<div className="absolute inset-0 overflow-hidden bg-[var(--background)]">
-				<WhiteboardContextMenuContext.Provider value={contextValue}>
-					<WhiteboardCardContext.Provider value={whiteboardId}>
-						<CardPreviewContext.Provider value={{ previewCardId, setPreviewCardId }}>
+		<main className="flex h-dvh min-h-[620px] w-full overflow-hidden bg-[var(--background)]">
+			<div className="relative flex-1 overflow-hidden bg-[var(--background)]">
+				<div className="pointer-events-none absolute left-1/2 top-2 z-10 flex max-w-[min(92vw,40rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-sm text-[var(--card-foreground)] shadow-sm">
+					<nav className="pointer-events-auto flex min-w-0 items-center gap-2">
+						<Link
+							to="/whiteboard"
+							className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
+						>
+							Root
+						</Link>
+						{displayedBreadcrumbs.map((crumb) => (
+							<span key={crumb._id} className="flex min-w-0 items-center gap-2">
+								<span className="text-[var(--muted-foreground)]">/</span>
+								{crumb._id === whiteboardId ? (
+									<EditableWhiteboardTitle
+										whiteboardId={crumb._id}
+										title={crumb.title}
+									/>
+								) : (
+									<Link
+										to="/whiteboard/$whiteboardId"
+										params={{ whiteboardId: crumb._id }}
+										className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
+									>
+										{crumb.title}
+									</Link>
+								)}
+							</span>
+						))}
+					</nav>
+					{itemQuery.status === "CanLoadMore" && (
+						<button
+							type="button"
+							className="pointer-events-auto shrink-0 rounded border border-[var(--border)] px-2 py-0.5 text-xs font-semibold text-[var(--card-foreground)] hover:bg-[var(--accent)]"
+							onClick={() => itemQuery.loadMore(100)}
+						>
+							Load more
+						</button>
+					)}
+				</div>
+				<div className="absolute inset-0 overflow-hidden bg-[var(--background)]">
+					<WhiteboardContextMenuContext.Provider value={contextValue}>
+						<WhiteboardCardContext.Provider value={whiteboardId}>
 							<Tldraw
 								assets={assetStore}
 								components={whiteboardComponents}
@@ -945,11 +1007,11 @@ export function WhiteboardCanvas({
 								overrides={singlePageTldrawUiOverrides}
 								shapeUtils={markdownWhiteboardShapeUtils}
 							/>
-						</CardPreviewContext.Provider>
-					</WhiteboardCardContext.Provider>
-				</WhiteboardContextMenuContext.Provider>
+						</WhiteboardCardContext.Provider>
+					</WhiteboardContextMenuContext.Provider>
+				</div>
+				{overlayLabel && <WhiteboardLoadingOverlay label={overlayLabel} />}
 			</div>
-			{overlayLabel && <WhiteboardLoadingOverlay label={overlayLabel} />}
 			<DeleteWhiteboardDialog
 				open={whiteboardDeletePending !== null}
 				onCancel={() => {
@@ -980,11 +1042,7 @@ export function WhiteboardCanvas({
 					}
 				}}
 			/>
-			<CardPreviewDialog
-				cardId={previewCardId}
-				currentWhiteboardId={whiteboardId}
-				onClose={() => setPreviewCardId(null)}
-			/>
+			<WhiteboardCardPreviewLayer currentWhiteboardId={whiteboardId} />
 		</main>
 	);
 }
@@ -1149,7 +1207,10 @@ function managedShapeChanged(
 		);
 	}
 
-	if (isSubwhiteboardLinkShape(existing) && next.type === "subwhiteboard-link") {
+	if (
+		isSubwhiteboardLinkShape(existing) &&
+		next.type === "subwhiteboard-link"
+	) {
 		return (
 			existing.props.w !== next.props.w ||
 			existing.props.h !== next.props.h ||
@@ -1355,14 +1416,15 @@ export function syncRightDragPanPointer(
 function WhiteboardContextMenu(props: TLUiContextMenuProps) {
 	return (
 		<ControlledTldrawContextMenu {...props}>
-			<DefaultContextMenuContent />
 			<WhiteboardContextMenuContent />
+			<DefaultContextMenuContent />
 		</ControlledTldrawContextMenu>
 	);
 }
 
 function WhiteboardContextMenuContent() {
 	const editor = useEditor();
+	const navigate = useNavigate();
 	const context = useContext(WhiteboardContextMenuContext);
 
 	if (!context) return null;
@@ -1372,8 +1434,44 @@ function WhiteboardContextMenuContent() {
 		return point ? { x: point.x, y: point.y } : editor.inputs.currentPagePoint;
 	};
 
+	const onlySelectedShape = editor.getOnlySelectedShape();
+	const canEnterFullscreen =
+		onlySelectedShape &&
+		(isMarkdownCardShape(onlySelectedShape) ||
+			isSubwhiteboardLinkShape(onlySelectedShape));
+
 	return (
 		<TldrawUiMenuGroup id="whiteboard-convex">
+			{canEnterFullscreen && (
+				<TldrawUiMenuItem
+					id="enter-fullscreen"
+					label="Enter fullscreen"
+					onSelect={() => {
+						if (
+							isMarkdownCardShape(onlySelectedShape) &&
+							onlySelectedShape.props.cardId
+						) {
+							void navigate({
+								to: "/cards/$cardId",
+								params: {
+									cardId: onlySelectedShape.props.cardId as Id<"cards">,
+								},
+							});
+						} else if (
+							isSubwhiteboardLinkShape(onlySelectedShape) &&
+							onlySelectedShape.props.childWhiteboardId
+						) {
+							void navigate({
+								to: "/whiteboard/$whiteboardId",
+								params: {
+									whiteboardId: onlySelectedShape.props
+										.childWhiteboardId as Id<"whiteboards">,
+								},
+							});
+						}
+					}}
+				/>
+			)}
 			{context.createCardAt && (
 				<TldrawUiMenuItem
 					id="add-markdown-card"

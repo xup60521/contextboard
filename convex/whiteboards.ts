@@ -100,6 +100,36 @@ export const listByDepth = query({
 	},
 });
 
+export const listActive = query({
+	args: {},
+	handler: async (ctx) => {
+		const whiteboards = await ctx.db
+			.query("whiteboards")
+			.filter((q) => q.eq(q.field("archivedAt"), null))
+			.collect();
+
+		const result = await Promise.all(
+			whiteboards.map(async (wb) => {
+				const breadcrumbs: Doc<"whiteboards">[] = [];
+				for (const ancestorId of wb.ancestorIds ?? []) {
+					const ancestor = await ctx.db.get(ancestorId);
+					if (ancestor && ancestor.archivedAt === null) {
+						breadcrumbs.push(ancestor);
+					}
+				}
+				return {
+					_id: wb._id,
+					title: wb.title,
+					breadcrumbs,
+				};
+			}),
+		);
+
+		result.sort((a, b) => a.title.localeCompare(b.title));
+		return result;
+	},
+});
+
 export const updateTitle = mutation({
 	args: {
 		whiteboardId: v.id("whiteboards"),

@@ -94,9 +94,19 @@ export const normalizeLegacyWhiteboards = mutation({
 		}
 
 		const cardCounts = new Map<Id<"whiteboards">, number>();
-		for await (const card of ctx.db.query("cards")) {
-			if (!card.whiteboardId || card.archivedAt !== null) continue;
-			cardCounts.set(card.whiteboardId, (cardCounts.get(card.whiteboardId) ?? 0) + 1);
+		for await (const item of ctx.db.query("boardItems")) {
+			if (
+				item.archivedAt !== null ||
+				item.kind !== "card" ||
+				!item.whiteboardId ||
+				!item.cardId
+			) {
+				continue;
+			}
+			cardCounts.set(
+				item.whiteboardId,
+				(cardCounts.get(item.whiteboardId) ?? 0) + 1,
+			);
 		}
 
 		let updated = 0;

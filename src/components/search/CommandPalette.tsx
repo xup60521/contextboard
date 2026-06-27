@@ -3,7 +3,7 @@ import type { JSONContent } from "@tiptap/core";
 import { useQuery } from "convex/react";
 import { FileText, Layers } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RichTextEditor } from "#/components/editor/RichTextEditor";
+import { ReadonlyRichTextPreview } from "#/components/editor/ReadonlyRichTextPreview";
 import {
 	Command,
 	CommandEmpty,
@@ -294,11 +294,8 @@ function PreviewPane({ result }: { result: ActiveResult | null }) {
 function CardPreview({ card }: { card: CardSearchResult }) {
 	return (
 		<div className="p-5">
-			<RichTextEditor
-				key={card.id}
-				editable={false}
+			<ReadonlyRichTextPreview
 				content={card.content as JSONContent}
-				className="notion-editor seamless pointer-events-none"
 				contentClassName="min-h-0 bg-transparent text-sm"
 			/>
 		</div>

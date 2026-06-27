@@ -9,6 +9,7 @@ import {
 	reconcileCardFileRefs,
 } from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
+import { countActiveCardPlacements } from "./model/cardPlacements";
 
 const DEFAULT_CARD_WIDTH = 576;
 const DEFAULT_CARD_HEIGHT = 160;
@@ -130,7 +131,7 @@ export const createCardItem = mutation({
 		const now = Date.now();
 		const metadata = deriveCardMetadata(EMPTY_CARD_CONTENT);
 		const cardId = await ctx.db.insert("cards", {
-			whiteboardId: whiteboard._id,
+			whiteboardId: null,
 			content: EMPTY_CARD_CONTENT,
 			derivedTitle: metadata.derivedTitle,
 			plainText: metadata.plainText,
@@ -273,7 +274,6 @@ export const archiveItem = mutation({
 
 		const parent = item.whiteboardId ? await ctx.db.get(item.whiteboardId) : null;
 		if (item.kind === "card" && item.cardId) {
-			await archiveCard(ctx, item.cardId, now);
 			if (parent) {
 				await ctx.db.patch(parent._id, {
 					cardCount: Math.max(0, (parent.cardCount ?? 0) - 1),
@@ -337,7 +337,7 @@ export const restoreOrAdoptCardItem = mutation({
 		const now = Date.now();
 		const metadata = deriveCardMetadata(content);
 		const cardId = await ctx.db.insert("cards", {
-			whiteboardId: whiteboard._id,
+			whiteboardId: null,
 			content,
 			derivedTitle: metadata.derivedTitle,
 			plainText: metadata.plainText,
@@ -394,7 +394,6 @@ async function restoreArchivedCardItem(
 	if (card && card.archivedAt !== null) {
 		await ctx.db.patch(card._id, {
 			archivedAt: null,
-			whiteboardId: item.whiteboardId, // re-home in case it was orphaned
 			updatedAt: now,
 		});
 	}
@@ -458,20 +457,6 @@ async function archiveCard(
 	});
 }
 
-async function orphanCard(
-	ctx: MutationCtx,
-	cardId: Id<"cards">,
-	updatedAt: number,
-) {
-	const card = await ctx.db.get(cardId);
-	if (!card || card.archivedAt !== null) return;
-
-	await ctx.db.patch(card._id, {
-		whiteboardId: null,
-		updatedAt,
-	});
-}
-
 async function archiveWhiteboardTree(
 	ctx: MutationCtx,
 	whiteboard: Doc<"whiteboards">,
@@ -525,9 +510,9 @@ async function archiveWhiteboardContents(
 
 		if (item.kind === "card" && item.cardId) {
 			if (options.deleteCards) {
-				await archiveCard(ctx, item.cardId, options.archivedAt);
-			} else {
-				await orphanCard(ctx, item.cardId, options.archivedAt);
+				if ((await countActiveCardPlacements(ctx, item.cardId)) === 0) {
+					await archiveCard(ctx, item.cardId, options.archivedAt);
+				}
 			}
 		}
 	}

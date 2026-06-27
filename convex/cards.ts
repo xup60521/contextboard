@@ -1,8 +1,19 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { reconcileCardFileRefs } from "./fileLifecycle";
+import type { Doc, Id } from "./_generated/dataModel";
+import { clearCardFileRefs, reconcileCardFileRefs } from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
+import {
+	getPreferredPlacement,
+	hasActivePlacementOnBoard,
+	listActivePlacements,
+} from "./model/cardPlacements";
+import {
+	DEFAULT_CARD_SORT_BY,
+	cardSortByValidator,
+	sortCards,
+} from "./model/cardSorting";
 import {
 	collectCardReferenceIds,
 	fetchCardTitles,
@@ -18,9 +29,33 @@ export const get = query({
 		const card = await ctx.db.get(args.cardId);
 		if (!card || card.archivedAt !== null) return null;
 
-		const whiteboard = card.whiteboardId
-			? await ctx.db.get(card.whiteboardId)
+		const placements = await listActivePlacements(ctx, card._id);
+		const preferredPlacement = await getPreferredPlacement(ctx, card._id);
+		const whiteboard = preferredPlacement?.whiteboardId
+			? await ctx.db.get(preferredPlacement.whiteboardId)
 			: null;
+		const backlinks: {
+			cardId: Id<"cards">;
+			title: string;
+			preview: string;
+			boardWhiteboardId: Id<"whiteboards"> | null;
+			shapeId: string | null;
+		}[] = [];
+
+		for await (const candidate of ctx.db.query("cards")) {
+			if (candidate._id === card._id || candidate.archivedAt !== null) continue;
+			const referencedIds = collectCardReferenceIds(candidate.content);
+			if (!referencedIds.includes(card._id)) continue;
+			const backlinkPlacement = await getPreferredPlacement(ctx, candidate._id);
+			backlinks.push({
+				cardId: candidate._id,
+				title: candidate.derivedTitle,
+				preview: candidate.preview,
+				boardWhiteboardId: backlinkPlacement?.whiteboardId ?? null,
+				shapeId: backlinkPlacement?.shapeId ?? null,
+			});
+		}
+		backlinks.sort((left, right) => left.title.localeCompare(right.title));
 
 		const breadcrumbs = [];
 		if (whiteboard && whiteboard.archivedAt === null) {
@@ -46,18 +81,19 @@ export const get = query({
 
 		// The card's placement on a board, so callers (e.g. the preview dialog)
 		// can offer "focus on board" / "go to board".
-		const boardItem = await ctx.db
-			.query("boardItems")
-			.withIndex("by_card", (q) => q.eq("cardId", card._id))
-			.filter((q) => q.eq(q.field("archivedAt"), null))
-			.first();
-
 		return {
 			card: { ...card, content },
-			whiteboard,
+			whiteboard: whiteboard && whiteboard.archivedAt === null ? whiteboard : null,
 			breadcrumbs,
-			boardWhiteboardId: boardItem?.whiteboardId ?? card.whiteboardId,
-			shapeId: boardItem?.shapeId ?? null,
+			placements: placements.map((placement) => ({
+				itemId: placement._id,
+				whiteboardId: placement.whiteboardId,
+				shapeId: placement.shapeId,
+				updatedAt: placement.updatedAt,
+			})),
+			backlinks,
+			boardWhiteboardId: preferredPlacement?.whiteboardId ?? null,
+			shapeId: preferredPlacement?.shapeId ?? null,
 		};
 	},
 });
@@ -111,8 +147,10 @@ export const updateContent = mutation({
 			version: card.version + 1,
 			updatedAt: now,
 		});
-		if (card.whiteboardId) {
-			await ctx.db.patch(card.whiteboardId, {
+		const placements = await listActivePlacements(ctx, card._id);
+		for (const placement of placements) {
+			if (!placement.whiteboardId) continue;
+			await ctx.db.patch(placement.whiteboardId, {
 				updatedAt: now,
 			});
 		}
@@ -127,27 +165,261 @@ export const listByWhiteboard = query({
 		paginationOpts: paginationOptsValidator,
 	},
 	handler: async (ctx, args) => {
-		return await ctx.db
-			.query("cards")
-			.withIndex("by_whiteboard_archived_updated", (q) =>
+		const placements = await ctx.db
+			.query("boardItems")
+			.withIndex("by_whiteboard_archived_z", (q) =>
 				q.eq("whiteboardId", args.whiteboardId).eq("archivedAt", null),
 			)
-			.order("desc")
-			.paginate(args.paginationOpts);
+			.collect();
+
+		const cardsById = new Map<Id<"cards">, Doc<"cards">>();
+		for (const card of (
+			await Promise.all(
+				placements
+					.filter((item) => item.kind === "card" && item.cardId)
+					.map(async (item) => (item.cardId ? await ctx.db.get(item.cardId) : null)),
+			)
+		).filter((card): card is Doc<"cards"> => !!card && card.archivedAt === null)) {
+			cardsById.set(card._id, card);
+		}
+		const cards = [...cardsById.values()].sort(
+			(left, right) => right._creationTime - left._creationTime,
+		);
+
+		const start = parseOffsetCursor(args.paginationOpts.cursor);
+		const end = Math.min(start + args.paginationOpts.numItems, cards.length);
+
+		return {
+			isDone: end >= cards.length,
+			page: cards.slice(start, end),
+			continueCursor: String(end),
+		};
 	},
 });
 
 export const listOrphans = query({
 	args: {
 		paginationOpts: paginationOptsValidator,
+		searchTerm: v.optional(v.string()),
+		sortBy: v.optional(cardSortByValidator),
 	},
 	handler: async (ctx, args) => {
-		return await ctx.db
+		const activeCards = await ctx.db
 			.query("cards")
-			.withIndex("by_whiteboard_archived_updated", (q) =>
-				q.eq("whiteboardId", null).eq("archivedAt", null),
-			)
-			.order("desc")
-			.paginate(args.paginationOpts);
+			.filter((q) => q.eq(q.field("archivedAt"), null))
+			.collect();
+
+		const activeCardsFiltered =
+			args.searchTerm?.trim()
+				? activeCards.filter((card) => {
+						const term = args.searchTerm!.toLowerCase();
+						return (
+							card.plainText.toLowerCase().includes(term) ||
+							card.derivedTitle.toLowerCase().includes(term)
+						);
+					})
+				: activeCards;
+
+		const placementCounts = new Map<Id<"cards">, number>();
+		for await (const item of ctx.db.query("boardItems")) {
+			if (
+				item.archivedAt === null &&
+				item.kind === "card" &&
+				item.cardId !== null
+			) {
+				placementCounts.set(
+					item.cardId,
+					(placementCounts.get(item.cardId) ?? 0) + 1,
+				);
+			}
+		}
+
+		const orphans = activeCardsFiltered.filter(
+			(card) => (placementCounts.get(card._id) ?? 0) === 0,
+		);
+		const sortedOrphans = sortCards(
+			orphans,
+			args.sortBy ?? DEFAULT_CARD_SORT_BY,
+		);
+		const start = parseOffsetCursor(args.paginationOpts.cursor);
+		const end = Math.min(
+			start + args.paginationOpts.numItems,
+			sortedOrphans.length,
+		);
+
+		return {
+			isDone: end >= sortedOrphans.length,
+			page: sortedOrphans.slice(start, end),
+			continueCursor: String(end),
+		};
 	},
 });
+
+export const listAll = query({
+	args: {
+		paginationOpts: paginationOptsValidator,
+		searchTerm: v.optional(v.string()),
+		orphanOnly: v.optional(v.boolean()),
+		sortBy: v.optional(cardSortByValidator),
+	},
+	handler: async (ctx, args) => {
+		const activeCards = await ctx.db
+			.query("cards")
+			.filter((q) => q.eq(q.field("archivedAt"), null))
+			.collect();
+
+		const placementCounts = new Map<Id<"cards">, number>();
+		for await (const item of ctx.db.query("boardItems")) {
+			if (
+				item.archivedAt === null &&
+				item.kind === "card" &&
+				item.cardId !== null
+			) {
+				placementCounts.set(
+					item.cardId,
+					(placementCounts.get(item.cardId) ?? 0) + 1,
+				);
+			}
+		}
+
+		let filtered = activeCards;
+
+		if (args.searchTerm?.trim()) {
+			const term = args.searchTerm!.toLowerCase();
+			filtered = filtered.filter(
+				(card) =>
+					card.plainText.toLowerCase().includes(term) ||
+					card.derivedTitle.toLowerCase().includes(term),
+			);
+		}
+
+		if (args.orphanOnly) {
+			filtered = filtered.filter(
+				(card) => (placementCounts.get(card._id) ?? 0) === 0,
+			);
+		}
+
+		const sortedCards = sortCards(
+			filtered,
+			args.sortBy ?? DEFAULT_CARD_SORT_BY,
+		);
+		const withCounts = sortedCards
+			.map((card) => ({
+				...card,
+				placementCount: placementCounts.get(card._id) ?? 0,
+			}));
+
+		const start = parseOffsetCursor(args.paginationOpts.cursor);
+		const end = Math.min(start + args.paginationOpts.numItems, withCounts.length);
+
+		return {
+			isDone: end >= withCounts.length,
+			page: withCounts.slice(start, end),
+			continueCursor: String(end),
+		};
+	},
+});
+
+export const archiveCard = mutation({
+	args: { cardId: v.id("cards") },
+	handler: async (ctx, args) => {
+		const card = await ctx.db.get(args.cardId);
+		if (!card || card.archivedAt !== null) return;
+
+		const now = Date.now();
+		const placements = await listActivePlacements(ctx, card._id);
+		for (const placement of placements) {
+			await ctx.db.patch(placement._id, {
+				archivedAt: now,
+				updatedAt: now,
+			});
+
+			if (!placement.whiteboardId) continue;
+			const whiteboard = await ctx.db.get(placement.whiteboardId);
+			if (whiteboard && whiteboard.archivedAt === null) {
+				await ctx.db.patch(whiteboard._id, {
+					cardCount: Math.max(0, (whiteboard.cardCount ?? 0) - 1),
+					updatedAt: now,
+				});
+			}
+		}
+
+		await clearCardFileRefs(ctx, card._id);
+		await ctx.db.patch(card._id, {
+			archivedAt: now,
+			updatedAt: now,
+		});
+	},
+});
+
+export const appendToWhiteboard = mutation({
+	args: {
+		cardId: v.id("cards"),
+		whiteboardId: v.id("whiteboards"),
+	},
+	handler: async (ctx, args) => {
+		const card = await ctx.db.get(args.cardId);
+		if (!card || card.archivedAt !== null) {
+			throw new Error("Card not found");
+		}
+
+		const whiteboard = await ctx.db.get(args.whiteboardId);
+		if (!whiteboard || whiteboard.archivedAt !== null) {
+			throw new Error("Whiteboard not found");
+		}
+
+		if (await hasActivePlacementOnBoard(ctx, card._id, whiteboard._id)) {
+			return null;
+		}
+
+		const now = Date.now();
+		const shapeId = `card-${card._id}`;
+		const existingItem = await ctx.db
+			.query("boardItems")
+			.withIndex("by_whiteboard_shape", (q) =>
+				q.eq("whiteboardId", whiteboard._id).eq("shapeId", shapeId),
+			)
+			.first();
+
+		if (existingItem && existingItem.archivedAt !== null) {
+			await ctx.db.patch(existingItem._id, {
+				archivedAt: null,
+				updatedAt: now,
+			});
+		} else if (!existingItem) {
+			await ctx.db.insert("boardItems", {
+				whiteboardId: whiteboard._id,
+				kind: "card",
+				cardId: card._id,
+				childWhiteboardId: null,
+				shapeId,
+				x: 0,
+				y: (whiteboard.cardCount ?? 0) * 40,
+				w: 576,
+				h: 160,
+				rotation: 0,
+				zIndex: now,
+				archivedAt: null,
+				updatedAt: now,
+			});
+		}
+
+		await ctx.db.patch(whiteboard._id, {
+			cardCount: (whiteboard.cardCount ?? 0) + 1,
+			updatedAt: now,
+		});
+
+		await ctx.db.patch(card._id, {
+			updatedAt: now,
+		});
+	},
+});
+
+function parseOffsetCursor(cursor: string | null) {
+	if (cursor === null) {
+		return 0;
+	}
+
+	const offset = Number.parseInt(cursor, 10);
+	return Number.isFinite(offset) && offset >= 0 ? offset : 0;
+}

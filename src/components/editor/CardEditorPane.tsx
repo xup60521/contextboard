@@ -1,20 +1,18 @@
 import type { JSONContent } from "@tiptap/core";
-import { useMutation } from "convex/react";
-import { useCallback, useEffect, useRef } from "react";
-import { RichTextEditor } from "#/components/editor/RichTextEditor";
+import { CardDocumentEditor } from "#/components/cards/CardDocumentEditor";
+import { useDebouncedCardSave } from "#/components/cards/useDebouncedCardSave";
 import { useCardReferenceSupport } from "#/components/editor/useCardReferenceSupport";
-import { useImageUpload } from "#/components/editor/useImageUpload";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
-import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 type CardEditorPaneProps = {
 	cardId: Id<"cards">;
 	content: JSONContent;
-	/** The card's home whiteboard, used for the empty-`@` recent-cards context. */
+	/** The current board context for empty-`@` recent-card suggestions. */
 	whiteboardId?: Id<"whiteboards"> | null;
 	className?: string;
 	contentClassName?: string;
+	onEditorReady?: () => void;
 };
 
 /**
@@ -28,53 +26,20 @@ export function CardEditorPane({
 	whiteboardId,
 	className = "notion-editor seamless",
 	contentClassName = "min-h-[60vh] bg-[var(--bg-base)]",
+	onEditorReady,
 }: CardEditorPaneProps) {
-	const updateContent = useMutation(api.cards.updateContent);
-	const handleImageUpload = useImageUpload();
 	const { support, previewCardId, closePreview } =
 		useCardReferenceSupport(whiteboardId);
-	const pendingContentRef = useRef<JSONContent | null>(null);
-	const saveTimerRef = useRef<number | null>(null);
-
-	const flushSave = useCallback(() => {
-		if (saveTimerRef.current !== null) {
-			window.clearTimeout(saveTimerRef.current);
-			saveTimerRef.current = null;
-		}
-
-		const content = pendingContentRef.current;
-		pendingContentRef.current = null;
-		if (!content) return;
-
-		void updateContent({ cardId, content });
-	}, [cardId, updateContent]);
-
-	const scheduleSave = useCallback(
-		(content: JSONContent) => {
-			pendingContentRef.current = content;
-
-			if (saveTimerRef.current !== null) {
-				window.clearTimeout(saveTimerRef.current);
-			}
-
-			saveTimerRef.current = window.setTimeout(flushSave, 450);
-		},
-		[flushSave],
-	);
-
-	useEffect(() => {
-		return () => {
-			flushSave();
-		};
-	}, [flushSave]);
+	const { scheduleSave } = useDebouncedCardSave(cardId);
 
 	return (
 		<>
-			<RichTextEditor
+			<CardDocumentEditor
 				key={cardId}
 				content={content}
 				onChange={scheduleSave}
-				onImageUpload={handleImageUpload}
+				onReady={onEditorReady}
+				whiteboardId={whiteboardId}
 				cardReferenceSupport={support}
 				className={className}
 				contentClassName={contentClassName}

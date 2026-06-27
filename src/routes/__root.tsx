@@ -7,6 +7,8 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { CommandPalette } from "../components/search/CommandPalette";
+import { AppSidebar } from "../components/whiteboard/AppSidebar";
+import { SidebarProvider } from "../components/whiteboard/SidebarContext";
 import ConvexProvider from "../integrations/convex/provider";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import appCss from "../styles.css?url";
@@ -51,24 +53,34 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			</head>
 			<body className="font-sans antialiased h-screen [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">
 				<ConvexProvider>
-					{children}
-					<CommandPalette />
-					<TanStackDevtools
-						config={{
-							position: "bottom-right",
-                            
-						}}
-						plugins={[
-							{
-								name: "Tanstack Router",
-								render: <TanStackRouterDevtoolsPanel />,
-							},
-							TanStackQueryDevtools,
-						]}
-					/>
+					<SidebarProvider>
+						<AppShell>{children}</AppShell>
+						<CommandPalette />
+						<TanStackDevtools
+							config={{
+								position: "bottom-right",
+							}}
+							plugins={[
+								{
+									name: "Tanstack Router",
+									render: <TanStackRouterDevtoolsPanel />,
+								},
+								TanStackQueryDevtools,
+							]}
+						/>
+					</SidebarProvider>
 				</ConvexProvider>
 				<Scripts />
 			</body>
 		</html>
+	);
+}
+
+function AppShell({ children }: { children: React.ReactNode }) {
+	return (
+		<div className="flex h-dvh overflow-hidden bg-[var(--background)]">
+			<AppSidebar />
+			<div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
+		</div>
 	);
 }

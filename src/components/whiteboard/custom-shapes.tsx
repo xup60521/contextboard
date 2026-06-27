@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useMutation } from "convex/react";
+import { useSetAtom } from "jotai";
 import { ExternalLink } from "lucide-react";
 import {
 	createContext,
@@ -27,12 +28,12 @@ import {
 	useIsEditing,
 	type VecLike,
 } from "tldraw";
+import { CardDocumentEditor } from "#/components/cards/CardDocumentEditor";
+import { useDebouncedCardSave } from "#/components/cards/useDebouncedCardSave";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
 import { RichTextEditor } from "../editor/RichTextEditor";
-import { useCardPreviewContext } from "../editor/card-reference/CardPreviewContext";
-import { useCardReferenceSupport } from "../editor/useCardReferenceSupport";
-import { useImageUpload } from "../editor/useImageUpload";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
 
 /**
@@ -235,18 +236,12 @@ function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
-	const updateContent = useMutation(api.cards.updateContent);
-	const handleImageUpload = useImageUpload();
+	const cardId = shape.props.cardId as Id<"cards">;
 	const boardWhiteboardId = useContext(WhiteboardCardContext);
-	const { previewCardId, setPreviewCardId } = useCardPreviewContext();
-	const { support } = useCardReferenceSupport(boardWhiteboardId, {
-		previewCardId,
-		setPreviewCardId,
-	});
+	const openWhiteboardPreview = useSetAtom(whiteboardPreviewCardIdAtom);
+	const { scheduleSave: schedulePersistedSave } = useDebouncedCardSave(cardId);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
-	const pendingContentRef = useRef<JSONContent | null>(null);
-	const saveTimerRef = useRef<number | null>(null);
 	const syncFrameRef = useRef<number | null>(null);
 	const [isEditorReady, setIsEditorReady] = useState(false);
 	const initialContentRef = useRef<JSONContent | null>(
@@ -287,26 +282,9 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 		syncFrameRef.current = window.requestAnimationFrame(syncHeight);
 	}, [syncHeight]);
 
-	const flushSave = useCallback(() => {
-		if (saveTimerRef.current !== null) {
-			window.clearTimeout(saveTimerRef.current);
-			saveTimerRef.current = null;
-		}
-
-		const content = pendingContentRef.current;
-		pendingContentRef.current = null;
-		if (!content || !shape.props.cardId) return;
-
-		void updateContent({
-			cardId: shape.props.cardId as Id<"cards">,
-			content,
-		});
-	}, [shape.props.cardId, updateContent]);
-
 	const scheduleSave = useCallback(
 		(value: JSONContent) => {
 			const serializedContent = JSON.stringify(value);
-			pendingContentRef.current = value;
 			const latestProps = latestPropsRef.current;
 			const nextHeight = getMeasuredMarkdownCardHeight({
 				card: cardRef.current,
@@ -326,20 +304,10 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 				},
 			});
 
-			if (saveTimerRef.current !== null) {
-				window.clearTimeout(saveTimerRef.current);
-			}
-
-			saveTimerRef.current = window.setTimeout(flushSave, 450);
+			schedulePersistedSave(value);
 		},
-		[editor, flushSave, isEditorReady, shape.id],
+		[editor, isEditorReady, schedulePersistedSave, shape.id],
 	);
-
-	useEffect(() => {
-		return () => {
-			flushSave();
-		};
-	}, [flushSave]);
 
 	useLayoutEffect(() => {
 		const card = cardRef.current;
@@ -363,8 +331,8 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 		if (!isEditorReady) return;
 		scheduleSyncHeight();
 	}, [isEditorReady, scheduleSyncHeight]);
-
-	if (!shape.props.cardId) return null;
+	const initialContent = initialContentRef.current;
+	const selectInitialContent = isEmptyCardContent(initialContent);
 
 	return (
 		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
@@ -401,7 +369,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 			>
 				<Link
 					to="/cards/$cardId"
-					params={{ cardId: shape.props.cardId }}
+					params={{ cardId }}
 					draggable={false}
 					onPointerDown={(e) => {
 						stopEventPropagation(e);
@@ -422,19 +390,17 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 					<ExternalLink className="size-3.5" />
 				</Link>
 				<div ref={cardRef} className="w-full px-8 py-8">
-					<RichTextEditor
+					<CardDocumentEditor
 						editable={isEditing}
-						content={initialContentRef.current}
+						content={initialContent}
+						whiteboardId={boardWhiteboardId}
+						onOpenPreview={openWhiteboardPreview}
 						contentClassName="min-h-12 pr-7"
 						placeholder="Type '/' for commands"
 						onChange={scheduleSave}
-						onImageUpload={handleImageUpload}
-						cardReferenceSupport={support}
 						onReady={() => setIsEditorReady(true)}
-						defaultFocusPosition={
-							isEmptyCardContent(initialContentRef.current) ? "start" : "end"
-						}
-						selectContentOnFocus={isEmptyCardContent(initialContentRef.current)}
+						defaultFocusPosition={selectInitialContent ? "start" : "end"}
+						selectContentOnFocus={selectInitialContent}
 					/>
 				</div>
 			</div>
