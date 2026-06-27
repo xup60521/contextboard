@@ -3,6 +3,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import {
+	getPreferredPlacement,
+	hasActivePlacementOnBoard,
+} from "./model/cardPlacements";
+import {
 	collectCardReferenceIds,
 	fetchCardTitles,
 	resolveCardReferenceTitles,
@@ -86,13 +90,7 @@ export const searchInWhiteboard = query({
 		if (term.length === 0) {
 			// Empty query: fall back to the board's most recent cards and its
 			// direct children so the palette is useful before the user types.
-			const cards = await ctx.db
-				.query("cards")
-				.withIndex("by_whiteboard_archived_updated", (q) =>
-					q.eq("whiteboardId", args.whiteboardId).eq("archivedAt", null),
-				)
-				.order("desc")
-				.take(MAX_RESULTS_PER_KIND);
+			const cards = await listCardsInWhiteboard(ctx, args.whiteboardId);
 
 			const whiteboards = await ctx.db
 				.query("whiteboards")
@@ -109,12 +107,18 @@ export const searchInWhiteboard = query({
 		const cards = await ctx.db
 			.query("cards")
 			.withSearchIndex("search_text", (q) =>
-				q
-					.search("plainText", term)
-					.eq("archivedAt", null)
-					.eq("whiteboardId", args.whiteboardId),
+				q.search("plainText", term).eq("archivedAt", null),
 			)
-			.take(MAX_RESULTS_PER_KIND);
+			.take(MAX_RESULTS_PER_KIND * 4);
+		const filteredCards: Doc<"cards">[] = [];
+		for (const card of cards) {
+			if (await hasActivePlacementOnBoard(ctx, card._id, args.whiteboardId)) {
+				filteredCards.push(card);
+			}
+			if (filteredCards.length >= MAX_RESULTS_PER_KIND) {
+				break;
+			}
+		}
 
 		const whiteboards = await ctx.db
 			.query("whiteboards")
@@ -126,7 +130,7 @@ export const searchInWhiteboard = query({
 			)
 			.take(MAX_RESULTS_PER_KIND);
 
-		return await enrichResults(ctx, cards, whiteboards);
+		return await enrichResults(ctx, filteredCards, whiteboards);
 	},
 });
 
@@ -150,13 +154,7 @@ export const searchCardsForReference = query({
 				.take(MAX_RESULTS_PER_KIND);
 		} else if (whiteboardId) {
 			// Empty query with whiteboard context: recent cards from that board.
-			cards = await ctx.db
-				.query("cards")
-				.withIndex("by_whiteboard_archived_updated", (q) =>
-					q.eq("whiteboardId", whiteboardId).eq("archivedAt", null),
-				)
-				.order("desc")
-				.take(MAX_RESULTS_PER_KIND);
+			cards = await listCardsInWhiteboard(ctx, whiteboardId);
 		} else {
 			// Empty query with no context: nothing to suggest.
 			return [];
@@ -164,16 +162,12 @@ export const searchCardsForReference = query({
 
 		return await Promise.all(
 			cards.map(async (card): Promise<CardReferenceSuggestion> => {
-				const item = await ctx.db
-					.query("boardItems")
-					.withIndex("by_card", (q) => q.eq("cardId", card._id))
-					.filter((q) => q.eq(q.field("archivedAt"), null))
-					.first();
+				const item = await getPreferredPlacement(ctx, card._id, whiteboardId);
 				return {
 					id: card._id,
 					title: card.derivedTitle,
 					preview: card.preview,
-					boardWhiteboardId: item?.whiteboardId ?? card.whiteboardId,
+					boardWhiteboardId: item?.whiteboardId ?? null,
 					shapeId: item?.shapeId ?? null,
 				};
 			}),
@@ -188,11 +182,7 @@ async function enrichResults(
 ): Promise<SearchResults> {
 	const cardResults = await Promise.all(
 		cards.map(async (card): Promise<CardSearchResult> => {
-			const item = await ctx.db
-				.query("boardItems")
-				.withIndex("by_card", (q) => q.eq("cardId", card._id))
-				.filter((q) => q.eq(q.field("archivedAt"), null))
-				.first();
+			const item = await getPreferredPlacement(ctx, card._id);
 			const referenceIds = collectCardReferenceIds(card.content);
 			const content =
 				referenceIds.length > 0
@@ -207,7 +197,7 @@ async function enrichResults(
 				title: card.derivedTitle,
 				preview: card.preview,
 				content,
-				boardWhiteboardId: item?.whiteboardId ?? card.whiteboardId,
+				boardWhiteboardId: item?.whiteboardId ?? null,
 				shapeId: item?.shapeId ?? null,
 			};
 		}),
@@ -234,4 +224,31 @@ async function enrichResults(
 	);
 
 	return { cards: cardResults, whiteboards: whiteboardResults };
+}
+
+async function listCardsInWhiteboard(
+	ctx: QueryCtx,
+	whiteboardId: Id<"whiteboards">,
+): Promise<Doc<"cards">[]> {
+	const placements = await ctx.db
+		.query("boardItems")
+		.withIndex("by_whiteboard_archived_z", (q) =>
+			q.eq("whiteboardId", whiteboardId).eq("archivedAt", null),
+		)
+		.collect();
+
+	const cardsById = new Map<Id<"cards">, Doc<"cards">>();
+	for (const card of (
+		await Promise.all(
+			placements
+				.filter((item) => item.kind === "card" && item.cardId !== null)
+				.map(async (item) => (item.cardId ? await ctx.db.get(item.cardId) : null)),
+		)
+	).filter((card): card is Doc<"cards"> => !!card && card.archivedAt === null)) {
+		cardsById.set(card._id, card);
+	}
+
+	return [...cardsById.values()]
+		.sort((left, right) => right.updatedAt - left.updatedAt)
+		.slice(0, MAX_RESULTS_PER_KIND);
 }

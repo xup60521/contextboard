@@ -1,35 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { LayoutDashboard, Library, Monitor, Moon, Sun, X } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { Button } from "#/components/ui/button";
+import { useThemeMode } from "../../hooks/useThemeMode";
+import { setThemeMode, type ThemeMode } from "../../lib/theme";
 import { useSidebarContext } from "./SidebarContext";
 
-type Theme = "light" | "dark" | "auto";
-
-function getStoredTheme(): Theme {
-	try {
-		const stored = localStorage.getItem("theme");
-		if (stored === "light" || stored === "dark" || stored === "auto")
-			return stored;
-	} catch {}
-	return "auto";
-}
-
-function applyTheme(next: Theme) {
-	try {
-		localStorage.setItem("theme", next);
-		const prefersDark = window.matchMedia(
-			"(prefers-color-scheme: dark)",
-		).matches;
-		const resolved = next === "auto" ? (prefersDark ? "dark" : "light") : next;
-		const root = document.documentElement;
-		root.classList.remove("light", "dark");
-		root.classList.add(resolved);
-		if (next === "auto") root.removeAttribute("data-theme");
-		else root.setAttribute("data-theme", next);
-		root.style.colorScheme = resolved;
-	} catch {}
-}
+type Theme = ThemeMode;
 
 const navItems = [
 	{
@@ -39,10 +16,10 @@ const navItems = [
 		matchPrefix: "/whiteboard",
 	},
 	{
-		to: "/cards/orphans" as const,
+		to: "/cards" as const,
 		label: "Card library",
 		icon: Library,
-		matchPrefix: "/cards/orphans",
+		matchPrefix: "/cards",
 	},
 ];
 
@@ -63,13 +40,12 @@ const themeOrder: Theme[] = ["light", "dark", "auto"];
 export function AppSidebar() {
 	const { isOpen, close } = useSidebarContext();
 	const { location } = useRouterState();
-	const [theme, setThemeState] = useState<Theme>(getStoredTheme);
+	const theme = useThemeMode();
 
 	const cycleTheme = useCallback(() => {
 		const next =
 			themeOrder[(themeOrder.indexOf(theme) + 1) % themeOrder.length];
-		applyTheme(next);
-		setThemeState(next);
+		setThemeMode(next);
 	}, [theme]);
 
 	return (

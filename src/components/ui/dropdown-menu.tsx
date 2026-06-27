@@ -81,6 +81,44 @@ function DropdownMenuSeparator({
 	);
 }
 
+function DropdownMenuRadioGroup({
+	...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
+	return <DropdownMenuPrimitive.RadioGroup {...props} />;
+}
+
+function DropdownMenuRadioItem({
+	className,
+	...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
+	return (
+		<DropdownMenuPrimitive.RadioItem
+			data-slot="dropdown-menu-radio-item"
+			className={cn(
+				"relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+function DropdownMenuItemIndicator({
+	className,
+	...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.ItemIndicator>) {
+	return (
+		<DropdownMenuPrimitive.ItemIndicator
+			data-slot="dropdown-menu-item-indicator"
+			className={cn(
+				"absolute left-2 inline-flex size-3.5 items-center justify-center",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
 export {
 	DropdownMenu,
 	DropdownMenuTrigger,
@@ -88,4 +126,7 @@ export {
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuItemIndicator,
 };

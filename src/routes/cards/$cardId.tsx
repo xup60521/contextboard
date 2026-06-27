@@ -1,8 +1,9 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useMutation, useQuery } from "convex/react";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { CardInfoSection } from "#/components/cards/CardInfoSection";
 import { CardEditorPane } from "#/components/editor/CardEditorPane";
 import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
 import { Button } from "#/components/ui/button";
@@ -41,6 +42,7 @@ function RouteComponent() {
 	const { cardId } = Route.useParams();
 	const typedCardId = cardId as Id<"cards">;
 	const data = useQuery(api.cards.get, { cardId: typedCardId });
+	const whiteboards = useQuery(api.whiteboards.listActive);
 	const archiveCard = useMutation(api.cards.archiveCard);
 	const appendToWhiteboard = useMutation(api.cards.appendToWhiteboard);
 	const navigate = useNavigate();
@@ -56,7 +58,10 @@ function RouteComponent() {
 		return <CardEditorShell label="Card not found." />;
 	}
 
-	const isOrphan = data.whiteboard === null;
+	const isOrphan = data.placements.length === 0;
+	const whiteboardTitleById = new Map(
+		(whiteboards ?? []).map((whiteboard) => [whiteboard._id, whiteboard.title]),
+	);
 
 	const handleDelete = async () => {
 		await archiveCard({ cardId: typedCardId });
@@ -83,35 +88,11 @@ function RouteComponent() {
 			<header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 bg-[var(--card)] px-4 py-3">
 				<div className="flex min-w-0 items-center gap-3">
 					<SidebarOpenButton />
-					<nav className="flex min-w-0 items-center gap-2 text-sm">
-						{isOrphan ? (
-							<Link
-								to="/cards/orphans"
-								className="truncate font-semibold text-[var(--sea-ink)] hover:text-[var(--lagoon-deep)]"
-							>
-								Orphan cards
-							</Link>
-						) : (
-							<Link
-								to="/whiteboard"
-								className="truncate font-semibold text-[var(--sea-ink)] hover:text-[var(--lagoon-deep)]"
-							>
-								Root
-							</Link>
-						)}
-						{data.breadcrumbs.map((crumb) => (
-							<span key={crumb._id} className="flex min-w-0 items-center gap-2">
-								<span className="text-[var(--sea-ink-soft)]">/</span>
-								<Link
-									to="/whiteboard/$whiteboardId"
-									params={{ whiteboardId: crumb._id }}
-									className="truncate font-semibold text-[var(--sea-ink)] hover:text-[var(--lagoon-deep)]"
-								>
-									{crumb.title}
-								</Link>
-							</span>
-						))}
-					</nav>
+					<div className="min-w-0">
+						<p className="truncate text-sm font-semibold text-[var(--sea-ink)]">
+							{data.card.derivedTitle || "Untitled card"}
+						</p>
+					</div>
 				</div>
 
 				<DropdownMenu>
@@ -121,11 +102,9 @@ function RouteComponent() {
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end">
-						{isOrphan && (
-							<DropdownMenuItem onSelect={() => setAppendOpen(true)}>
-								Append to whiteboard...
-							</DropdownMenuItem>
-						)}
+						<DropdownMenuItem onSelect={() => setAppendOpen(true)}>
+							Place on whiteboard...
+						</DropdownMenuItem>
 						<DropdownMenuItem
 							onSelect={() => setDeleteOpen(true)}
 							className="text-red-500"
@@ -170,7 +149,15 @@ function RouteComponent() {
 				<CardEditorPane
 					cardId={data.card._id}
 					content={data.card.content as JSONContent}
-					whiteboardId={data.card.whiteboardId}
+					whiteboardId={data.boardWhiteboardId}
+				/>
+				<CardInfoSection
+					placements={data.placements}
+					backlinks={data.backlinks}
+					whiteboardTitleById={whiteboardTitleById}
+					createdAt={data.card._creationTime}
+					updatedAt={data.card.updatedAt}
+					plainText={data.card.plainText}
 				/>
 			</section>
 		</main>

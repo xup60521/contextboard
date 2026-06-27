@@ -3,6 +3,7 @@ import type { JSONContent } from "@tiptap/core";
 import { useQuery } from "convex/react";
 import { ArrowUpRight, Crosshair, ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CardInfoSection } from "#/components/cards/CardInfoSection";
 import { CardEditorPane } from "#/components/editor/CardEditorPane";
 import {
 	Dialog,
@@ -45,19 +46,29 @@ export function CardPreviewDialog({
 	const navigate = useNavigate();
 	const open = cardId !== null;
 	const data = useQuery(api.cards.get, cardId ? { cardId } : "skip");
+	const whiteboards = useQuery(api.whiteboards.listActive);
 	const mountFrameRef = useRef<number | null>(null);
 	const mountTimerRef = useRef<number | null>(null);
 	const [shouldMountEditor, setShouldMountEditor] = useState(false);
 	const [isOpening, setIsOpening] = useState(false);
 	const [mountedCardId, setMountedCardId] = useState<Id<"cards"> | null>(null);
 
-	// A card placed on a board has a shape we can navigate to. If that board is
-	// the one currently open we "Focus" (zoom in place); otherwise we "Go to" it.
-	const shapeId = data?.shapeId ?? null;
-	const boardWhiteboardId = data?.boardWhiteboardId ?? null;
+	const currentPlacement =
+		data?.placements?.find(
+			(placement) => placement.whiteboardId === currentWhiteboardId,
+		) ?? null;
+	// A card placed on a board has a shape we can navigate to. If the card is on
+	// the current board, prefer that exact placement; otherwise use the server's
+	// preferred placement.
+	const shapeId = currentPlacement?.shapeId ?? data?.shapeId ?? null;
+	const boardWhiteboardId =
+		currentPlacement?.whiteboardId ?? data?.boardWhiteboardId ?? null;
 	const canNavigate = shapeId != null;
 	const isOnCurrentBoard =
 		canNavigate && boardWhiteboardId === currentWhiteboardId;
+	const whiteboardTitleById = new Map(
+		(whiteboards ?? []).map((wb) => [wb._id, wb.title]),
+	);
 
 	const clearDeferredMount = useCallback(() => {
 		if (mountFrameRef.current !== null) {
@@ -196,16 +207,26 @@ export function CardPreviewDialog({
 						<div className="flex min-h-[50vh] items-center justify-center rounded-md border border-dashed border-[var(--line)] bg-[var(--surface-strong)]/35 px-4 py-8 text-sm text-[var(--sea-ink-soft)]">
 							{isOpening ? "Preparing editor..." : "Loading editor..."}
 						</div>
-					) : (
-						<CardEditorPane
-							cardId={data.card._id}
-							content={data.card.content as JSONContent}
-							whiteboardId={data.card.whiteboardId}
-							contentClassName="min-h-[50vh] bg-transparent"
-							onEditorReady={() =>
-								markPreviewPerformance(`editor-ready:${data.card._id}`)
-							}
-						/>
+				) : (
+						<>
+							<CardEditorPane
+								cardId={data.card._id}
+								content={data.card.content as JSONContent}
+								whiteboardId={currentWhiteboardId ?? data.boardWhiteboardId}
+								contentClassName="min-h-[50vh] bg-transparent"
+								onEditorReady={() =>
+									markPreviewPerformance(`editor-ready:${data.card._id}`)
+								}
+							/>
+							<CardInfoSection
+								placements={data.placements}
+								backlinks={data.backlinks}
+								whiteboardTitleById={whiteboardTitleById}
+								createdAt={data.card._creationTime}
+								updatedAt={data.card.updatedAt}
+								plainText={data.card.plainText}
+							/>
+						</>
 					)}
 				</div>
 			</DialogContent>

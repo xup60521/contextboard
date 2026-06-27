@@ -3,7 +3,7 @@ import type { JSONContent } from "@tiptap/core";
 import { useQuery } from "convex/react";
 import { FileText, Layers } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CardContentPreview } from "#/components/editor/CardContentPreview";
+import { ReadonlyRichTextPreview } from "#/components/editor/ReadonlyRichTextPreview";
 import {
 	Command,
 	CommandEmpty,
@@ -294,9 +294,8 @@ function PreviewPane({ result }: { result: ActiveResult | null }) {
 function CardPreview({ card }: { card: CardSearchResult }) {
 	return (
 		<div className="p-5">
-			<CardContentPreview
+			<ReadonlyRichTextPreview
 				content={card.content as JSONContent}
-				className="pointer-events-none"
 				contentClassName="min-h-0 bg-transparent text-sm"
 			/>
 		</div>

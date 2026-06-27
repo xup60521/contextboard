@@ -17,7 +17,6 @@ export function SidebarOpenButton() {
 			aria-label="Open sidebar"
 		>
 			<PanelLeft className="size-4" />
-			Menu
 		</Button>
 	);
 }
