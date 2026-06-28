@@ -42,6 +42,7 @@ import {
 } from "tldraw";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { DeleteCardDialog } from "../cards/DeleteCardDialog";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { getThemeMode, setThemeMode, type ThemeMode } from "../../lib/theme";
 import { uploadImageToConvex } from "../editor/ImageUpload";
@@ -154,6 +155,12 @@ type WhiteboardContextMenuValue = {
 	pointRef: { current: VecLike | null };
 };
 
+function toTldrawShapeId(shapeId: string): TLShapeId {
+	return (
+		shapeId.startsWith("shape:") ? shapeId : `shape:${shapeId}`
+	) as TLShapeId;
+}
+
 const whiteboardOptions = {
 	...singlePageTldrawOptions,
 	createTextOnCanvasDoubleClick: false,
@@ -258,6 +265,7 @@ export function WhiteboardCanvas({
 	);
 	const updateItemFrame = useMutation(api.canvas.updateItemFrame);
 	const archiveItem = useMutation(api.canvas.archiveItem);
+	const archiveCardGlobally = useMutation(api.cards.archiveCard);
 	const restoreOrAdoptCardItem = useMutation(api.canvas.restoreOrAdoptCardItem);
 	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
 	const generateUploadUrl = useMutation(api.files.generateUploadUrl);
@@ -285,6 +293,10 @@ export function WhiteboardCanvas({
 
 	const [editor, setEditor] = useState<Editor | null>(null);
 	const [loadedDrawingKey, setLoadedDrawingKey] = useState<string | null>(null);
+	const [whiteboardCardDeletePending, setWhiteboardCardDeletePending] =
+		useState<{
+			cardIds: Id<"cards">[];
+		} | null>(null);
 	const [whiteboardDeletePending, setWhiteboardDeletePending] = useState<{
 		itemId: Id<"boardItems">;
 		shape: ManagedWhiteboardShape;
@@ -462,6 +474,7 @@ export function WhiteboardCanvas({
 		pendingEditShapeIdRef.current = null;
 		pendingDrawingSaveRef.current = null;
 		pendingCameraResetRef.current = true;
+		setWhiteboardCardDeletePending(null);
 		setWhiteboardDeletePending(null);
 		setLoadedDrawingKey(null);
 		loadedDrawingKeyRef.current = null;
@@ -631,6 +644,7 @@ export function WhiteboardCanvas({
 					void restoreOrAdoptCardItem({
 						whiteboardId,
 						shapeId: record.id,
+						sourceCardId: record.props.cardId,
 						content: record.props.content,
 						x: record.x,
 						y: record.y,
@@ -893,6 +907,37 @@ export function WhiteboardCanvas({
 		};
 	}, [editor]);
 
+	// Ctrl+Delete: confirm permanent delete for selected markdown cards.
+	useEffect(() => {
+		if (!editor) return;
+
+		const ownerDocument = editor.getContainer().ownerDocument;
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (!isGlobalCardDeleteShortcut(event)) return;
+			if (editor.getEditingShapeId()) return;
+			if (isEditableKeyboardTarget(event.target)) return;
+			if (whiteboardCardDeletePending) return;
+
+			const cardIds = collectGlobalDeleteCardIdsFromShapes(
+				editor.getSelectedShapes(),
+			);
+
+			if (cardIds.length === 0) return;
+
+			event.preventDefault();
+			event.stopPropagation();
+
+			setWhiteboardCardDeletePending({ cardIds });
+		};
+
+		ownerDocument.addEventListener("keydown", handleKeyDown, true);
+
+		return () => {
+			ownerDocument.removeEventListener("keydown", handleKeyDown, true);
+		};
+	}, [editor, whiteboardCardDeletePending]);
+
 	// App theme -> tldraw color scheme.
 	useEffect(() => {
 		if (!editor) return;
@@ -1042,6 +1087,27 @@ export function WhiteboardCanvas({
 					}
 				}}
 			/>
+			<DeleteCardDialog
+				open={whiteboardCardDeletePending !== null}
+				cardCount={whiteboardCardDeletePending?.cardIds.length ?? 1}
+				onCancel={() => {
+					setWhiteboardCardDeletePending(null);
+				}}
+				onConfirm={() => {
+					if (!whiteboardCardDeletePending) return;
+
+					for (const cardId of whiteboardCardDeletePending.cardIds) {
+						void archiveCardGlobally({ cardId }).catch((error) => {
+							console.warn(
+								"Failed to archive card from whiteboard shortcut",
+								error,
+							);
+						});
+					}
+
+					setWhiteboardCardDeletePending(null);
+				}}
+			/>
 			<WhiteboardCardPreviewLayer currentWhiteboardId={whiteboardId} />
 		</main>
 	);
@@ -1143,7 +1209,7 @@ export function itemToShape(
 	item: BoardItemResult,
 	frame = frameFromItem(item),
 ): ManagedShapePartial {
-	const id = item.shapeId as TLShapeId;
+	const id = toTldrawShapeId(item.shapeId);
 
 	if (item.kind === "card") {
 		const content = item.card ? JSON.stringify(item.card.content) : "";
@@ -1411,6 +1477,53 @@ export function syncRightDragPanPointer(
 		point.y - viewportBounds.y,
 	);
 	editor.inputs.currentPagePoint.setTo(editor.screenToPage(point));
+}
+
+export type GlobalCardDeleteShortcutEvent = {
+	key: string;
+	ctrlKey: boolean;
+	altKey: boolean;
+	shiftKey: boolean;
+	repeat: boolean;
+};
+
+export function isGlobalCardDeleteShortcut(
+	event: GlobalCardDeleteShortcutEvent,
+) {
+	return (
+		event.key === "Delete" &&
+		event.ctrlKey &&
+		!event.altKey &&
+		!event.shiftKey &&
+		!event.repeat
+	);
+}
+
+export function collectGlobalDeleteCardIdsFromShapes(
+	shapes: TLShape[],
+): Id<"cards">[] {
+	const cardIds = new Set<Id<"cards">>();
+
+	for (const shape of shapes) {
+		if (!isMarkdownCardShape(shape)) continue;
+
+		const cardId = shape.props.cardId;
+		if (!cardId) continue;
+
+		cardIds.add(cardId as Id<"cards">);
+	}
+
+	return [...cardIds];
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null) {
+	if (!(target instanceof HTMLElement)) return false;
+
+	return Boolean(
+		target.closest(
+			'input, textarea, select, [contenteditable="true"], [contenteditable=""]',
+		),
+	);
 }
 
 function WhiteboardContextMenu(props: TLUiContextMenuProps) {

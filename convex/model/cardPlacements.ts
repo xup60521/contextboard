@@ -49,6 +49,15 @@ export async function hasActivePlacementOnBoard(
 	return placements.some((placement) => placement.whiteboardId === whiteboardId);
 }
 
+export async function getActivePlacementOnBoard(
+	ctx: DbCtx,
+	cardId: Id<"cards">,
+	whiteboardId: Id<"whiteboards">,
+): Promise<ActiveCardPlacement | null> {
+	const placements = await listActivePlacements(ctx, cardId);
+	return placements.find((placement) => placement.whiteboardId === whiteboardId) ?? null;
+}
+
 export async function getPreferredPlacement(
 	ctx: DbCtx,
 	cardId: Id<"cards">,

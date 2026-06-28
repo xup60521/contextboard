@@ -11,7 +11,7 @@ export function SidebarOpenButton() {
 		<Button
 			type="button"
 			variant="outline"
-			size="sm"
+			size="xs"
 			className="shrink-0"
 			onClick={open}
 			aria-label="Open sidebar"

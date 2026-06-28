@@ -1,8 +1,10 @@
 import { type Editor, Vec } from "tldraw";
 import { describe, expect, test } from "vitest";
 import {
+	collectGlobalDeleteCardIdsFromShapes,
 	getRightDragPanNextCamera,
 	hasExceededRightDragPanThreshold,
+	isGlobalCardDeleteShortcut,
 	itemToShape,
 	syncRightDragPanPointer,
 } from "./WhiteboardCanvas";
@@ -69,6 +71,82 @@ describe("itemToShape", () => {
 		expect(shape.props.h).toBe(84);
 	});
 
+	test("hydrates board item shape ids that are valid tldraw ids", () => {
+		const shape = itemToShape({
+			_id: "item-1",
+			kind: "card",
+			cardId: "card-1",
+			childWhiteboardId: null,
+			shapeId: "shape:card-abc123",
+			x: 0,
+			y: 0,
+			w: 576,
+			h: 160,
+			rotation: 0,
+			zIndex: 1,
+			card: {
+				_id: "card-1",
+				content: { type: "doc", content: [] },
+				derivedTitle: "Card",
+				version: 1,
+			},
+			childWhiteboard: null,
+		} as never);
+
+		expect(shape.id).toBe("shape:card-abc123");
+	});
+
+	test("normalizes legacy shape ids without shape: prefix", () => {
+		const shape = itemToShape({
+			_id: "item-2",
+			kind: "card",
+			cardId: "card-2",
+			childWhiteboardId: null,
+			shapeId: "card-legacy123",
+			x: 0,
+			y: 0,
+			w: 576,
+			h: 160,
+			rotation: 0,
+			zIndex: 1,
+			card: {
+				_id: "card-2",
+				content: { type: "doc", content: [] },
+				derivedTitle: "Card",
+				version: 1,
+			},
+			childWhiteboard: null,
+		} as never);
+
+		expect(shape.id).toBe("shape:card-legacy123");
+	});
+
+	test("normalizes legacy subwhiteboard shape ids without shape: prefix", () => {
+		const shape = itemToShape({
+			_id: "item-3",
+			kind: "subwhiteboard",
+			cardId: null,
+			childWhiteboardId: "wb-1",
+			shapeId: "sub-legacy456",
+			x: 0,
+			y: 0,
+			w: 240,
+			h: 92,
+			rotation: 0,
+			zIndex: 1,
+			card: null,
+			childWhiteboard: {
+				_id: "wb-1",
+				title: "Sub",
+				depth: 1,
+				cardCount: 0,
+				childWhiteboardCount: 0,
+			},
+		} as never);
+
+		expect(shape.id).toBe("shape:sub-legacy456");
+	});
+
 	test("starts right-drag panning only after a small movement threshold", () => {
 		expect(
 			hasExceededRightDragPanThreshold({
@@ -91,10 +169,7 @@ describe("itemToShape", () => {
 
 	test("converts screen-space right drag into zoom-aware camera panning", () => {
 		expect(
-			getRightDragPanNextCamera(
-				{ x: 10, y: 20, z: 2 },
-				{ x: 8, y: -4 },
-			),
+			getRightDragPanNextCamera({ x: 10, y: 20, z: 2 }, { x: 8, y: -4 }),
 		).toEqual({
 			x: 14,
 			y: 18,
@@ -129,5 +204,125 @@ describe("itemToShape", () => {
 		expect(editor.inputs.currentPagePoint.x).toBe(42);
 		expect(editor.inputs.currentPagePoint.y).toBe(84);
 		expect(editor.inputs.currentPagePoint.z).toBe(0.25);
+	});
+});
+
+describe("collectGlobalDeleteCardIdsFromShapes", () => {
+	test("collects card ids from selected markdown cards", () => {
+		const result = collectGlobalDeleteCardIdsFromShapes([
+			{
+				id: "shape:one",
+				type: "markdown-card",
+				props: {
+					w: 576,
+					h: 160,
+					content: "{}",
+					cardId: "card-1",
+				},
+			} as never,
+		]);
+
+		expect(result).toEqual(["card-1"]);
+	});
+
+	test("dedupes multiple placements of the same card", () => {
+		const result = collectGlobalDeleteCardIdsFromShapes([
+			{
+				id: "shape:one",
+				type: "markdown-card",
+				props: { w: 576, h: 160, content: "{}", cardId: "card-1" },
+			} as never,
+			{
+				id: "shape:two",
+				type: "markdown-card",
+				props: { w: 576, h: 160, content: "{}", cardId: "card-1" },
+			} as never,
+		]);
+
+		expect(result).toEqual(["card-1"]);
+	});
+
+	test("includes two different card ids if two different cards are selected", () => {
+		const result = collectGlobalDeleteCardIdsFromShapes([
+			{
+				id: "shape:one",
+				type: "markdown-card",
+				props: { w: 576, h: 160, content: "{}", cardId: "card-1" },
+			} as never,
+			{
+				id: "shape:two",
+				type: "markdown-card",
+				props: { w: 576, h: 160, content: "{}", cardId: "card-2" },
+			} as never,
+		]);
+
+		expect(result.sort()).toEqual(["card-1", "card-2"]);
+	});
+
+	test("ignores non-card and local markdown shapes", () => {
+		const result = collectGlobalDeleteCardIdsFromShapes([
+			{
+				id: "shape:local",
+				type: "markdown-card",
+				props: { w: 576, h: 160, content: "{}" },
+			} as never,
+			{
+				id: "shape:whiteboard",
+				type: "subwhiteboard-link",
+				props: {
+					w: 240,
+					h: 92,
+					label: "Nested",
+					subwhiteboardId: "wb-1",
+					childWhiteboardId: "wb-1",
+				},
+			} as never,
+		]);
+
+		expect(result).toEqual([]);
+	});
+});
+
+describe("isGlobalCardDeleteShortcut", () => {
+	test("matches Ctrl+Delete only", () => {
+		expect(
+			isGlobalCardDeleteShortcut({
+				key: "Delete",
+				ctrlKey: true,
+				altKey: false,
+				shiftKey: false,
+				repeat: false,
+			}),
+		).toBe(true);
+
+		expect(
+			isGlobalCardDeleteShortcut({
+				key: "Delete",
+				ctrlKey: false,
+				altKey: false,
+				shiftKey: false,
+				repeat: false,
+			}),
+		).toBe(false);
+
+		expect(
+			isGlobalCardDeleteShortcut({
+				key: "Backspace",
+				ctrlKey: true,
+				altKey: false,
+				shiftKey: false,
+				repeat: false,
+			}),
+		).toBe(false);
+
+		expect(
+			isGlobalCardDeleteShortcut({
+				key: "Delete",
+				ctrlKey: true,
+				altKey: false,
+				shiftKey: false,
+				repeat: true,
+			}),
+		).toBe(false);
 	});
 });

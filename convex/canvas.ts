@@ -10,9 +10,10 @@ import {
 } from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
 import { countActiveCardPlacements } from "./model/cardPlacements";
+import { assertValidTldrawShapeId } from "./model/shapeIds";
 
-const DEFAULT_CARD_WIDTH = 576;
-const DEFAULT_CARD_HEIGHT = 160;
+export const DEFAULT_CARD_WIDTH = 576;
+export const DEFAULT_CARD_HEIGHT = 160;
 const DEFAULT_SUBWHITEBOARD_WIDTH = 240;
 const DEFAULT_SUBWHITEBOARD_HEIGHT = 92;
 const EMPTY_CARD_CONTENT = {
@@ -117,6 +118,7 @@ export const createCardItem = mutation({
 		y: v.number(),
 	},
 	handler: async (ctx, args) => {
+		assertValidTldrawShapeId(args.shapeId);
 		const whiteboard = await getActiveWhiteboard(ctx, args.whiteboardId);
 		const existingItem = await getExistingItem(
 			ctx,
@@ -173,6 +175,7 @@ export const createSubwhiteboardItem = mutation({
 		y: v.number(),
 	},
 	handler: async (ctx, args) => {
+		assertValidTldrawShapeId(args.shapeId);
 		const parent = args.parentWhiteboardId
 			? await getActiveWhiteboard(ctx, args.parentWhiteboardId)
 			: null;
@@ -306,12 +309,14 @@ export const archiveItem = mutation({
 
 // Handle a newly-added markdown-card shape. tldraw re-adds a shape with its
 // original id on undo-of-delete (restore the archived item), but assigns a fresh
-// id on paste/duplicate (adopt the carried content into a new independent card).
-// Both cases are resolved here atomically so the client needn't know which it is.
+// id on paste/duplicate. Pasted Convex-backed cards should become another board
+// placement pointing at the same card; stale/local clipboard shapes without a
+// valid card id fall back to adopting the carried content into a new card.
 export const restoreOrAdoptCardItem = mutation({
 	args: {
 		whiteboardId: v.union(v.id("whiteboards"), v.null()),
 		shapeId: v.string(),
+		sourceCardId: v.optional(v.string()),
 		content: v.optional(v.string()), // serialized TipTap JSON from shape props
 		x: v.number(),
 		y: v.number(),
@@ -319,57 +324,7 @@ export const restoreOrAdoptCardItem = mutation({
 		h: v.number(),
 		rotation: v.number(),
 	},
-	handler: async (ctx, args) => {
-		const existing = await getExistingItem(ctx, args.whiteboardId, args.shapeId);
-
-		// (a) Undo-of-delete: a row already exists for this shapeId.
-		if (existing) {
-			if (existing.archivedAt === null) return existing._id; // already active
-			return await restoreArchivedCardItem(ctx, existing, args.whiteboardId);
-		}
-
-		// (b) Paste / duplicate: brand-new shapeId, no row. Adopt the carried
-		// content into a fresh, independent card. Cards require a real whiteboard.
-		if (!args.whiteboardId) return null; // root board hosts no cards
-		const whiteboard = await getActiveWhiteboard(ctx, args.whiteboardId);
-
-		const content = parseCardContent(args.content);
-		const now = Date.now();
-		const metadata = deriveCardMetadata(content);
-		const cardId = await ctx.db.insert("cards", {
-			whiteboardId: null,
-			content,
-			derivedTitle: metadata.derivedTitle,
-			plainText: metadata.plainText,
-			preview: metadata.preview,
-			version: 1,
-			archivedAt: null,
-			updatedAt: now,
-		});
-		const itemId = await ctx.db.insert("boardItems", {
-			whiteboardId: whiteboard._id,
-			kind: "card",
-			cardId,
-			childWhiteboardId: null,
-			shapeId: args.shapeId,
-			x: args.x,
-			y: args.y,
-			w: args.w,
-			h: args.h,
-			rotation: args.rotation,
-			zIndex: now,
-			archivedAt: null,
-			updatedAt: now,
-		});
-
-		await ctx.db.patch(whiteboard._id, {
-			cardCount: (whiteboard.cardCount ?? 0) + 1,
-			updatedAt: now,
-		});
-		await reconcileCardFileRefs(ctx, cardId, content);
-
-		return itemId;
-	},
+	handler: restoreOrAdoptCardItemImpl,
 });
 
 // Unarchive an archived card boardItem (and its card), restoring it onto its
@@ -431,6 +386,122 @@ async function getActiveWhiteboard(
 		throw new Error("Whiteboard not found");
 	}
 	return whiteboard;
+}
+
+async function getActiveCardByLooseId(
+	ctx: MutationCtx,
+	cardId: string | undefined,
+): Promise<Doc<"cards"> | null> {
+	if (!cardId) return null;
+
+	try {
+		const card = await ctx.db.get(cardId as Id<"cards">);
+		if (!card || card.archivedAt !== null) return null;
+		return card;
+	} catch {
+		return null;
+	}
+}
+
+export async function restoreOrAdoptCardItemImpl(
+	ctx: MutationCtx,
+	args: {
+		whiteboardId: Id<"whiteboards"> | null;
+		shapeId: string;
+		sourceCardId?: string;
+		content?: string;
+		x: number;
+		y: number;
+		w: number;
+		h: number;
+		rotation: number;
+	},
+) {
+	assertValidTldrawShapeId(args.shapeId);
+	const existing = await getExistingItem(ctx, args.whiteboardId, args.shapeId);
+
+	// (a) Undo-of-delete: a row already exists for this shapeId.
+	if (existing) {
+		if (existing.archivedAt === null) return existing._id; // already active
+		return await restoreArchivedCardItem(ctx, existing, args.whiteboardId);
+	}
+
+	// Cards require a real whiteboard.
+	if (!args.whiteboardId) return null; // root board hosts no cards
+	const whiteboard = await getActiveWhiteboard(ctx, args.whiteboardId);
+
+	// (b) Paste / duplicate existing Convex card: create another placement on
+	// this board that points at the same underlying card.
+	const sourceCard = await getActiveCardByLooseId(ctx, args.sourceCardId);
+	if (sourceCard) {
+		const now = Date.now();
+
+		const itemId = await ctx.db.insert("boardItems", {
+			whiteboardId: whiteboard._id,
+			kind: "card",
+			cardId: sourceCard._id,
+			childWhiteboardId: null,
+			shapeId: args.shapeId,
+			x: args.x,
+			y: args.y,
+			w: args.w,
+			h: args.h,
+			rotation: args.rotation,
+			zIndex: now,
+			archivedAt: null,
+			updatedAt: now,
+		});
+
+		await ctx.db.patch(whiteboard._id, {
+			cardCount: (whiteboard.cardCount ?? 0) + 1,
+			updatedAt: now,
+		});
+
+		await ctx.db.patch(sourceCard._id, {
+			updatedAt: now,
+		});
+
+		return itemId;
+	}
+
+	// (c) Paste / duplicate local or stale card: adopt the carried content
+	// into a fresh, independent card.
+	const content = parseCardContent(args.content);
+	const now = Date.now();
+	const metadata = deriveCardMetadata(content);
+	const cardId = await ctx.db.insert("cards", {
+		whiteboardId: null,
+		content,
+		derivedTitle: metadata.derivedTitle,
+		plainText: metadata.plainText,
+		preview: metadata.preview,
+		version: 1,
+		archivedAt: null,
+		updatedAt: now,
+	});
+	const itemId = await ctx.db.insert("boardItems", {
+		whiteboardId: whiteboard._id,
+		kind: "card",
+		cardId,
+		childWhiteboardId: null,
+		shapeId: args.shapeId,
+		x: args.x,
+		y: args.y,
+		w: args.w,
+		h: args.h,
+		rotation: args.rotation,
+		zIndex: now,
+		archivedAt: null,
+		updatedAt: now,
+	});
+
+	await ctx.db.patch(whiteboard._id, {
+		cardCount: (whiteboard.cardCount ?? 0) + 1,
+		updatedAt: now,
+	});
+	await reconcileCardFileRefs(ctx, cardId, content);
+
+	return itemId;
 }
 
 function makeChildSortKey(

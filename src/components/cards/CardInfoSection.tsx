@@ -11,11 +11,63 @@ import {
 import { type ReactNode, useState } from "react";
 import type { Id } from "../../../convex/_generated/dataModel";
 
-type Placement = {
+export type Placement = {
 	itemId: string;
 	whiteboardId: Id<"whiteboards"> | null;
 	shapeId: string | null;
+	updatedAt?: number;
 };
+
+export type PlacementGroup = {
+	key: string;
+	whiteboardId: Id<"whiteboards"> | null;
+	title: string;
+	placements: Placement[];
+	count: number;
+	primaryPlacement: Placement;
+};
+
+export function groupPlacementsByWhiteboard(
+	placements: Placement[],
+	whiteboardTitleById: Map<Id<"whiteboards">, string>,
+): PlacementGroup[] {
+	const groups = new Map<string, PlacementGroup>();
+
+	for (const placement of placements) {
+		const key = placement.whiteboardId ?? "__root__";
+		const title = placement.whiteboardId
+			? (whiteboardTitleById.get(placement.whiteboardId) ?? placement.whiteboardId)
+			: "Root";
+
+		const existing = groups.get(key);
+		if (!existing) {
+			groups.set(key, {
+				key,
+				whiteboardId: placement.whiteboardId,
+				title,
+				placements: [placement],
+				count: 1,
+				primaryPlacement: placement,
+			});
+			continue;
+		}
+
+		existing.placements.push(placement);
+		existing.count += 1;
+
+		if ((placement.updatedAt ?? 0) > (existing.primaryPlacement.updatedAt ?? 0)) {
+			existing.primaryPlacement = placement;
+		}
+	}
+
+	return Array.from(groups.values()).sort((a, b) => {
+		const newestA = Math.max(...a.placements.map((p) => p.updatedAt ?? 0));
+		const newestB = Math.max(...b.placements.map((p) => p.updatedAt ?? 0));
+
+		if (newestA !== newestB) return newestB - newestA;
+		return a.title.localeCompare(b.title);
+	});
+}
 
 type Backlink = {
 	cardId: Id<"cards">;
@@ -31,6 +83,7 @@ type CardInfoSectionProps = {
 	createdAt: number;
 	updatedAt: number;
 	plainText: string;
+	onNavigate?: () => void;
 };
 
 function formatDate(ts: number): string {
@@ -68,6 +121,7 @@ export function CardInfoSection({
 	createdAt,
 	updatedAt,
 	plainText,
+	onNavigate,
 }: CardInfoSectionProps) {
 	const [visible, setVisible] = useState(true);
 	// collapsed set — groups start expanded
@@ -86,6 +140,9 @@ export function CardInfoSection({
 		}
 		groups.get(key)!.links.push(bl);
 	}
+
+	// Group placements by whiteboard
+	const placementGroups = groupPlacementsByWhiteboard(placements, whiteboardTitleById);
 
 	const toggleGroup = (key: string) =>
 		setCollapsed((prev: Set<string>) => {
@@ -183,6 +240,7 @@ export function CardInfoSection({
 															key={bl.cardId}
 															to="/cards/$cardId"
 															params={{ cardId: bl.cardId }}
+															onClick={onNavigate}
 															className="flex items-center gap-1.5 rounded px-1 py-1.5 text-xs text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
 														>
 															<FileText className="size-3 shrink-0 text-[var(--sea-ink-soft)]" />
@@ -198,32 +256,34 @@ export function CardInfoSection({
 						)}
 					</div>
 
-					{/* Whiteboards */}
+			{/* Whiteboards */}
 					<div className="border-t border-[var(--line)] py-4 flex flex-wrap items-center gap-x-4 gap-y-2">
 						<div className="flex items-center gap-1.5 text-xs font-medium text-[var(--sea-ink)]">
 							<LayoutGrid className="size-3 text-[var(--sea-ink-soft)]" />
-							<span>Whiteboards ({placements.length})</span>
+							<span>Whiteboards ({placementGroups.length})</span>
 						</div>
-						{placements.length === 0 && (
+						{placementGroups.length === 0 && (
 							<span className="text-xs text-[var(--sea-ink-soft)]">
 								Not placed on any whiteboard.
 							</span>
 						)}
-						{placements.map((p) => {
-							const title = p.whiteboardId
-								? (whiteboardTitleById.get(p.whiteboardId) ?? p.whiteboardId)
-								: "Root";
+						{placementGroups.map((group) => {
+							const p = group.primaryPlacement;
 							return (
-								<Link
-									key={p.itemId}
-									to={p.whiteboardId ? "/whiteboard/$whiteboardId" : "/whiteboard"}
-									params={p.whiteboardId ? { whiteboardId: p.whiteboardId } : undefined}
-									search={p.shapeId ? { focus: p.shapeId } : {}}
-									className="flex items-center gap-1 text-xs text-[var(--sea-ink)] hover:text-[var(--lagoon-deep)]"
-								>
-									<LayoutGrid className="size-3 shrink-0 text-[var(--sea-ink-soft)]" />
-									<span>{title}</span>
-								</Link>
+							<Link
+								key={group.key}
+								to={group.whiteboardId ? "/whiteboard/$whiteboardId" : "/whiteboard"}
+								params={group.whiteboardId ? { whiteboardId: group.whiteboardId } : undefined}
+								search={p.shapeId ? { focus: p.shapeId } : {}}
+								onClick={onNavigate}
+								className="flex items-center gap-1 text-xs text-[var(--sea-ink)] hover:text-[var(--lagoon-deep)]"
+							>
+								<LayoutGrid className="size-3 shrink-0 text-[var(--sea-ink-soft)]" />
+								<span>
+									{group.title}
+									{group.count > 1 ? ` (${group.count})` : ""}
+								</span>
+							</Link>
 							);
 						})}
 					</div>
