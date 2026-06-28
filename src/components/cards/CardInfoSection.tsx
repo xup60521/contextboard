@@ -31,6 +31,7 @@ type CardInfoSectionProps = {
 	createdAt: number;
 	updatedAt: number;
 	plainText: string;
+	onNavigate?: () => void;
 };
 
 function formatDate(ts: number): string {
@@ -68,6 +69,7 @@ export function CardInfoSection({
 	createdAt,
 	updatedAt,
 	plainText,
+	onNavigate,
 }: CardInfoSectionProps) {
 	const [visible, setVisible] = useState(true);
 	// collapsed set — groups start expanded
@@ -183,6 +185,7 @@ export function CardInfoSection({
 															key={bl.cardId}
 															to="/cards/$cardId"
 															params={{ cardId: bl.cardId }}
+															onClick={onNavigate}
 															className="flex items-center gap-1.5 rounded px-1 py-1.5 text-xs text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
 														>
 															<FileText className="size-3 shrink-0 text-[var(--sea-ink-soft)]" />
@@ -219,6 +222,7 @@ export function CardInfoSection({
 								to={p.whiteboardId ? "/whiteboard/$whiteboardId" : "/whiteboard"}
 								params={p.whiteboardId ? { whiteboardId: p.whiteboardId } : undefined}
 								search={p.shapeId ? { focus: p.shapeId } : {}}
+								onClick={onNavigate}
 								className="flex flex-col text-xs text-[var(--sea-ink)] hover:text-[var(--lagoon-deep)]"
 							>
 								<div className="flex items-center gap-1">

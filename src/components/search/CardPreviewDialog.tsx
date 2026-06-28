@@ -211,6 +211,7 @@ export function CardPreviewDialog({
 								createdAt={data.card._creationTime}
 								updatedAt={data.card.updatedAt}
 								plainText={data.card.plainText}
+								onNavigate={onClose}
 							/>
 						</>
 					)}
