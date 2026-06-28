@@ -1,9 +1,16 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useMutation, useQuery } from "convex/react";
-import { Crosshair, ExternalLink, Plus } from "lucide-react";
+import {
+	Crosshair,
+	Maximize2,
+	MoreHorizontal,
+	Plus,
+	Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardInfoSection } from "#/components/cards/CardInfoSection";
+import { DeleteCardDialog } from "#/components/cards/DeleteCardDialog";
 import { CardEditorPane } from "#/components/editor/CardEditorPane";
 import {
 	Dialog,
@@ -11,6 +18,13 @@ import {
 	DialogDescription,
 	DialogTitle,
 } from "#/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "#/components/ui/dropdown-menu";
 import { CARD_EDITOR_MAX_WIDTH } from "#/lib/constants";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -31,6 +45,37 @@ function markPreviewPerformance(stage: string) {
 	performance.mark(`card-preview:${stage}`);
 }
 
+export function isInsidePreviewAllowedPortal(target: EventTarget | null) {
+	if (!(target instanceof HTMLElement)) {
+		return false;
+	}
+
+	return (
+		target.closest("[data-slot='dropdown-menu-content']") !== null ||
+		target.closest("[data-radix-popper-content-wrapper]") !== null
+	);
+}
+
+export function shouldPreventPreviewOutsideDismiss(
+	target: EventTarget | null,
+	{
+		showDeleteDialog,
+		dropdownOpen,
+		appendPickerOpen,
+	}: {
+		showDeleteDialog: boolean;
+		dropdownOpen: boolean;
+		appendPickerOpen: boolean;
+	},
+) {
+	return (
+		showDeleteDialog ||
+		dropdownOpen ||
+		appendPickerOpen ||
+		isInsidePreviewAllowedPortal(target)
+	);
+}
+
 /**
  * In-place preview/edit popup for a card. Takes only a `cardId`; the navigation
  * context (which board holds the card's shape) is fetched alongside the card so
@@ -48,6 +93,7 @@ export function CardPreviewDialog({
 	const data = useQuery(api.cards.get, cardId ? { cardId } : "skip");
 	const whiteboards = useQuery(api.whiteboards.listActive);
 	const appendToWhiteboard = useMutation(api.cards.appendToWhiteboard);
+	const archiveCard = useMutation(api.cards.archiveCard);
 	const mountFrameRef = useRef<number | null>(null);
 	const mountTimerRef = useRef<number | null>(null);
 	const [shouldMountEditor, setShouldMountEditor] = useState(false);
@@ -55,6 +101,9 @@ export function CardPreviewDialog({
 	const [mountedCardId, setMountedCardId] = useState<Id<"cards"> | null>(null);
 	const [isAppending, setIsAppending] = useState(false);
 	const [appendError, setAppendError] = useState<string | null>(null);
+	const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+	const [dropdownOpen, setDropdownOpen] = useState(false);
+	const [appendPickerOpen, setAppendPickerOpen] = useState(false);
 
 	const currentPlacement =
 		currentWhiteboardId == null
@@ -116,6 +165,10 @@ export function CardPreviewDialog({
 	}, [cardId, clearDeferredMount, open]);
 
 	useEffect(() => {
+		if (!cardId) {
+			return;
+		}
+
 		setAppendError(null);
 		setIsAppending(false);
 	}, [cardId]);
@@ -138,54 +191,59 @@ export function CardPreviewDialog({
 		});
 	}, [currentPlacement, currentWhiteboardId, navigate, onClose]);
 
-	const handleAppendToCurrentBoard = useCallback(async () => {
-		if (!cardId || !currentWhiteboardId || isAppending) {
-			return;
-		}
+	const handleAppendToBoard = useCallback(
+		async (targetWhiteboardId: Id<"whiteboards">) => {
+			if (!cardId || isAppending) return;
 
-		setIsAppending(true);
-		setAppendError(null);
+			setIsAppending(true);
+			setAppendError(null);
 
-		try {
-			const placement = await appendToWhiteboard({
-				cardId,
-				whiteboardId: currentWhiteboardId,
-			});
+			try {
+				const placement = await appendToWhiteboard({
+					cardId,
+					whiteboardId: targetWhiteboardId,
+				});
 
-			if (!placement?.shapeId) {
-				throw new Error("Card was appended, but no shape id was returned.");
+				if (!placement?.shapeId) {
+					throw new Error("Card was appended, but no shape id was returned.");
+				}
+
+				onClose();
+
+				void navigate({
+					to: "/whiteboard/$whiteboardId",
+					params: { whiteboardId: targetWhiteboardId },
+					search: { focus: placement.shapeId },
+				});
+			} catch (error) {
+				setAppendError(
+					error instanceof Error
+						? error.message
+						: "Failed to append card to board.",
+				);
+			} finally {
+				setIsAppending(false);
 			}
+		},
+		[appendToWhiteboard, cardId, isAppending, navigate, onClose],
+	);
 
-			onClose();
-
-			void navigate({
-				to: "/whiteboard/$whiteboardId",
-				params: { whiteboardId: currentWhiteboardId },
-				search: { focus: placement.shapeId },
-			});
-		} catch (error) {
-			setAppendError(
-				error instanceof Error
-					? error.message
-					: "Failed to append card to board.",
-			);
-		} finally {
-			setIsAppending(false);
-		}
-	}, [
-		appendToWhiteboard,
-		cardId,
-		currentWhiteboardId,
-		isAppending,
-		navigate,
-		onClose,
-	]);
+	const handleDeleteCard = useCallback(async () => {
+		if (!cardId) return;
+		await archiveCard({ cardId });
+		setShowDeleteDialog(false);
+		onClose();
+	}, [archiveCard, cardId, onClose]);
 
 	const canRenderEditor =
 		data !== undefined &&
 		data !== null &&
 		shouldMountEditor &&
 		mountedCardId === data.card._id;
+
+	// In card library (no current whiteboard), show all active whiteboards as targets.
+	const appendableWhiteboards =
+		currentWhiteboardId === null ? (whiteboards ?? []) : [];
 
 	return (
 		<Dialog
@@ -198,47 +256,151 @@ export function CardPreviewDialog({
 				showCloseButton={false}
 				className="flex max-h-[85vh] w-full flex-col gap-0 overflow-hidden p-0"
 				style={{ maxWidth: CARD_EDITOR_MAX_WIDTH }}
+				onPointerDownOutside={(e) => {
+					if (
+						shouldPreventPreviewOutsideDismiss(e.target, {
+							showDeleteDialog,
+							dropdownOpen,
+							appendPickerOpen,
+						})
+					) {
+						e.preventDefault();
+					}
+				}}
+				onFocusOutside={(e) => {
+					if (
+						shouldPreventPreviewOutsideDismiss(e.target, {
+							showDeleteDialog,
+							dropdownOpen,
+							appendPickerOpen,
+						})
+					) {
+						e.preventDefault();
+					}
+				}}
+				onEscapeKeyDown={(e) => {
+					if (showDeleteDialog || dropdownOpen || appendPickerOpen) {
+						e.preventDefault();
+					}
+				}}
 			>
 				<DialogTitle className="sr-only">Card preview</DialogTitle>
 				<DialogDescription className="sr-only">
 					Edit this card inline. Press Escape or click outside to close.
 				</DialogDescription>
-				<header className="flex items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-2.5">
-					<span className="truncate text-sm font-semibold text-[var(--sea-ink)]">
+				<header className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2.5">
+					{cardId ? (
+						<Link
+							to="/cards/$cardId"
+							params={{ cardId }}
+							onClick={onClose}
+							title="Open page"
+							className="shrink-0 rounded p-1 text-[var(--sea-ink-soft)] hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
+						>
+							<Maximize2 className="size-4" />
+						</Link>
+					) : (
+						<div className="size-6 shrink-0" />
+					)}
+					<span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--sea-ink)]">
 						{data?.card.derivedTitle || "Untitled card"}
 					</span>
 					<div className="flex shrink-0 items-center gap-1.5">
-						{canFocusCurrentBoard ? (
-							<button
-								type="button"
-								onClick={focusOnCurrentBoard}
-								className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
+						{currentWhiteboardId !== null ? (
+							canFocusCurrentBoard ? (
+								<button
+									type="button"
+									onClick={focusOnCurrentBoard}
+									className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
+								>
+									<Crosshair className="size-3.5" />
+									Focus on board
+								</button>
+							) : canAppendToCurrentBoard ? (
+								<button
+									type="button"
+									onClick={() => void handleAppendToBoard(currentWhiteboardId)}
+									disabled={isAppending}
+									className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+								>
+									<Plus className="size-3.5" />
+									{isAppending ? "Appending..." : "Append to board"}
+								</button>
+							) : null
+						) : (
+							// Card library: always-visible whiteboard picker
+							<DropdownMenu
+								modal={false}
+								open={appendPickerOpen}
+								onOpenChange={setAppendPickerOpen}
 							>
-								<Crosshair className="size-3.5" />
-								Focus on board
-							</button>
-						) : canAppendToCurrentBoard ? (
-							<button
-								type="button"
-								onClick={handleAppendToCurrentBoard}
-								disabled={isAppending}
-								className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-							>
-								<Plus className="size-3.5" />
-								{isAppending ? "Appending..." : "Append to board"}
-							</button>
-						) : null}
-						{cardId ? (
-							<Link
-								to="/cards/$cardId"
-								params={{ cardId }}
-								onClick={onClose}
-								className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
-							>
-								<ExternalLink className="size-3.5" />
-								Open page
-							</Link>
-						) : null}
+								<DropdownMenuTrigger asChild>
+									<button
+										type="button"
+										onClick={(event) => {
+											event.stopPropagation();
+										}}
+										disabled={isAppending || appendableWhiteboards.length === 0}
+										className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+									>
+										<Plus className="size-3.5" />
+										{isAppending ? "Appending..." : "Append to board"}
+									</button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent
+									align="end"
+									className="max-h-64 overflow-y-auto"
+								>
+									{appendableWhiteboards.map((wb) => (
+										<DropdownMenuItem
+											key={wb._id}
+											onClick={() => void handleAppendToBoard(wb._id)}
+										>
+											{wb.title || "Untitled board"}
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						)}
+						<DropdownMenu
+							modal={false}
+							open={dropdownOpen}
+							onOpenChange={setDropdownOpen}
+						>
+							<DropdownMenuTrigger asChild>
+								<button
+									type="button"
+									onClick={(event) => {
+										event.stopPropagation();
+									}}
+									className="rounded p-1 text-[var(--sea-ink-soft)] hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
+								>
+									<MoreHorizontal className="size-4" />
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								{canFocusCurrentBoard && currentWhiteboardId !== null && (
+									<>
+										<DropdownMenuItem
+											onClick={() =>
+												void handleAppendToBoard(currentWhiteboardId)
+											}
+										>
+											<Plus className="size-4" />
+											Append to board
+										</DropdownMenuItem>
+										<DropdownMenuSeparator />
+									</>
+								)}
+								<DropdownMenuItem
+									onClick={() => setShowDeleteDialog(true)}
+									className="text-red-600 focus:text-red-600"
+								>
+									<Trash2 className="size-4" />
+									Delete card
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
 					</div>
 				</header>
 				{appendError ? (
@@ -293,6 +455,11 @@ export function CardPreviewDialog({
 						</>
 					)}
 				</div>
+				<DeleteCardDialog
+					open={showDeleteDialog}
+					onCancel={() => setShowDeleteDialog(false)}
+					onConfirm={() => void handleDeleteCard()}
+				/>
 			</DialogContent>
 		</Dialog>
 	);

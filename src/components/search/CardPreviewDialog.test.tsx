@@ -5,6 +5,8 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import {
 	CARD_PREVIEW_EDITOR_MOUNT_DELAY_MS,
 	CardPreviewDialog,
+	isInsidePreviewAllowedPortal,
+	shouldPreventPreviewOutsideDismiss,
 } from "./CardPreviewDialog";
 
 const navigateMock = vi.fn();
@@ -44,6 +46,12 @@ vi.mock("#/components/ui/dialog", () => ({
 	),
 	DialogDescription: ({ children }: { children: ReactNode }) => (
 		<p>{children}</p>
+	),
+	DialogFooter: ({ children }: { children: ReactNode }) => (
+		<div data-testid="dialog-footer">{children}</div>
+	),
+	DialogHeader: ({ children }: { children: ReactNode }) => (
+		<div data-testid="dialog-header">{children}</div>
 	),
 	DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
 }));
@@ -99,6 +107,73 @@ async function flushDeferredMount() {
 }
 
 describe("CardPreviewDialog", () => {
+	test("treats dropdown menu content as an allowed portal target", () => {
+		const dropdownContent = document.createElement("div");
+		dropdownContent.setAttribute("data-slot", "dropdown-menu-content");
+
+		expect(isInsidePreviewAllowedPortal(dropdownContent)).toBe(true);
+	});
+
+	test("treats Radix popper wrappers as an allowed portal target", () => {
+		const popperWrapper = document.createElement("div");
+		popperWrapper.setAttribute("data-radix-popper-content-wrapper", "");
+
+		const child = document.createElement("button");
+		popperWrapper.appendChild(child);
+
+		expect(isInsidePreviewAllowedPortal(child)).toBe(true);
+	});
+
+	test("rejects unrelated targets and null", () => {
+		expect(isInsidePreviewAllowedPortal(document.createElement("div"))).toBe(
+			false,
+		);
+		expect(isInsidePreviewAllowedPortal(null)).toBe(false);
+	});
+
+	test("prevents outside dismiss while the actions dropdown is open", () => {
+		expect(
+			shouldPreventPreviewOutsideDismiss(document.createElement("div"), {
+				showDeleteDialog: false,
+				dropdownOpen: true,
+				appendPickerOpen: false,
+			}),
+		).toBe(true);
+	});
+
+	test("prevents outside dismiss while the append picker is open", () => {
+		expect(
+			shouldPreventPreviewOutsideDismiss(document.createElement("div"), {
+				showDeleteDialog: false,
+				dropdownOpen: false,
+				appendPickerOpen: true,
+			}),
+		).toBe(true);
+	});
+
+	test("prevents outside dismiss for allowed portal targets", () => {
+		const dropdownContent = document.createElement("div");
+		dropdownContent.setAttribute("data-slot", "dropdown-menu-content");
+
+		expect(
+			shouldPreventPreviewOutsideDismiss(dropdownContent, {
+				showDeleteDialog: false,
+				dropdownOpen: false,
+				appendPickerOpen: false,
+			}),
+		).toBe(true);
+	});
+
+	test("allows outside dismiss when no nested overlay is open", () => {
+		expect(
+			shouldPreventPreviewOutsideDismiss(document.createElement("div"), {
+				showDeleteDialog: false,
+				dropdownOpen: false,
+				appendPickerOpen: false,
+			}),
+		).toBe(false);
+	});
+
 	beforeEach(() => {
 		vi.useFakeTimers();
 		useQueryMock.mockReset();
@@ -235,7 +310,7 @@ describe("CardPreviewDialog", () => {
 		expect(screen.getByTestId("card-editor-pane").textContent).toBe("card_2");
 	});
 
-	test("global cards page should not show any board-action buttons", async () => {
+	test("global cards page keeps append action disabled when no boards are available", async () => {
 		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
 			if (args === undefined) {
 				return [];
@@ -268,7 +343,11 @@ describe("CardPreviewDialog", () => {
 
 		expect(screen.queryByText("Go to board")).toBeNull();
 		expect(screen.queryByText("Focus on board")).toBeNull();
-		expect(screen.queryByText("Append to board")).toBeNull();
+		expect(
+			screen
+				.getByRole("button", { name: "Append to board" })
+				.getAttribute("disabled"),
+		).toBe("");
 	});
 
 	test("current board placement should show Focus on board", async () => {
