@@ -219,7 +219,7 @@ function WhiteboardPickerDialog({
 
 function CardEditorShell({ label }: { label: string }) {
 	return (
-		<main className="grid h-[calc(100dvh-80px)] min-h-[620px] place-items-center p-3 bg-[var(--card)]">
+		<main className="grid min-h-screen place-items-center p-3 bg-[var(--card)]">
 			<div className="rounded-md border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm font-semibold text-[var(--sea-ink)]">
 				{label}
 			</div>

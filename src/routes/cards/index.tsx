@@ -2,7 +2,14 @@ import { useDebouncedValue } from "@tanstack/react-pacer";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import { ArrowUpDown, Check, Eye, Filter, Maximize2, Search, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import {
+	useEffect,
+	useRef,
+	useState,
+	type MouseEvent as ReactMouseEvent,
+	type PointerEvent as ReactButtonPointerEvent,
+	type PointerEvent as ReactPointerEvent,
+} from "react";
 import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
 import { DeleteCardDialog } from "#/components/cards/DeleteCardDialog";
@@ -35,6 +42,37 @@ interface CardSearch {
 	sort: CardSortBy;
 }
 
+type SelectionRect = {
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+};
+
+type SelectionBounds = {
+	left: number;
+	right: number;
+	top: number;
+	bottom: number;
+};
+
+type DragSelectionState = {
+	pointerId: number;
+	startX: number;
+	startY: number;
+	shiftKey: boolean;
+	baseSelection: Set<Id<"cards">>;
+};
+
+function rectsIntersect(a: DOMRect, b: SelectionBounds) {
+	return (
+		a.left <= b.right &&
+		a.right >= b.left &&
+		a.top <= b.bottom &&
+		a.bottom >= b.top
+	);
+}
+
 export const Route = createFileRoute("/cards/")({
 	ssr: false,
 	validateSearch: (search: Record<string, unknown>): CardSearch => ({
@@ -52,12 +90,52 @@ export function RouteComponent() {
 	const [query, setQuery] = useState("");
 	const [debouncedQuery] = useDebouncedValue(query, { wait: 150 });
 	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
+	const [selectedCardIds, setSelectedCardIds] = useState<Set<Id<"cards">>>(
+		() => new Set(),
+	);
 	const [orphanOnly, setOrphanOnly] = useState(initialOrphan);
 	const archiveCards = useMutation(api.cards.archiveCards);
 	const [deleteTargetIds, setDeleteTargetIds] = useState<Id<"cards">[]>([]);
+	const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
+	const cardElementByIdRef = useRef(new Map<Id<"cards">, HTMLElement>());
+	const dragStartRef = useRef<DragSelectionState | null>(null);
+	const selectionResetKey = `${debouncedQuery}\u0000${orphanOnly ? "1" : "0"}\u0000${sort}`;
+	const previousSelectionResetKeyRef = useRef(selectionResetKey);
 
-	const openDeleteDialog = (cardId: Id<"cards">) => {
-		setDeleteTargetIds([cardId]);
+	const isSelected = (cardId: Id<"cards">) => selectedCardIds.has(cardId);
+
+	const clearSelection = () => {
+		setSelectedCardIds((prev) => (prev.size === 0 ? prev : new Set()));
+	};
+
+	const selectOnly = (cardId: Id<"cards">) => {
+		setSelectedCardIds((prev) =>
+			prev.size === 1 && prev.has(cardId) ? prev : new Set([cardId]),
+		);
+	};
+
+	const toggleSelected = (cardId: Id<"cards">) => {
+		setSelectedCardIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(cardId)) {
+				next.delete(cardId);
+			} else {
+				next.add(cardId);
+			}
+			return next;
+		});
+	};
+
+	const getContextTargetIds = (cardId: Id<"cards">) => {
+		if (selectedCardIds.has(cardId)) {
+			return [...selectedCardIds];
+		}
+
+		return [cardId];
+	};
+
+	const openDeleteDialog = (cardIds: Id<"cards">[]) => {
+		setDeleteTargetIds(cardIds);
 	};
 
 	const closeDeleteDialog = () => {
@@ -65,13 +143,20 @@ export function RouteComponent() {
 	};
 
 	const confirmDelete = async () => {
-		const [cardId] = deleteTargetIds;
-		if (!cardId) return;
+		const targetIds = [...deleteTargetIds];
+		if (targetIds.length === 0) return;
 
-		await archiveCards({ cardIds: [cardId] });
+		await archiveCards({ cardIds: targetIds });
 		setDeleteTargetIds([]);
+		setSelectedCardIds((prev) => {
+			const next = new Set(prev);
+			for (const cardId of targetIds) {
+				next.delete(cardId);
+			}
+			return next;
+		});
 
-		if (previewCardId === cardId) {
+		if (previewCardId && targetIds.includes(previewCardId)) {
 			setPreviewCardId(null);
 		}
 	};
@@ -108,6 +193,146 @@ export function RouteComponent() {
 		},
 		{ initialNumItems: 50 },
 	);
+	useEffect(() => {
+		if (previousSelectionResetKeyRef.current === selectionResetKey) {
+			return;
+		}
+
+		previousSelectionResetKeyRef.current = selectionResetKey;
+		setSelectedCardIds((prev) => (prev.size === 0 ? prev : new Set()));
+	}, [selectionResetKey]);
+
+	useEffect(() => {
+		const visibleIds = new Set(cards.results.map((card) => card._id));
+		setSelectedCardIds((prev) => {
+			const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+			return next.size === prev.size ? prev : next;
+		});
+	}, [cards.results]);
+
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") {
+				return;
+			}
+
+			if (deleteTargetIds.length > 0 || previewCardId !== null) {
+				return;
+			}
+
+			setSelectedCardIds((prev) => (prev.size === 0 ? prev : new Set()));
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [deleteTargetIds.length, previewCardId]);
+
+	const updateMarqueeSelection = (
+		startState: DragSelectionState,
+		currentX: number,
+		currentY: number,
+	) => {
+		const left = Math.min(startState.startX, currentX);
+		const top = Math.min(startState.startY, currentY);
+		const right = Math.max(startState.startX, currentX);
+		const bottom = Math.max(startState.startY, currentY);
+		const intersectedIds: Id<"cards">[] = [];
+
+		for (const [cardId, element] of cardElementByIdRef.current) {
+			const rect = element.getBoundingClientRect();
+			if (rectsIntersect(rect, { left, right, top, bottom })) {
+				intersectedIds.push(cardId);
+			}
+		}
+
+		setSelectionRect({
+			left,
+			top,
+			width: right - left,
+			height: bottom - top,
+		});
+
+		setSelectedCardIds(() => {
+			if (!startState.shiftKey) {
+				return new Set(intersectedIds);
+			}
+
+			const next = new Set(startState.baseSelection);
+			for (const cardId of intersectedIds) {
+				if (startState.baseSelection.has(cardId)) {
+					next.delete(cardId);
+				} else {
+					next.add(cardId);
+				}
+			}
+			return next;
+		});
+	};
+
+	const handleGridPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+		if (!event.isPrimary || event.button !== 0) {
+			return;
+		}
+
+		if (!(event.target instanceof HTMLElement)) {
+			return;
+		}
+
+		// Synthetic events from portaled content (e.g. the card context menu) bubble
+		// through the React tree to this handler even though their DOM target lives
+		// outside the grid. Skip them so marquee selection never starts there.
+		if (!event.currentTarget.contains(event.target)) {
+			return;
+		}
+
+		if (event.target.closest("[data-card-tile='true']")) {
+			return;
+		}
+
+		dragStartRef.current = {
+			pointerId: event.pointerId,
+			startX: event.clientX,
+			startY: event.clientY,
+			shiftKey: event.shiftKey,
+			baseSelection: new Set(selectedCardIds),
+		};
+		setSelectionRect({
+			left: event.clientX,
+			top: event.clientY,
+			width: 0,
+			height: 0,
+		});
+		if (!event.shiftKey) {
+			clearSelection();
+		}
+		event.preventDefault();
+		event.currentTarget.setPointerCapture?.(event.pointerId);
+	};
+
+	const handleGridPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+		const dragState = dragStartRef.current;
+		if (!dragState || dragState.pointerId !== event.pointerId) {
+			return;
+		}
+
+		updateMarqueeSelection(dragState, event.clientX, event.clientY);
+	};
+
+	const endMarqueeSelection = (
+		event: ReactPointerEvent<HTMLDivElement>,
+		currentX: number,
+		currentY: number,
+	) => {
+		const dragState = dragStartRef.current;
+		if (!dragState || dragState.pointerId !== event.pointerId) {
+			return;
+		}
+
+		updateMarqueeSelection(dragState, currentX, currentY);
+		dragStartRef.current = null;
+		setSelectionRect(null);
+		event.currentTarget.releasePointerCapture?.(event.pointerId);
+	};
 
 	return (
 		<main className="w-full px-6 py-2">
@@ -128,11 +353,11 @@ export function RouteComponent() {
 						/>
 					</div>
 				</div>
-				<div className="flex items-center gap-1.5">
+				<div className="flex flex-wrap items-center gap-2">
 					<button
 						type="button"
 						onClick={toggleOrphanOnly}
-						className={`cursor-pointer flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+						className={`cursor-pointer flex h-8 items-center gap-1 rounded-full border px-3 text-xs font-medium transition ${
 							orphanOnly
 								? "border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--surface)]"
 								: "border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink-soft)] hover:bg-[var(--surface-strong)]"
@@ -142,43 +367,71 @@ export function RouteComponent() {
 						Orphan only
 						{orphanOnly && <X size={11} />}
 					</button>
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<button
-								type="button"
-								className="ml-auto flex cursor-pointer items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium text-[var(--sea-ink-soft)] transition hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
-								aria-label={`Sort cards by ${getCardSortLabel(sort)}`}
-							>
-								<ArrowUpDown size={11} />
-								<span>Sort:</span>
-								<span className="font-semibold text-[var(--sea-ink)]">
-									{getCardSortLabel(sort)}
+					<div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<button
+									type="button"
+									className="flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--sea-ink-soft)] shadow-[0_8px_20px_rgba(15,23,42,0.04)] backdrop-blur-sm transition hover:border-[var(--sea-ink)]/15 hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
+									aria-label={`Sort cards by ${getCardSortLabel(sort)}`}
+								>
+									<ArrowUpDown size={11} />
+									<span>Sort</span>
+									<span className="font-semibold text-[var(--sea-ink)]">
+										{getCardSortLabel(sort)}
+									</span>
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" className="w-56">
+								<div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--sea-ink-soft)]">
+									Sort cards
+								</div>
+								<DropdownMenuRadioGroup
+									value={sort}
+									onValueChange={(value) => {
+										if (isCardSortBy(value)) {
+											setSort(value);
+										}
+									}}
+								>
+									{CARD_SORT_OPTIONS.map((sortBy) => (
+										<DropdownMenuRadioItem key={sortBy} value={sortBy}>
+											<DropdownMenuItemIndicator>
+												<Check size={12} />
+											</DropdownMenuItemIndicator>
+											{getCardSortLabel(sortBy)}
+										</DropdownMenuRadioItem>
+									))}
+								</DropdownMenuRadioGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
+						{selectedCardIds.size > 0 ? (
+							<div className="flex h-8 items-center overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface)] p-0.5 text-xs shadow-[0_10px_24px_rgba(15,23,42,0.05)] backdrop-blur-sm">
+								<span className="flex h-7 items-center gap-2 rounded-full bg-[var(--surface-strong)] px-3 font-semibold text-[var(--sea-ink)]">
+									<span className="size-1.5 rounded-full bg-[var(--lagoon)]" />
+									{selectedCardIds.size} selected
 								</span>
-							</button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" className="w-56">
-							<div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--sea-ink-soft)]">
-								Sort cards
+								<span
+									aria-hidden="true"
+									className="mx-1 h-4 w-px bg-[var(--line)]"
+								/>
+								<button
+									type="button"
+									onClick={() => openDeleteDialog([...selectedCardIds])}
+									className="cursor-pointer rounded-full px-2.5 py-1 font-semibold text-[var(--destructive)] transition hover:bg-red-500/10"
+								>
+									Delete
+								</button>
+								<button
+									type="button"
+									onClick={clearSelection}
+									className="cursor-pointer rounded-full px-2.5 py-1 font-medium text-[var(--sea-ink-soft)] transition hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
+								>
+									Clear
+								</button>
 							</div>
-							<DropdownMenuRadioGroup
-								value={sort}
-								onValueChange={(value) => {
-									if (isCardSortBy(value)) {
-										setSort(value);
-									}
-								}}
-							>
-								{CARD_SORT_OPTIONS.map((sortBy) => (
-									<DropdownMenuRadioItem key={sortBy} value={sortBy}>
-										<DropdownMenuItemIndicator>
-											<Check size={12} />
-										</DropdownMenuItemIndicator>
-										{getCardSortLabel(sortBy)}
-									</DropdownMenuRadioItem>
-								))}
-							</DropdownMenuRadioGroup>
-						</DropdownMenuContent>
-					</DropdownMenu>
+						) : null}
+					</div>
 				</div>
 			</header>
 
@@ -187,7 +440,7 @@ export function RouteComponent() {
 					{Array.from({ length: 12 }).map((_, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
 						<li key={i} className="flex">
-							<div className="island-shell flex min-h-[120px] w-full animate-pulse flex-col rounded-xl p-4">
+							<div className="island-shell flex h-[170px] w-full animate-pulse flex-col rounded-xl p-4">
 								<div className="mb-2 h-4 w-3/4 rounded bg-[var(--line)]" />
 								<div className="h-3 w-full rounded bg-[var(--line)] opacity-60" />
 								<div className="mt-1 h-3 w-5/6 rounded bg-[var(--line)] opacity-60" />
@@ -205,23 +458,94 @@ export function RouteComponent() {
 							: "No cards."}
 				</div>
 			) : (
-				<ul className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
-					{cards.results.map((card) => (
-						<li key={card._id} className="flex">
-							<CardLibraryTile
-								card={card}
-								onPreview={() => setPreviewCardId(card._id)}
-								onFullscreen={() =>
-									navigate({
-										to: "/cards/$cardId",
-										params: { cardId: card._id },
-									})
-								}
-								onDelete={() => openDeleteDialog(card._id)}
-							/>
-						</li>
-					))}
-				</ul>
+				<div
+					className="relative"
+					onPointerDown={handleGridPointerDown}
+					onPointerMove={handleGridPointerMove}
+					onPointerUp={(event) =>
+						endMarqueeSelection(event, event.clientX, event.clientY)
+					}
+					onPointerCancel={(event) =>
+						endMarqueeSelection(event, event.clientX, event.clientY)
+					}
+				>
+					<ul
+						className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3"
+					>
+						{cards.results.map((card) => {
+							const contextTargetIds = getContextTargetIds(card._id);
+							const singleTarget = contextTargetIds.length === 1;
+
+							return (
+								<li
+									key={card._id}
+									data-card-tile="true"
+									className="flex"
+									ref={(node) => {
+										if (node) {
+											cardElementByIdRef.current.set(card._id, node);
+										} else {
+											cardElementByIdRef.current.delete(card._id);
+										}
+									}}
+								>
+									<CardLibraryTile
+										card={card}
+										selected={isSelected(card._id)}
+										onClick={(event) => {
+											if (event.shiftKey) {
+												event.preventDefault();
+												toggleSelected(card._id);
+												return;
+											}
+
+											setPreviewCardId(card._id);
+										}}
+										onPointerDown={(event) => {
+											if (event.button !== 2 || isSelected(card._id)) {
+												return;
+											}
+
+											selectOnly(card._id);
+										}}
+										onContextMenu={() => {
+											if (!isSelected(card._id)) {
+												selectOnly(card._id);
+											}
+										}}
+										onPreview={() => setPreviewCardId(card._id)}
+										onFullscreen={() =>
+											navigate({
+												to: "/cards/$cardId",
+												params: { cardId: card._id },
+											})
+										}
+										onDelete={() => openDeleteDialog(contextTargetIds)}
+										canPreview={singleTarget}
+										canFullscreen={singleTarget}
+										deleteLabel={
+											contextTargetIds.length === 1
+												? "Delete card"
+												: `Delete ${contextTargetIds.length} cards`
+										}
+									/>
+								</li>
+							);
+						})}
+					</ul>
+
+					{selectionRect ? (
+						<div
+							className="pointer-events-none fixed z-50 border border-[var(--sea-ink)] bg-[var(--sea-ink)]/10"
+							style={{
+								left: selectionRect.left,
+								top: selectionRect.top,
+								width: selectionRect.width,
+								height: selectionRect.height,
+							}}
+						/>
+					) : null}
+				</div>
 			)}
 
 			{cards.status === "CanLoadMore" && (
@@ -254,22 +578,43 @@ type CardTile = Doc<"cards"> & { placementCount: number };
 
 function CardLibraryTile({
 	card,
+	selected,
+	onClick,
+	onPointerDown,
+	onContextMenu,
 	onPreview,
 	onFullscreen,
 	onDelete,
+	canPreview,
+	canFullscreen,
+	deleteLabel,
 }: {
 	card: CardTile;
+	selected: boolean;
+	onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+	onPointerDown: (event: ReactButtonPointerEvent<HTMLButtonElement>) => void;
+	onContextMenu: () => void;
 	onPreview: () => void;
 	onFullscreen: () => void;
 	onDelete: () => void;
+	canPreview: boolean;
+	canFullscreen: boolean;
+	deleteLabel: string;
 }) {
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
 				<button
 					type="button"
-					onClick={onPreview}
-					className="island-shell flex h-full cursor-pointer min-h-[120px] w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md"
+					onClick={onClick}
+					onPointerDown={onPointerDown}
+					onContextMenu={onContextMenu}
+					aria-pressed={selected}
+					className={`island-shell flex h-full cursor-pointer min-h-[120px] w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md ${
+						selected
+							? "bg-[var(--surface-strong)] outline-1 outline-offset-2 outline-[var(--sea-ink)]"
+							: ""
+					}`}
 				>
 					<h2 className="line-clamp-2 text-sm font-bold text-[var(--sea-ink)]">
 						{card.derivedTitle}
@@ -285,11 +630,11 @@ function CardLibraryTile({
 				</button>
 			</ContextMenuTrigger>
 			<ContextMenuContent>
-				<ContextMenuItem onSelect={onPreview}>
+				<ContextMenuItem onSelect={onPreview} disabled={!canPreview}>
 					<Eye className="size-4" />
 					Preview
 				</ContextMenuItem>
-				<ContextMenuItem onSelect={onFullscreen}>
+				<ContextMenuItem onSelect={onFullscreen} disabled={!canFullscreen}>
 					<Maximize2 className="size-4" />
 					Fullscreen
 				</ContextMenuItem>
@@ -298,7 +643,7 @@ function CardLibraryTile({
 					className="text-red-600 focus:text-red-600"
 				>
 					<Trash2 className="size-4" />
-					Delete
+					{deleteLabel}
 				</ContextMenuItem>
 			</ContextMenuContent>
 		</ContextMenu>
