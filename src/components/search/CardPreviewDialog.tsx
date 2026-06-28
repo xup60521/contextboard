@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useQuery } from "convex/react";
-import { ArrowUpRight, Crosshair, ExternalLink } from "lucide-react";
+import { Crosshair, ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardInfoSection } from "#/components/cards/CardInfoSection";
 import { CardEditorPane } from "#/components/editor/CardEditorPane";
@@ -54,18 +54,15 @@ export function CardPreviewDialog({
 	const [mountedCardId, setMountedCardId] = useState<Id<"cards"> | null>(null);
 
 	const currentPlacement =
-		data?.placements?.find(
-			(placement) => placement.whiteboardId === currentWhiteboardId,
-		) ?? null;
-	// A card placed on a board has a shape we can navigate to. If the card is on
-	// the current board, prefer that exact placement; otherwise use the server's
-	// preferred placement.
-	const shapeId = currentPlacement?.shapeId ?? data?.shapeId ?? null;
-	const boardWhiteboardId =
-		currentPlacement?.whiteboardId ?? data?.boardWhiteboardId ?? null;
-	const canNavigate = shapeId != null;
-	const isOnCurrentBoard =
-		canNavigate && boardWhiteboardId === currentWhiteboardId;
+		currentWhiteboardId == null
+			? null
+			: data?.placements?.find(
+					(placement) =>
+						placement.whiteboardId === currentWhiteboardId &&
+						placement.shapeId != null,
+				) ?? null;
+
+	const canFocusCurrentBoard = currentPlacement != null;
 	const whiteboardTitleById = new Map(
 		(whiteboards ?? []).map((wb) => [wb._id, wb.title]),
 	);
@@ -108,21 +105,19 @@ export function CardPreviewDialog({
 		return clearDeferredMount;
 	}, [cardId, clearDeferredMount, open]);
 
-	const focusOnBoard = useCallback(() => {
-		onClose();
-		if (boardWhiteboardId) {
-			void navigate({
-				to: "/whiteboard/$whiteboardId",
-				params: { whiteboardId: boardWhiteboardId },
-				search: shapeId ? { focus: shapeId } : {},
-			});
-		} else {
-			void navigate({
-				to: "/whiteboard",
-				search: shapeId ? { focus: shapeId } : {},
-			});
+	const focusOnCurrentBoard = useCallback(() => {
+		if (!currentPlacement || !currentWhiteboardId || !currentPlacement.shapeId) {
+			return;
 		}
-	}, [boardWhiteboardId, navigate, onClose, shapeId]);
+
+		onClose();
+
+		void navigate({
+			to: "/whiteboard/$whiteboardId",
+			params: { whiteboardId: currentWhiteboardId },
+			search: { focus: currentPlacement.shapeId },
+		});
+	}, [currentPlacement, currentWhiteboardId, navigate, onClose]);
 
 	const canRenderEditor =
 		data !== undefined &&
@@ -151,25 +146,16 @@ export function CardPreviewDialog({
 						{data?.card.derivedTitle || "Untitled card"}
 					</span>
 					<div className="flex shrink-0 items-center gap-1.5">
-						{canNavigate ? (
-							<button
-								type="button"
-								onClick={focusOnBoard}
-								className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
-							>
-								{isOnCurrentBoard ? (
-									<>
-										<Crosshair className="size-3.5" />
-										Focus on board
-									</>
-								) : (
-									<>
-										<ArrowUpRight className="size-3.5" />
-										Go to board
-									</>
-								)}
-							</button>
-						) : null}
+					{canFocusCurrentBoard ? (
+						<button
+							type="button"
+							onClick={focusOnCurrentBoard}
+							className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
+						>
+							<Crosshair className="size-3.5" />
+							Focus on board
+						</button>
+					) : null}
 						{cardId ? (
 							<Link
 								to="/cards/$cardId"

@@ -214,16 +214,21 @@ export function CardInfoSection({
 								? (whiteboardTitleById.get(p.whiteboardId) ?? p.whiteboardId)
 								: "Root";
 							return (
-								<Link
-									key={p.itemId}
-									to={p.whiteboardId ? "/whiteboard/$whiteboardId" : "/whiteboard"}
-									params={p.whiteboardId ? { whiteboardId: p.whiteboardId } : undefined}
-									search={p.shapeId ? { focus: p.shapeId } : {}}
-									className="flex items-center gap-1 text-xs text-[var(--sea-ink)] hover:text-[var(--lagoon-deep)]"
-								>
+							<Link
+								key={p.itemId}
+								to={p.whiteboardId ? "/whiteboard/$whiteboardId" : "/whiteboard"}
+								params={p.whiteboardId ? { whiteboardId: p.whiteboardId } : undefined}
+								search={p.shapeId ? { focus: p.shapeId } : {}}
+								className="flex flex-col text-xs text-[var(--sea-ink)] hover:text-[var(--lagoon-deep)]"
+							>
+								<div className="flex items-center gap-1">
 									<LayoutGrid className="size-3 shrink-0 text-[var(--sea-ink-soft)]" />
 									<span>{title}</span>
-								</Link>
+								</div>
+								<span className="ml-4 text-[10px] text-[var(--sea-ink-soft)]">
+									Focus placement
+								</span>
+							</Link>
 							);
 						})}
 					</div>

@@ -14,6 +14,10 @@ vi.mock("convex/react", () => ({
 	useQuery: (...args: unknown[]) => useQueryMock(...args),
 }));
 
+vi.mock("#/components/cards/CardInfoSection", () => ({
+	CardInfoSection: () => <div data-testid="card-info-section" />,
+}));
+
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
 		children,
@@ -44,17 +48,42 @@ vi.mock("#/components/ui/dialog", () => ({
 
 const CARD_1 = "card_1" as Id<"cards">;
 const CARD_2 = "card_2" as Id<"cards">;
+const BOARD_1 = "board_1" as Id<"whiteboards">;
+const BOARD_2 = "board_2" as Id<"whiteboards">;
 
-function makeCardData(cardId: Id<"cards">) {
+function makeCardData(
+	cardId: Id<"cards">,
+	overrides: Partial<{
+		placements: Array<{
+			itemId: string;
+			whiteboardId: Id<"whiteboards"> | null;
+			shapeId: string | null;
+			updatedAt: number;
+		}>;
+		backlinks: Array<unknown>;
+		boardWhiteboardId: Id<"whiteboards"> | null;
+		shapeId: string | null;
+	}> = {},
+) {
 	return {
 		card: {
 			_id: cardId,
+			_creationTime: 1,
 			content: { type: "doc", content: [] },
 			derivedTitle: `Card ${cardId}`,
+			plainText: "",
+			preview: "",
+			updatedAt: 1,
+			version: 1,
+			archivedAt: null,
 			whiteboardId: null,
 		},
-		shapeId: null,
-		boardWhiteboardId: null,
+		whiteboard: null,
+		breadcrumbs: [],
+		placements: overrides.placements ?? [],
+		backlinks: overrides.backlinks ?? [],
+		boardWhiteboardId: overrides.boardWhiteboardId ?? null,
+		shapeId: overrides.shapeId ?? null,
 	};
 }
 
@@ -93,6 +122,9 @@ describe("CardPreviewDialog", () => {
 
 	test("opens immediately but defers mounting the editor", async () => {
 		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
 			if (args === "skip") {
 				return undefined;
 			}
@@ -119,6 +151,9 @@ describe("CardPreviewDialog", () => {
 
 	test("cancels a deferred mount when the dialog closes early", async () => {
 		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
 			if (args === "skip") {
 				return undefined;
 			}
@@ -159,6 +194,9 @@ describe("CardPreviewDialog", () => {
 
 	test("resets the deferred mount when switching cards", async () => {
 		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
 			if (args === "skip") {
 				return undefined;
 			}
@@ -192,5 +230,191 @@ describe("CardPreviewDialog", () => {
 		await flushDeferredMount();
 
 		expect(screen.getByTestId("card-editor-pane").textContent).toBe("card_2");
+	});
+
+	test("global cards page should not show Go to board or Focus on board", async () => {
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return makeCardData(CARD_1, {
+				placements: [
+					{
+						itemId: "item_1",
+						whiteboardId: BOARD_1,
+						shapeId: "shape:card_1",
+						updatedAt: 1,
+					},
+				],
+				boardWhiteboardId: BOARD_1,
+				shapeId: "shape:card_1",
+			});
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={null}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(screen.queryByText("Go to board")).toBeNull();
+		expect(screen.queryByText("Focus on board")).toBeNull();
+	});
+
+	test("current board placement should show Focus on board", async () => {
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return makeCardData(CARD_1, {
+				placements: [
+					{
+						itemId: "item_1",
+						whiteboardId: BOARD_1,
+						shapeId: "shape:card_1",
+						updatedAt: 1,
+					},
+				],
+			});
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={BOARD_1}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(screen.getByText("Focus on board")).not.toBeNull();
+		expect(screen.queryByText("Go to board")).toBeNull();
+	});
+
+	test("clicking Focus on board navigates to current board with shape focus", async () => {
+		const onCloseMock = vi.fn();
+
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return makeCardData(CARD_1, {
+				placements: [
+					{
+						itemId: "item_1",
+						whiteboardId: BOARD_1,
+						shapeId: "shape:card_1",
+						updatedAt: 1,
+					},
+				],
+			});
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={BOARD_1}
+				onClose={onCloseMock}
+			/>,
+		);
+
+		const button = screen.getByText("Focus on board");
+		button.click();
+
+		expect(onCloseMock).toHaveBeenCalledOnce();
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/whiteboard/$whiteboardId",
+			params: { whiteboardId: BOARD_1 },
+			search: { focus: "shape:card_1" },
+		});
+	});
+
+	test("placed elsewhere but not on current board should show no header board button", async () => {
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return makeCardData(CARD_1, {
+				placements: [
+					{
+						itemId: "item_1",
+						whiteboardId: BOARD_1,
+						shapeId: "shape:card_1",
+						updatedAt: 1,
+					},
+				],
+				boardWhiteboardId: BOARD_1,
+				shapeId: "shape:card_1",
+			});
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={BOARD_2}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(screen.queryByText("Go to board")).toBeNull();
+		expect(screen.queryByText("Focus on board")).toBeNull();
+	});
+
+	test("multiple placements should not create a single header Go to board", async () => {
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return makeCardData(CARD_1, {
+				placements: [
+					{
+						itemId: "item_1",
+						whiteboardId: BOARD_1,
+						shapeId: "shape:card_1_a",
+						updatedAt: 1,
+					},
+					{
+						itemId: "item_2",
+						whiteboardId: BOARD_2,
+						shapeId: "shape:card_1_b",
+						updatedAt: 2,
+					},
+				],
+				boardWhiteboardId: BOARD_2,
+				shapeId: "shape:card_1_b",
+			});
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={null}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(screen.queryByText("Go to board")).toBeNull();
+		expect(screen.queryByText("Focus on board")).toBeNull();
 	});
 });
