@@ -1,10 +1,17 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { createFileRoute } from "@tanstack/react-router";
-import { usePaginatedQuery } from "convex/react";
-import { ArrowUpDown, Check, Filter, Search, X } from "lucide-react";
+import { useMutation, usePaginatedQuery } from "convex/react";
+import { ArrowUpDown, Check, Eye, Filter, Maximize2, Search, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
+import { DeleteCardDialog } from "#/components/cards/DeleteCardDialog";
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from "#/components/ui/context-menu";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -14,7 +21,7 @@ import {
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
 import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import {
 	CARD_SORT_OPTIONS,
 	type CardSortBy,
@@ -46,6 +53,28 @@ export function RouteComponent() {
 	const [debouncedQuery] = useDebouncedValue(query, { wait: 150 });
 	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
 	const [orphanOnly, setOrphanOnly] = useState(initialOrphan);
+	const archiveCards = useMutation(api.cards.archiveCards);
+	const [deleteTargetIds, setDeleteTargetIds] = useState<Id<"cards">[]>([]);
+
+	const openDeleteDialog = (cardId: Id<"cards">) => {
+		setDeleteTargetIds([cardId]);
+	};
+
+	const closeDeleteDialog = () => {
+		setDeleteTargetIds([]);
+	};
+
+	const confirmDelete = async () => {
+		const [cardId] = deleteTargetIds;
+		if (!cardId) return;
+
+		await archiveCards({ cardIds: [cardId] });
+		setDeleteTargetIds([]);
+
+		if (previewCardId === cardId) {
+			setPreviewCardId(null);
+		}
+	};
 
 	const toggleOrphanOnly = () => {
 		const next = !orphanOnly;
@@ -179,23 +208,17 @@ export function RouteComponent() {
 				<ul className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
 					{cards.results.map((card) => (
 						<li key={card._id} className="flex">
-							<button
-								type="button"
-								onClick={() => setPreviewCardId(card._id)}
-								className="island-shell flex h-full cursor-pointer min-h-[120px] w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md"
-							>
-								<h2 className="line-clamp-2 text-sm font-bold text-[var(--sea-ink)]">
-									{card.derivedTitle}
-								</h2>
-								<p className="mt-2 line-clamp-4 text-xs text-[var(--sea-ink-soft)]">
-									{card.preview || "No preview yet."}
-								</p>
-								<p className="mt-auto pt-2 text-[10px] text-[var(--sea-ink-soft)]">
-									{card.placementCount === 0
-										? "Unplaced"
-										: `Placed on ${card.placementCount} board${card.placementCount === 1 ? "" : "s"}`}
-								</p>
-							</button>
+							<CardLibraryTile
+								card={card}
+								onPreview={() => setPreviewCardId(card._id)}
+								onFullscreen={() =>
+									navigate({
+										to: "/cards/$cardId",
+										params: { cardId: card._id },
+									})
+								}
+								onDelete={() => openDeleteDialog(card._id)}
+							/>
 						</li>
 					))}
 				</ul>
@@ -216,6 +239,68 @@ export function RouteComponent() {
 				currentWhiteboardId={null}
 				onClose={() => setPreviewCardId(null)}
 			/>
+
+			<DeleteCardDialog
+				open={deleteTargetIds.length > 0}
+				cardCount={deleteTargetIds.length}
+				onCancel={closeDeleteDialog}
+				onConfirm={() => void confirmDelete()}
+			/>
 		</main>
+	);
+}
+
+type CardTile = Doc<"cards"> & { placementCount: number };
+
+function CardLibraryTile({
+	card,
+	onPreview,
+	onFullscreen,
+	onDelete,
+}: {
+	card: CardTile;
+	onPreview: () => void;
+	onFullscreen: () => void;
+	onDelete: () => void;
+}) {
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger asChild>
+				<button
+					type="button"
+					onClick={onPreview}
+					className="island-shell flex h-full cursor-pointer min-h-[120px] w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md"
+				>
+					<h2 className="line-clamp-2 text-sm font-bold text-[var(--sea-ink)]">
+						{card.derivedTitle}
+					</h2>
+					<p className="mt-2 line-clamp-4 text-xs text-[var(--sea-ink-soft)]">
+						{card.preview || "No preview yet."}
+					</p>
+					<p className="mt-auto pt-2 text-[10px] text-[var(--sea-ink-soft)]">
+						{card.placementCount === 0
+							? "Unplaced"
+							: `Placed on ${card.placementCount} board${card.placementCount === 1 ? "" : "s"}`}
+					</p>
+				</button>
+			</ContextMenuTrigger>
+			<ContextMenuContent>
+				<ContextMenuItem onSelect={onPreview}>
+					<Eye className="size-4" />
+					Preview
+				</ContextMenuItem>
+				<ContextMenuItem onSelect={onFullscreen}>
+					<Maximize2 className="size-4" />
+					Fullscreen
+				</ContextMenuItem>
+				<ContextMenuItem
+					onSelect={onDelete}
+					className="text-red-600 focus:text-red-600"
+				>
+					<Trash2 className="size-4" />
+					Delete
+				</ContextMenuItem>
+			</ContextMenuContent>
+		</ContextMenu>
 	);
 }

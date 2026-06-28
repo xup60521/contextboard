@@ -28,6 +28,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("convex/react", () => ({
+	useMutation: () => vi.fn(),
 	usePaginatedQuery: (...args: unknown[]) => usePaginatedQueryMock(...args),
 }));
 
@@ -37,6 +38,24 @@ vi.mock("#/components/navigation/SidebarOpenButton", () => ({
 
 vi.mock("#/components/search/CardPreviewDialog", () => ({
 	CardPreviewDialog: () => null,
+}));
+
+vi.mock("#/components/cards/DeleteCardDialog", () => ({
+	DeleteCardDialog: () => null,
+}));
+
+vi.mock("#/components/ui/context-menu", () => ({
+	ContextMenu: ({ children }: { children: React.ReactNode }) => children,
+	ContextMenuTrigger: ({
+		children,
+		asChild,
+	}: { children: React.ReactNode; asChild?: boolean }) =>
+		asChild ? children : <>{children}</>,
+	ContextMenuContent: () => null,
+	ContextMenuItem: ({
+		children,
+		onSelect,
+	}: { children: React.ReactNode; onSelect?: () => void }) => null,
 }));
 
 describe("cards library sorting", () => {
