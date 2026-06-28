@@ -1,18 +1,30 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, usePaginatedQuery } from "convex/react";
-import { ArrowUpDown, Check, Eye, Filter, Maximize2, Search, Trash2, X } from "lucide-react";
 import {
+	ArrowUpDown,
+	Check,
+	Eye,
+	Filter,
+	Maximize2,
+	Plus,
+	Search,
+	Trash2,
+	X,
+} from "lucide-react";
+import {
+	type PointerEvent as ReactButtonPointerEvent,
+	type MouseEvent as ReactMouseEvent,
+	type PointerEvent as ReactPointerEvent,
 	useEffect,
 	useRef,
 	useState,
-	type MouseEvent as ReactMouseEvent,
-	type PointerEvent as ReactButtonPointerEvent,
-	type PointerEvent as ReactPointerEvent,
 } from "react";
+import { flushSync } from "react-dom";
+import { DeleteCardDialog } from "#/components/cards/DeleteCardDialog";
 import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
-import { DeleteCardDialog } from "#/components/cards/DeleteCardDialog";
+import { WhiteboardPickerDialog } from "#/components/whiteboard/WhiteboardPickerDialog";
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -64,6 +76,9 @@ type DragSelectionState = {
 	baseSelection: Set<Id<"cards">>;
 };
 
+const MARQUEE_EXCLUDED_SELECTOR =
+	"button, input, textarea, select, a, [role='button'], [role='menuitem'], [contenteditable='true']";
+
 function rectsIntersect(a: DOMRect, b: SelectionBounds) {
 	return (
 		a.left <= b.right &&
@@ -95,10 +110,18 @@ export function RouteComponent() {
 	);
 	const [orphanOnly, setOrphanOnly] = useState(initialOrphan);
 	const archiveCards = useMutation(api.cards.archiveCards);
+	const appendToWhiteboard = useMutation(api.cards.appendToWhiteboard);
 	const [deleteTargetIds, setDeleteTargetIds] = useState<Id<"cards">[]>([]);
-	const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
+	const [appendTargetId, setAppendTargetId] = useState<Id<"cards"> | null>(null);
+	const [isAppending, setIsAppending] = useState(false);
+	const [appendError, setAppendError] = useState<string | null>(null);
+	const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(
+		null,
+	);
+	const selectionSurfaceRef = useRef<HTMLDivElement>(null);
 	const cardElementByIdRef = useRef(new Map<Id<"cards">, HTMLElement>());
 	const dragStartRef = useRef<DragSelectionState | null>(null);
+	const shiftSelectionClickSuppressRef = useRef<Id<"cards"> | null>(null);
 	const selectionResetKey = `${debouncedQuery}\u0000${orphanOnly ? "1" : "0"}\u0000${sort}`;
 	const previousSelectionResetKeyRef = useRef(selectionResetKey);
 
@@ -126,6 +149,15 @@ export function RouteComponent() {
 		});
 	};
 
+	const markShiftSelectionClickHandled = (cardId: Id<"cards">) => {
+		shiftSelectionClickSuppressRef.current = cardId;
+		window.setTimeout(() => {
+			if (shiftSelectionClickSuppressRef.current === cardId) {
+				shiftSelectionClickSuppressRef.current = null;
+			}
+		}, 0);
+	};
+
 	const getContextTargetIds = (cardId: Id<"cards">) => {
 		if (selectedCardIds.has(cardId)) {
 			return [...selectedCardIds];
@@ -138,8 +170,19 @@ export function RouteComponent() {
 		setDeleteTargetIds(cardIds);
 	};
 
+	const openAppendDialog = (cardId: Id<"cards">) => {
+		setAppendTargetId(cardId);
+		setAppendError(null);
+	};
+
 	const closeDeleteDialog = () => {
 		setDeleteTargetIds([]);
+	};
+
+	const closeAppendDialog = () => {
+		if (isAppending) return;
+		setAppendTargetId(null);
+		setAppendError(null);
 	};
 
 	const confirmDelete = async () => {
@@ -158,6 +201,43 @@ export function RouteComponent() {
 
 		if (previewCardId && targetIds.includes(previewCardId)) {
 			setPreviewCardId(null);
+		}
+	};
+
+	const confirmAppendToWhiteboard = async (
+		whiteboardId: Id<"whiteboards">,
+	) => {
+		if (!appendTargetId || isAppending) return;
+
+		setIsAppending(true);
+		setAppendError(null);
+
+		try {
+			const placement = await appendToWhiteboard({
+				cardId: appendTargetId,
+				whiteboardId,
+			});
+
+			if (!placement?.shapeId) {
+				throw new Error("Card was appended, but no shape id was returned.");
+			}
+
+			setAppendTargetId(null);
+			clearSelection();
+
+			await navigate({
+				to: "/whiteboard/$whiteboardId",
+				params: { whiteboardId: placement.whiteboardId },
+				search: { focus: placement.shapeId },
+			});
+		} catch (error) {
+			setAppendError(
+				error instanceof Error
+					? error.message
+					: "Failed to append card to whiteboard.",
+			);
+		} finally {
+			setIsAppending(false);
 		}
 	};
 
@@ -232,6 +312,11 @@ export function RouteComponent() {
 		currentX: number,
 		currentY: number,
 	) => {
+		const surfaceRect = selectionSurfaceRef.current?.getBoundingClientRect();
+		if (!surfaceRect) {
+			return;
+		}
+
 		const left = Math.min(startState.startX, currentX);
 		const top = Math.min(startState.startY, currentY);
 		const right = Math.max(startState.startX, currentX);
@@ -246,8 +331,8 @@ export function RouteComponent() {
 		}
 
 		setSelectionRect({
-			left,
-			top,
+			left: left - surfaceRect.left,
+			top: top - surfaceRect.top,
 			width: right - left,
 			height: bottom - top,
 		});
@@ -269,7 +354,9 @@ export function RouteComponent() {
 		});
 	};
 
-	const handleGridPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+	const handleSelectionPointerDown = (
+		event: ReactPointerEvent<HTMLDivElement>,
+	) => {
 		if (!event.isPrimary || event.button !== 0) {
 			return;
 		}
@@ -280,12 +367,21 @@ export function RouteComponent() {
 
 		// Synthetic events from portaled content (e.g. the card context menu) bubble
 		// through the React tree to this handler even though their DOM target lives
-		// outside the grid. Skip them so marquee selection never starts there.
+		// outside the selection surface. Skip them so marquee selection never starts there.
 		if (!event.currentTarget.contains(event.target)) {
 			return;
 		}
 
-		if (event.target.closest("[data-card-tile='true']")) {
+		if (
+			event.target.closest(
+				`[data-card-tile='true'], ${MARQUEE_EXCLUDED_SELECTOR}`,
+			)
+		) {
+			return;
+		}
+
+		const surfaceRect = selectionSurfaceRef.current?.getBoundingClientRect();
+		if (!surfaceRect) {
 			return;
 		}
 
@@ -297,8 +393,8 @@ export function RouteComponent() {
 			baseSelection: new Set(selectedCardIds),
 		};
 		setSelectionRect({
-			left: event.clientX,
-			top: event.clientY,
+			left: event.clientX - surfaceRect.left,
+			top: event.clientY - surfaceRect.top,
 			width: 0,
 			height: 0,
 		});
@@ -309,7 +405,9 @@ export function RouteComponent() {
 		event.currentTarget.setPointerCapture?.(event.pointerId);
 	};
 
-	const handleGridPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+	const handleSelectionPointerMove = (
+		event: ReactPointerEvent<HTMLDivElement>,
+	) => {
 		const dragState = dragStartRef.current;
 		if (!dragState || dragState.pointerId !== event.pointerId) {
 			return;
@@ -335,143 +433,149 @@ export function RouteComponent() {
 	};
 
 	return (
-		<main className="w-full px-6 py-2">
-			<header className="mb-4 flex flex-col gap-1.5">
-				<div className="flex items-center gap-2">
-					<SidebarOpenButton />
-					<div className="relative flex items-center">
-						<Search
-							size={12}
-							className="pointer-events-none absolute left-2 text-[var(--sea-ink-soft)]"
-						/>
-						<input
-							type="text"
-							placeholder="Find a card..."
-							value={query}
-							onChange={(e) => setQuery(e.target.value)}
-							className="w-44 rounded-md border border-[var(--line)] bg-[var(--surface)] py-1 pl-7 pr-3 text-xs text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--sea-ink)]/20"
-						/>
+		<div
+			ref={selectionSurfaceRef}
+			data-testid="cards-selection-surface"
+			className="relative min-h-full w-full overflow-hidden"
+			onPointerDown={handleSelectionPointerDown}
+			onPointerMove={handleSelectionPointerMove}
+			onPointerUp={(event) =>
+				endMarqueeSelection(event, event.clientX, event.clientY)
+			}
+			onPointerCancel={(event) =>
+				endMarqueeSelection(event, event.clientX, event.clientY)
+			}
+		>
+			<main className="w-full px-6 py-2">
+				<header className="mb-4 flex flex-col gap-1.5">
+					<div className="flex items-center gap-2">
+						<SidebarOpenButton />
+						<div className="relative flex items-center">
+							<Search
+								size={12}
+								className="pointer-events-none absolute left-2 text-[var(--sea-ink-soft)]"
+							/>
+							<input
+								type="text"
+								placeholder="Find a card..."
+								value={query}
+								onChange={(e) => setQuery(e.target.value)}
+								className="w-44 rounded-md border border-[var(--line)] bg-[var(--surface)] py-1 pl-7 pr-3 text-xs text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--sea-ink)]/20"
+							/>
+						</div>
 					</div>
-				</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<button
-						type="button"
-						onClick={toggleOrphanOnly}
-						className={`cursor-pointer flex h-8 items-center gap-1 rounded-full border px-3 text-xs font-medium transition ${
-							orphanOnly
-								? "border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--surface)]"
-								: "border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink-soft)] hover:bg-[var(--surface-strong)]"
-						}`}
-					>
-						<Filter size={11} />
-						Orphan only
-						{orphanOnly && <X size={11} />}
-					</button>
-					<div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<button
-									type="button"
-									className="flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--sea-ink-soft)] shadow-[0_8px_20px_rgba(15,23,42,0.04)] backdrop-blur-sm transition hover:border-[var(--sea-ink)]/15 hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
-									aria-label={`Sort cards by ${getCardSortLabel(sort)}`}
-								>
-									<ArrowUpDown size={11} />
-									<span>Sort</span>
-									<span className="font-semibold text-[var(--sea-ink)]">
-										{getCardSortLabel(sort)}
+					<div className="flex flex-wrap items-center gap-2">
+						<button
+							type="button"
+							onClick={toggleOrphanOnly}
+							className={`cursor-pointer flex h-8 items-center gap-1 rounded-full border px-3 text-xs font-medium transition ${
+								orphanOnly
+									? "border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--surface)]"
+									: "border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink-soft)] hover:bg-[var(--surface-strong)]"
+							}`}
+						>
+							<Filter size={11} />
+							Orphan only
+							{orphanOnly && <X size={11} />}
+						</button>
+						<div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<button
+										type="button"
+										className="flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--sea-ink-soft)] shadow-[0_8px_20px_rgba(15,23,42,0.04)] backdrop-blur-sm transition hover:border-[var(--sea-ink)]/15 hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
+										aria-label={`Sort cards by ${getCardSortLabel(sort)}`}
+									>
+										<ArrowUpDown size={11} />
+										<span>Sort</span>
+										<span className="font-semibold text-[var(--sea-ink)]">
+											{getCardSortLabel(sort)}
+										</span>
+									</button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end" className="w-56">
+									<div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--sea-ink-soft)]">
+										Sort cards
+									</div>
+									<DropdownMenuRadioGroup
+										value={sort}
+										onValueChange={(value) => {
+											if (isCardSortBy(value)) {
+												setSort(value);
+											}
+										}}
+									>
+										{CARD_SORT_OPTIONS.map((sortBy) => (
+											<DropdownMenuRadioItem key={sortBy} value={sortBy}>
+												<DropdownMenuItemIndicator>
+													<Check size={12} />
+												</DropdownMenuItemIndicator>
+												{getCardSortLabel(sortBy)}
+											</DropdownMenuRadioItem>
+										))}
+									</DropdownMenuRadioGroup>
+								</DropdownMenuContent>
+							</DropdownMenu>
+							{selectedCardIds.size > 0 ? (
+								<div className="flex h-8 items-center overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface)] p-0.5 text-xs shadow-[0_10px_24px_rgba(15,23,42,0.05)] backdrop-blur-sm">
+									<span className="flex h-7 items-center gap-2 rounded-full bg-[var(--surface-strong)] px-3 font-semibold text-[var(--sea-ink)]">
+										<span className="size-1.5 rounded-full bg-[var(--lagoon)]" />
+										{selectedCardIds.size} selected
 									</span>
-								</button>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end" className="w-56">
-								<div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--sea-ink-soft)]">
-									Sort cards
+									<span
+										aria-hidden="true"
+										className="mx-1 h-4 w-px bg-[var(--line)]"
+									/>
+									<button
+										type="button"
+										onClick={() => openDeleteDialog([...selectedCardIds])}
+										className="cursor-pointer rounded-full px-2.5 py-1 font-semibold text-[var(--destructive)] transition hover:bg-red-500/10"
+									>
+										Delete
+									</button>
+									<button
+										type="button"
+										onClick={clearSelection}
+										className="cursor-pointer rounded-full px-2.5 py-1 font-medium text-[var(--sea-ink-soft)] transition hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
+									>
+										Clear
+									</button>
 								</div>
-								<DropdownMenuRadioGroup
-									value={sort}
-									onValueChange={(value) => {
-										if (isCardSortBy(value)) {
-											setSort(value);
-										}
-									}}
-								>
-									{CARD_SORT_OPTIONS.map((sortBy) => (
-										<DropdownMenuRadioItem key={sortBy} value={sortBy}>
-											<DropdownMenuItemIndicator>
-												<Check size={12} />
-											</DropdownMenuItemIndicator>
-											{getCardSortLabel(sortBy)}
-										</DropdownMenuRadioItem>
-									))}
-								</DropdownMenuRadioGroup>
-							</DropdownMenuContent>
-						</DropdownMenu>
-						{selectedCardIds.size > 0 ? (
-							<div className="flex h-8 items-center overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface)] p-0.5 text-xs shadow-[0_10px_24px_rgba(15,23,42,0.05)] backdrop-blur-sm">
-								<span className="flex h-7 items-center gap-2 rounded-full bg-[var(--surface-strong)] px-3 font-semibold text-[var(--sea-ink)]">
-									<span className="size-1.5 rounded-full bg-[var(--lagoon)]" />
-									{selectedCardIds.size} selected
-								</span>
-								<span
-									aria-hidden="true"
-									className="mx-1 h-4 w-px bg-[var(--line)]"
-								/>
-								<button
-									type="button"
-									onClick={() => openDeleteDialog([...selectedCardIds])}
-									className="cursor-pointer rounded-full px-2.5 py-1 font-semibold text-[var(--destructive)] transition hover:bg-red-500/10"
-								>
-									Delete
-								</button>
-								<button
-									type="button"
-									onClick={clearSelection}
-									className="cursor-pointer rounded-full px-2.5 py-1 font-medium text-[var(--sea-ink-soft)] transition hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
-								>
-									Clear
-								</button>
-							</div>
-						) : null}
+							) : null}
+						</div>
 					</div>
-				</div>
-			</header>
+				</header>
 
-			{cards.status === "LoadingFirstPage" ? (
-				<ul className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
-					{Array.from({ length: 12 }).map((_, i) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
-						<li key={i} className="flex">
-							<div className="island-shell flex h-[170px] w-full animate-pulse flex-col rounded-xl p-4">
-								<div className="mb-2 h-4 w-3/4 rounded bg-[var(--line)]" />
-								<div className="h-3 w-full rounded bg-[var(--line)] opacity-60" />
-								<div className="mt-1 h-3 w-5/6 rounded bg-[var(--line)] opacity-60" />
-								<div className="mt-auto h-2.5 w-1/2 rounded bg-[var(--line)] opacity-40" />
-							</div>
-						</li>
-					))}
-				</ul>
-			) : cards.results.length === 0 ? (
-				<div className="island-shell rounded-2xl p-8 text-sm font-semibold text-[var(--sea-ink-soft)]">
-					{debouncedQuery.trim()
-						? `No cards matching "${debouncedQuery.trim()}".`
-						: orphanOnly
-							? "No orphan cards."
-							: "No cards."}
-				</div>
-			) : (
-				<div
-					className="relative"
-					onPointerDown={handleGridPointerDown}
-					onPointerMove={handleGridPointerMove}
-					onPointerUp={(event) =>
-						endMarqueeSelection(event, event.clientX, event.clientY)
-					}
-					onPointerCancel={(event) =>
-						endMarqueeSelection(event, event.clientX, event.clientY)
-					}
-				>
-					<ul
-						className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3"
-					>
+				{appendError ? (
+					<div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+						{appendError}
+					</div>
+				) : null}
+
+				{cards.status === "LoadingFirstPage" ? (
+					<ul className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+						{Array.from({ length: 12 }).map((_, i) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
+							<li key={i} className="flex">
+								<div className="island-shell flex h-[170px] w-full animate-pulse flex-col rounded-xl p-4">
+									<div className="mb-2 h-4 w-3/4 rounded bg-[var(--line)]" />
+									<div className="h-3 w-full rounded bg-[var(--line)] opacity-60" />
+									<div className="mt-1 h-3 w-5/6 rounded bg-[var(--line)] opacity-60" />
+									<div className="mt-auto h-2.5 w-1/2 rounded bg-[var(--line)] opacity-40" />
+								</div>
+							</li>
+						))}
+					</ul>
+				) : cards.results.length === 0 ? (
+					<div className="island-shell rounded-2xl p-8 text-sm font-semibold text-[var(--sea-ink-soft)]">
+						{debouncedQuery.trim()
+							? `No cards matching "${debouncedQuery.trim()}".`
+							: orphanOnly
+								? "No orphan cards."
+								: "No cards."}
+					</div>
+				) : (
+					<ul className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
 						{cards.results.map((card) => {
 							const contextTargetIds = getContextTargetIds(card._id);
 							const singleTarget = contextTargetIds.length === 1;
@@ -493,15 +597,35 @@ export function RouteComponent() {
 										card={card}
 										selected={isSelected(card._id)}
 										onClick={(event) => {
+											if (shiftSelectionClickSuppressRef.current === card._id) {
+												shiftSelectionClickSuppressRef.current = null;
+												event.preventDefault();
+												return;
+											}
+
 											if (event.shiftKey) {
 												event.preventDefault();
-												toggleSelected(card._id);
+												flushSync(() => {
+													toggleSelected(card._id);
+												});
 												return;
 											}
 
 											setPreviewCardId(card._id);
 										}}
 										onPointerDown={(event) => {
+											if (
+												event.button === 0 &&
+												event.shiftKey &&
+												event.isPrimary
+											) {
+												markShiftSelectionClickHandled(card._id);
+												flushSync(() => {
+													toggleSelected(card._id);
+												});
+												return;
+											}
+
 											if (event.button !== 2 || isSelected(card._id)) {
 												return;
 											}
@@ -520,9 +644,11 @@ export function RouteComponent() {
 												params: { cardId: card._id },
 											})
 										}
+										onAppend={() => openAppendDialog(card._id)}
 										onDelete={() => openDeleteDialog(contextTargetIds)}
 										canPreview={singleTarget}
 										canFullscreen={singleTarget}
+										canAppend={singleTarget}
 										deleteLabel={
 											contextTargetIds.length === 1
 												? "Delete card"
@@ -533,44 +659,56 @@ export function RouteComponent() {
 							);
 						})}
 					</ul>
+				)}
 
-					{selectionRect ? (
-						<div
-							className="pointer-events-none fixed z-50 border border-[var(--sea-ink)] bg-[var(--sea-ink)]/10"
-							style={{
-								left: selectionRect.left,
-								top: selectionRect.top,
-								width: selectionRect.width,
-								height: selectionRect.height,
-							}}
-						/>
-					) : null}
-				</div>
-			)}
+				{cards.status === "CanLoadMore" && (
+					<button
+						type="button"
+						className="mt-4 rounded border border-[var(--line)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
+						onClick={() => cards.loadMore(50)}
+					>
+						Load more
+					</button>
+				)}
 
-			{cards.status === "CanLoadMore" && (
-				<button
-					type="button"
-					className="mt-4 rounded border border-[var(--line)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
-					onClick={() => cards.loadMore(50)}
-				>
-					Load more
-				</button>
-			)}
+				<CardPreviewDialog
+					cardId={previewCardId}
+					currentWhiteboardId={null}
+					onClose={() => setPreviewCardId(null)}
+				/>
 
-			<CardPreviewDialog
-				cardId={previewCardId}
-				currentWhiteboardId={null}
-				onClose={() => setPreviewCardId(null)}
-			/>
+				<WhiteboardPickerDialog
+					open={appendTargetId !== null}
+					onOpenChange={(open) => {
+						if (!open) closeAppendDialog();
+					}}
+					onSelect={(whiteboardId) => {
+						void confirmAppendToWhiteboard(whiteboardId);
+					}}
+					title={isAppending ? "Appending..." : "Append to whiteboard"}
+				/>
 
-			<DeleteCardDialog
-				open={deleteTargetIds.length > 0}
-				cardCount={deleteTargetIds.length}
-				onCancel={closeDeleteDialog}
-				onConfirm={() => void confirmDelete()}
-			/>
-		</main>
+				<DeleteCardDialog
+					open={deleteTargetIds.length > 0}
+					cardCount={deleteTargetIds.length}
+					onCancel={closeDeleteDialog}
+					onConfirm={() => void confirmDelete()}
+				/>
+			</main>
+
+			{selectionRect ? (
+				<div
+					data-testid="cards-selection-marquee"
+					className="pointer-events-none absolute z-50 border border-[var(--sea-ink)] bg-[var(--sea-ink)]/10"
+					style={{
+						left: selectionRect.left,
+						top: selectionRect.top,
+						width: selectionRect.width,
+						height: selectionRect.height,
+					}}
+				/>
+			) : null}
+		</div>
 	);
 }
 
@@ -584,9 +722,11 @@ function CardLibraryTile({
 	onContextMenu,
 	onPreview,
 	onFullscreen,
+	onAppend,
 	onDelete,
 	canPreview,
 	canFullscreen,
+	canAppend,
 	deleteLabel,
 }: {
 	card: CardTile;
@@ -596,9 +736,11 @@ function CardLibraryTile({
 	onContextMenu: () => void;
 	onPreview: () => void;
 	onFullscreen: () => void;
+	onAppend: () => void;
 	onDelete: () => void;
 	canPreview: boolean;
 	canFullscreen: boolean;
+	canAppend: boolean;
 	deleteLabel: string;
 }) {
 	return (
@@ -610,7 +752,7 @@ function CardLibraryTile({
 					onPointerDown={onPointerDown}
 					onContextMenu={onContextMenu}
 					aria-pressed={selected}
-					className={`island-shell flex h-full cursor-pointer min-h-[120px] w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md ${
+					className={`island-shell flex h-full cursor-pointer min-h-[120px] w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lagoon)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] ${
 						selected
 							? "bg-[var(--surface-strong)] outline-1 outline-offset-2 outline-[var(--sea-ink)]"
 							: ""
@@ -637,6 +779,10 @@ function CardLibraryTile({
 				<ContextMenuItem onSelect={onFullscreen} disabled={!canFullscreen}>
 					<Maximize2 className="size-4" />
 					Fullscreen
+				</ContextMenuItem>
+				<ContextMenuItem onSelect={onAppend} disabled={!canAppend}>
+					<Plus className="size-4" />
+					Append to whiteboard...
 				</ContextMenuItem>
 				<ContextMenuItem
 					onSelect={onDelete}

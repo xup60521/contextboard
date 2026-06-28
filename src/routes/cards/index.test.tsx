@@ -12,8 +12,10 @@ const navigateMock = vi.fn();
 const usePaginatedQueryMock = vi.fn();
 const useMutationMock = vi.fn();
 const archiveCardsMock = vi.fn();
+const appendToWhiteboardMock = vi.fn();
 const previewDialogMock = vi.fn();
 const deleteDialogMock = vi.fn();
+const whiteboardPickerDialogMock = vi.fn();
 
 let currentSearch = {
 	orphan: "",
@@ -53,7 +55,9 @@ vi.mock("#/components/search/CardPreviewDialog", () => ({
 		onClose: () => void;
 	}) => {
 		previewDialogMock(props);
-		return <div data-card-id={props.cardId ?? ""} data-testid="preview-dialog" />;
+		return (
+			<div data-card-id={props.cardId ?? ""} data-testid="preview-dialog" />
+		);
 	},
 }));
 
@@ -68,7 +72,10 @@ vi.mock("#/components/cards/DeleteCardDialog", () => ({
 		if (!props.open) return null;
 
 		return (
-			<div data-count={String(props.cardCount ?? 1)} data-testid="delete-dialog">
+			<div
+				data-count={String(props.cardCount ?? 1)}
+				data-testid="delete-dialog"
+			>
 				<button type="button" onClick={props.onConfirm}>
 					Confirm delete
 				</button>
@@ -80,9 +87,37 @@ vi.mock("#/components/cards/DeleteCardDialog", () => ({
 	},
 }));
 
+vi.mock("#/components/whiteboard/WhiteboardPickerDialog", () => ({
+	WhiteboardPickerDialog: (props: {
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
+		onSelect: (whiteboardId: string) => void;
+		title?: string;
+	}) => {
+		whiteboardPickerDialogMock(props);
+
+		if (!props.open) return null;
+
+		return (
+			<div data-testid="whiteboard-picker">
+				<button
+					type="button"
+					onClick={() => props.onSelect("whiteboard-1")}
+				>
+					Pick History board
+				</button>
+				<button type="button" onClick={() => props.onOpenChange(false)}>
+					Close picker
+				</button>
+			</div>
+		);
+	},
+}));
+
 vi.mock("#/components/ui/context-menu", async () => {
 	const React = await vi.importActual<typeof import("react")>("react");
-	const ReactDOM = await vi.importActual<typeof import("react-dom")>("react-dom");
+	const ReactDOM =
+		await vi.importActual<typeof import("react-dom")>("react-dom");
 	const ContextMenuState = React.createContext<{
 		open: boolean;
 		setOpen: (open: boolean) => void;
@@ -108,14 +143,13 @@ vi.mock("#/components/ui/context-menu", async () => {
 		},
 		ContextMenuTrigger: ({
 			children,
-			asChild,
 		}: {
 			children: React.ReactNode;
 			asChild?: boolean;
 		}) => {
 			const { setOpen } = useContextMenuState();
 			if (!React.isValidElement(children)) {
-				return asChild ? children : <>{children}</>;
+				return children;
 			}
 
 			const childProps = children.props as {
@@ -135,7 +169,10 @@ vi.mock("#/components/ui/context-menu", async () => {
 				return null;
 			}
 
-			return ReactDOM.createPortal(<div role="menu">{children}</div>, document.body);
+			return ReactDOM.createPortal(
+				<div role="menu">{children}</div>,
+				document.body,
+			);
 		},
 		ContextMenuItem: ({
 			children,
@@ -185,7 +222,9 @@ function makeCard(overrides?: Partial<Record<string, unknown>>) {
 function setCardRects(
 	rects: Array<{ left: number; top: number; right: number; bottom: number }>,
 ) {
-	const tiles = Array.from(document.querySelectorAll("[data-card-tile='true']"));
+	const tiles = Array.from(
+		document.querySelectorAll("[data-card-tile='true']"),
+	);
 	for (const [index, tile] of tiles.entries()) {
 		const rect = rects[index];
 		Object.defineProperty(tile, "getBoundingClientRect", {
@@ -212,9 +251,21 @@ describe("cards library", () => {
 		useMutationMock.mockReset();
 		archiveCardsMock.mockReset();
 		archiveCardsMock.mockResolvedValue(undefined);
+		appendToWhiteboardMock.mockReset();
+		appendToWhiteboardMock.mockResolvedValue({
+			itemId: "item-1",
+			whiteboardId: "whiteboard-1",
+			shapeId: "shape:card-card-1",
+			created: true,
+		});
 		previewDialogMock.mockReset();
 		deleteDialogMock.mockReset();
-		useMutationMock.mockReturnValue(archiveCardsMock);
+		whiteboardPickerDialogMock.mockReset();
+		useMutationMock.mockImplementation(() => {
+			return useMutationMock.mock.calls.length % 2 === 0
+				? appendToWhiteboardMock
+				: archiveCardsMock;
+		});
 		currentSearch = {
 			orphan: "",
 			sort: "created",
@@ -302,7 +353,7 @@ describe("cards library", () => {
 		});
 	});
 
-	test("shift-click toggles selection without opening preview", () => {
+	test("shift pointer-down toggles selection synchronously and suppresses the generated click", () => {
 		usePaginatedQueryMock.mockReturnValue({
 			status: "Idle",
 			results: [makeCard()],
@@ -312,19 +363,90 @@ describe("cards library", () => {
 		render(<RouteComponent />);
 
 		const cardButton = screen.getByRole("button", { name: /alpha card/i });
-		fireEvent.click(cardButton, { shiftKey: true });
+		fireEvent.pointerDown(cardButton, {
+			button: 0,
+			isPrimary: true,
+			pointerId: 1,
+			shiftKey: true,
+		});
 
 		expect(cardButton.getAttribute("aria-pressed")).toBe("true");
 		expect(cardButton.className).toContain("outline-1");
 		expect(cardButton.className).toContain("outline-offset-2");
 		expect(cardButton.className).toContain("outline-[var(--sea-ink)]");
-		expect(screen.getByTestId("preview-dialog").getAttribute("data-card-id")).toBe("");
+		expect(cardButton.className).toContain("focus:outline-none");
+		expect(cardButton.className).toContain("focus-visible:ring-2");
+		expect(cardButton.className).toContain(
+			"focus-visible:ring-[var(--lagoon)]",
+		);
+		expect(
+			screen.getByTestId("preview-dialog").getAttribute("data-card-id"),
+		).toBe("");
 
-		fireEvent.click(cardButton, { shiftKey: true });
+		fireEvent.click(cardButton, { detail: 1, shiftKey: true });
+		expect(cardButton.getAttribute("aria-pressed")).toBe("true");
+		expect(
+			screen.getByTestId("preview-dialog").getAttribute("data-card-id"),
+		).toBe("");
+
+		fireEvent.pointerDown(cardButton, {
+			button: 0,
+			isPrimary: true,
+			pointerId: 2,
+			shiftKey: true,
+		});
 		expect(cardButton.getAttribute("aria-pressed")).toBe("false");
 		expect(cardButton.className).not.toContain("outline-1");
 		expect(cardButton.className).not.toContain("outline-offset-2");
 		expect(cardButton.className).not.toContain("outline-[var(--sea-ink)]");
+	});
+
+	test("shift pointer-down still suppresses preview if shift is released before click", () => {
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [makeCard()],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+
+		const cardButton = screen.getByRole("button", { name: /alpha card/i });
+		fireEvent.pointerDown(cardButton, {
+			button: 0,
+			isPrimary: true,
+			pointerId: 1,
+			shiftKey: true,
+		});
+
+		expect(cardButton.getAttribute("aria-pressed")).toBe("true");
+		expect(cardButton.className).toContain("outline-1");
+
+		fireEvent.click(cardButton, { detail: 1, shiftKey: false });
+
+		expect(cardButton.getAttribute("aria-pressed")).toBe("true");
+		expect(cardButton.className).toContain("outline-1");
+		expect(
+			screen.getByTestId("preview-dialog").getAttribute("data-card-id"),
+		).toBe("");
+	});
+
+	test("shift click without a preceding pointer event toggles selection without opening preview", () => {
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [makeCard()],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+
+		const cardButton = screen.getByRole("button", { name: /alpha card/i });
+		fireEvent.click(cardButton, { detail: 0, shiftKey: true });
+
+		expect(cardButton.getAttribute("aria-pressed")).toBe("true");
+		expect(cardButton.className).toContain("outline-1");
+		expect(
+			screen.getByTestId("preview-dialog").getAttribute("data-card-id"),
+		).toBe("");
 	});
 
 	test("right-click on an unselected card selects only that card for delete", () => {
@@ -355,7 +477,70 @@ describe("cards library", () => {
 		expect(betaButton.getAttribute("aria-pressed")).toBe("true");
 
 		fireEvent.click(screen.getByRole("menuitem", { name: /delete card/i }));
-		expect(screen.getByTestId("delete-dialog").getAttribute("data-count")).toBe("1");
+		expect(screen.getByTestId("delete-dialog").getAttribute("data-count")).toBe(
+			"1",
+		);
+	});
+
+	test("right-click append opens the whiteboard picker for a single card", () => {
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [makeCard()],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+
+		const cardButton = screen.getByRole("button", { name: /alpha card/i });
+
+		fireEvent.contextMenu(cardButton, { button: 2 });
+
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: /append to whiteboard/i }),
+		);
+
+		expect(screen.getByTestId("whiteboard-picker")).not.toBeNull();
+	});
+
+	test("appends the card to the selected whiteboard and focuses the returned shape", async () => {
+		appendToWhiteboardMock.mockResolvedValue({
+			itemId: "item-1",
+			whiteboardId: "whiteboard-1",
+			shapeId: "shape:card-card-1",
+			created: true,
+		});
+
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [makeCard()],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+
+		const cardButton = screen.getByRole("button", { name: /alpha card/i });
+
+		fireEvent.contextMenu(cardButton, { button: 2 });
+
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: /append to whiteboard/i }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /pick history board/i }));
+
+		await waitFor(() => {
+			expect(appendToWhiteboardMock).toHaveBeenCalledWith({
+				cardId: "card-1",
+				whiteboardId: "whiteboard-1",
+			});
+		});
+
+		await waitFor(() => {
+			expect(navigateMock).toHaveBeenCalledWith({
+				to: "/whiteboard/$whiteboardId",
+				params: { whiteboardId: "whiteboard-1" },
+				search: { focus: "shape:card-card-1" },
+			});
+		});
 	});
 
 	test("right-click on a selected card preserves the group and deletes all selected cards", async () => {
@@ -378,9 +563,9 @@ describe("cards library", () => {
 		const betaButton = screen.getByRole("button", { name: /beta card/i });
 
 		fireEvent.click(alphaButton);
-		expect(screen.getByTestId("preview-dialog").getAttribute("data-card-id")).toBe(
-			"card-1",
-		);
+		expect(
+			screen.getByTestId("preview-dialog").getAttribute("data-card-id"),
+		).toBe("card-1");
 
 		fireEvent.click(alphaButton, { shiftKey: true });
 		fireEvent.click(betaButton, { shiftKey: true });
@@ -390,10 +575,19 @@ describe("cards library", () => {
 		expect(betaButton.getAttribute("aria-pressed")).toBe("true");
 
 		expect(
-			screen.getByRole("menuitem", { name: /preview/i }).hasAttribute("disabled"),
+			screen
+				.getByRole("menuitem", { name: /preview/i })
+				.hasAttribute("disabled"),
 		).toBe(true);
 		expect(
-			screen.getByRole("menuitem", { name: /fullscreen/i }).hasAttribute("disabled"),
+			screen
+				.getByRole("menuitem", { name: /fullscreen/i })
+				.hasAttribute("disabled"),
+		).toBe(true);
+		expect(
+			screen
+				.getByRole("menuitem", { name: /append to whiteboard/i })
+				.hasAttribute("disabled"),
 		).toBe(true);
 
 		fireEvent.click(screen.getByRole("menuitem", { name: /delete 2 cards/i }));
@@ -405,9 +599,9 @@ describe("cards library", () => {
 			});
 		});
 		await waitFor(() => {
-			expect(screen.getByTestId("preview-dialog").getAttribute("data-card-id")).toBe(
-				"",
-			);
+			expect(
+				screen.getByTestId("preview-dialog").getAttribute("data-card-id"),
+			).toBe("");
 		});
 
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("false");
@@ -501,25 +695,22 @@ describe("cards library", () => {
 		const alphaButton = screen.getByRole("button", { name: /alpha card/i });
 		const betaButton = screen.getByRole("button", { name: /beta card/i });
 		const gammaButton = screen.getByRole("button", { name: /gamma card/i });
-		const gridWrapper = screen.getByRole("list").parentElement;
-		if (!gridWrapper) {
-			throw new Error("expected grid wrapper");
-		}
+		const selectionSurface = screen.getByTestId("cards-selection-surface");
 
-		fireEvent.pointerDown(gridWrapper, {
+		fireEvent.pointerDown(selectionSurface, {
 			button: 0,
 			clientX: 0,
 			clientY: 0,
 			isPrimary: true,
 			pointerId: 1,
 		});
-		fireEvent.pointerMove(gridWrapper, {
+		fireEvent.pointerMove(selectionSurface, {
 			clientX: 220,
 			clientY: 120,
 			isPrimary: true,
 			pointerId: 1,
 		});
-		fireEvent.pointerUp(gridWrapper, {
+		fireEvent.pointerUp(selectionSurface, {
 			clientX: 220,
 			clientY: 120,
 			isPrimary: true,
@@ -530,7 +721,7 @@ describe("cards library", () => {
 		expect(betaButton.getAttribute("aria-pressed")).toBe("true");
 		expect(gammaButton.getAttribute("aria-pressed")).toBe("false");
 
-		fireEvent.pointerDown(gridWrapper, {
+		fireEvent.pointerDown(selectionSurface, {
 			button: 0,
 			clientX: 0,
 			clientY: 0,
@@ -538,14 +729,14 @@ describe("cards library", () => {
 			pointerId: 2,
 			shiftKey: true,
 		});
-		fireEvent.pointerMove(gridWrapper, {
+		fireEvent.pointerMove(selectionSurface, {
 			clientX: 220,
 			clientY: 120,
 			isPrimary: true,
 			pointerId: 2,
 			shiftKey: true,
 		});
-		fireEvent.pointerUp(gridWrapper, {
+		fireEvent.pointerUp(selectionSurface, {
 			clientX: 220,
 			clientY: 120,
 			isPrimary: true,
@@ -556,5 +747,55 @@ describe("cards library", () => {
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("false");
 		expect(betaButton.getAttribute("aria-pressed")).toBe("false");
 		expect(gammaButton.getAttribute("aria-pressed")).toBe("false");
+	});
+
+	test("header controls do not clear selection or start marquee selection", () => {
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [
+				makeCard(),
+				makeCard({
+					_id: "card-2",
+					derivedTitle: "Beta card",
+					preview: "Beta preview",
+				}),
+			],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+		setCardRects([
+			{ left: 10, top: 160, right: 110, bottom: 260 },
+			{ left: 130, top: 160, right: 230, bottom: 260 },
+		]);
+
+		const alphaButton = screen.getByRole("button", { name: /alpha card/i });
+		const searchInput = screen.getByPlaceholderText("Find a card...");
+
+		fireEvent.click(alphaButton, { shiftKey: true });
+		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
+
+		fireEvent.pointerDown(searchInput, {
+			button: 0,
+			isPrimary: true,
+			pointerId: 1,
+		});
+		expect(screen.queryByTestId("cards-selection-marquee")).toBeNull();
+		fireEvent.pointerMove(searchInput, {
+			clientX: 220,
+			clientY: 120,
+			isPrimary: true,
+			pointerId: 1,
+		});
+		expect(screen.queryByTestId("cards-selection-marquee")).toBeNull();
+		fireEvent.pointerUp(searchInput, {
+			clientX: 220,
+			clientY: 120,
+			isPrimary: true,
+			pointerId: 1,
+		});
+
+		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
+		expect(screen.queryByTestId("cards-selection-marquee")).toBeNull();
 	});
 });
