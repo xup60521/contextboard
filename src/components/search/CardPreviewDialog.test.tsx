@@ -9,8 +9,10 @@ import {
 
 const navigateMock = vi.fn();
 const useQueryMock = vi.fn();
+const useMutationMock = vi.fn();
 
 vi.mock("convex/react", () => ({
+	useMutation: () => useMutationMock,
 	useQuery: (...args: unknown[]) => useQueryMock(...args),
 }));
 
@@ -100,6 +102,7 @@ describe("CardPreviewDialog", () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 		useQueryMock.mockReset();
+		useMutationMock.mockReset();
 		navigateMock.mockReset();
 		vi.spyOn(window, "requestAnimationFrame").mockImplementation(
 			(callback: FrameRequestCallback) => {
@@ -232,7 +235,7 @@ describe("CardPreviewDialog", () => {
 		expect(screen.getByTestId("card-editor-pane").textContent).toBe("card_2");
 	});
 
-	test("global cards page should not show Go to board or Focus on board", async () => {
+	test("global cards page should not show any board-action buttons", async () => {
 		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
 			if (args === undefined) {
 				return [];
@@ -265,6 +268,7 @@ describe("CardPreviewDialog", () => {
 
 		expect(screen.queryByText("Go to board")).toBeNull();
 		expect(screen.queryByText("Focus on board")).toBeNull();
+		expect(screen.queryByText("Append to board")).toBeNull();
 	});
 
 	test("current board placement should show Focus on board", async () => {
@@ -342,7 +346,7 @@ describe("CardPreviewDialog", () => {
 		});
 	});
 
-	test("placed elsewhere but not on current board should show no header board button", async () => {
+	test("placed elsewhere but not on current board should show Append to board", async () => {
 		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
 			if (args === undefined) {
 				return [];
@@ -375,6 +379,7 @@ describe("CardPreviewDialog", () => {
 
 		expect(screen.queryByText("Go to board")).toBeNull();
 		expect(screen.queryByText("Focus on board")).toBeNull();
+		expect(screen.getByText("Append to board")).not.toBeNull();
 	});
 
 	test("multiple placements should not create a single header Go to board", async () => {
@@ -416,5 +421,128 @@ describe("CardPreviewDialog", () => {
 
 		expect(screen.queryByText("Go to board")).toBeNull();
 		expect(screen.queryByText("Focus on board")).toBeNull();
+	});
+
+	test("shows Append to board for orphan card on current board", async () => {
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return makeCardData(CARD_1, { placements: [] });
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={BOARD_1}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(screen.getByText("Append to board")).not.toBeNull();
+		expect(screen.queryByText("Focus on board")).toBeNull();
+	});
+
+	test("does not show Append to board while data is loading", async () => {
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return undefined; // still loading
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={BOARD_1}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(screen.queryByText("Append to board")).toBeNull();
+	});
+
+	test("clicking Append to board calls mutation and navigates with returned shape id", async () => {
+		const onCloseMock = vi.fn();
+		useMutationMock.mockResolvedValue({
+			itemId: "item_new",
+			whiteboardId: BOARD_1,
+			shapeId: "shape:card-returned-from-server",
+			created: true,
+		});
+
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return makeCardData(CARD_1, { placements: [] });
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={BOARD_1}
+				onClose={onCloseMock}
+			/>,
+		);
+
+		screen.getByText("Append to board").click();
+
+		await vi.waitFor(() => {
+			expect(useMutationMock).toHaveBeenCalledWith({
+				cardId: CARD_1,
+				whiteboardId: BOARD_1,
+			});
+			expect(onCloseMock).toHaveBeenCalledOnce();
+			expect(navigateMock).toHaveBeenCalledWith({
+				to: "/whiteboard/$whiteboardId",
+				params: { whiteboardId: BOARD_1 },
+				search: { focus: "shape:card-returned-from-server" },
+			});
+		});
+	});
+
+	test("append failure shows error and keeps dialog open", async () => {
+		const onCloseMock = vi.fn();
+		useMutationMock.mockRejectedValue(new Error("Whiteboard not found"));
+
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return makeCardData(CARD_1, { placements: [] });
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={BOARD_1}
+				onClose={onCloseMock}
+			/>,
+		);
+
+		screen.getByText("Append to board").click();
+
+		await vi.waitFor(() => {
+			expect(screen.getByText("Whiteboard not found")).not.toBeNull();
+		});
+
+		expect(onCloseMock).not.toHaveBeenCalled();
 	});
 });

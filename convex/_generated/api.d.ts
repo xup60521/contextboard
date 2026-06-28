@@ -18,6 +18,7 @@ import type * as model_cardPlacements from "../model/cardPlacements.js";
 import type * as model_cardReferences from "../model/cardReferences.js";
 import type * as model_cardSorting from "../model/cardSorting.js";
 import type * as model_fileReferences from "../model/fileReferences.js";
+import type * as model_shapeIds from "../model/shapeIds.js";
 import type * as search from "../search.js";
 import type * as tldrawDocuments from "../tldrawDocuments.js";
 import type * as todos from "../todos.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   "model/cardReferences": typeof model_cardReferences;
   "model/cardSorting": typeof model_cardSorting;
   "model/fileReferences": typeof model_fileReferences;
+  "model/shapeIds": typeof model_shapeIds;
   search: typeof search;
   tldrawDocuments: typeof tldrawDocuments;
   todos: typeof todos;

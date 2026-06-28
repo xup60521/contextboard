@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
-import { useQuery } from "convex/react";
-import { Crosshair, ExternalLink } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { Crosshair, ExternalLink, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardInfoSection } from "#/components/cards/CardInfoSection";
 import { CardEditorPane } from "#/components/editor/CardEditorPane";
@@ -47,22 +47,32 @@ export function CardPreviewDialog({
 	const open = cardId !== null;
 	const data = useQuery(api.cards.get, cardId ? { cardId } : "skip");
 	const whiteboards = useQuery(api.whiteboards.listActive);
+	const appendToWhiteboard = useMutation(api.cards.appendToWhiteboard);
 	const mountFrameRef = useRef<number | null>(null);
 	const mountTimerRef = useRef<number | null>(null);
 	const [shouldMountEditor, setShouldMountEditor] = useState(false);
 	const [isOpening, setIsOpening] = useState(false);
 	const [mountedCardId, setMountedCardId] = useState<Id<"cards"> | null>(null);
+	const [isAppending, setIsAppending] = useState(false);
+	const [appendError, setAppendError] = useState<string | null>(null);
 
 	const currentPlacement =
 		currentWhiteboardId == null
 			? null
-			: data?.placements?.find(
+			: (data?.placements?.find(
 					(placement) =>
 						placement.whiteboardId === currentWhiteboardId &&
 						placement.shapeId != null,
-				) ?? null;
+				) ?? null);
 
 	const canFocusCurrentBoard = currentPlacement != null;
+
+	const canAppendToCurrentBoard =
+		currentWhiteboardId != null &&
+		data !== undefined &&
+		data !== null &&
+		currentPlacement == null;
+
 	const whiteboardTitleById = new Map(
 		(whiteboards ?? []).map((wb) => [wb._id, wb.title]),
 	);
@@ -105,8 +115,17 @@ export function CardPreviewDialog({
 		return clearDeferredMount;
 	}, [cardId, clearDeferredMount, open]);
 
+	useEffect(() => {
+		setAppendError(null);
+		setIsAppending(false);
+	}, [cardId]);
+
 	const focusOnCurrentBoard = useCallback(() => {
-		if (!currentPlacement || !currentWhiteboardId || !currentPlacement.shapeId) {
+		if (
+			!currentPlacement ||
+			!currentWhiteboardId ||
+			!currentPlacement.shapeId
+		) {
 			return;
 		}
 
@@ -118,6 +137,49 @@ export function CardPreviewDialog({
 			search: { focus: currentPlacement.shapeId },
 		});
 	}, [currentPlacement, currentWhiteboardId, navigate, onClose]);
+
+	const handleAppendToCurrentBoard = useCallback(async () => {
+		if (!cardId || !currentWhiteboardId || isAppending) {
+			return;
+		}
+
+		setIsAppending(true);
+		setAppendError(null);
+
+		try {
+			const placement = await appendToWhiteboard({
+				cardId,
+				whiteboardId: currentWhiteboardId,
+			});
+
+			if (!placement?.shapeId) {
+				throw new Error("Card was appended, but no shape id was returned.");
+			}
+
+			onClose();
+
+			void navigate({
+				to: "/whiteboard/$whiteboardId",
+				params: { whiteboardId: currentWhiteboardId },
+				search: { focus: placement.shapeId },
+			});
+		} catch (error) {
+			setAppendError(
+				error instanceof Error
+					? error.message
+					: "Failed to append card to board.",
+			);
+		} finally {
+			setIsAppending(false);
+		}
+	}, [
+		appendToWhiteboard,
+		cardId,
+		currentWhiteboardId,
+		isAppending,
+		navigate,
+		onClose,
+	]);
 
 	const canRenderEditor =
 		data !== undefined &&
@@ -146,16 +208,26 @@ export function CardPreviewDialog({
 						{data?.card.derivedTitle || "Untitled card"}
 					</span>
 					<div className="flex shrink-0 items-center gap-1.5">
-					{canFocusCurrentBoard ? (
-						<button
-							type="button"
-							onClick={focusOnCurrentBoard}
-							className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
-						>
-							<Crosshair className="size-3.5" />
-							Focus on board
-						</button>
-					) : null}
+						{canFocusCurrentBoard ? (
+							<button
+								type="button"
+								onClick={focusOnCurrentBoard}
+								className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
+							>
+								<Crosshair className="size-3.5" />
+								Focus on board
+							</button>
+						) : canAppendToCurrentBoard ? (
+							<button
+								type="button"
+								onClick={handleAppendToCurrentBoard}
+								disabled={isAppending}
+								className="flex items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--sea-ink)] hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+							>
+								<Plus className="size-3.5" />
+								{isAppending ? "Appending..." : "Append to board"}
+							</button>
+						) : null}
 						{cardId ? (
 							<Link
 								to="/cards/$cardId"
@@ -169,6 +241,11 @@ export function CardPreviewDialog({
 						) : null}
 					</div>
 				</header>
+				{appendError ? (
+					<div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-700">
+						{appendError}
+					</div>
+				) : null}
 				<div className="h-[75vh] overflow-y-auto px-6 py-5">
 					{data === undefined ? (
 						<div className="flex flex-col gap-4">
@@ -193,7 +270,7 @@ export function CardPreviewDialog({
 						<div className="flex min-h-[50vh] items-center justify-center rounded-md border border-dashed border-[var(--line)] bg-[var(--surface-strong)]/35 px-4 py-8 text-sm text-[var(--sea-ink-soft)]">
 							{isOpening ? "Preparing editor..." : "Loading editor..."}
 						</div>
-				) : (
+					) : (
 						<>
 							<CardEditorPane
 								cardId={data.card._id}

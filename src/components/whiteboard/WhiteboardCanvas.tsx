@@ -635,6 +635,7 @@ export function WhiteboardCanvas({
 					void restoreOrAdoptCardItem({
 						whiteboardId,
 						shapeId: record.id,
+						sourceCardId: record.props.cardId,
 						content: record.props.content,
 						x: record.x,
 						y: record.y,
