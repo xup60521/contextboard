@@ -20,11 +20,9 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { flushSync } from "react-dom";
 import { DeleteCardDialog } from "#/components/cards/DeleteCardDialog";
 import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
-import { WhiteboardPickerDialog } from "#/components/whiteboard/WhiteboardPickerDialog";
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -39,6 +37,7 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
+import { WhiteboardPickerDialog } from "#/components/whiteboard/WhiteboardPickerDialog";
 import { api } from "../../../convex/_generated/api";
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import {
@@ -72,12 +71,20 @@ type DragSelectionState = {
 	pointerId: number;
 	startX: number;
 	startY: number;
-	shiftKey: boolean;
-	baseSelection: Set<Id<"cards">>;
+	hasMoved: boolean;
+};
+
+type SuppressedClick = {
+	x: number;
+	y: number;
+	expiresAt: number;
 };
 
 const MARQUEE_EXCLUDED_SELECTOR =
 	"button, input, textarea, select, a, [role='button'], [role='menuitem'], [contenteditable='true']";
+const MARQUEE_CLICK_SUPPRESS_MS = 750;
+const MARQUEE_CLICK_TOLERANCE = 8;
+const MARQUEE_DRAG_THRESHOLD = 4;
 
 function rectsIntersect(a: DOMRect, b: SelectionBounds) {
 	return (
@@ -105,14 +112,14 @@ export function RouteComponent() {
 	const [query, setQuery] = useState("");
 	const [debouncedQuery] = useDebouncedValue(query, { wait: 150 });
 	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
-	const [selectedCardIds, setSelectedCardIds] = useState<Set<Id<"cards">>>(
-		() => new Set(),
-	);
+	const [selectedCardIds, setSelectedCardIds] = useState<Id<"cards">[]>([]);
 	const [orphanOnly, setOrphanOnly] = useState(initialOrphan);
 	const archiveCards = useMutation(api.cards.archiveCards);
 	const appendToWhiteboard = useMutation(api.cards.appendToWhiteboard);
 	const [deleteTargetIds, setDeleteTargetIds] = useState<Id<"cards">[]>([]);
-	const [appendTargetId, setAppendTargetId] = useState<Id<"cards"> | null>(null);
+	const [appendTargetId, setAppendTargetId] = useState<Id<"cards"> | null>(
+		null,
+	);
 	const [isAppending, setIsAppending] = useState(false);
 	const [appendError, setAppendError] = useState<string | null>(null);
 	const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(
@@ -121,45 +128,81 @@ export function RouteComponent() {
 	const selectionSurfaceRef = useRef<HTMLDivElement>(null);
 	const cardElementByIdRef = useRef(new Map<Id<"cards">, HTMLElement>());
 	const dragStartRef = useRef<DragSelectionState | null>(null);
-	const shiftSelectionClickSuppressRef = useRef<Id<"cards"> | null>(null);
+	const suppressedClickRef = useRef<SuppressedClick | null>(null);
+	const suppressCardClickTimeoutRef = useRef<number | null>(null);
 	const selectionResetKey = `${debouncedQuery}\u0000${orphanOnly ? "1" : "0"}\u0000${sort}`;
 	const previousSelectionResetKeyRef = useRef(selectionResetKey);
 
-	const isSelected = (cardId: Id<"cards">) => selectedCardIds.has(cardId);
+	const isSelected = (cardId: Id<"cards">) => selectedCardIds.includes(cardId);
 
 	const clearSelection = () => {
-		setSelectedCardIds((prev) => (prev.size === 0 ? prev : new Set()));
+		setSelectedCardIds((prev) => (prev.length === 0 ? prev : []));
+	};
+
+	const clearSuppressedClick = () => {
+		suppressedClickRef.current = null;
+		if (suppressCardClickTimeoutRef.current !== null) {
+			window.clearTimeout(suppressCardClickTimeoutRef.current);
+			suppressCardClickTimeoutRef.current = null;
+		}
+	};
+
+	const armMarqueeClickSuppression = (x: number, y: number) => {
+		clearSuppressedClick();
+		suppressedClickRef.current = {
+			x,
+			y,
+			expiresAt: Date.now() + MARQUEE_CLICK_SUPPRESS_MS,
+		};
+		suppressCardClickTimeoutRef.current = window.setTimeout(
+			clearSuppressedClick,
+			MARQUEE_CLICK_SUPPRESS_MS,
+		);
+	};
+
+	const consumeSuppressedMarqueeClick = (
+		event: ReactMouseEvent<HTMLElement>,
+	) => {
+		const suppressedClick = suppressedClickRef.current;
+		if (!suppressedClick) {
+			return false;
+		}
+
+		if (Date.now() > suppressedClick.expiresAt) {
+			clearSuppressedClick();
+			return false;
+		}
+
+		const matchesGeneratedClick =
+			Math.abs(event.clientX - suppressedClick.x) <= MARQUEE_CLICK_TOLERANCE &&
+			Math.abs(event.clientY - suppressedClick.y) <= MARQUEE_CLICK_TOLERANCE;
+
+		if (!matchesGeneratedClick) {
+			return false;
+		}
+
+		clearSuppressedClick();
+		event.preventDefault();
+		event.stopPropagation();
+		return true;
 	};
 
 	const selectOnly = (cardId: Id<"cards">) => {
 		setSelectedCardIds((prev) =>
-			prev.size === 1 && prev.has(cardId) ? prev : new Set([cardId]),
+			prev.length === 1 && prev[0] === cardId ? prev : [cardId],
 		);
 	};
 
-	const toggleSelected = (cardId: Id<"cards">) => {
-		setSelectedCardIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(cardId)) {
-				next.delete(cardId);
-			} else {
-				next.add(cardId);
-			}
-			return next;
-		});
-	};
-
-	const markShiftSelectionClickHandled = (cardId: Id<"cards">) => {
-		shiftSelectionClickSuppressRef.current = cardId;
-		window.setTimeout(() => {
-			if (shiftSelectionClickSuppressRef.current === cardId) {
-				shiftSelectionClickSuppressRef.current = null;
-			}
-		}, 0);
+	const toggleSelection = (cardId: Id<"cards">) => {
+		setSelectedCardIds((prev) =>
+			prev.includes(cardId)
+				? prev.filter((id) => id !== cardId)
+				: [...prev, cardId],
+		);
 	};
 
 	const getContextTargetIds = (cardId: Id<"cards">) => {
-		if (selectedCardIds.has(cardId)) {
+		if (selectedCardIds.includes(cardId)) {
 			return [...selectedCardIds];
 		}
 
@@ -191,22 +234,16 @@ export function RouteComponent() {
 
 		await archiveCards({ cardIds: targetIds });
 		setDeleteTargetIds([]);
-		setSelectedCardIds((prev) => {
-			const next = new Set(prev);
-			for (const cardId of targetIds) {
-				next.delete(cardId);
-			}
-			return next;
-		});
+		setSelectedCardIds((prev) =>
+			prev.filter((cardId) => !targetIds.includes(cardId)),
+		);
 
 		if (previewCardId && targetIds.includes(previewCardId)) {
 			setPreviewCardId(null);
 		}
 	};
 
-	const confirmAppendToWhiteboard = async (
-		whiteboardId: Id<"whiteboards">,
-	) => {
+	const confirmAppendToWhiteboard = async (whiteboardId: Id<"whiteboards">) => {
 		if (!appendTargetId || isAppending) return;
 
 		setIsAppending(true);
@@ -279,16 +316,26 @@ export function RouteComponent() {
 		}
 
 		previousSelectionResetKeyRef.current = selectionResetKey;
-		setSelectedCardIds((prev) => (prev.size === 0 ? prev : new Set()));
+		setSelectedCardIds((prev) => (prev.length === 0 ? prev : []));
 	}, [selectionResetKey]);
 
 	useEffect(() => {
 		const visibleIds = new Set(cards.results.map((card) => card._id));
 		setSelectedCardIds((prev) => {
-			const next = new Set([...prev].filter((id) => visibleIds.has(id)));
-			return next.size === prev.size ? prev : next;
+			const next = prev.filter((id) => visibleIds.has(id));
+			return next.length === prev.length ? prev : next;
 		});
 	}, [cards.results]);
+
+	useEffect(() => {
+		return () => {
+			suppressedClickRef.current = null;
+			if (suppressCardClickTimeoutRef.current !== null) {
+				window.clearTimeout(suppressCardClickTimeoutRef.current);
+				suppressCardClickTimeoutRef.current = null;
+			}
+		};
+	}, []);
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
@@ -300,7 +347,7 @@ export function RouteComponent() {
 				return;
 			}
 
-			setSelectedCardIds((prev) => (prev.size === 0 ? prev : new Set()));
+			setSelectedCardIds((prev) => (prev.length === 0 ? prev : []));
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
@@ -336,22 +383,7 @@ export function RouteComponent() {
 			width: right - left,
 			height: bottom - top,
 		});
-
-		setSelectedCardIds(() => {
-			if (!startState.shiftKey) {
-				return new Set(intersectedIds);
-			}
-
-			const next = new Set(startState.baseSelection);
-			for (const cardId of intersectedIds) {
-				if (startState.baseSelection.has(cardId)) {
-					next.delete(cardId);
-				} else {
-					next.add(cardId);
-				}
-			}
-			return next;
-		});
+		setSelectedCardIds(intersectedIds);
 	};
 
 	const handleSelectionPointerDown = (
@@ -389,8 +421,7 @@ export function RouteComponent() {
 			pointerId: event.pointerId,
 			startX: event.clientX,
 			startY: event.clientY,
-			shiftKey: event.shiftKey,
-			baseSelection: new Set(selectedCardIds),
+			hasMoved: false,
 		};
 		setSelectionRect({
 			left: event.clientX - surfaceRect.left,
@@ -398,9 +429,7 @@ export function RouteComponent() {
 			width: 0,
 			height: 0,
 		});
-		if (!event.shiftKey) {
-			clearSelection();
-		}
+		clearSelection();
 		event.preventDefault();
 		event.currentTarget.setPointerCapture?.(event.pointerId);
 	};
@@ -413,6 +442,14 @@ export function RouteComponent() {
 			return;
 		}
 
+		if (
+			Math.hypot(
+				event.clientX - dragState.startX,
+				event.clientY - dragState.startY,
+			) >= MARQUEE_DRAG_THRESHOLD
+		) {
+			dragState.hasMoved = true;
+		}
 		updateMarqueeSelection(dragState, event.clientX, event.clientY);
 	};
 
@@ -429,7 +466,47 @@ export function RouteComponent() {
 		updateMarqueeSelection(dragState, currentX, currentY);
 		dragStartRef.current = null;
 		setSelectionRect(null);
+		if (
+			dragState.hasMoved ||
+			Math.hypot(currentX - dragState.startX, currentY - dragState.startY) >=
+				MARQUEE_DRAG_THRESHOLD
+		) {
+			armMarqueeClickSuppression(currentX, currentY);
+		}
 		event.currentTarget.releasePointerCapture?.(event.pointerId);
+	};
+
+	const handleCardClick = (
+		cardId: Id<"cards">,
+		event: ReactMouseEvent<HTMLButtonElement>,
+	) => {
+		if (consumeSuppressedMarqueeClick(event)) {
+			return;
+		}
+
+		if (event.shiftKey) {
+			toggleSelection(cardId);
+			return;
+		}
+
+		setPreviewCardId(cardId);
+	};
+
+	const handleCardPointerDown = (
+		cardId: Id<"cards">,
+		event: ReactButtonPointerEvent<HTMLButtonElement>,
+	) => {
+		if (!event.isPrimary) {
+			return;
+		}
+
+		if (event.button !== 2) {
+			return;
+		}
+
+		if (!isSelected(cardId)) {
+			selectOnly(cardId);
+		}
 	};
 
 	return (
@@ -445,6 +522,9 @@ export function RouteComponent() {
 			onPointerCancel={(event) =>
 				endMarqueeSelection(event, event.clientX, event.clientY)
 			}
+			onClickCapture={(event) => {
+				consumeSuppressedMarqueeClick(event);
+			}}
 		>
 			<main className="w-full px-6 py-2">
 				<header className="mb-4 flex flex-col gap-1.5">
@@ -516,11 +596,11 @@ export function RouteComponent() {
 									</DropdownMenuRadioGroup>
 								</DropdownMenuContent>
 							</DropdownMenu>
-							{selectedCardIds.size > 0 ? (
+							{selectedCardIds.length > 0 ? (
 								<div className="flex h-8 items-center overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface)] p-0.5 text-xs shadow-[0_10px_24px_rgba(15,23,42,0.05)] backdrop-blur-sm">
 									<span className="flex h-7 items-center gap-2 rounded-full bg-[var(--surface-strong)] px-3 font-semibold text-[var(--sea-ink)]">
 										<span className="size-1.5 rounded-full bg-[var(--lagoon)]" />
-										{selectedCardIds.size} selected
+										{selectedCardIds.length} selected
 									</span>
 									<span
 										aria-hidden="true"
@@ -596,42 +676,10 @@ export function RouteComponent() {
 									<CardLibraryTile
 										card={card}
 										selected={isSelected(card._id)}
-										onClick={(event) => {
-											if (shiftSelectionClickSuppressRef.current === card._id) {
-												shiftSelectionClickSuppressRef.current = null;
-												event.preventDefault();
-												return;
-											}
-
-											if (event.shiftKey) {
-												event.preventDefault();
-												flushSync(() => {
-													toggleSelected(card._id);
-												});
-												return;
-											}
-
-											setPreviewCardId(card._id);
-										}}
-										onPointerDown={(event) => {
-											if (
-												event.button === 0 &&
-												event.shiftKey &&
-												event.isPrimary
-											) {
-												markShiftSelectionClickHandled(card._id);
-												flushSync(() => {
-													toggleSelected(card._id);
-												});
-												return;
-											}
-
-											if (event.button !== 2 || isSelected(card._id)) {
-												return;
-											}
-
-											selectOnly(card._id);
-										}}
+										onClick={(event) => handleCardClick(card._id, event)}
+										onPointerDown={(event) =>
+											handleCardPointerDown(card._id, event)
+										}
 										onContextMenu={() => {
 											if (!isSelected(card._id)) {
 												selectOnly(card._id);
@@ -752,10 +800,10 @@ function CardLibraryTile({
 					onPointerDown={onPointerDown}
 					onContextMenu={onContextMenu}
 					aria-pressed={selected}
-					className={`island-shell flex h-full cursor-pointer min-h-[120px] w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lagoon)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] ${
+					className={`island-shell flex h-full cursor-pointer min-h-[120px] w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--lagoon)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] ${
 						selected
 							? "bg-[var(--surface-strong)] outline-1 outline-offset-2 outline-[var(--sea-ink)]"
-							: ""
+							: "focus:outline-none"
 					}`}
 				>
 					<h2 className="line-clamp-2 text-sm font-bold text-[var(--sea-ink)]">
