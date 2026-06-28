@@ -1,5 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { clearCardFileRefs, reconcileCardFileRefs } from "./fileLifecycle";
@@ -322,35 +323,64 @@ export const listAll = query({
 	},
 });
 
-export const archiveCard = mutation({
-	args: { cardId: v.id("cards") },
-	handler: async (ctx, args) => {
-		const card = await ctx.db.get(args.cardId);
-		if (!card || card.archivedAt !== null) return;
+export async function archiveCardById(
+	ctx: MutationCtx,
+	cardId: Id<"cards">,
+	now: number,
+) {
+	const card = await ctx.db.get(cardId);
+	if (!card || card.archivedAt !== null) return;
 
-		const now = Date.now();
-		const placements = await listActivePlacements(ctx, card._id);
-		for (const placement of placements) {
-			await ctx.db.patch(placement._id, {
-				archivedAt: now,
-				updatedAt: now,
-			});
-
-			if (!placement.whiteboardId) continue;
-			const whiteboard = await ctx.db.get(placement.whiteboardId);
-			if (whiteboard && whiteboard.archivedAt === null) {
-				await ctx.db.patch(whiteboard._id, {
-					cardCount: Math.max(0, (whiteboard.cardCount ?? 0) - 1),
-					updatedAt: now,
-				});
-			}
-		}
-
-		await clearCardFileRefs(ctx, card._id);
-		await ctx.db.patch(card._id, {
+	const placements = await listActivePlacements(ctx, card._id);
+	for (const placement of placements) {
+		await ctx.db.patch(placement._id, {
 			archivedAt: now,
 			updatedAt: now,
 		});
+
+		if (!placement.whiteboardId) continue;
+		const whiteboard = await ctx.db.get(placement.whiteboardId);
+		if (whiteboard && whiteboard.archivedAt === null) {
+			await ctx.db.patch(whiteboard._id, {
+				cardCount: Math.max(0, (whiteboard.cardCount ?? 0) - 1),
+				updatedAt: now,
+			});
+		}
+	}
+
+	await clearCardFileRefs(ctx, card._id);
+	await ctx.db.patch(card._id, {
+		archivedAt: now,
+		updatedAt: now,
+	});
+}
+
+export const archiveCard = mutation({
+	args: { cardId: v.id("cards") },
+	handler: async (ctx, args) => {
+		await archiveCardById(ctx, args.cardId, Date.now());
+	},
+});
+
+export const archiveCards = mutation({
+	args: {
+		cardIds: v.array(v.id("cards")),
+	},
+	handler: async (ctx, args) => {
+		const now = Date.now();
+		const uniqueCardIds = [...new Set(args.cardIds)];
+
+		if (uniqueCardIds.length > 100) {
+			throw new Error("Cannot delete more than 100 cards at once");
+		}
+
+		for (const cardId of uniqueCardIds) {
+			await archiveCardById(ctx, cardId, now);
+		}
+
+		return {
+			archivedCount: uniqueCardIds.length,
+		};
 	},
 });
 
