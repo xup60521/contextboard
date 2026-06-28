@@ -12,8 +12,8 @@ import { deriveCardMetadata } from "./model/cardMetadata";
 import { countActiveCardPlacements } from "./model/cardPlacements";
 import { assertValidTldrawShapeId } from "./model/shapeIds";
 
-const DEFAULT_CARD_WIDTH = 576;
-const DEFAULT_CARD_HEIGHT = 160;
+export const DEFAULT_CARD_WIDTH = 576;
+export const DEFAULT_CARD_HEIGHT = 160;
 const DEFAULT_SUBWHITEBOARD_WIDTH = 240;
 const DEFAULT_SUBWHITEBOARD_HEIGHT = 92;
 const EMPTY_CARD_CONTENT = {

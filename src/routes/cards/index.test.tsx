@@ -7,19 +7,21 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { RouteComponent } from "./index";
+import type { CardSortBy } from "../../../convex/model/cardSorting";
 
 const navigateMock = vi.fn();
 const usePaginatedQueryMock = vi.fn();
 const useMutationMock = vi.fn();
 const archiveCardsMock = vi.fn();
 const appendToWhiteboardMock = vi.fn();
+const appendCardsToWhiteboardMock = vi.fn();
 const previewDialogMock = vi.fn();
 const deleteDialogMock = vi.fn();
 const whiteboardPickerDialogMock = vi.fn();
 
 let currentSearch = {
 	orphan: "",
-	sort: "created" as const,
+	sort: "created" as CardSortBy,
 };
 
 vi.mock("@tanstack/react-pacer", () => ({
@@ -145,17 +147,17 @@ vi.mock("#/components/ui/context-menu", async () => {
 			asChild?: boolean;
 		}) => {
 			const { setOpen } = useContextMenuState();
-			if (!React.isValidElement(children)) {
+			if (
+				!React.isValidElement<{
+					onContextMenu?: (event: MouseEvent) => void;
+				}>(children)
+			) {
 				return children;
 			}
 
-			const childProps = children.props as {
-				onContextMenu?: (event: MouseEvent) => void;
-			};
-
 			return React.cloneElement(children, {
 				onContextMenu: (event: MouseEvent) => {
-					childProps.onContextMenu?.(event);
+					children.props.onContextMenu?.(event);
 					setOpen(true);
 				},
 			});
@@ -287,13 +289,25 @@ describe("cards library", () => {
 			shapeId: "shape:card-card-1",
 			created: true,
 		});
+		appendCardsToWhiteboardMock.mockReset();
+		appendCardsToWhiteboardMock.mockResolvedValue({
+			whiteboardId: "whiteboard-1",
+			appendedCount: 2,
+			alreadyPresentCount: 0,
+			skippedMissingCount: 0,
+		});
 		previewDialogMock.mockReset();
 		deleteDialogMock.mockReset();
 		whiteboardPickerDialogMock.mockReset();
 		useMutationMock.mockImplementation(() => {
-			return useMutationMock.mock.calls.length % 2 === 0
-				? appendToWhiteboardMock
-				: archiveCardsMock;
+			const mutationIndex = (useMutationMock.mock.calls.length - 1) % 3;
+			if (mutationIndex === 0) {
+				return archiveCardsMock;
+			}
+			if (mutationIndex === 1) {
+				return appendToWhiteboardMock;
+			}
+			return appendCardsToWhiteboardMock;
 		});
 		currentSearch = {
 			orphan: "",
@@ -633,6 +647,37 @@ describe("cards library", () => {
 		expect(screen.getByTestId("whiteboard-picker")).not.toBeNull();
 	});
 
+	test("selection pill shows bulk append and opens the picker", () => {
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [
+				makeCard(),
+				makeCard({
+					_id: "card-2",
+					derivedTitle: "Beta card",
+					preview: "Beta preview",
+				}),
+			],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+		setCardRects([
+			{ left: 10, top: 10, right: 110, bottom: 110 },
+			{ left: 130, top: 10, right: 230, bottom: 110 },
+		]);
+
+		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		fireEvent.click(screen.getByRole("button", { name: /append/i }));
+
+		expect(screen.getByTestId("whiteboard-picker")).not.toBeNull();
+		expect(whiteboardPickerDialogMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				title: "Append 2 cards to whiteboard",
+			}),
+		);
+	});
+
 	test("appends the card to the selected whiteboard and focuses the returned shape", async () => {
 		appendToWhiteboardMock.mockResolvedValue({
 			itemId: "item-1",
@@ -674,6 +719,56 @@ describe("cards library", () => {
 				search: { focus: "shape:card-card-1" },
 			});
 		});
+	});
+
+	test("bulk append calls appendCardsToWhiteboard and navigates without focus", async () => {
+		appendCardsToWhiteboardMock.mockResolvedValue({
+			whiteboardId: "whiteboard-1",
+			appendedCount: 2,
+			alreadyPresentCount: 0,
+			skippedMissingCount: 0,
+		});
+
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [
+				makeCard(),
+				makeCard({
+					_id: "card-2",
+					derivedTitle: "Beta card",
+					preview: "Beta preview",
+				}),
+			],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+		setCardRects([
+			{ left: 10, top: 10, right: 110, bottom: 110 },
+			{ left: 130, top: 10, right: 230, bottom: 110 },
+		]);
+
+		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		fireEvent.click(screen.getByRole("button", { name: /append/i }));
+		fireEvent.click(
+			screen.getByRole("button", { name: /pick history board/i }),
+		);
+
+		await waitFor(() => {
+			expect(appendCardsToWhiteboardMock).toHaveBeenCalledWith({
+				cardIds: ["card-1", "card-2"],
+				whiteboardId: "whiteboard-1",
+			});
+		});
+
+		await waitFor(() => {
+			expect(navigateMock).toHaveBeenCalledWith({
+				to: "/whiteboard/$whiteboardId",
+				params: { whiteboardId: "whiteboard-1" },
+			});
+		});
+
+		expect(screen.queryByText("2 selected")).toBeNull();
 	});
 
 	test("right-click on a selected card preserves the group and deletes all selected cards", async () => {
@@ -722,9 +817,9 @@ describe("cards library", () => {
 		).toBe(true);
 		expect(
 			screen
-				.getByRole("menuitem", { name: /append to whiteboard/i })
+				.getByRole("menuitem", { name: /append 2 cards to whiteboard/i })
 				.hasAttribute("disabled"),
-		).toBe(true);
+		).toBe(false);
 
 		fireEvent.click(screen.getByRole("menuitem", { name: /delete 2 cards/i }));
 		fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }));
@@ -742,6 +837,73 @@ describe("cards library", () => {
 
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("false");
 		expect(betaButton.getAttribute("aria-pressed")).toBe("false");
+	});
+
+	test("context-menu append is enabled for a selected multi-card group", () => {
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [
+				makeCard(),
+				makeCard({
+					_id: "card-2",
+					derivedTitle: "Beta card",
+					preview: "Beta preview",
+				}),
+			],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+		setCardRects([
+			{ left: 10, top: 10, right: 110, bottom: 110 },
+			{ left: 130, top: 10, right: 230, bottom: 110 },
+		]);
+
+		const betaButton = screen.getByRole("button", { name: /beta card/i });
+
+		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		fireEvent.contextMenu(betaButton, { button: 2 });
+
+		const appendItem = screen.getByRole("menuitem", {
+			name: /append 2 cards to whiteboard/i,
+		});
+		expect(appendItem.hasAttribute("disabled")).toBe(false);
+	});
+
+	test("bulk append failure shows an error and keeps the picker open", async () => {
+		appendCardsToWhiteboardMock.mockRejectedValue(
+			new Error("Bulk append failed"),
+		);
+
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [
+				makeCard(),
+				makeCard({
+					_id: "card-2",
+					derivedTitle: "Beta card",
+					preview: "Beta preview",
+				}),
+			],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+		setCardRects([
+			{ left: 10, top: 10, right: 110, bottom: 110 },
+			{ left: 130, top: 10, right: 230, bottom: 110 },
+		]);
+
+		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		fireEvent.click(screen.getByRole("button", { name: /append/i }));
+		fireEvent.click(
+			screen.getByRole("button", { name: /pick history board/i }),
+		);
+
+		await waitFor(() => {
+			expect(screen.getByText("Bulk append failed")).not.toBeNull();
+		});
+		expect(screen.getByTestId("whiteboard-picker")).not.toBeNull();
 	});
 
 	test("clears selection when toggling filters", () => {

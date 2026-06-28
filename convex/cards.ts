@@ -3,12 +3,12 @@ import { v } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { DEFAULT_CARD_HEIGHT, DEFAULT_CARD_WIDTH } from "./canvas";
 import { clearCardFileRefs, reconcileCardFileRefs } from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
 import {
 	getActivePlacementOnBoard,
 	getPreferredPlacement,
-	hasActivePlacementOnBoard,
 	listActivePlacements,
 } from "./model/cardPlacements";
 import { makeCardShapeId } from "./model/shapeIds";
@@ -25,6 +25,9 @@ import {
 } from "./model/cardReferences";
 
 const MAX_CARD_CONTENT_BYTES = 250_000;
+const APPENDED_CARD_HORIZONTAL_GAP = 48;
+
+type AppendCardLayoutMode = "vertical_stack" | "horizontal_row";
 
 export const get = query({
 	args: { cardId: v.id("cards") },
@@ -384,87 +387,84 @@ export const archiveCards = mutation({
 	},
 });
 
-export const appendToWhiteboard = mutation({
-	args: {
-		cardId: v.id("cards"),
-		whiteboardId: v.id("whiteboards"),
+type AppendCardToWhiteboardResult =
+	| {
+			status: "appended";
+			itemId: Id<"boardItems">;
+			whiteboardId: Id<"whiteboards">;
+			shapeId: string;
+			created: boolean;
+			nextCardCount: number;
+	  }
+	| {
+			status: "already_present";
+			itemId: Id<"boardItems">;
+			whiteboardId: Id<"whiteboards">;
+			shapeId: string;
+			created: false;
+			nextCardCount: number;
+	  }
+	| {
+			status: "skipped_missing";
+			nextCardCount: number;
+	  };
+
+async function appendCardToWhiteboardInternal(
+	ctx: MutationCtx,
+	{
+		cardId,
+		whiteboard,
+		whiteboardCardCount,
+		layoutMode = "vertical_stack",
+	}: {
+		cardId: Id<"cards">;
+		whiteboard: Doc<"whiteboards">;
+		whiteboardCardCount: number;
+		layoutMode?: AppendCardLayoutMode;
 	},
-	handler: async (ctx, args) => {
-		const card = await ctx.db.get(args.cardId);
-		if (!card || card.archivedAt !== null) {
-			throw new Error("Card not found");
-		}
+): Promise<AppendCardToWhiteboardResult> {
+	const card = await ctx.db.get(cardId);
+	if (!card || card.archivedAt !== null) {
+		return {
+			status: "skipped_missing",
+			nextCardCount: whiteboardCardCount,
+		};
+	}
 
-		const whiteboard = await ctx.db.get(args.whiteboardId);
-		if (!whiteboard || whiteboard.archivedAt !== null) {
-			throw new Error("Whiteboard not found");
-		}
+	const existingActivePlacement = await getActivePlacementOnBoard(
+		ctx,
+		card._id,
+		whiteboard._id,
+	);
 
-		const existingActivePlacement = await getActivePlacementOnBoard(
-			ctx,
-			card._id,
-			whiteboard._id,
-		);
-
-		if (existingActivePlacement) {
-			return {
-				itemId: existingActivePlacement._id,
-				whiteboardId: existingActivePlacement.whiteboardId,
-				shapeId: existingActivePlacement.shapeId,
-				created: false,
-			};
-		}
-
-		const now = Date.now();
-		const shapeId = makeCardShapeId(card._id);
-		const existingItem = await ctx.db
-			.query("boardItems")
-			.withIndex("by_whiteboard_shape", (q) =>
-				q.eq("whiteboardId", whiteboard._id).eq("shapeId", shapeId),
-			)
-			.first();
-
-		if (existingItem && existingItem.archivedAt !== null) {
-			await ctx.db.patch(existingItem._id, {
-				archivedAt: null,
-				updatedAt: now,
-			});
-
-			await ctx.db.patch(whiteboard._id, {
-				cardCount: (whiteboard.cardCount ?? 0) + 1,
-				updatedAt: now,
-			});
-
-			await ctx.db.patch(card._id, {
-				updatedAt: now,
-			});
-
-			return {
-				itemId: existingItem._id,
-				whiteboardId: whiteboard._id,
-				shapeId,
-				created: false,
-			};
-		}
-
-		const itemId = await ctx.db.insert("boardItems", {
+	if (existingActivePlacement) {
+		return {
+			status: "already_present",
+			itemId: existingActivePlacement._id,
 			whiteboardId: whiteboard._id,
-			kind: "card",
-			cardId: card._id,
-			childWhiteboardId: null,
-			shapeId,
-			x: 0,
-			y: (whiteboard.cardCount ?? 0) * 40,
-			w: 576,
-			h: 160,
-			rotation: 0,
-			zIndex: now,
+			shapeId: existingActivePlacement.shapeId,
+			created: false,
+			nextCardCount: whiteboardCardCount,
+		};
+	}
+
+	const now = Date.now();
+	const shapeId = makeCardShapeId(card._id);
+	const existingItem = await ctx.db
+		.query("boardItems")
+		.withIndex("by_whiteboard_shape", (q) =>
+			q.eq("whiteboardId", whiteboard._id).eq("shapeId", shapeId),
+		)
+		.first();
+
+	if (existingItem && existingItem.archivedAt !== null) {
+		await ctx.db.patch(existingItem._id, {
 			archivedAt: null,
 			updatedAt: now,
 		});
 
 		await ctx.db.patch(whiteboard._id, {
-			cardCount: (whiteboard.cardCount ?? 0) + 1,
+			cardCount: whiteboardCardCount + 1,
 			updatedAt: now,
 		});
 
@@ -473,10 +473,140 @@ export const appendToWhiteboard = mutation({
 		});
 
 		return {
-			itemId,
+			status: "appended",
+			itemId: existingItem._id,
 			whiteboardId: whiteboard._id,
 			shapeId,
-			created: true,
+			created: false,
+			nextCardCount: whiteboardCardCount + 1,
+		};
+	}
+
+	const position =
+		layoutMode === "horizontal_row"
+			? {
+					x:
+						whiteboardCardCount *
+						(DEFAULT_CARD_WIDTH + APPENDED_CARD_HORIZONTAL_GAP),
+					y: 0,
+				}
+			: {
+					x: 0,
+					y: whiteboardCardCount * 40,
+				};
+
+	const itemId = await ctx.db.insert("boardItems", {
+		whiteboardId: whiteboard._id,
+		kind: "card",
+		cardId: card._id,
+		childWhiteboardId: null,
+		shapeId,
+		x: position.x,
+		y: position.y,
+		w: DEFAULT_CARD_WIDTH,
+		h: DEFAULT_CARD_HEIGHT,
+		rotation: 0,
+		zIndex: now,
+		archivedAt: null,
+		updatedAt: now,
+	});
+
+	await ctx.db.patch(whiteboard._id, {
+		cardCount: whiteboardCardCount + 1,
+		updatedAt: now,
+	});
+
+	await ctx.db.patch(card._id, {
+		updatedAt: now,
+	});
+
+	return {
+		status: "appended",
+		itemId,
+		whiteboardId: whiteboard._id,
+		shapeId,
+		created: true,
+		nextCardCount: whiteboardCardCount + 1,
+	};
+}
+
+export const appendToWhiteboard = mutation({
+	args: {
+		cardId: v.id("cards"),
+		whiteboardId: v.id("whiteboards"),
+	},
+	handler: async (ctx, args) => {
+		const whiteboard = await ctx.db.get(args.whiteboardId);
+		if (!whiteboard || whiteboard.archivedAt !== null) {
+			throw new Error("Whiteboard not found");
+		}
+
+		const result = await appendCardToWhiteboardInternal(ctx, {
+			cardId: args.cardId,
+			whiteboard,
+			whiteboardCardCount: whiteboard.cardCount ?? 0,
+		});
+		if (result.status === "skipped_missing") {
+			throw new Error("Card not found");
+		}
+
+		return {
+			itemId: result.itemId,
+			whiteboardId: result.whiteboardId,
+			shapeId: result.shapeId,
+			created: result.created,
+		};
+	},
+});
+
+export const appendCardsToWhiteboard = mutation({
+	args: {
+		cardIds: v.array(v.id("cards")),
+		whiteboardId: v.id("whiteboards"),
+	},
+	handler: async (ctx, args) => {
+		const whiteboard = await ctx.db.get(args.whiteboardId);
+		if (!whiteboard || whiteboard.archivedAt !== null) {
+			throw new Error("Whiteboard not found");
+		}
+
+		const uniqueCardIds = [...new Set(args.cardIds)];
+		if (uniqueCardIds.length > 100) {
+			throw new Error("Cannot append more than 100 cards at once");
+		}
+
+		let appendedCount = 0;
+		let alreadyPresentCount = 0;
+		let skippedMissingCount = 0;
+		let whiteboardCardCount = whiteboard.cardCount ?? 0;
+
+		for (const cardId of uniqueCardIds) {
+			const result = await appendCardToWhiteboardInternal(ctx, {
+				cardId,
+				whiteboard,
+				whiteboardCardCount,
+				layoutMode: "horizontal_row",
+			});
+			whiteboardCardCount = result.nextCardCount;
+
+			if (result.status === "appended") {
+				appendedCount += 1;
+				continue;
+			}
+
+			if (result.status === "already_present") {
+				alreadyPresentCount += 1;
+				continue;
+			}
+
+			skippedMissingCount += 1;
+		}
+
+		return {
+			whiteboardId: whiteboard._id,
+			appendedCount,
+			alreadyPresentCount,
+			skippedMissingCount,
 		};
 	},
 });

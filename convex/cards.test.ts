@@ -1,6 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
 import type { Id } from "./_generated/dataModel";
-import { archiveCard, archiveCards } from "./cards";
+import {
+	appendCardsToWhiteboard,
+	appendToWhiteboard,
+	archiveCard,
+	archiveCards,
+} from "./cards";
 import { getCardTargetKey } from "./fileLifecycle";
 
 type AnyDoc = Record<string, unknown> & { _id: string };
@@ -200,6 +205,33 @@ const archiveCardsHandler = archiveCards as unknown as {
 	) => Promise<{ archivedCount: number }>;
 };
 
+const appendToWhiteboardHandler = appendToWhiteboard as unknown as {
+	_handler: (
+		ctx: never,
+		args: { cardId: Id<"cards">; whiteboardId: Id<"whiteboards"> },
+	) => Promise<{
+		itemId: Id<"boardItems">;
+		whiteboardId: Id<"whiteboards">;
+		shapeId: string;
+		created: boolean;
+	}>;
+};
+
+const appendCardsToWhiteboardHandler = appendCardsToWhiteboard as unknown as {
+	_handler: (
+		ctx: never,
+		args: {
+			cardIds: Id<"cards">[];
+			whiteboardId: Id<"whiteboards">;
+		},
+	) => Promise<{
+		whiteboardId: Id<"whiteboards">;
+		appendedCount: number;
+		alreadyPresentCount: number;
+		skippedMissingCount: number;
+	}>;
+};
+
 describe("card archive mutations", () => {
 	test("archiveCard preserves the single-card archive behavior", async () => {
 		const state = makeState({
@@ -368,5 +400,222 @@ describe("card archive mutations", () => {
 		expect(state.cards.size).toBe(0);
 		expect(state.boardItems.size).toBe(0);
 		expect(state.whiteboards.size).toBe(0);
+	});
+});
+
+describe("card append mutations", () => {
+	test("appendToWhiteboard preserves the single-card append behavior", async () => {
+		const state = makeState({
+			whiteboards: [whiteboardDoc("whiteboard-1", 0)],
+			cards: [cardDoc("card-1")],
+		});
+
+		const ctx = makeMockCtx(state);
+		const now = 1_700_000_000_000;
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+
+		try {
+			const result = await appendToWhiteboardHandler._handler(ctx, {
+				cardId: "card-1" as Id<"cards">,
+				whiteboardId: "whiteboard-1" as Id<"whiteboards">,
+			});
+
+			expect(result).toEqual({
+				itemId: "boardItems:1",
+				whiteboardId: "whiteboard-1",
+				shapeId: "shape:card-card-1",
+				created: true,
+			});
+		} finally {
+			nowSpy.mockRestore();
+		}
+
+		expect(state.boardItems.get("boardItems:1")).toMatchObject({
+			cardId: "card-1",
+			whiteboardId: "whiteboard-1",
+			shapeId: "shape:card-card-1",
+			x: 0,
+			y: 0,
+			archivedAt: null,
+			updatedAt: now,
+		});
+		expect(state.whiteboards.get("whiteboard-1")).toMatchObject({
+			cardCount: 1,
+			updatedAt: now,
+		});
+		expect(state.cards.get("card-1")).toMatchObject({
+			updatedAt: now,
+		});
+	});
+
+	test("appendCardsToWhiteboard deduplicates ids and aggregates append outcomes", async () => {
+		const state = makeState({
+			whiteboards: [whiteboardDoc("whiteboard-1", 1)],
+			cards: [
+				cardDoc("card-new"),
+				cardDoc("card-existing"),
+				cardDoc("card-restored"),
+				cardDoc("card-archived", 123),
+			],
+			boardItems: [
+				boardItemDoc("board-item-existing", "card-existing", "whiteboard-1"),
+				makeDoc("board-item-restored", {
+					whiteboardId: "whiteboard-1",
+					kind: "card",
+					cardId: "card-restored",
+					childWhiteboardId: null,
+					shapeId: "shape:card-card-restored",
+					x: 0,
+					y: 80,
+					w: 1,
+					h: 1,
+					rotation: 0,
+					zIndex: 1,
+					archivedAt: 999,
+					updatedAt: 100,
+				}),
+			],
+		});
+
+		const ctx = makeMockCtx(state);
+		const now = 1_700_000_000_000;
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+
+		try {
+			const result = await appendCardsToWhiteboardHandler._handler(ctx, {
+				cardIds: [
+					"card-new" as Id<"cards">,
+					"card-existing" as Id<"cards">,
+					"card-restored" as Id<"cards">,
+					"card-new" as Id<"cards">,
+					"card-missing" as Id<"cards">,
+					"card-archived" as Id<"cards">,
+				],
+				whiteboardId: "whiteboard-1" as Id<"whiteboards">,
+			});
+
+			expect(result).toEqual({
+				whiteboardId: "whiteboard-1",
+				appendedCount: 2,
+				alreadyPresentCount: 1,
+				skippedMissingCount: 2,
+			});
+		} finally {
+			nowSpy.mockRestore();
+		}
+
+		expect(state.boardItems.get("boardItems:1")).toMatchObject({
+			cardId: "card-new",
+			whiteboardId: "whiteboard-1",
+			shapeId: "shape:card-card-new",
+			x: 624,
+			y: 0,
+			archivedAt: null,
+			updatedAt: now,
+		});
+		expect(state.boardItems.get("board-item-restored")).toMatchObject({
+			archivedAt: null,
+			updatedAt: now,
+		});
+		expect(state.whiteboards.get("whiteboard-1")).toMatchObject({
+			cardCount: 3,
+			updatedAt: now,
+		});
+		expect(state.cards.get("card-new")).toMatchObject({
+			updatedAt: now,
+		});
+		expect(state.cards.get("card-restored")).toMatchObject({
+			updatedAt: now,
+		});
+		expect(state.cards.get("card-existing")).toMatchObject({
+			updatedAt: 100,
+		});
+	});
+
+	test("appendCardsToWhiteboard throws for a missing or archived whiteboard", async () => {
+		const state = makeState({
+			whiteboards: [
+				makeDoc("whiteboard-archived", {
+					title: "archived",
+					cardCount: 0,
+					childWhiteboardCount: 0,
+					archivedAt: 1,
+					updatedAt: 100,
+				}),
+			],
+			cards: [cardDoc("card-1")],
+		});
+
+		const ctx = makeMockCtx(state);
+
+		await expect(
+			appendCardsToWhiteboardHandler._handler(ctx, {
+				cardIds: ["card-1" as Id<"cards">],
+				whiteboardId: "whiteboard-missing" as Id<"whiteboards">,
+			}),
+		).rejects.toThrow("Whiteboard not found");
+
+		await expect(
+			appendCardsToWhiteboardHandler._handler(ctx, {
+				cardIds: ["card-1" as Id<"cards">],
+				whiteboardId: "whiteboard-archived" as Id<"whiteboards">,
+			}),
+		).rejects.toThrow("Whiteboard not found");
+	});
+
+	test("appendCardsToWhiteboard rejects more than 100 unique cards", async () => {
+		const state = makeState({
+			whiteboards: [whiteboardDoc("whiteboard-1", 0)],
+		});
+		const ctx = makeMockCtx(state);
+		const cardIds = Array.from({ length: 101 }, (_, index) => {
+			const cardId = `card-${index + 1}`;
+			state.cards.set(cardId, cardDoc(cardId));
+			return cardId as Id<"cards">;
+		});
+
+		await expect(
+			appendCardsToWhiteboardHandler._handler(ctx, {
+				cardIds,
+				whiteboardId: "whiteboard-1" as Id<"whiteboards">,
+			}),
+		).rejects.toThrow("Cannot append more than 100 cards at once");
+	});
+
+	test("appendCardsToWhiteboard lays out newly created cards horizontally", async () => {
+		const state = makeState({
+			whiteboards: [whiteboardDoc("whiteboard-1", 0)],
+			cards: [cardDoc("card-1"), cardDoc("card-2")],
+		});
+		const ctx = makeMockCtx(state);
+		const now = 1_700_000_000_000;
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+
+		try {
+			const result = await appendCardsToWhiteboardHandler._handler(ctx, {
+				cardIds: ["card-1" as Id<"cards">, "card-2" as Id<"cards">],
+				whiteboardId: "whiteboard-1" as Id<"whiteboards">,
+			});
+
+			expect(result).toEqual({
+				whiteboardId: "whiteboard-1",
+				appendedCount: 2,
+				alreadyPresentCount: 0,
+				skippedMissingCount: 0,
+			});
+		} finally {
+			nowSpy.mockRestore();
+		}
+
+		expect(state.boardItems.get("boardItems:1")).toMatchObject({
+			cardId: "card-1",
+			x: 0,
+			y: 0,
+		});
+		expect(state.boardItems.get("boardItems:2")).toMatchObject({
+			cardId: "card-2",
+			x: 624,
+			y: 0,
+		});
 	});
 });

@@ -116,10 +116,11 @@ export function RouteComponent() {
 	const [orphanOnly, setOrphanOnly] = useState(initialOrphan);
 	const archiveCards = useMutation(api.cards.archiveCards);
 	const appendToWhiteboard = useMutation(api.cards.appendToWhiteboard);
+	const appendCardsToWhiteboard = useMutation(api.cards.appendCardsToWhiteboard);
 	const [deleteTargetIds, setDeleteTargetIds] = useState<Id<"cards">[]>([]);
-	const [appendTargetId, setAppendTargetId] = useState<Id<"cards"> | null>(
-		null,
-	);
+	const [appendTargetCardIds, setAppendTargetCardIds] = useState<
+		Id<"cards">[]
+	>([]);
 	const [isAppending, setIsAppending] = useState(false);
 	const [appendError, setAppendError] = useState<string | null>(null);
 	const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(
@@ -213,8 +214,8 @@ export function RouteComponent() {
 		setDeleteTargetIds(cardIds);
 	};
 
-	const openAppendDialog = (cardId: Id<"cards">) => {
-		setAppendTargetId(cardId);
+	const openAppendDialog = (cardIds: Id<"cards">[]) => {
+		setAppendTargetCardIds(cardIds);
 		setAppendError(null);
 	};
 
@@ -224,7 +225,7 @@ export function RouteComponent() {
 
 	const closeAppendDialog = () => {
 		if (isAppending) return;
-		setAppendTargetId(null);
+		setAppendTargetCardIds([]);
 		setAppendError(null);
 	};
 
@@ -244,28 +245,43 @@ export function RouteComponent() {
 	};
 
 	const confirmAppendToWhiteboard = async (whiteboardId: Id<"whiteboards">) => {
-		if (!appendTargetId || isAppending) return;
+		if (appendTargetCardIds.length === 0 || isAppending) return;
 
 		setIsAppending(true);
 		setAppendError(null);
 
 		try {
-			const placement = await appendToWhiteboard({
-				cardId: appendTargetId,
-				whiteboardId,
-			});
+			if (appendTargetCardIds.length === 1) {
+				const placement = await appendToWhiteboard({
+					cardId: appendTargetCardIds[0],
+					whiteboardId,
+				});
 
-			if (!placement?.shapeId) {
-				throw new Error("Card was appended, but no shape id was returned.");
+				if (!placement?.shapeId) {
+					throw new Error("Card was appended, but no shape id was returned.");
+				}
+
+				setAppendTargetCardIds([]);
+				clearSelection();
+
+				await navigate({
+					to: "/whiteboard/$whiteboardId",
+					params: { whiteboardId: placement.whiteboardId },
+					search: { focus: placement.shapeId },
+				});
+				return;
 			}
 
-			setAppendTargetId(null);
+			const result = await appendCardsToWhiteboard({
+				cardIds: appendTargetCardIds,
+				whiteboardId,
+			});
+			setAppendTargetCardIds([]);
 			clearSelection();
 
 			await navigate({
 				to: "/whiteboard/$whiteboardId",
-				params: { whiteboardId: placement.whiteboardId },
-				search: { focus: placement.shapeId },
+				params: { whiteboardId: result.whiteboardId },
 			});
 		} catch (error) {
 			setAppendError(
@@ -277,6 +293,15 @@ export function RouteComponent() {
 			setIsAppending(false);
 		}
 	};
+
+	const appendPickerTitle =
+		appendTargetCardIds.length <= 1
+			? isAppending
+				? "Appending..."
+				: "Append to whiteboard"
+			: isAppending
+				? "Appending cards..."
+				: `Append ${appendTargetCardIds.length} cards to whiteboard`;
 
 	const toggleOrphanOnly = () => {
 		const next = !orphanOnly;
@@ -608,6 +633,13 @@ export function RouteComponent() {
 									/>
 									<button
 										type="button"
+										onClick={() => openAppendDialog([...selectedCardIds])}
+										className="cursor-pointer rounded-full px-2.5 py-1 font-semibold text-[var(--sea-ink)] transition hover:bg-[var(--surface-strong)]"
+									>
+										Append
+									</button>
+									<button
+										type="button"
 										onClick={() => openDeleteDialog([...selectedCardIds])}
 										className="cursor-pointer rounded-full px-2.5 py-1 font-semibold text-[var(--destructive)] transition hover:bg-red-500/10"
 									>
@@ -692,11 +724,16 @@ export function RouteComponent() {
 												params: { cardId: card._id },
 											})
 										}
-										onAppend={() => openAppendDialog(card._id)}
+										onAppend={() => openAppendDialog(contextTargetIds)}
 										onDelete={() => openDeleteDialog(contextTargetIds)}
 										canPreview={singleTarget}
 										canFullscreen={singleTarget}
-										canAppend={singleTarget}
+										canAppend={contextTargetIds.length > 0}
+										appendLabel={
+											contextTargetIds.length === 1
+												? "Append to whiteboard..."
+												: `Append ${contextTargetIds.length} cards to whiteboard...`
+										}
 										deleteLabel={
 											contextTargetIds.length === 1
 												? "Delete card"
@@ -726,14 +763,14 @@ export function RouteComponent() {
 				/>
 
 				<WhiteboardPickerDialog
-					open={appendTargetId !== null}
+					open={appendTargetCardIds.length > 0}
 					onOpenChange={(open) => {
 						if (!open) closeAppendDialog();
 					}}
 					onSelect={(whiteboardId) => {
 						void confirmAppendToWhiteboard(whiteboardId);
 					}}
-					title={isAppending ? "Appending..." : "Append to whiteboard"}
+					title={appendPickerTitle}
 				/>
 
 				<DeleteCardDialog
@@ -775,6 +812,7 @@ function CardLibraryTile({
 	canPreview,
 	canFullscreen,
 	canAppend,
+	appendLabel,
 	deleteLabel,
 }: {
 	card: CardTile;
@@ -789,6 +827,7 @@ function CardLibraryTile({
 	canPreview: boolean;
 	canFullscreen: boolean;
 	canAppend: boolean;
+	appendLabel: string;
 	deleteLabel: string;
 }) {
 	return (
@@ -830,7 +869,7 @@ function CardLibraryTile({
 				</ContextMenuItem>
 				<ContextMenuItem onSelect={onAppend} disabled={!canAppend}>
 					<Plus className="size-4" />
-					Append to whiteboard...
+					{appendLabel}
 				</ContextMenuItem>
 				<ContextMenuItem
 					onSelect={onDelete}
