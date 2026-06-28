@@ -79,8 +79,16 @@ function RouteComponent() {
 	};
 
 	const handleAppend = async (whiteboardId: Id<"whiteboards">) => {
-		await appendToWhiteboard({ cardId: typedCardId, whiteboardId });
+		const placement = await appendToWhiteboard({ cardId: typedCardId, whiteboardId });
 		setAppendOpen(false);
+
+		if (!placement) return;
+
+		navigate({
+			to: "/whiteboard/$whiteboardId",
+			params: { whiteboardId: placement.whiteboardId },
+			search: { focus: placement.shapeId },
+		});
 	};
 
 	return (

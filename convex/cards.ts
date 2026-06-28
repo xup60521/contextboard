@@ -5,10 +5,12 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { clearCardFileRefs, reconcileCardFileRefs } from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
 import {
+	getActivePlacementOnBoard,
 	getPreferredPlacement,
 	hasActivePlacementOnBoard,
 	listActivePlacements,
 } from "./model/cardPlacements";
+import { makeCardShapeId } from "./model/shapeIds";
 import {
 	DEFAULT_CARD_SORT_BY,
 	cardSortByValidator,
@@ -368,12 +370,23 @@ export const appendToWhiteboard = mutation({
 			throw new Error("Whiteboard not found");
 		}
 
-		if (await hasActivePlacementOnBoard(ctx, card._id, whiteboard._id)) {
-			return null;
+		const existingActivePlacement = await getActivePlacementOnBoard(
+			ctx,
+			card._id,
+			whiteboard._id,
+		);
+
+		if (existingActivePlacement) {
+			return {
+				itemId: existingActivePlacement._id,
+				whiteboardId: existingActivePlacement.whiteboardId,
+				shapeId: existingActivePlacement.shapeId,
+				created: false,
+			};
 		}
 
 		const now = Date.now();
-		const shapeId = `card-${card._id}`;
+		const shapeId = makeCardShapeId(card._id);
 		const existingItem = await ctx.db
 			.query("boardItems")
 			.withIndex("by_whiteboard_shape", (q) =>
@@ -386,23 +399,39 @@ export const appendToWhiteboard = mutation({
 				archivedAt: null,
 				updatedAt: now,
 			});
-		} else if (!existingItem) {
-			await ctx.db.insert("boardItems", {
-				whiteboardId: whiteboard._id,
-				kind: "card",
-				cardId: card._id,
-				childWhiteboardId: null,
-				shapeId,
-				x: 0,
-				y: (whiteboard.cardCount ?? 0) * 40,
-				w: 576,
-				h: 160,
-				rotation: 0,
-				zIndex: now,
-				archivedAt: null,
+
+			await ctx.db.patch(whiteboard._id, {
+				cardCount: (whiteboard.cardCount ?? 0) + 1,
 				updatedAt: now,
 			});
+
+			await ctx.db.patch(card._id, {
+				updatedAt: now,
+			});
+
+			return {
+				itemId: existingItem._id,
+				whiteboardId: whiteboard._id,
+				shapeId,
+				created: false,
+			};
 		}
+
+		const itemId = await ctx.db.insert("boardItems", {
+			whiteboardId: whiteboard._id,
+			kind: "card",
+			cardId: card._id,
+			childWhiteboardId: null,
+			shapeId,
+			x: 0,
+			y: (whiteboard.cardCount ?? 0) * 40,
+			w: 576,
+			h: 160,
+			rotation: 0,
+			zIndex: now,
+			archivedAt: null,
+			updatedAt: now,
+		});
 
 		await ctx.db.patch(whiteboard._id, {
 			cardCount: (whiteboard.cardCount ?? 0) + 1,
@@ -412,6 +441,13 @@ export const appendToWhiteboard = mutation({
 		await ctx.db.patch(card._id, {
 			updatedAt: now,
 		});
+
+		return {
+			itemId,
+			whiteboardId: whiteboard._id,
+			shapeId,
+			created: true,
+		};
 	},
 });
 

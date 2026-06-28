@@ -10,6 +10,7 @@ import {
 } from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
 import { countActiveCardPlacements } from "./model/cardPlacements";
+import { assertValidTldrawShapeId } from "./model/shapeIds";
 
 const DEFAULT_CARD_WIDTH = 576;
 const DEFAULT_CARD_HEIGHT = 160;
@@ -117,6 +118,7 @@ export const createCardItem = mutation({
 		y: v.number(),
 	},
 	handler: async (ctx, args) => {
+		assertValidTldrawShapeId(args.shapeId);
 		const whiteboard = await getActiveWhiteboard(ctx, args.whiteboardId);
 		const existingItem = await getExistingItem(
 			ctx,
@@ -173,6 +175,7 @@ export const createSubwhiteboardItem = mutation({
 		y: v.number(),
 	},
 	handler: async (ctx, args) => {
+		assertValidTldrawShapeId(args.shapeId);
 		const parent = args.parentWhiteboardId
 			? await getActiveWhiteboard(ctx, args.parentWhiteboardId)
 			: null;
@@ -320,6 +323,7 @@ export const restoreOrAdoptCardItem = mutation({
 		rotation: v.number(),
 	},
 	handler: async (ctx, args) => {
+		assertValidTldrawShapeId(args.shapeId);
 		const existing = await getExistingItem(ctx, args.whiteboardId, args.shapeId);
 
 		// (a) Undo-of-delete: a row already exists for this shapeId.

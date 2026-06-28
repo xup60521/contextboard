@@ -154,6 +154,10 @@ type WhiteboardContextMenuValue = {
 	pointRef: { current: VecLike | null };
 };
 
+function toTldrawShapeId(shapeId: string): TLShapeId {
+	return (shapeId.startsWith("shape:") ? shapeId : `shape:${shapeId}`) as TLShapeId;
+}
+
 const whiteboardOptions = {
 	...singlePageTldrawOptions,
 	createTextOnCanvasDoubleClick: false,
@@ -1143,7 +1147,7 @@ export function itemToShape(
 	item: BoardItemResult,
 	frame = frameFromItem(item),
 ): ManagedShapePartial {
-	const id = item.shapeId as TLShapeId;
+	const id = toTldrawShapeId(item.shapeId);
 
 	if (item.kind === "card") {
 		const content = item.card ? JSON.stringify(item.card.content) : "";

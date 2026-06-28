@@ -69,6 +69,82 @@ describe("itemToShape", () => {
 		expect(shape.props.h).toBe(84);
 	});
 
+	test("hydrates board item shape ids that are valid tldraw ids", () => {
+		const shape = itemToShape({
+			_id: "item-1",
+			kind: "card",
+			cardId: "card-1",
+			childWhiteboardId: null,
+			shapeId: "shape:card-abc123",
+			x: 0,
+			y: 0,
+			w: 576,
+			h: 160,
+			rotation: 0,
+			zIndex: 1,
+			card: {
+				_id: "card-1",
+				content: { type: "doc", content: [] },
+				derivedTitle: "Card",
+				version: 1,
+			},
+			childWhiteboard: null,
+		} as never);
+
+		expect(shape.id).toBe("shape:card-abc123");
+	});
+
+	test("normalizes legacy shape ids without shape: prefix", () => {
+		const shape = itemToShape({
+			_id: "item-2",
+			kind: "card",
+			cardId: "card-2",
+			childWhiteboardId: null,
+			shapeId: "card-legacy123",
+			x: 0,
+			y: 0,
+			w: 576,
+			h: 160,
+			rotation: 0,
+			zIndex: 1,
+			card: {
+				_id: "card-2",
+				content: { type: "doc", content: [] },
+				derivedTitle: "Card",
+				version: 1,
+			},
+			childWhiteboard: null,
+		} as never);
+
+		expect(shape.id).toBe("shape:card-legacy123");
+	});
+
+	test("normalizes legacy subwhiteboard shape ids without shape: prefix", () => {
+		const shape = itemToShape({
+			_id: "item-3",
+			kind: "subwhiteboard",
+			cardId: null,
+			childWhiteboardId: "wb-1",
+			shapeId: "sub-legacy456",
+			x: 0,
+			y: 0,
+			w: 240,
+			h: 92,
+			rotation: 0,
+			zIndex: 1,
+			card: null,
+			childWhiteboard: {
+				_id: "wb-1",
+				title: "Sub",
+				depth: 1,
+				cardCount: 0,
+				childWhiteboardCount: 0,
+			},
+		} as never);
+
+		expect(shape.id).toBe("shape:sub-legacy456");
+	});
+
 	test("starts right-drag panning only after a small movement threshold", () => {
 		expect(
 			hasExceededRightDragPanThreshold({
