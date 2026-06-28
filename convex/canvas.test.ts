@@ -72,7 +72,7 @@ function makeMockCtx(state: MockState) {
 			get: async (id: string) => getById(id),
 			insert: async (table: keyof MockState, doc: AnyDoc) => {
 				const id = `${table}:${nextId++}`;
-				const stored = { _id: id, ...doc };
+				const stored = { ...doc, _id: id };
 				state[table].set(id, stored);
 				return id;
 			},
