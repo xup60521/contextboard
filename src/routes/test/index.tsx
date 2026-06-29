@@ -11,6 +11,11 @@ const TEST_ROUTES = [
 		description: "TipTap rich-text editor with slash commands and KaTeX math.",
 	},
 	{
+		to: "/test/static-renderer" as const,
+		label: "Editor vs static renderer",
+		description: "Side-by-side comparison of the full editor runtime and the static renderer.",
+	},
+	{
 		to: "/test/markdown-in-whiteboard" as const,
 		label: "Markdown in whiteboard",
 		description: "Editable markdown cards placed on a tldraw canvas.",

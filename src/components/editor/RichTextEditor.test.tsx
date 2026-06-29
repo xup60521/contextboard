@@ -659,7 +659,8 @@ Hidden **bold** answer.
 			});
 
 			fireEvent.click(editableMath);
-			expect(await screen.findByText("Inline math - LaTeX")).not.toBeNull();
+			const editor = await screen.findByRole("textbox");
+			expect((editor as HTMLTextAreaElement).value).toBe("E = mc^2");
 		});
 	});
 

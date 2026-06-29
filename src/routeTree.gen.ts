@@ -17,6 +17,7 @@ import { Route as TestIndexRouteImport } from './routes/test/index'
 import { Route as CardsIndexRouteImport } from './routes/cards/index'
 import { Route as WhiteboardWhiteboardIdRouteImport } from './routes/whiteboard/$whiteboardId'
 import { Route as TestWhiteboardInWhiteboardRouteImport } from './routes/test/whiteboard-in-whiteboard'
+import { Route as TestStaticRendererRouteImport } from './routes/test/static-renderer'
 import { Route as TestMarkdownInWhiteboardRouteImport } from './routes/test/markdown-in-whiteboard'
 import { Route as TestMarkdownRouteImport } from './routes/test/markdown'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
@@ -66,6 +67,11 @@ const TestWhiteboardInWhiteboardRoute =
     path: '/test/whiteboard-in-whiteboard',
     getParentRoute: () => rootRouteImport,
   } as any)
+const TestStaticRendererRoute = TestStaticRendererRouteImport.update({
+  id: '/test/static-renderer',
+  path: '/test/static-renderer',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TestMarkdownInWhiteboardRoute =
   TestMarkdownInWhiteboardRouteImport.update({
     id: '/test/markdown-in-whiteboard',
@@ -114,6 +120,7 @@ export interface FileRoutesByFullPath {
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
+  '/test/static-renderer': typeof TestStaticRendererRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
   '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/cards/': typeof CardsIndexRoute
@@ -130,6 +137,7 @@ export interface FileRoutesByTo {
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
+  '/test/static-renderer': typeof TestStaticRendererRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
   '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/cards': typeof CardsIndexRoute
@@ -148,6 +156,7 @@ export interface FileRoutesById {
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
+  '/test/static-renderer': typeof TestStaticRendererRoute
   '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
   '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/cards/': typeof CardsIndexRoute
@@ -167,6 +176,7 @@ export interface FileRouteTypes {
     | '/demo/tanstack-query'
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
+    | '/test/static-renderer'
     | '/test/whiteboard-in-whiteboard'
     | '/whiteboard/$whiteboardId'
     | '/cards/'
@@ -183,6 +193,7 @@ export interface FileRouteTypes {
     | '/demo/tanstack-query'
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
+    | '/test/static-renderer'
     | '/test/whiteboard-in-whiteboard'
     | '/whiteboard/$whiteboardId'
     | '/cards'
@@ -200,6 +211,7 @@ export interface FileRouteTypes {
     | '/demo/tanstack-query'
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
+    | '/test/static-renderer'
     | '/test/whiteboard-in-whiteboard'
     | '/whiteboard/$whiteboardId'
     | '/cards/'
@@ -218,6 +230,7 @@ export interface RootRouteChildren {
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
   TestMarkdownRoute: typeof TestMarkdownRoute
   TestMarkdownInWhiteboardRoute: typeof TestMarkdownInWhiteboardRoute
+  TestStaticRendererRoute: typeof TestStaticRendererRoute
   TestWhiteboardInWhiteboardRoute: typeof TestWhiteboardInWhiteboardRoute
   CardsIndexRoute: typeof CardsIndexRoute
   TestIndexRoute: typeof TestIndexRoute
@@ -280,6 +293,13 @@ declare module '@tanstack/react-router' {
       path: '/test/whiteboard-in-whiteboard'
       fullPath: '/test/whiteboard-in-whiteboard'
       preLoaderRoute: typeof TestWhiteboardInWhiteboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test/static-renderer': {
+      id: '/test/static-renderer'
+      path: '/test/static-renderer'
+      fullPath: '/test/static-renderer'
+      preLoaderRoute: typeof TestStaticRendererRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/test/markdown-in-whiteboard': {
@@ -358,6 +378,7 @@ const rootRouteChildren: RootRouteChildren = {
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
   TestMarkdownRoute: TestMarkdownRoute,
   TestMarkdownInWhiteboardRoute: TestMarkdownInWhiteboardRoute,
+  TestStaticRendererRoute: TestStaticRendererRoute,
   TestWhiteboardInWhiteboardRoute: TestWhiteboardInWhiteboardRoute,
   CardsIndexRoute: CardsIndexRoute,
   TestIndexRoute: TestIndexRoute,
