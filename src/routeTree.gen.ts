@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as WhiteboardRouteRouteImport } from './routes/whiteboard/route'
+import { Route as CardsRouteRouteImport } from './routes/cards/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WhiteboardIndexRouteImport } from './routes/whiteboard/index'
 import { Route as TestIndexRouteImport } from './routes/test/index'
@@ -36,6 +37,11 @@ const WhiteboardRouteRoute = WhiteboardRouteRouteImport.update({
   path: '/whiteboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CardsRouteRoute = CardsRouteRouteImport.update({
+  id: '/cards',
+  path: '/cards',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -52,9 +58,9 @@ const TestIndexRoute = TestIndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const CardsIndexRoute = CardsIndexRouteImport.update({
-  id: '/cards/',
-  path: '/cards/',
-  getParentRoute: () => rootRouteImport,
+  id: '/',
+  path: '/',
+  getParentRoute: () => CardsRouteRoute,
 } as any)
 const WhiteboardWhiteboardIdRoute = WhiteboardWhiteboardIdRouteImport.update({
   id: '/$whiteboardId',
@@ -94,14 +100,14 @@ const DemoConvexRoute = DemoConvexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const CardsOrphansRoute = CardsOrphansRouteImport.update({
-  id: '/cards/orphans',
-  path: '/cards/orphans',
-  getParentRoute: () => rootRouteImport,
+  id: '/orphans',
+  path: '/orphans',
+  getParentRoute: () => CardsRouteRoute,
 } as any)
 const CardsCardIdRoute = CardsCardIdRouteImport.update({
-  id: '/cards/$cardId',
-  path: '/cards/$cardId',
-  getParentRoute: () => rootRouteImport,
+  id: '/$cardId',
+  path: '/$cardId',
+  getParentRoute: () => CardsRouteRoute,
 } as any)
 const TestSubwhiteboardSubwhiteboardidRoute =
   TestSubwhiteboardSubwhiteboardidRouteImport.update({
@@ -112,6 +118,7 @@ const TestSubwhiteboardSubwhiteboardidRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/cards': typeof CardsRouteRouteWithChildren
   '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/cards/$cardId': typeof CardsCardIdRoute
@@ -148,6 +155,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/cards': typeof CardsRouteRouteWithChildren
   '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/cards/$cardId': typeof CardsCardIdRoute
@@ -168,6 +176,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/cards'
     | '/whiteboard'
     | '/about'
     | '/cards/$cardId'
@@ -203,6 +212,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/cards'
     | '/whiteboard'
     | '/about'
     | '/cards/$cardId'
@@ -222,17 +232,15 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CardsRouteRoute: typeof CardsRouteRouteWithChildren
   WhiteboardRouteRoute: typeof WhiteboardRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
-  CardsCardIdRoute: typeof CardsCardIdRoute
-  CardsOrphansRoute: typeof CardsOrphansRoute
   DemoConvexRoute: typeof DemoConvexRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
   TestMarkdownRoute: typeof TestMarkdownRoute
   TestMarkdownInWhiteboardRoute: typeof TestMarkdownInWhiteboardRoute
   TestStaticRendererRoute: typeof TestStaticRendererRoute
   TestWhiteboardInWhiteboardRoute: typeof TestWhiteboardInWhiteboardRoute
-  CardsIndexRoute: typeof CardsIndexRoute
   TestIndexRoute: typeof TestIndexRoute
   TestSubwhiteboardSubwhiteboardidRoute: typeof TestSubwhiteboardSubwhiteboardidRoute
 }
@@ -251,6 +259,13 @@ declare module '@tanstack/react-router' {
       path: '/whiteboard'
       fullPath: '/whiteboard'
       preLoaderRoute: typeof WhiteboardRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cards': {
+      id: '/cards'
+      path: '/cards'
+      fullPath: '/cards'
+      preLoaderRoute: typeof CardsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -276,10 +291,10 @@ declare module '@tanstack/react-router' {
     }
     '/cards/': {
       id: '/cards/'
-      path: '/cards'
+      path: '/'
       fullPath: '/cards/'
       preLoaderRoute: typeof CardsIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof CardsRouteRoute
     }
     '/whiteboard/$whiteboardId': {
       id: '/whiteboard/$whiteboardId'
@@ -332,17 +347,17 @@ declare module '@tanstack/react-router' {
     }
     '/cards/orphans': {
       id: '/cards/orphans'
-      path: '/cards/orphans'
+      path: '/orphans'
       fullPath: '/cards/orphans'
       preLoaderRoute: typeof CardsOrphansRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof CardsRouteRoute
     }
     '/cards/$cardId': {
       id: '/cards/$cardId'
-      path: '/cards/$cardId'
+      path: '/$cardId'
       fullPath: '/cards/$cardId'
       preLoaderRoute: typeof CardsCardIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof CardsRouteRoute
     }
     '/test/subwhiteboard/$subwhiteboardid': {
       id: '/test/subwhiteboard/$subwhiteboardid'
@@ -353,6 +368,22 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface CardsRouteRouteChildren {
+  CardsCardIdRoute: typeof CardsCardIdRoute
+  CardsOrphansRoute: typeof CardsOrphansRoute
+  CardsIndexRoute: typeof CardsIndexRoute
+}
+
+const CardsRouteRouteChildren: CardsRouteRouteChildren = {
+  CardsCardIdRoute: CardsCardIdRoute,
+  CardsOrphansRoute: CardsOrphansRoute,
+  CardsIndexRoute: CardsIndexRoute,
+}
+
+const CardsRouteRouteWithChildren = CardsRouteRoute._addFileChildren(
+  CardsRouteRouteChildren,
+)
 
 interface WhiteboardRouteRouteChildren {
   WhiteboardWhiteboardIdRoute: typeof WhiteboardWhiteboardIdRoute
@@ -370,17 +401,15 @@ const WhiteboardRouteRouteWithChildren = WhiteboardRouteRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CardsRouteRoute: CardsRouteRouteWithChildren,
   WhiteboardRouteRoute: WhiteboardRouteRouteWithChildren,
   AboutRoute: AboutRoute,
-  CardsCardIdRoute: CardsCardIdRoute,
-  CardsOrphansRoute: CardsOrphansRoute,
   DemoConvexRoute: DemoConvexRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
   TestMarkdownRoute: TestMarkdownRoute,
   TestMarkdownInWhiteboardRoute: TestMarkdownInWhiteboardRoute,
   TestStaticRendererRoute: TestStaticRendererRoute,
   TestWhiteboardInWhiteboardRoute: TestWhiteboardInWhiteboardRoute,
-  CardsIndexRoute: CardsIndexRoute,
   TestIndexRoute: TestIndexRoute,
   TestSubwhiteboardSubwhiteboardidRoute: TestSubwhiteboardSubwhiteboardidRoute,
 }

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SidebarTabsProvider, useSidebarTabs } from "./SidebarTabsContext";
@@ -36,13 +36,16 @@ vi.mock("convex/react", () => ({
 }));
 
 function ExposeTabs() {
-	const { activeTabKey, tabs } = useSidebarTabs();
+	const { activeTabKey, clearOpenTabs, tabs } = useSidebarTabs();
 
 	return (
 		<div>
 			<div data-testid="active-key">{activeTabKey ?? ""}</div>
 			<div data-testid="tabs-count">{tabs.length}</div>
 			<div data-testid="tabs-json">{JSON.stringify(tabs)}</div>
+			<button type="button" onClick={clearOpenTabs}>
+				Clear open tabs
+			</button>
 		</div>
 	);
 }
@@ -156,5 +159,125 @@ describe("SidebarTabsProvider", () => {
 		await waitFor(() => {
 			expect(screen.getByTestId("tabs-count").textContent).toBe("2");
 		});
+	});
+
+	test("clearing open tabs navigates when the active tab is unpinned", async () => {
+		window.localStorage.setItem(
+			"contextboard.sidebarTabs.v1",
+			JSON.stringify({
+				version: 1,
+				updatedAt: 1,
+				tabs: [
+					{
+						key: "whiteboard:root",
+						kind: "whiteboard",
+						id: null,
+						title: "Root whiteboard",
+						pinned: true,
+						order: 0,
+						lastActiveAt: 1,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					{
+						key: "card:pinned",
+						kind: "card",
+						id: "pinned",
+						title: "Pinned card",
+						pinned: true,
+						order: 1,
+						lastActiveAt: 5,
+						createdAt: 5,
+						updatedAt: 5,
+					},
+					{
+						key: "card:card-1",
+						kind: "card",
+						id: "card-1",
+						title: "Card 1",
+						pinned: false,
+						order: 2,
+						lastActiveAt: 10,
+						createdAt: 10,
+						updatedAt: 10,
+					},
+				],
+			}),
+		);
+
+		currentPathname = "/cards/card-1";
+		currentParams = { cardId: "card-1" };
+
+		renderProvider();
+
+		await waitFor(() => {
+			expect(screen.getByTestId("active-key").textContent).toBe("card:card-1");
+		});
+
+		fireEvent.click(screen.getByText("Clear open tabs"));
+
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-count").textContent).toBe("2");
+		});
+
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/cards/$cardId",
+			params: { cardId: "pinned" },
+		});
+	});
+
+	test("clearing open tabs does not navigate when the active route is root", async () => {
+		window.localStorage.setItem(
+			"contextboard.sidebarTabs.v1",
+			JSON.stringify({
+				version: 1,
+				updatedAt: 1,
+				tabs: [
+					{
+						key: "whiteboard:root",
+						kind: "whiteboard",
+						id: null,
+						title: "Root whiteboard",
+						pinned: true,
+						order: 0,
+						lastActiveAt: 1,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					{
+						key: "card:pinned",
+						kind: "card",
+						id: "pinned",
+						title: "Pinned card",
+						pinned: true,
+						order: 1,
+						lastActiveAt: 5,
+						createdAt: 5,
+						updatedAt: 5,
+					},
+					{
+						key: "card:card-1",
+						kind: "card",
+						id: "card-1",
+						title: "Card 1",
+						pinned: false,
+						order: 2,
+						lastActiveAt: 10,
+						createdAt: 10,
+						updatedAt: 10,
+					},
+				],
+			}),
+		);
+
+		renderProvider();
+
+		fireEvent.click(screen.getByText("Clear open tabs"));
+
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-count").textContent).toBe("2");
+		});
+
+		expect(navigateMock).not.toHaveBeenCalled();
 	});
 });

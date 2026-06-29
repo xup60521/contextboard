@@ -83,7 +83,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
 	return (
 		<div className="flex h-dvh overflow-hidden bg-[var(--background)]">
 			<AppSidebar />
-			<div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
+			<div
+				className="min-w-0 flex-1 overflow-y-auto"
+				data-app-scroll-host="true"
+			>
+				{children}
+			</div>
 		</div>
 	);
 }

@@ -1,12 +1,15 @@
 import { describe, expect, test } from "vitest";
 import {
+	clearUnpinnedSidebarTabs,
 	closeSidebarTab,
 	createRootTab,
 	enforceUnpinnedTabLimit,
 	moveSidebarTab,
+	moveSidebarTabByDropTarget,
 	normalizeTabs,
 	openSidebarTab,
 	pruneMissingWhiteboardTabs,
+	setSidebarTabPinned,
 	type SidebarTab,
 	whiteboardTabKey,
 } from "./sidebar-tabs";
@@ -115,6 +118,270 @@ describe("sidebarTabs", () => {
 		});
 		expect(openTabs).toHaveLength(12);
 		expect(openTabs.some((tab) => tab.key === "card:0")).toBe(false);
+	});
+
+	test("pinning moves tabs ahead of unpinned tabs in display order", () => {
+		const root = createRootTab(100);
+		const tabA = makeTab({
+			key: "card:a",
+			id: "a",
+			title: "Tab A",
+			order: 1,
+		});
+		const tabB = makeTab({
+			key: "card:b",
+			id: "b",
+			title: "Tab B",
+			order: 2,
+		});
+
+		const next = setSidebarTabPinned([root, tabA, tabB], tabB.key, true, 500);
+
+		expect(next.map((tab) => tab.key)).toEqual([root.key, tabB.key, tabA.key]);
+		expect(next.find((tab) => tab.key === tabB.key)?.pinned).toBe(true);
+	});
+
+	test("unpinning a tab keeps the just-unpinned tab when enforcing the cap", () => {
+		const root = createRootTab(100);
+		const formerlyPinned = makeTab({
+			key: "card:pinned",
+			id: "pinned",
+			title: "Pinned tab",
+			pinned: true,
+			order: 1,
+			lastActiveAt: 1,
+			createdAt: 1,
+			updatedAt: 1,
+		});
+		const tabs = [
+			root,
+			formerlyPinned,
+			...Array.from({ length: 12 }, (_, index) =>
+				makeTab({
+					key: `card:${index}`,
+					id: `card-${index}`,
+					title: `Card ${index}`,
+					lastActiveAt: index + 10,
+					createdAt: index + 10,
+					updatedAt: index + 10,
+					order: index + 2,
+				}),
+			),
+		];
+
+		const next = enforceUnpinnedTabLimit(
+			setSidebarTabPinned(tabs, formerlyPinned.key, false, 500),
+			["card:11", formerlyPinned.key],
+			500,
+		);
+
+		expect(next.some((tab) => tab.key === formerlyPinned.key)).toBe(true);
+		expect(next.some((tab) => tab.key === "card:0")).toBe(false);
+	});
+
+	test("dragging an open tab into pinned flips pinned and inserts into the pinned group", () => {
+		const root = createRootTab(100);
+		const pinned = makeTab({
+			key: "card:pinned",
+			id: "pinned",
+			title: "Pinned",
+			pinned: true,
+			order: 1,
+		});
+		const open = makeTab({
+			key: "card:open",
+			id: "open",
+			title: "Open",
+			order: 2,
+		});
+
+		const next = moveSidebarTabByDropTarget(
+			[root, pinned, open],
+			open.key,
+			pinned.key,
+			"pinned",
+			[],
+			500,
+		);
+
+		expect(next.map((tab) => tab.key)).toEqual([root.key, open.key, pinned.key]);
+		expect(next.find((tab) => tab.key === open.key)?.pinned).toBe(true);
+	});
+
+	test("dragging a pinned tab into open flips pinned and inserts into the open group", () => {
+		const root = createRootTab(100);
+		const pinned = makeTab({
+			key: "card:pinned",
+			id: "pinned",
+			title: "Pinned",
+			pinned: true,
+			order: 1,
+		});
+		const open = makeTab({
+			key: "card:open",
+			id: "open",
+			title: "Open",
+			order: 2,
+		});
+
+		const next = moveSidebarTabByDropTarget(
+			[root, pinned, open],
+			pinned.key,
+			open.key,
+			"open",
+			[],
+			500,
+		);
+
+		expect(next.map((tab) => tab.key)).toEqual([root.key, pinned.key, open.key]);
+		expect(next.find((tab) => tab.key === pinned.key)?.pinned).toBe(false);
+	});
+
+	test("dragging within pinned reorders only that section", () => {
+		const root = createRootTab(100);
+		const pinnedA = makeTab({
+			key: "card:a",
+			id: "a",
+			title: "Pinned A",
+			pinned: true,
+			order: 1,
+		});
+		const pinnedB = makeTab({
+			key: "card:b",
+			id: "b",
+			title: "Pinned B",
+			pinned: true,
+			order: 2,
+		});
+		const open = makeTab({
+			key: "card:open",
+			id: "open",
+			title: "Open",
+			order: 3,
+		});
+
+		const next = moveSidebarTabByDropTarget(
+			[root, pinnedA, pinnedB, open],
+			pinnedB.key,
+			pinnedA.key,
+			"pinned",
+			[],
+			500,
+		);
+
+		expect(next.map((tab) => tab.key)).toEqual([
+			root.key,
+			pinnedB.key,
+			pinnedA.key,
+			open.key,
+		]);
+		expect(next.find((tab) => tab.key === open.key)?.pinned).toBe(false);
+	});
+
+	test("dragging within open reorders only that section", () => {
+		const root = createRootTab(100);
+		const pinned = makeTab({
+			key: "card:pinned",
+			id: "pinned",
+			title: "Pinned",
+			pinned: true,
+			order: 1,
+		});
+		const openA = makeTab({
+			key: "card:a",
+			id: "a",
+			title: "Open A",
+			order: 2,
+		});
+		const openB = makeTab({
+			key: "card:b",
+			id: "b",
+			title: "Open B",
+			order: 3,
+		});
+
+		const next = moveSidebarTabByDropTarget(
+			[root, pinned, openA, openB],
+			openB.key,
+			openA.key,
+			"open",
+			[],
+			500,
+		);
+
+		expect(next.map((tab) => tab.key)).toEqual([
+			root.key,
+			pinned.key,
+			openB.key,
+			openA.key,
+		]);
+		expect(next.find((tab) => tab.key === pinned.key)?.pinned).toBe(true);
+	});
+
+	test("dragging into open with a full open set preserves the dragged tab", () => {
+		const root = createRootTab(100);
+		const dragged = makeTab({
+			key: "card:pinned",
+			id: "pinned",
+			title: "Pinned",
+			pinned: true,
+			order: 1,
+			lastActiveAt: 1,
+			createdAt: 1,
+			updatedAt: 1,
+		});
+		const tabs = [
+			root,
+			dragged,
+			...Array.from({ length: 12 }, (_, index) =>
+				makeTab({
+					key: `card:${index}`,
+					id: `card-${index}`,
+					title: `Card ${index}`,
+					order: index + 2,
+					lastActiveAt: index + 10,
+					createdAt: index + 10,
+					updatedAt: index + 10,
+				}),
+			),
+		];
+
+		const next = moveSidebarTabByDropTarget(
+			tabs,
+			dragged.key,
+			null,
+			"open",
+			["card:11"],
+			500,
+		);
+
+		expect(next.some((tab) => tab.key === dragged.key)).toBe(true);
+		expect(next.find((tab) => tab.key === dragged.key)?.pinned).toBe(false);
+		expect(next.some((tab) => tab.key === "card:0")).toBe(false);
+	});
+
+	test("clearing open tabs removes all unpinned tabs and returns the pinned fallback", () => {
+		const root = createRootTab(100);
+		const pinned = makeTab({
+			key: "card:pinned",
+			id: "pinned",
+			title: "Pinned",
+			pinned: true,
+			order: 1,
+			lastActiveAt: 500,
+		});
+		const open = makeTab({
+			key: "card:open",
+			id: "open",
+			title: "Open",
+			order: 2,
+			lastActiveAt: 400,
+		});
+
+		const result = clearUnpinnedSidebarTabs([root, pinned, open], 600);
+
+		expect(result.tabs.map((tab) => tab.key)).toEqual([root.key, pinned.key]);
+		expect(result.fallbackTab.key).toBe(pinned.key);
 	});
 
 	test("closing the active tab returns the fallback target", () => {

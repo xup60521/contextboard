@@ -2,10 +2,15 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { FileText, Layers, Pin, PinOff, X } from "lucide-react";
 import { type CSSProperties, useMemo } from "react";
-import { isRootTab, type SidebarTab } from "./sidebar-tabs";
+import {
+	isRootTab,
+	type SidebarTab,
+	type SidebarTabSection,
+} from "./sidebar-tabs";
 
 type SidebarTabRowProps = {
 	tab: SidebarTab;
+	section: SidebarTabSection;
 	active: boolean;
 	onNavigate: (tab: SidebarTab) => void;
 	onPinToggle: (key: string) => void;
@@ -14,6 +19,7 @@ type SidebarTabRowProps = {
 
 export function SidebarTabRow({
 	tab,
+	section,
 	active,
 	onNavigate,
 	onPinToggle,
@@ -23,6 +29,10 @@ export function SidebarTabRow({
 	const { attributes, isDragging, listeners, setNodeRef, transform, transition } =
 		useSortable({
 			id: tab.key,
+			data: {
+				type: "tab",
+				section,
+			},
 			disabled: isFixedRoot,
 		});
 
@@ -45,6 +55,7 @@ export function SidebarTabRow({
 			{...(isFixedRoot ? {} : { ...attributes, ...listeners })}
 			data-dragging={isDragging ? "true" : "false"}
 			data-active={active ? "true" : "false"}
+			data-section={section}
 			className={[
 				"group flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[13px] transition-colors",
 				!isFixedRoot ? "cursor-grab active:cursor-grabbing" : "",
@@ -82,7 +93,12 @@ export function SidebarTabRow({
 			</button>
 
 			{!isFixedRoot && (
-				<div className="flex shrink-0 gap-px opacity-0 transition-opacity group-hover:opacity-100">
+				<div
+					className={[
+						"flex shrink-0 gap-px transition-opacity",
+						tab.pinned ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+					].join(" ")}
+				>
 					<button
 						type="button"
 						onClick={(e) => {

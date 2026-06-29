@@ -13,9 +13,11 @@ import {
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
+	clearUnpinnedSidebarTabs,
 	closeSidebarTab,
 	enforceUnpinnedTabLimit,
 	getRouteSidebarTabIdentity,
+	isRootTab,
 	type OpenTabInput,
 	openSidebarTab,
 	persistableSidebarTabs,
@@ -37,6 +39,7 @@ export type SidebarTabsContextValue = {
 	unpinTab: (key: string) => void;
 	togglePinned: (key: string) => void;
 	reorderTabs: (nextTabs: SidebarTab[]) => void;
+	clearOpenTabs: () => void;
 	navigateToTab: (tab: SidebarTab) => void;
 };
 
@@ -206,7 +209,7 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 			setTabs((current) =>
 				enforceUnpinnedTabLimit(
 					setSidebarTabPinned(current, key, false),
-					activeTabKey ?? key,
+					[activeTabKey, key],
 				),
 			);
 		},
@@ -220,7 +223,7 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 				const tab = next.find((item) => item.key === key);
 				return tab?.pinned
 					? next
-					: enforceUnpinnedTabLimit(next, activeTabKey ?? key);
+					: enforceUnpinnedTabLimit(next, [activeTabKey, key]);
 			});
 		},
 		[activeTabKey],
@@ -228,10 +231,23 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 
 	const reorderTabs = useCallback(
 		(nextTabs: SidebarTab[]) => {
-			setTabs(enforceUnpinnedTabLimit(nextTabs, activeTabKey ?? ""));
+			setTabs(nextTabs);
 		},
-		[activeTabKey],
+		[],
 	);
+
+	const clearOpenTabs = useCallback(() => {
+		const current = tabsRef.current;
+		const activeTab = activeTabKey
+			? current.find((tab) => tab.key === activeTabKey) ?? null
+			: null;
+		const result = clearUnpinnedSidebarTabs(current);
+		setTabs(result.tabs);
+
+		if (activeTab && !activeTab.pinned && !isRootTab(activeTab)) {
+			void navigateToTab(result.fallbackTab);
+		}
+	}, [activeTabKey, navigateToTab]);
 
 	const value = useMemo<SidebarTabsContextValue>(
 		() => ({
@@ -243,6 +259,7 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 			unpinTab,
 			togglePinned,
 			reorderTabs,
+			clearOpenTabs,
 			navigateToTab,
 		}),
 		[
@@ -251,6 +268,7 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 			navigateToTab,
 			openTab,
 			pinTab,
+			clearOpenTabs,
 			reorderTabs,
 			tabs,
 			togglePinned,

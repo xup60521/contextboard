@@ -28,6 +28,10 @@ export type OpenTabInput = {
 
 export const SIDEBAR_TABS_STORAGE_KEY = "contextboard.sidebarTabs.v1";
 export const MAX_UNPINNED_TABS = 12;
+export const PINNED_TABS_DROP_ID = "sidebar-drop:pinned";
+export const OPEN_TABS_DROP_ID = "sidebar-drop:open";
+
+export type SidebarTabSection = "pinned" | "open";
 
 export function whiteboardTabKey(id: string | null) {
 	return id === null ? "whiteboard:root" : `whiteboard:${id}`;
@@ -53,6 +57,10 @@ export function createRootTab(now = Date.now()): SidebarTab {
 
 export function isRootTab(tab: SidebarTab) {
 	return tab.key === whiteboardTabKey(null);
+}
+
+export function getSidebarTabSection(tab: SidebarTab): SidebarTabSection {
+	return tab.pinned ? "pinned" : "open";
 }
 
 export function getSidebarTabKey(kind: SidebarTabKind, id: string | null) {
@@ -100,8 +108,8 @@ export function normalizeOrders(tabs: SidebarTab[]) {
 	const rest = tabs
 		.filter((tab) => !isRootTab(tab))
 		.toSorted((a, b) => {
-			if (a.order !== b.order) return a.order - b.order;
 			if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+			if (a.order !== b.order) return a.order - b.order;
 			return a.lastActiveAt - b.lastActiveAt;
 		})
 		.map((tab, i) => ({ ...tab, order: i + 1 }));
@@ -351,7 +359,7 @@ export function getMostRecentlyActiveTab(tabs: SidebarTab[]) {
 
 export function enforceUnpinnedTabLimit(
 	tabs: SidebarTab[],
-	activeTabKey: string,
+	protectedTabKeys: string | readonly string[],
 	now = Date.now(),
 ) {
 	const normalized = normalizeTabs(tabs, now);
@@ -360,10 +368,15 @@ export function enforceUnpinnedTabLimit(
 		return normalized;
 	}
 
+	const protectedKeys = new Set(
+		(Array.isArray(protectedTabKeys) ? protectedTabKeys : [protectedTabKeys]).filter(
+			(key): key is string => typeof key === "string" && key.length > 0,
+		),
+	);
 	const victims = new Set<string>();
 	while (openTabs.length > MAX_UNPINNED_TABS) {
 		const candidate = openTabs
-			.filter((tab) => tab.key !== activeTabKey)
+			.filter((tab) => !protectedKeys.has(tab.key))
 			.toSorted((left, right) => {
 				if (left.lastActiveAt !== right.lastActiveAt) {
 					return left.lastActiveAt - right.lastActiveAt;
@@ -498,6 +511,126 @@ export function isCardLibraryRoute(pathname: string) {
 
 export function getCloseFallbackTab(tabs: SidebarTab[]) {
 	return getMostRecentlyActiveTab(tabs) ?? createRootTab();
+}
+
+function rebuildSidebarTabs(
+	root: SidebarTab,
+	pinnedTabs: SidebarTab[],
+	openTabs: SidebarTab[],
+	now = Date.now(),
+) {
+	return normalizeTabs(
+		[
+			{ ...root, pinned: true, order: 0 },
+			...pinnedTabs.map((tab, index) => ({
+				...tab,
+				pinned: true,
+				order: index + 1,
+			})),
+			...openTabs.map((tab, index) => ({
+				...tab,
+				pinned: false,
+				order: pinnedTabs.length + index + 1,
+			})),
+		],
+		now,
+	);
+}
+
+function getDropInsertIndex(tabs: SidebarTab[], overId?: string | null) {
+	if (!overId || overId === PINNED_TABS_DROP_ID || overId === OPEN_TABS_DROP_ID) {
+		return tabs.length;
+	}
+
+	const index = tabs.findIndex((tab) => tab.key === overId);
+	return index >= 0 ? index : tabs.length;
+}
+
+export function moveSidebarTabByDropTarget(
+	tabs: SidebarTab[],
+	activeKey: string,
+	overId: string | null,
+	targetSection: SidebarTabSection | null,
+	protectedTabKeys: readonly string[] = [],
+	now = Date.now(),
+) {
+	const normalized = normalizeTabs(tabs, now);
+	const root = normalized.find(isRootTab) ?? createRootTab(now);
+	const activeTab = normalized.find((tab) => tab.key === activeKey);
+	if (!activeTab || isRootTab(activeTab) || !targetSection) {
+		return normalized;
+	}
+
+	if (overId === activeKey) {
+		return normalized;
+	}
+
+	const secondaryTabs = normalized.filter((tab) => !isRootTab(tab));
+	const withoutActive = secondaryTabs.filter((tab) => tab.key !== activeKey);
+	const pinnedCountWithoutActive = withoutActive.filter((tab) => tab.pinned).length;
+
+	if (overId === PINNED_TABS_DROP_ID || overId === OPEN_TABS_DROP_ID) {
+		const pinnedTabs = withoutActive.filter((tab) => tab.pinned);
+		const openTabs = withoutActive.filter((tab) => !tab.pinned);
+		const movedTab = {
+			...activeTab,
+			pinned: targetSection === "pinned",
+			updatedAt: now,
+		};
+
+		if (targetSection === "pinned") {
+			pinnedTabs.push(movedTab);
+			return rebuildSidebarTabs(root, pinnedTabs, openTabs, now);
+		}
+
+		openTabs.push(movedTab);
+		return enforceUnpinnedTabLimit(
+			rebuildSidebarTabs(root, pinnedTabs, openTabs, now),
+			[activeKey, ...protectedTabKeys],
+			now,
+		);
+	}
+
+	const insertIndex = getDropInsertIndex(withoutActive, overId);
+	const shouldBePinned =
+		insertIndex < pinnedCountWithoutActive
+			? true
+			: insertIndex > pinnedCountWithoutActive
+				? false
+				: !activeTab.pinned;
+	const pinnedCountFinal = shouldBePinned
+		? pinnedCountWithoutActive + 1
+		: pinnedCountWithoutActive;
+	const combined = [...withoutActive];
+	combined.splice(insertIndex, 0, {
+		...activeTab,
+		pinned: shouldBePinned,
+		updatedAt: now,
+	});
+
+	const next = rebuildSidebarTabs(
+		root,
+		combined.slice(0, pinnedCountFinal),
+		combined.slice(pinnedCountFinal),
+		now,
+	);
+
+	return shouldBePinned
+		? next
+		: enforceUnpinnedTabLimit(next, [activeKey, ...protectedTabKeys], now);
+}
+
+export function clearUnpinnedSidebarTabs(tabs: SidebarTab[], now = Date.now()) {
+	const normalized = normalizeTabs(tabs, now);
+	const nextTabs = normalizeTabs(
+		normalized.filter((tab) => isRootTab(tab) || tab.pinned),
+		now,
+	);
+
+	return {
+		tabs: nextTabs,
+		fallbackTab: getCloseFallbackTab(nextTabs),
+	};
 }
 
 export function moveSidebarTab(

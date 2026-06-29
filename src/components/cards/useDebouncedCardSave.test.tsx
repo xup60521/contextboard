@@ -21,8 +21,14 @@ const SECOND_CONTENT: JSONContent = {
 	content: [{ type: "paragraph", content: [{ type: "text", text: "Second" }] }],
 };
 
-function Harness({ children }: { children?: ReactNode }) {
-	const { scheduleSave, flushSave } = useDebouncedCardSave(CARD_ID);
+function Harness({
+	cardId = CARD_ID,
+	children,
+}: {
+	cardId?: Id<"cards">;
+	children?: ReactNode;
+}) {
+	const { scheduleSave, flushSave } = useDebouncedCardSave(cardId);
 
 	return (
 		<div>
@@ -74,6 +80,19 @@ describe("useDebouncedCardSave", () => {
 
 		fireEvent.click(screen.getByText("schedule first"));
 		unmount();
+
+		expect(updateContentMock).toHaveBeenCalledTimes(1);
+		expect(updateContentMock).toHaveBeenCalledWith({
+			cardId: CARD_ID,
+			content: FIRST_CONTENT,
+		});
+	});
+
+	test("flushes pending content for the previous card before switching ids", () => {
+		const { rerender } = render(<Harness cardId={CARD_ID} />);
+
+		fireEvent.click(screen.getByText("schedule first"));
+		rerender(<Harness cardId={"card-2" as Id<"cards">} />);
 
 		expect(updateContentMock).toHaveBeenCalledTimes(1);
 		expect(updateContentMock).toHaveBeenCalledWith({
