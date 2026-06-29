@@ -1,3 +1,4 @@
+import type { AnyExtension } from "@tiptap/core";
 import {
 	Details,
 	DetailsContent,
@@ -11,32 +12,19 @@ import { TableKit } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
 import { CardLink } from "./card-reference/card-link";
 import { CardReferenceExtension } from "./card-reference/card-reference";
-import type { CardReferenceSupport } from "./card-reference/types";
 import { ImageInput } from "./ImageInputExtension";
 import {
 	createImageUploadExtension,
 	type ImageUploadHandler,
 } from "./ImageUploadExtension";
 import { MarkdownPaste } from "./MarkdownPasteExtension";
+import type {
+	MathSelection,
+	RichTextRuntimeRefs,
+} from "./RichTextEditor.types";
 import { SlashCommand } from "./slash/slash-command";
 
 export type { ImageUploadHandler };
-
-export type MathSelection = {
-	pos: number;
-	type: "inline" | "block";
-	latex: string;
-};
-
-type MutableRefObject<T> = {
-	current: T;
-};
-
-export type RichTextRuntimeRefs = {
-	editableRef: MutableRefObject<boolean>;
-	onImageUploadRef: MutableRefObject<ImageUploadHandler | undefined>;
-	cardReferenceSupportRef: MutableRefObject<CardReferenceSupport | undefined>;
-};
 
 export type RichTextExtensionOptions = {
 	/** Placeholder text for the editor. */
@@ -97,13 +85,10 @@ export const EditorImage = Image.extend({
  * surfaces. Runtime differences are derived from refs so mount order does not
  * lock the editor into different capabilities.
  */
-export function createRichTextExtensions(
-	options: RichTextExtensionOptions,
-) {
+export function createRichTextExtensions(options: RichTextExtensionOptions) {
 	const { placeholder, runtime, onMathClick } = options;
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const extensions: any[] = [
+	const extensions = [
 		StarterKit.configure({
 			link: { openOnClick: false },
 		}),
@@ -193,12 +178,7 @@ export function createRichTextExtensions(
 				: undefined,
 		}),
 		FileHandler.configure({
-			allowedMimeTypes: [
-				"image/jpeg",
-				"image/png",
-				"image/gif",
-				"image/webp",
-			],
+			allowedMimeTypes: ["image/jpeg", "image/png", "image/gif", "image/webp"],
 			onDrop: (editor, files, pos) => {
 				if (!runtime.editableRef.current) {
 					return;
@@ -260,20 +240,23 @@ export function createRichTextExtensions(
 			showOnlyWhenEditable: true,
 		}),
 		SlashCommand,
-		createImageUploadExtension(() => (file) =>
-			resolveImageSrc(file, runtime.onImageUploadRef.current).then((image) => {
-				if (!image) {
-					throw new Error("Image upload failed");
-				}
-				return image;
-			}),
+		createImageUploadExtension(
+			() => (file) =>
+				resolveImageSrc(file, runtime.onImageUploadRef.current).then(
+					(image) => {
+						if (!image) {
+							throw new Error("Image upload failed");
+						}
+						return image;
+					},
+				),
 		),
 		CardReferenceExtension.configure({
 			search: (query, signal) =>
 				runtime.cardReferenceSupportRef.current?.search(query, signal) ??
 				Promise.resolve([]),
 		}),
-	];
+	] satisfies AnyExtension[];
 
 	return extensions;
 }

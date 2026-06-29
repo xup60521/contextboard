@@ -2,12 +2,9 @@ import { computePosition, flip, offset, shift } from "@floating-ui/dom";
 import type { Editor } from "@tiptap/core";
 import { Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { MathSelection } from "./RichTextEditor.types";
 
-export type MathSelection = {
-	pos: number;
-	type: "inline" | "block";
-	latex: string;
-};
+export type { MathSelection } from "./RichTextEditor.types";
 
 type MathEditorProps = {
 	editor: Editor;
