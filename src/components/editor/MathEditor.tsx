@@ -131,49 +131,43 @@ export function MathEditor({ editor, selection, onClose }: MathEditorProps) {
 	return (
 		<div
 			ref={popupRef}
-			className="fixed top-0 left-0 z-50 w-80 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-3 shadow-[0_18px_44px_rgba(23,58,64,0.18)] backdrop-blur-md transition-opacity"
+			className="fixed top-0 left-0 z-50 w-72 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-2 shadow-[0_18px_44px_rgba(23,58,64,0.18)] backdrop-blur-md transition-opacity"
 			style={{ opacity: isPositioned ? 1 : 0 }}
 		>
-			<div className="mb-1.5 flex items-center justify-between">
-				<span className="text-xs font-semibold tracking-wide text-[var(--sea-ink-soft)] uppercase">
-					{type === "inline" ? "Inline math" : "Block math"} - LaTeX
-				</span>
+			<div className="relative">
+				<textarea
+					ref={textareaRef}
+					value={latex}
+					spellCheck={false}
+					rows={type === "inline" ? 2 : 4}
+					placeholder="e.g. \frac{a}{b}"
+					onChange={(event) => applyLatex(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							closeAndFocus();
+						}
+						if (event.key === "Enter") {
+							event.preventDefault();
+							if (event.ctrlKey || event.shiftKey) {
+								insertLineBreak(event.currentTarget);
+								return;
+							}
+							closeAndFocus();
+						}
+					}}
+					className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--surface)] py-2 pr-7 pl-2.5 font-mono text-sm text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)]/60 focus:outline-none focus:border-[var(--sea-ink-soft)]"
+				/>
 				<button
 					type="button"
 					onClick={removeMath}
 					title="Remove equation"
 					aria-label="Remove equation"
-					className="flex size-6 items-center justify-center rounded-md text-[var(--sea-ink-soft)] transition-colors hover:bg-[var(--link-bg-hover)] hover:text-[var(--destructive)]"
+					className="absolute top-1.5 right-1.5 flex size-5 items-center justify-center rounded text-[var(--sea-ink-soft)]/40 transition-colors hover:text-[var(--destructive)]"
 				>
-					<Trash2 className="size-3.5" />
+					<Trash2 className="size-3" />
 				</button>
 			</div>
-			<textarea
-				ref={textareaRef}
-				value={latex}
-				spellCheck={false}
-				rows={type === "inline" ? 2 : 4}
-				placeholder="e.g. \frac{a}{b}"
-				onChange={(event) => applyLatex(event.target.value)}
-				onKeyDown={(event) => {
-					if (event.key === "Escape") {
-						event.preventDefault();
-						closeAndFocus();
-					}
-					if (event.key === "Enter") {
-						event.preventDefault();
-						if (event.ctrlKey || event.shiftKey) {
-							insertLineBreak(event.currentTarget);
-							return;
-						}
-						closeAndFocus();
-					}
-				}}
-				className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2 font-mono text-sm text-[var(--sea-ink)] focus:outline-none focus:ring-2 focus:ring-[var(--lagoon)]"
-			/>
-			<p className="mt-1.5 text-[11px] text-[var(--sea-ink-soft)]">
-				Preview updates live - Enter closes - Shift/Ctrl+Enter inserts a line
-			</p>
 		</div>
 	);
 }
