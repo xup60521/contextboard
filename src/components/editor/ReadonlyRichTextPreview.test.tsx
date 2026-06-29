@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { JSONContent } from "@tiptap/core";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { ReadonlyRichTextPreview } from "./ReadonlyRichTextPreview";
 
 if (!("getClientRects" in Text.prototype)) {
@@ -12,6 +12,12 @@ if (!("getClientRects" in Text.prototype)) {
 if (!("getBoundingClientRect" in Text.prototype)) {
 	Object.defineProperty(Text.prototype, "getBoundingClientRect", {
 		value: () => new DOMRect(),
+	});
+}
+
+if (typeof document.elementFromPoint !== "function") {
+	Object.defineProperty(document, "elementFromPoint", {
+		value: () => document.body,
 	});
 }
 
@@ -36,7 +42,7 @@ const HEADING_CONTENT: JSONContent = {
 	],
 };
 
-const _INLINE_MATH_CONTENT: JSONContent = {
+const INLINE_MATH_CONTENT: JSONContent = {
 	type: "doc",
 	content: [
 		{
@@ -44,14 +50,8 @@ const _INLINE_MATH_CONTENT: JSONContent = {
 			content: [
 				{ type: "text", text: "Formula: " },
 				{
-					type: "text",
-					text: "E=mc^2",
-					marks: [
-						{
-							type: "mathInline",
-							attrs: { latex: "E=mc^2" },
-						},
-					],
+					type: "inlineMath",
+					attrs: { latex: "E=mc^2" },
 				},
 			],
 		},
@@ -264,10 +264,14 @@ describe("ReadonlyRichTextPreview", () => {
 	});
 
 	test("renders images", async () => {
-		render(<ReadonlyRichTextPreview content={IMAGE_CONTENT} />);
+		const { container } = render(
+			<ReadonlyRichTextPreview content={IMAGE_CONTENT} />,
+		);
 
 		await waitFor(() => {
-			expect(screen.getByRole("img", { name: "Preview image" })).not.toBeNull();
+			const image = container.querySelector("img[alt='Preview image']");
+			expect(image).not.toBeNull();
+			expect(image?.getAttribute("src")).toBe("https://example.com/image.png");
 		});
 	});
 
@@ -289,6 +293,46 @@ describe("ReadonlyRichTextPreview", () => {
 			expect(link).not.toBeNull();
 			expect(link.getAttribute("href")).toBe("/cards/abc123");
 		});
+	});
+
+	test("opens card references on modifier click when preview support is provided", async () => {
+		const onOpenPreview = vi.fn<(cardId: string) => void>();
+		const search = vi.fn(async () => []);
+
+		render(
+			<ReadonlyRichTextPreview
+				content={CARD_REFERENCE_CONTENT}
+				cardReferenceSupport={{ search, onOpenPreview }}
+			/>,
+		);
+
+		const link = await screen.findByRole("link", { name: "My Card" });
+		expect(link.getAttribute("data-card-id")).toBe("abc123");
+		fireEvent.mouseDown(link, { ctrlKey: true });
+		fireEvent.mouseUp(link, { ctrlKey: true });
+		fireEvent.click(link, { ctrlKey: true });
+
+		expect(onOpenPreview).toHaveBeenCalledWith("abc123");
+	});
+
+	test("does not open the math editor in readonly mode", async () => {
+		const { container } = render(
+			<ReadonlyRichTextPreview content={INLINE_MATH_CONTENT} />,
+		);
+
+		const inlineMath = await waitFor(() => {
+			const element = container.querySelector<HTMLElement>(
+				'[data-type="inline-math"]',
+			);
+			expect(element).not.toBeNull();
+			if (!element) {
+				throw new Error("Inline math was not rendered");
+			}
+			return element;
+		});
+
+		fireEvent.click(inlineMath);
+		expect(screen.queryByText("Inline math - LaTeX")).toBeNull();
 	});
 
 	test("does not expose contenteditable=true", async () => {
@@ -317,11 +361,12 @@ describe("ReadonlyRichTextPreview", () => {
 	});
 
 	test("renders empty content gracefully", async () => {
-		render(<ReadonlyRichTextPreview content={null} />);
+		const { container } = render(<ReadonlyRichTextPreview content={null} />);
 
 		await waitFor(() => {
 			const prosemirror = document.querySelector(".ProseMirror");
 			expect(prosemirror).not.toBeNull();
+			expect(container.querySelector(".is-editor-empty")).toBeNull();
 		});
 	});
 });

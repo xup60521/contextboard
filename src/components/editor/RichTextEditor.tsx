@@ -20,13 +20,13 @@ import { ImageCommand } from "./slash/ImageCommand";
 import { TableHandlesOverlay } from "./table/TableHandlesOverlay";
 
 type RichTextEditorProps = {
-	/** Initial document (TipTap JSON). The editor is the source of truth after mount. */
+	/** Initial document (TipTap JSON). The editor is the source of truth after mount unless syncContentOnPropChange is enabled. */
 	content?: JSONContent | null;
 	onChange?: (value: JSONContent) => void;
 	onReady?: () => void;
 	placeholder?: string;
 	className?: string;
-	/** When false, the editor is read-only. Defaults to true. */
+	/** When false, the editor keeps the same renderer but disables editing. */
 	editable?: boolean;
 	/** Class applied to the editing surface (e.g. min-height). */
 	contentClassName?: string;
@@ -46,6 +46,10 @@ type RichTextEditorProps = {
 	 * dependencies (card-reference link marks still render and round-trip).
 	 */
 	cardReferenceSupport?: CardReferenceSupport;
+	/** Whether to render editing chrome such as menus and popovers. */
+	showChrome?: boolean;
+	/** Whether to push prop content updates into the mounted editor instance. */
+	syncContentOnPropChange?: boolean;
 };
 
 type MathCandidate = MathSelection & {
@@ -160,6 +164,8 @@ export function RichTextEditor({
 	selectContentOnFocus = false,
 	onImageUpload,
 	cardReferenceSupport,
+	showChrome = true,
+	syncContentOnPropChange = false,
 }: RichTextEditorProps) {
 	const [mathSelection, setMathSelection] = useState<MathSelection | null>(
 		null,
@@ -170,16 +176,15 @@ export function RichTextEditor({
 	const imageInputPosRef = useRef<number | null>(null);
 	const didNotifyReadyRef = useRef(false);
 	const wasEditableRef = useRef(editable);
-	// `useEditor` captures config once at creation; read the latest uploader
-	// through a ref so paste/drop always use the current handler.
+	const editableRef = useRef(editable);
+	editableRef.current = editable;
+	// `useEditor` captures config once at creation; read the latest runtime
+	// state through refs so one TipTap instance can serve editable and readonly
+	// surfaces without depending on first mount state.
 	const onImageUploadRef = useRef(onImageUpload);
 	onImageUploadRef.current = onImageUpload;
-	// Same pattern for card-reference support, so the `@` search and
-	// modifier-click-to-preview always use the current handlers.
 	const cardReferenceSupportRef = useRef(cardReferenceSupport);
 	cardReferenceSupportRef.current = cardReferenceSupport;
-	// Whether to register the `@` picker is decided once, at editor creation.
-	const enableCardReferencesRef = useRef(Boolean(cardReferenceSupport));
 
 	function openMathSelection(selection: MathSelection | null) {
 		mathSelectionRef.current = selection;
@@ -190,12 +195,12 @@ export function RichTextEditor({
 		// Required under TanStack Start SSR to avoid a hydration mismatch.
 		immediatelyRender: false,
 		extensions: createRichTextExtensions({
-			mode: editable ? "editable" : "readonly",
 			placeholder,
-			onImageUpload,
-			cardReferenceSupport: enableCardReferencesRef.current
-				? cardReferenceSupport
-				: undefined,
+			runtime: {
+				editableRef,
+				onImageUploadRef,
+				cardReferenceSupportRef,
+			},
 			onMathClick: (selection) => openMathSelection(selection),
 		}),
 		content: content ?? "",
@@ -263,6 +268,10 @@ export function RichTextEditor({
 
 		editor.setEditable(editable);
 
+		if (!editable && editor.state.selection instanceof NodeSelection) {
+			editor.commands.setTextSelection(editor.state.doc.content.size);
+		}
+
 		if (editable && !wasEditableRef.current) {
 			editor.commands.focus(defaultFocusPosition);
 
@@ -278,7 +287,15 @@ export function RichTextEditor({
 		}
 
 		if (!editable && wasEditableRef.current) {
+			openMathSelection(null);
 			editor.commands.blur();
+			if (imageInputPosRef.current !== null) {
+				imageInputPosRef.current = null;
+				setImageInputPos(null);
+				editor.view.dispatch(
+					editor.state.tr.setMeta(imageInputPluginKey, { pos: null }),
+				);
+			}
 
 			const container = containerRef.current;
 			const selection = window.getSelection();
@@ -295,6 +312,14 @@ export function RichTextEditor({
 
 		wasEditableRef.current = editable;
 	}, [editor, editable, defaultFocusPosition, selectContentOnFocus]);
+
+	useEffect(() => {
+		if (!editor || !syncContentOnPropChange) {
+			return;
+		}
+
+		editor.commands.setContent(content ?? "", { emitUpdate: false });
+	}, [content, editor, syncContentOnPropChange]);
 
 	useEffect(() => {
 		if (!editor || !onReady || didNotifyReadyRef.current) {
@@ -346,17 +371,23 @@ export function RichTextEditor({
 	return (
 		<div
 			ref={containerRef}
-			className={cn(className, "rich-text-editor-shell relative cursor-text")}
+			className={cn(
+				className,
+				"rich-text-editor-shell relative",
+				editable && "cursor-text",
+			)}
 		>
-			<EditorBubbleMenu editor={editor} />
+			{showChrome && editable && <EditorBubbleMenu editor={editor} />}
 			<EditorContent editor={editor} />
-			{editable && (
+			{showChrome && editable && (
 				<>
 					<TableHandlesOverlay editor={editor} containerRef={containerRef} />
 				</>
 			)}
-			{imageInputPos !== null && <ImageCommand editor={editor} />}
-			{mathSelection && (
+			{showChrome && editable && imageInputPos !== null && (
+				<ImageCommand editor={editor} />
+			)}
+			{showChrome && editable && mathSelection && (
 				<MathEditor
 					key={mathSelection.pos}
 					editor={editor}

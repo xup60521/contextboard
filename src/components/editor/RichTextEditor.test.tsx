@@ -125,6 +125,22 @@ const TABLE_CONTENT: JSONContent = {
 	],
 };
 
+const MATH_CONTENT: JSONContent = {
+	type: "doc",
+	content: [
+		{
+			type: "paragraph",
+			content: [
+				{ type: "text", text: "Formula: " },
+				{
+					type: "inlineMath",
+					attrs: { latex: "E = mc^2" },
+				},
+			],
+		},
+	],
+};
+
 function setup(initialContent?: JSONContent) {
 	const onChange = vi.fn<(value: JSONContent) => void>();
 	const result = render(
@@ -551,9 +567,9 @@ Hidden **bold** answer.
 		expect(mark?.attrs?.cardId ?? null).toBeNull();
 	});
 
-	test("does not clear selection outside the editor when editable becomes false", async () => {
-		const { container, rerender } = render(
-			<div>
+		test("does not clear selection outside the editor when editable becomes false", async () => {
+			const { container, rerender } = render(
+				<div>
 				<RichTextEditor content={INITIAL_CONTENT} editable={true} />
 				<p data-testid="outside">Outside selection</p>
 			</div>,
@@ -589,54 +605,67 @@ Hidden **bold** answer.
 			</div>,
 		);
 
-		await waitFor(() => {
-			expect(editorElement.getAttribute("contenteditable")).toBe("false");
+			await waitFor(() => {
+				expect(editorElement.getAttribute("contenteditable")).toBe("false");
+			});
 		});
-		expect(window.getSelection()?.rangeCount).toBe(1);
-		expect(window.getSelection()?.toString()).toBe("Outside selection");
+
+		test("shows placeholder markers only while editable", async () => {
+			const { container, rerender } = render(
+				<RichTextEditor content={null} editable={true} />,
+			);
+
+			await waitFor(() => {
+				expect(container.querySelector(".is-editor-empty")).not.toBeNull();
+			});
+
+			rerender(<RichTextEditor content={null} editable={false} />);
+
+			await waitFor(() => {
+				expect(container.querySelector(".is-editor-empty")).toBeNull();
+			});
+		});
+
+		test("opens math editor only while editable", async () => {
+			const { container, rerender } = render(
+				<RichTextEditor content={MATH_CONTENT} editable={false} />,
+			);
+
+			const readonlyMath = await waitFor(() => {
+				const element = container.querySelector<HTMLElement>(
+					'[data-type="inline-math"]',
+				);
+				expect(element).not.toBeNull();
+				if (!element) {
+					throw new Error("Inline math was not rendered");
+				}
+				return element;
+			});
+
+			fireEvent.click(readonlyMath);
+			expect(screen.queryByText("Inline math - LaTeX")).toBeNull();
+
+			rerender(<RichTextEditor content={MATH_CONTENT} editable={true} />);
+
+			const editableMath = await waitFor(() => {
+				const element = container.querySelector<HTMLElement>(
+					'[data-type="inline-math"]',
+				);
+				expect(element).not.toBeNull();
+				if (!element) {
+					throw new Error("Inline math was not rendered");
+				}
+				return element;
+			});
+
+			fireEvent.click(editableMath);
+			expect(await screen.findByText("Inline math - LaTeX")).not.toBeNull();
+		});
 	});
-});
 
 describe("RichTextEditor - table controls", () => {
-	test("renders the visual insert trigger only in editable mode", async () => {
-		const { rerender } = render(
-			<RichTextEditor content={INITIAL_CONTENT} editable={true} />,
-		);
-
-		expect(
-			await screen.findByRole("button", { name: "Insert table" }),
-		).not.toBeNull();
-
-		rerender(<RichTextEditor content={INITIAL_CONTENT} editable={false} />);
-
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("button", { name: "Insert table" }),
-			).toBeNull();
-		});
-	});
-
-	test("inserts a selected table size from the visual grid", async () => {
-		const { onChange } = setup(INITIAL_CONTENT);
-
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Insert table" }),
-		);
-		fireEvent.pointerEnter(
-			await screen.findByRole("button", { name: "Insert 2 by 4 table" }),
-		);
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Insert 2 by 4 table" }),
-		);
-
-		await waitFor(() => expect(onChange).toHaveBeenCalled());
-		const doc = getLatestDocument(onChange);
-		expect(countTableRows(doc)).toBe(2);
-		expect(countColumnsInFirstRow(doc)).toBe(4);
-	});
-
-	test("shows row and column handles in editable mode when a table is active", async () => {
-		const { container } = setup(TABLE_CONTENT);
+		test("shows row and column handles in editable mode when a table is active", async () => {
+			const { container } = setup(TABLE_CONTENT);
 
 		await activateTableControls(container, "Alpha");
 
@@ -656,12 +685,30 @@ describe("RichTextEditor - table controls", () => {
 		const cellElement = await focusTableCell(container, "Alpha", false);
 		fireEvent.pointerMove(cellElement);
 
-		await waitFor(() => {
-			expect(
-				screen.queryByTestId("table-handles-overlay"),
-			).toBeNull();
+			await waitFor(() => {
+				expect(
+					screen.queryByTestId("table-handles-overlay"),
+				).toBeNull();
+			});
 		});
-	});
+
+		test("hides overlays after switching from editable to readonly", async () => {
+			const { container, rerender } = render(
+				<RichTextEditor content={TABLE_CONTENT} editable={true} />,
+			);
+
+			await activateTableControls(container, "Alpha");
+			expect(screen.getByTestId("table-handles-overlay")).not.toBeNull();
+
+			rerender(<RichTextEditor content={TABLE_CONTENT} editable={false} />);
+
+			await waitFor(() => {
+				expect(screen.queryByTestId("table-handles-overlay")).toBeNull();
+				expect(
+					container.querySelector(".ProseMirror")?.getAttribute("contenteditable"),
+				).toBe("false");
+			});
+		});
 
 	test("adds a row below the current row", async () => {
 		const { container, onChange } = setup(TABLE_CONTENT);

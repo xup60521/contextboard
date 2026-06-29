@@ -28,17 +28,22 @@ export type MathSelection = {
 	latex: string;
 };
 
-export type RichTextExtensionMode = "editable" | "readonly";
+type MutableRefObject<T> = {
+	current: T;
+};
+
+export type RichTextRuntimeRefs = {
+	editableRef: MutableRefObject<boolean>;
+	onImageUploadRef: MutableRefObject<ImageUploadHandler | undefined>;
+	cardReferenceSupportRef: MutableRefObject<CardReferenceSupport | undefined>;
+};
 
 export type RichTextExtensionOptions = {
-	mode: RichTextExtensionMode;
-	/** Placeholder text for the editor (only used in editable mode). */
+	/** Placeholder text for the editor. */
 	placeholder?: string;
-	/** Image upload handler (only used in editable mode). */
-	onImageUpload?: ImageUploadHandler;
-	/** Card reference support for the @ picker (only used in editable mode). */
-	cardReferenceSupport?: CardReferenceSupport;
-	/** Called when a math node is clicked (only used in editable mode). */
+	/** Runtime refs read by long-lived extensions after mount. */
+	runtime: RichTextRuntimeRefs;
+	/** Called when a math node is clicked in editable mode. */
 	onMathClick?: (selection: MathSelection) => void;
 };
 
@@ -88,44 +93,14 @@ export const EditorImage = Image.extend({
 });
 
 /**
- * Creates the TipTap extension list for a given mode.
- *
- * In `editable` mode, all extensions are included (matching the original
- * RichTextEditor behavior). In `readonly` mode, only rendering-critical
- * extensions are included — no file handling, markdown paste, slash commands,
- * image upload, placeholder, or card reference picker.
+ * Creates the single TipTap extension list shared by editable and readonly
+ * surfaces. Runtime differences are derived from refs so mount order does not
+ * lock the editor into different capabilities.
  */
 export function createRichTextExtensions(
 	options: RichTextExtensionOptions,
 ) {
-	const {
-		mode,
-		placeholder,
-		onImageUpload,
-		cardReferenceSupport,
-		onMathClick,
-	} = options;
-	const isEditable = mode === "editable";
-
-	// Refs for latest handlers — these are captured at editor creation time
-	// but we wrap them in closures so the extension list doesn't need to change.
-	let currentOnImageUpload: ImageUploadHandler | undefined = onImageUpload;
-	let currentCardReferenceSupport: CardReferenceSupport | undefined =
-		cardReferenceSupport;
-
-	if (isEditable && onImageUpload) {
-		// Keep ref current for paste/drop handlers
-		const uploadHandler = onImageUpload;
-		const wrappedHandler: ImageUploadHandler = (file) => uploadHandler(file);
-		currentOnImageUpload = wrappedHandler;
-	}
-
-	if (isEditable && cardReferenceSupport) {
-		const support = cardReferenceSupport;
-		currentCardReferenceSupport = support;
-	}
-
-	const enableCardReferences = Boolean(cardReferenceSupport);
+	const { placeholder, runtime, onMathClick } = options;
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const extensions: any[] = [
@@ -133,29 +108,26 @@ export function createRichTextExtensions(
 			link: { openOnClick: false },
 		}),
 		CardLink.configure({
-			onOpenPreview: isEditable
-				? (cardId) =>
-						currentCardReferenceSupport?.onOpenPreview(cardId) ?? undefined
-				: null,
+			onOpenPreview: (cardId) =>
+				runtime.cardReferenceSupportRef.current?.onOpenPreview(cardId) ??
+				undefined,
 		}),
 		EditorImage.configure({
 			inline: false,
 			allowBase64: true,
-			resize: isEditable
-				? {
-						enabled: true,
-						directions: ["top", "bottom", "left", "right"],
-						minWidth: 50,
-						minHeight: 50,
-					}
-				: undefined,
+			resize: {
+				enabled: true,
+				directions: ["top", "bottom", "left", "right"],
+				minWidth: 50,
+				minHeight: 50,
+			},
 			HTMLAttributes: {
 				class: "editor-image",
 			},
 		}),
 		TableKit.configure({
 			table: {
-				resizable: isEditable,
+				resizable: true,
 				cellMinWidth: 96,
 				HTMLAttributes: {
 					class: "editor-table",
@@ -189,45 +161,53 @@ export function createRichTextExtensions(
 			},
 		}),
 		Mathematics.configure({
-			inlineOptions: isEditable && onMathClick
+			inlineOptions: onMathClick
 				? {
-						onClick: (node, pos) =>
+						onClick: (node, pos) => {
+							if (!runtime.editableRef.current) {
+								return;
+							}
+
 							onMathClick({
 								pos,
 								type: "inline",
 								latex: String(node.attrs.latex ?? ""),
-							}),
+							});
+						},
 					}
 				: undefined,
-			blockOptions: isEditable && onMathClick
+			blockOptions: onMathClick
 				? {
-						onClick: (node, pos) =>
+						onClick: (node, pos) => {
+							if (!runtime.editableRef.current) {
+								return;
+							}
+
 							onMathClick({
 								pos,
 								type: "block",
 								latex: String(node.attrs.latex ?? ""),
-							}),
+							});
+						},
 					}
 				: undefined,
 		}),
-	];
+		FileHandler.configure({
+			allowedMimeTypes: [
+				"image/jpeg",
+				"image/png",
+				"image/gif",
+				"image/webp",
+			],
+			onDrop: (editor, files, pos) => {
+				if (!runtime.editableRef.current) {
+					return;
+				}
 
-	// Editable-only extensions
-	if (isEditable) {
-		const onImageUploadRef = currentOnImageUpload;
-
-		extensions.push(
-			FileHandler.configure({
-				allowedMimeTypes: [
-					"image/jpeg",
-					"image/png",
-					"image/gif",
-					"image/webp",
-				],
-				onDrop: (editor, files, pos) => {
-					for (const file of files) {
-						if (!file.type.startsWith("image/")) continue;
-						void resolveImageSrc(file, onImageUploadRef).then((image) => {
+				for (const file of files) {
+					if (!file.type.startsWith("image/")) continue;
+					void resolveImageSrc(file, runtime.onImageUploadRef.current).then(
+						(image) => {
 							if (!image) return;
 							editor
 								.chain()
@@ -243,13 +223,19 @@ export function createRichTextExtensions(
 									});
 								})
 								.run();
-						});
-					}
-				},
-				onPaste: (editor, files) => {
-					for (const file of files) {
-						if (!file.type.startsWith("image/")) continue;
-						void resolveImageSrc(file, onImageUploadRef).then((image) => {
+						},
+					);
+				}
+			},
+			onPaste: (editor, files) => {
+				if (!runtime.editableRef.current) {
+					return;
+				}
+
+				for (const file of files) {
+					if (!file.type.startsWith("image/")) continue;
+					void resolveImageSrc(file, runtime.onImageUploadRef.current).then(
+						(image) => {
 							if (!image) return;
 							editor
 								.chain()
@@ -262,32 +248,32 @@ export function createRichTextExtensions(
 									},
 								})
 								.run();
-						});
-					}
-				},
+						},
+					);
+				}
+			},
+		}),
+		MarkdownPaste,
+		ImageInput,
+		Placeholder.configure({
+			placeholder: placeholder ?? "Type '/' for commands",
+			showOnlyWhenEditable: true,
+		}),
+		SlashCommand,
+		createImageUploadExtension(() => (file) =>
+			resolveImageSrc(file, runtime.onImageUploadRef.current).then((image) => {
+				if (!image) {
+					throw new Error("Image upload failed");
+				}
+				return image;
 			}),
-			MarkdownPaste,
-			ImageInput,
-			Placeholder.configure({
-				placeholder: placeholder ?? "Type '/' for commands",
-			}),
-			SlashCommand,
-		);
-
-		if (currentOnImageUpload) {
-			extensions.push(createImageUploadExtension(currentOnImageUpload));
-		}
-
-		if (enableCardReferences && currentCardReferenceSupport) {
-			extensions.push(
-				CardReferenceExtension.configure({
-					search: (query, signal) =>
-						currentCardReferenceSupport?.search(query, signal) ??
-						Promise.resolve([]),
-				}),
-			);
-		}
-	}
+		),
+		CardReferenceExtension.configure({
+			search: (query, signal) =>
+				runtime.cardReferenceSupportRef.current?.search(query, signal) ??
+				Promise.resolve([]),
+		}),
+	];
 
 	return extensions;
 }

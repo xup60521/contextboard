@@ -2,7 +2,13 @@ import { Extension } from "@tiptap/core";
 import type { UploadedImage } from "./ImageUpload";
 
 export type ImageUploadHandler = (file: File) => Promise<UploadedImage>;
-export type ImageUploadHandlerGetter = () => ImageUploadHandler | undefined;
+type ImageInsertResult = {
+	src: string;
+	fileId?: string | null;
+};
+
+export type ImageUploadHandlerGetter =
+	() => ((file: File) => Promise<ImageInsertResult>) | undefined;
 
 declare module "@tiptap/core" {
 	interface Commands<ReturnType> {
