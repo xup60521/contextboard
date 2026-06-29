@@ -37,6 +37,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
 import { RichTextEditor } from "../editor/RichTextEditor";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
+import { hydrateCardShapes } from "./whiteboard-canvas-helpers";
 
 /**
  * The whiteboard a markdown card lives on, so its editor can offer card
@@ -63,7 +64,10 @@ export type MarkdownCardShape = TLBaseShape<
 		h: number;
 		content: string;
 		cardId?: string;
-		version?: number;
+		title?: string;
+		preview?: string;
+		contentLoaded?: boolean;
+		contentVersion?: number;
 	}
 >;
 
@@ -90,7 +94,10 @@ export const markdownCardShapeProps = {
 	h: T.number,
 	content: T.string,
 	cardId: T.string.optional(),
-	version: T.number.optional(),
+	title: T.string.optional(),
+	preview: T.string.optional(),
+	contentLoaded: T.boolean.optional(),
+	contentVersion: T.number.optional(),
 } satisfies RecordProps<MarkdownCardShape>;
 
 export const subwhiteboardLinkShapeProps = {
@@ -187,6 +194,72 @@ function parseMarkdownContent(content: string): JSONContent | null {
 	}
 }
 
+function isConvexCardLoaded(shape: MarkdownCardShape) {
+	return !shape.props.cardId || shape.props.contentLoaded === true;
+}
+
+function SummaryCardShell({
+	shape,
+}: {
+	shape: MarkdownCardShape;
+}) {
+	const cardId = shape.props.cardId as Id<"cards">;
+	const hasSummary = Boolean(shape.props.title || shape.props.preview);
+
+	return (
+		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
+			<div className="relative h-full w-full overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)] shadow-sm">
+				<Link
+					to="/cards/$cardId"
+					params={{ cardId }}
+					draggable={false}
+					onPointerDown={(e) => {
+						stopEventPropagation(e);
+						e.stopPropagation();
+					}}
+					onPointerUp={(e) => {
+						stopEventPropagation(e);
+						e.stopPropagation();
+					}}
+					onClick={(e) => {
+						stopEventPropagation(e);
+						e.stopPropagation();
+					}}
+					className="absolute right-2 top-2 z-10 flex size-6 items-center justify-center rounded bg-[var(--card)] text-[var(--muted-foreground)] shadow-sm transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+					style={{ pointerEvents: "auto" }}
+					aria-label="Open card editor"
+				>
+					<ExternalLink className="size-3.5" />
+				</Link>
+				<div className="flex h-full flex-col px-8 py-8">
+					<div className="mb-3 inline-flex w-fit rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted-foreground)]">
+						Loading card
+					</div>
+					{hasSummary ? (
+						<>
+							<div className="text-base font-semibold leading-6">
+								{shape.props.title || "Untitled card"}
+							</div>
+							<div className="mt-3 line-clamp-6 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-foreground)]">
+								{shape.props.preview || "No preview yet."}
+							</div>
+						</>
+					) : (
+						<>
+							<div className="text-base font-semibold leading-6">
+								Card content
+							</div>
+							<div className="mt-3 text-sm leading-6 text-[var(--muted-foreground)]">
+								Content loads when the card enters view.
+							</div>
+						</>
+					)}
+				</div>
+			</div>
+		</HTMLContainer>
+	);
+}
+
 function isMarkdownCardVisible(card: HTMLDivElement | null) {
 	return Boolean(card && card.getClientRects().length > 0);
 }
@@ -229,6 +302,9 @@ function getShapeContainerStyle(width: number, height: number) {
 
 export function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	if (shape.props.cardId) {
+		if (!shape.props.contentLoaded) {
+			return <SummaryCardShell shape={shape} />;
+		}
 		return <ConvexMarkdownCardComponent shape={shape} />;
 	}
 
@@ -245,7 +321,15 @@ export function ConvexMarkdownCardComponent({
 	const cardId = shape.props.cardId as Id<"cards">;
 	const boardWhiteboardId = useContext(WhiteboardCardContext);
 	const openWhiteboardPreview = useSetAtom(whiteboardPreviewCardIdAtom);
-	const { scheduleSave: schedulePersistedSave } = useDebouncedCardSave(cardId);
+	const { scheduleSave: schedulePersistedSave } = useDebouncedCardSave(
+		cardId,
+		450,
+		{
+			onPersisted: ({ content, version }) => {
+				hydrateCardShapes(editor, { cardId, content, version });
+			},
+		},
+	);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
 	const syncFrameRef = useRef<number | null>(null);
@@ -684,8 +768,8 @@ export class MarkdownCardShapeUtil extends BaseBoxShapeUtil<MarkdownCardShape> {
 		return true;
 	}
 
-	override canEdit() {
-		return true;
+	override canEdit(shape: MarkdownCardShape) {
+		return isConvexCardLoaded(shape);
 	}
 
 	override hideSelectionBoundsBg(shape: MarkdownCardShape) {

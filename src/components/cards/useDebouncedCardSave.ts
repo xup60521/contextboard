@@ -12,6 +12,12 @@ type UseDebouncedCardSaveResult = {
 export function useDebouncedCardSave(
 	cardId: Id<"cards">,
 	delayMs = 450,
+	options?: {
+		onPersisted?: (result: {
+			content: JSONContent;
+			version: number;
+		}) => void;
+	},
 ): UseDebouncedCardSaveResult {
 	const updateContent = useMutation(api.cards.updateContent);
 	const pendingContentRef = useRef<JSONContent | null>(null);
@@ -27,8 +33,10 @@ export function useDebouncedCardSave(
 		pendingContentRef.current = null;
 		if (!content) return;
 
-		void updateContent({ cardId, content });
-	}, [cardId, updateContent]);
+		void Promise.resolve(updateContent({ cardId, content })).then((version) => {
+			options?.onPersisted?.({ content, version });
+		});
+	}, [cardId, options, updateContent]);
 
 	const scheduleSave = useCallback(
 		(content: JSONContent) => {

@@ -69,7 +69,6 @@ export const listItems = query({
 									card && card.archivedAt === null
 								? {
 										_id: card._id,
-										content: card.content,
 										derivedTitle: card.derivedTitle,
 										preview: card.preview,
 										version: card.version,

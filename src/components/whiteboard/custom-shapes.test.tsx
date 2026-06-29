@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type { JSONContent } from "@tiptap/core";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { MarkdownCardComponent, type MarkdownCardShape } from "./custom-shapes";
@@ -86,6 +86,7 @@ vi.mock("tldraw", () => {
 		T: {
 			number: scalar,
 			string: scalar,
+			boolean: scalar,
 		},
 		useEditor: () => editorMock,
 		useIsEditing: () => isEditing,
@@ -165,20 +166,43 @@ function createShape(
 			w: 576,
 			h: 160,
 			content: JSON.stringify(CONTENT_A),
+			contentLoaded: true,
 			...props,
 		},
 	} as MarkdownCardShape;
 }
 
 describe("MarkdownCardComponent", () => {
+	test("renders a summary shell for unloaded Convex-backed cards", () => {
+		render(
+			<MarkdownCardComponent
+				shape={createShape({
+					cardId: "card-1",
+					content: "",
+					contentLoaded: false,
+					title: "Summary title",
+					preview: "Summary preview",
+				})}
+			/>,
+		);
+
+		expect(screen.getByText("Loading card")).toBeTruthy();
+		expect(screen.getByText("Summary title")).toBeTruthy();
+		expect(screen.getByText("Summary preview")).toBeTruthy();
+		expect(cardDocumentEditorProps).toBeNull();
+		expect(staticRendererProps).toBeNull();
+	});
+
 	test("re-enters Convex-backed edit mode with the latest content", () => {
 		const shapeA = createShape({
 			cardId: "card-1",
 			content: JSON.stringify(CONTENT_A),
+			contentLoaded: true,
 		});
 		const shapeB = createShape({
 			cardId: "card-1",
 			content: JSON.stringify(CONTENT_B),
+			contentLoaded: true,
 		});
 
 		isEditing = true;

@@ -5,6 +5,7 @@ import {
 	appendToWhiteboard,
 	archiveCard,
 	archiveCards,
+	getContentsForWhiteboardItems,
 } from "./cards";
 import { getCardTargetKey } from "./fileLifecycle";
 
@@ -232,7 +233,79 @@ const appendCardsToWhiteboardHandler = appendCardsToWhiteboard as unknown as {
 	}>;
 };
 
+const getContentsForWhiteboardItemsHandler =
+	getContentsForWhiteboardItems as unknown as {
+		_handler: (
+			ctx: never,
+			args: { cardIds: Id<"cards">[] },
+		) => Promise<
+			{
+				cardId: Id<"cards">;
+				content: unknown;
+				version: number;
+			}[]
+		>;
+	};
+
 describe("card archive mutations", () => {
+	test("getContentsForWhiteboardItems dedupes ids and skips archived cards", async () => {
+		const state = makeState({
+			cards: [
+				makeDoc("card-1", {
+					whiteboardId: null,
+					content: { type: "doc", content: [{ type: "paragraph" }] },
+					derivedTitle: "Alpha",
+					plainText: "Alpha",
+					preview: "Alpha",
+					version: 2,
+					archivedAt: null,
+					updatedAt: 100,
+				}),
+				makeDoc("card-2", {
+					whiteboardId: null,
+					content: { type: "doc", content: [{ type: "heading" }] },
+					derivedTitle: "Beta",
+					plainText: "Beta",
+					preview: "Beta",
+					version: 5,
+					archivedAt: 123,
+					updatedAt: 100,
+				}),
+			],
+		});
+
+		const result = await getContentsForWhiteboardItemsHandler._handler(
+			makeMockCtx(state),
+			{
+				cardIds: [
+					"card-1" as Id<"cards">,
+					"card-1" as Id<"cards">,
+					"card-2" as Id<"cards">,
+					"card-missing" as Id<"cards">,
+				],
+			},
+		);
+
+		expect(result).toEqual([
+			{
+				cardId: "card-1",
+				content: { type: "doc", content: [{ type: "paragraph" }] },
+				version: 2,
+			},
+		]);
+	});
+
+	test("getContentsForWhiteboardItems rejects batches larger than 30 unique cards", async () => {
+		const ctx = makeMockCtx(makeState());
+		const cardIds = Array.from({ length: 31 }, (_, index) => `card-${index}`) as Id<
+			"cards"
+		>[];
+
+		await expect(
+			getContentsForWhiteboardItemsHandler._handler(ctx, { cardIds }),
+		).rejects.toThrow("Cannot load more than 30 card contents at once");
+	});
+
 	test("archiveCard preserves the single-card archive behavior", async () => {
 		const state = makeState({
 			whiteboards: [whiteboardDoc("whiteboard-1", 1)],

@@ -1,9 +1,10 @@
 import type { useNavigate } from "@tanstack/react-router";
 import { useEffect, type MutableRefObject } from "react";
-import type { Editor, TLEventInfo, VecLike } from "tldraw";
+import type { Editor, TLEventInfo, TLShapeId, VecLike } from "tldraw";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import {
 	getWhiteboardDoubleClickShape,
+	isMarkdownCardShape,
 	isPointInCurrentSelection,
 	openSubwhiteboardShape,
 } from "../whiteboard-canvas-helpers";
@@ -14,6 +15,8 @@ export function useCanvasEvents({
 	createCardAt,
 	createSubwhiteboardAt,
 	contextMenuPointRef,
+	prioritizeCardContent,
+	pendingEditShapeIdRef,
 	navigate,
 }: {
 	editor: Editor | null;
@@ -21,6 +24,8 @@ export function useCanvasEvents({
 	createCardAt: (point: VecLike) => void;
 	createSubwhiteboardAt: (point: VecLike) => void;
 	contextMenuPointRef: MutableRefObject<VecLike | null>;
+	prioritizeCardContent: (shapeId: TLShapeId, cardId: Id<"cards">) => void;
+	pendingEditShapeIdRef: MutableRefObject<TLShapeId | null>;
 	navigate: ReturnType<typeof useNavigate>;
 }) {
 	// Canvas interactions (right-click point capture, double-click to open a
@@ -47,6 +52,19 @@ export function useCanvasEvents({
 			const point = editor.inputs.currentPagePoint;
 
 			if (info.target === "shape") {
+				if (
+					isMarkdownCardShape(info.shape) &&
+					info.shape.props.cardId &&
+					!info.shape.props.contentLoaded
+				) {
+					pendingEditShapeIdRef.current = info.shape.id;
+					prioritizeCardContent(
+						info.shape.id,
+						info.shape.props.cardId as Id<"cards">,
+					);
+					return;
+				}
+
 				openSubwhiteboardShape(navigate, info.shape);
 				return;
 			}
@@ -56,6 +74,19 @@ export function useCanvasEvents({
 			const hitShape = getWhiteboardDoubleClickShape(editor, point);
 
 			if (hitShape) {
+				if (
+					isMarkdownCardShape(hitShape) &&
+					hitShape.props.cardId &&
+					!hitShape.props.contentLoaded
+				) {
+					pendingEditShapeIdRef.current = hitShape.id;
+					prioritizeCardContent(
+						hitShape.id,
+						hitShape.props.cardId as Id<"cards">,
+					);
+					return;
+				}
+
 				openSubwhiteboardShape(navigate, hitShape);
 				return;
 			}
@@ -82,6 +113,8 @@ export function useCanvasEvents({
 		createSubwhiteboardAt,
 		editor,
 		navigate,
+		pendingEditShapeIdRef,
+		prioritizeCardContent,
 		whiteboardId,
 	]);
 }

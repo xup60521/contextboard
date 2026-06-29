@@ -4,6 +4,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { frameFromItem, resolveFrameForHydration, type SequencedFrame } from "../frame-sync";
 import {
 	bothBindingEndpointsExist,
+	isMarkdownCardShape,
 	isManagedWhiteboardShape,
 	rehydrateItemShape,
 	type BoardItemResult,
@@ -20,6 +21,8 @@ export function useItemsHydration({
 	itemIdByShapeIdRef,
 	latestItemsRef,
 	pendingEditShapeIdRef,
+	prioritizeCardContent,
+	scheduleVisibleCardHydration,
 	hydratingRef,
 }: {
 	editor: Editor | null;
@@ -32,6 +35,8 @@ export function useItemsHydration({
 	itemIdByShapeIdRef: MutableRefObject<Map<string, Id<"boardItems">>>;
 	latestItemsRef: MutableRefObject<Map<Id<"boardItems">, BoardItemResult>>;
 	pendingEditShapeIdRef: MutableRefObject<TLShapeId | null>;
+	prioritizeCardContent: (shapeId: TLShapeId, cardId: Id<"cards">) => void;
+	scheduleVisibleCardHydration: () => void;
 	hydratingRef: MutableRefObject<boolean>;
 }) {
 	// Sync Convex board items → tldraw shapes
@@ -98,14 +103,36 @@ export function useItemsHydration({
 
 		window.setTimeout(() => {
 			hydratingRef.current = false;
+			scheduleVisibleCardHydration();
 			const pendingEditShapeId = pendingEditShapeIdRef.current;
 			if (!pendingEditShapeId || !editor.getShape(pendingEditShapeId)) return;
+
+			const pendingShape = editor.getShape(pendingEditShapeId);
+			if (
+				pendingShape &&
+				isMarkdownCardShape(pendingShape) &&
+				pendingShape.props.cardId &&
+				!pendingShape.props.contentLoaded
+			) {
+				prioritizeCardContent(
+					pendingEditShapeId,
+					pendingShape.props.cardId as Id<"cards">,
+				);
+				return;
+			}
 
 			pendingEditShapeIdRef.current = null;
 			editor.select(pendingEditShapeId);
 			editor.setEditingShape(pendingEditShapeId);
 		}, 0);
-	}, [editor, items, loadedDrawingKey, whiteboardKey]);
+	}, [
+		editor,
+		items,
+		loadedDrawingKey,
+		prioritizeCardContent,
+		scheduleVisibleCardHydration,
+		whiteboardKey,
+	]);
 
 	// Re-attach bindings deferred at load once both endpoints exist
 	// biome-ignore lint/correctness/useExhaustiveDependencies: items re-runs this after hydration creates the bound card shapes

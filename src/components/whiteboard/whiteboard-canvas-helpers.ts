@@ -33,8 +33,8 @@ export type BoardItemResult = {
 	zIndex: number;
 	card: {
 		_id: Id<"cards">;
-		content: unknown;
 		derivedTitle: string;
+		preview: string;
 		version: number;
 	} | null;
 	childWhiteboard: {
@@ -155,6 +155,10 @@ export function isMarkdownCardShape(shape: TLShape): shape is MarkdownCardShape 
 	return shape.type === "markdown-card";
 }
 
+export function isLoadedMarkdownCardShape(shape: TLShape): shape is MarkdownCardShape {
+	return isMarkdownCardShape(shape) && shape.props.contentLoaded === true;
+}
+
 // ── Shape hydration ───────────────────────────────────────────────────────────
 
 export function itemToShape(
@@ -164,8 +168,6 @@ export function itemToShape(
 	const id = toTldrawShapeId(item.shapeId);
 
 	if (item.kind === "card") {
-		const content = item.card ? JSON.stringify(item.card.content) : "";
-
 		return {
 			id,
 			type: "markdown-card",
@@ -178,9 +180,12 @@ export function itemToShape(
 					serverHeight: frame.h,
 					minHeight: 96,
 				}),
-				content,
+				content: "",
 				cardId: item.cardId ?? undefined,
-				version: item.card?.version,
+				title: item.card?.derivedTitle,
+				preview: item.card?.preview,
+				contentLoaded: false,
+				contentVersion: item.card?.version,
 			},
 		};
 	}
@@ -219,7 +224,10 @@ function managedShapeChanged(
 			existing.props.w !== next.props.w ||
 			existing.props.content !== next.props.content ||
 			existing.props.cardId !== next.props.cardId ||
-			existing.props.version !== next.props.version
+			existing.props.title !== next.props.title ||
+			existing.props.preview !== next.props.preview ||
+			existing.props.contentLoaded !== next.props.contentLoaded ||
+			existing.props.contentVersion !== next.props.contentVersion
 		);
 	}
 
@@ -254,8 +262,33 @@ function preserveEditingCardContent(
 		h: existingShape.props.h,
 	};
 
+	if (
+		existingShape.props.contentLoaded &&
+		existingShape.props.contentVersion === nextShape.props.contentVersion
+	) {
+		return {
+			...nextShape,
+			props: {
+				...nextShape.props,
+				h: existingShape.props.h,
+				content: existingShape.props.content,
+				contentLoaded: true,
+				contentVersion: existingShape.props.contentVersion,
+			},
+		};
+	}
+
 	if (existingShape.id === editor.getEditingShapeId()) {
-		preserve.content = existingShape.props.content;
+		return {
+			...nextShape,
+			props: {
+				...nextShape.props,
+				h: existingShape.props.h,
+				content: existingShape.props.content,
+				contentLoaded: existingShape.props.contentLoaded,
+				contentVersion: existingShape.props.contentVersion,
+			},
+		};
 	}
 
 	return {
@@ -284,6 +317,41 @@ export function rehydrateItemShape(
 	} else {
 		editor.createShape(nextShape);
 	}
+}
+
+export function hydrateCardShapes(
+	editor: Editor,
+	payload: {
+		cardId: Id<"cards">;
+		content: unknown;
+		version: number;
+	},
+) {
+	const serializedContent = JSON.stringify(payload.content);
+	const updates: ManagedShapePartial[] = [];
+
+	for (const shape of editor.getCurrentPageShapes()) {
+		if (!isMarkdownCardShape(shape) || shape.props.cardId !== payload.cardId) {
+			continue;
+		}
+
+		updates.push({
+			id: shape.id,
+			type: "markdown-card",
+			x: shape.x,
+			y: shape.y,
+			rotation: shape.rotation,
+			props: {
+				...shape.props,
+				content: serializedContent,
+				contentLoaded: true,
+				contentVersion: payload.version,
+			},
+		});
+	}
+
+	if (updates.length === 0) return;
+	editor.updateShapes(updates);
 }
 
 export function hasPersistableDrawingChange(changes: {

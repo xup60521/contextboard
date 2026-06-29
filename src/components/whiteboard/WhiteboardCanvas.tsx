@@ -21,6 +21,7 @@ import { useItemsHydration } from "./hooks/useItemsHydration";
 import { useRightDragPan } from "./hooks/useRightDragPan";
 import { useStoreListener } from "./hooks/useStoreListener";
 import { useThemeSync } from "./hooks/useThemeSync";
+import { useVisibleCardContentHydration } from "./hooks/useVisibleCardContentHydration";
 import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
 import { useWhiteboardConvexData } from "./hooks/useWhiteboardConvexData";
 import { singlePageTldrawComponents, singlePageTldrawOptions, singlePageTldrawUiOverrides } from "./tldraw-single-page";
@@ -114,6 +115,15 @@ export function WhiteboardCanvas({
 	const { loadedDrawingKey, setLoadedDrawingKey, emptyDrawingSnapshotRef, deferredBindingsRef } =
 		useDrawingHydration({ editor, whiteboardKey, tldrawDocument, hydratingRef });
 
+	const { prioritizeCardContent, scheduleVisibleCardHydration } =
+		useVisibleCardContentHydration({
+		editor,
+		items,
+		loadedDrawingKey,
+		whiteboardKey,
+		pendingEditShapeIdRef,
+		});
+
 	useItemsHydration({
 		editor,
 		items,
@@ -125,6 +135,8 @@ export function WhiteboardCanvas({
 		itemIdByShapeIdRef,
 		latestItemsRef,
 		pendingEditShapeIdRef,
+		prioritizeCardContent,
+		scheduleVisibleCardHydration,
 		hydratingRef,
 	});
 
@@ -165,6 +177,8 @@ export function WhiteboardCanvas({
 		createCardAt,
 		createSubwhiteboardAt,
 		contextMenuPointRef,
+		prioritizeCardContent,
+		pendingEditShapeIdRef,
 		navigate,
 	});
 
