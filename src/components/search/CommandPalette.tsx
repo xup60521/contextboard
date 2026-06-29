@@ -1,3 +1,4 @@
+import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useQuery } from "convex/react";
@@ -27,8 +28,6 @@ type ActiveResult =
 	| { kind: "card"; data: CardSearchResult }
 	| { kind: "whiteboard"; data: WhiteboardSearchResult };
 
-const SEARCH_DEBOUNCE_MS = 150;
-
 function cardValue(card: CardSearchResult) {
 	return `card-${card.id}`;
 }
@@ -46,7 +45,7 @@ export function CommandPalette() {
 	const [open, setOpen] = useState(false);
 	const [mode, setMode] = useState<Mode>("global");
 	const [query, setQuery] = useState("");
-	const [debouncedQuery, setDebouncedQuery] = useState("");
+	const [debouncedQuery] = useDebouncedValue(query, { wait: 150 });
 	const [activeValue, setActiveValue] = useState("");
 	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
 
@@ -68,7 +67,6 @@ export function CommandPalette() {
 				setMode(currentWhiteboardId ? "local" : "global");
 			}
 			setQuery("");
-			setDebouncedQuery("");
 			setOpen(true);
 		};
 
@@ -76,14 +74,6 @@ export function CommandPalette() {
 		return () =>
 			window.removeEventListener("keydown", handler, { capture: true });
 	}, [currentWhiteboardId]);
-
-	useEffect(() => {
-		const timer = window.setTimeout(
-			() => setDebouncedQuery(query),
-			SEARCH_DEBOUNCE_MS,
-		);
-		return () => window.clearTimeout(timer);
-	}, [query]);
 
 	const isLocal = mode === "local" && currentWhiteboardId !== null;
 
@@ -133,16 +123,11 @@ export function CommandPalette() {
 	// Debounce which item the preview pane renders. The left-list highlight
 	// updates instantly (cmdk), but mounting the rich-text editor is expensive,
 	// so we only render it once the selection settles to avoid lag while arrowing.
-	const [previewValue, setPreviewValue] = useState("");
-	useEffect(() => {
-		const timer = window.setTimeout(() => setPreviewValue(activeValue), 120);
-		return () => window.clearTimeout(timer);
-	}, [activeValue]);
+	const [previewValue] = useDebouncedValue(activeValue, { wait: 120 });
 
 	const close = useCallback(() => {
 		setOpen(false);
 		setQuery("");
-		setDebouncedQuery("");
 	}, []);
 
 	const openCardPreview = useCallback(
