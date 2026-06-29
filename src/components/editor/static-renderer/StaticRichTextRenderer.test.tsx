@@ -1,8 +1,8 @@
-import { Node, type JSONContent } from "@tiptap/core";
+import { cleanup, render, screen } from "@testing-library/react";
+import { type JSONContent, Node } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderToReactElement } from "@tiptap/static-renderer/pm/react";
+import { afterEach, describe, expect, test } from "vitest";
 import { StaticRichTextRenderer } from "./StaticRichTextRenderer";
 import {
 	STATIC_RENDERER_BASIC_FIXTURE,
@@ -23,6 +23,9 @@ describe("StaticRichTextRenderer", () => {
 
 		expect(container.querySelector(".ProseMirror")).toBeNull();
 		expect(container.querySelector("[contenteditable]")).toBeNull();
+		expect(
+			container.querySelector(".rich-text-editor-shell")?.getAttribute("style"),
+		).toContain("pointer-events: none");
 		expect(
 			container.querySelector("[data-static-rich-text-renderer='true']"),
 		).not.toBeNull();
@@ -66,54 +69,6 @@ describe("StaticRichTextRenderer", () => {
 		expect(link.getAttribute("data-card-id")).toBe("abc123");
 		expect(link.getAttribute("data-card-label-mode")).toBe("auto");
 		expect(link.getAttribute("data-resolved-title")).toBe("Card reference");
-	});
-
-	test("opens card reference callback on ctrl click", () => {
-		const onOpenCardPreview = vi.fn();
-
-		render(
-			<StaticRichTextRenderer
-				content={STATIC_RENDERER_FULL_FIXTURE}
-				onOpenCardPreview={onOpenCardPreview}
-			/>,
-		);
-
-		const link = screen.getByRole("link", { name: "card reference" });
-		fireEvent.click(link, { ctrlKey: true });
-
-		expect(onOpenCardPreview).toHaveBeenCalledWith("abc123");
-	});
-
-	test("opens card reference callback on meta click", () => {
-		const onOpenCardPreview = vi.fn();
-
-		render(
-			<StaticRichTextRenderer
-				content={STATIC_RENDERER_FULL_FIXTURE}
-				onOpenCardPreview={onOpenCardPreview}
-			/>,
-		);
-
-		const link = screen.getByRole("link", { name: "card reference" });
-		fireEvent.click(link, { metaKey: true });
-
-		expect(onOpenCardPreview).toHaveBeenCalledWith("abc123");
-	});
-
-	test("does not open card reference callback on plain click", () => {
-		const onOpenCardPreview = vi.fn();
-
-		render(
-			<StaticRichTextRenderer
-				content={STATIC_RENDERER_FULL_FIXTURE}
-				onOpenCardPreview={onOpenCardPreview}
-			/>,
-		);
-
-		const link = screen.getByRole("link", { name: "card reference" });
-		fireEvent.click(link);
-
-		expect(onOpenCardPreview).not.toHaveBeenCalled();
 	});
 
 	test("renders tables without editor overlays", () => {
@@ -209,7 +164,11 @@ describe("StaticRichTextRenderer", () => {
 
 		const { container } = render(element);
 
-		expect(container.querySelector("[data-unhandled-node-type]")).not.toBeNull();
-		expect(screen.getByText("[Unhandled node: customStaticRendererNode]")).not.toBeNull();
+		expect(
+			container.querySelector("[data-unhandled-node-type]"),
+		).not.toBeNull();
+		expect(
+			screen.getByText("[Unhandled node: customStaticRendererNode]"),
+		).not.toBeNull();
 	});
 });

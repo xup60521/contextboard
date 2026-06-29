@@ -50,6 +50,7 @@ export function StaticRichTextRenderer({
 				className,
 				"notion-editor seamless rich-text-editor-shell relative",
 			)}
+			style={{ pointerEvents: "none" }}
 		>
 			<div
 				className={cn(

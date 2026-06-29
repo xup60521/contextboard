@@ -9,6 +9,7 @@ import {
 	useContext,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -30,6 +31,7 @@ import {
 } from "tldraw";
 import { CardDocumentEditor } from "#/components/cards/CardDocumentEditor";
 import { useDebouncedCardSave } from "#/components/cards/useDebouncedCardSave";
+import { StaticRichTextRenderer } from "#/components/editor/static-renderer";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
@@ -225,7 +227,7 @@ function getShapeContainerStyle(width: number, height: number) {
 	};
 }
 
-function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
+export function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	if (shape.props.cardId) {
 		return <ConvexMarkdownCardComponent shape={shape} />;
 	}
@@ -233,7 +235,9 @@ function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	return <LocalMarkdownCardComponent shape={shape} />;
 }
 
-function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
+export function ConvexMarkdownCardComponent({
+	shape,
+}: { shape: MarkdownCardShape }) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
 	const cardId = shape.props.cardId as Id<"cards">;
@@ -244,10 +248,11 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	const latestPropsRef = useRef(shape.props);
 	const syncFrameRef = useRef<number | null>(null);
 	const [isEditorReady, setIsEditorReady] = useState(false);
-	const initialContentRef = useRef<JSONContent | null>(
-		parseMarkdownContent(shape.props.content),
+	const currentContent = useMemo(
+		() => parseMarkdownContent(shape.props.content),
+		[shape.props.content],
 	);
-
+	const staticContent = currentContent;
 	latestPropsRef.current = shape.props;
 	const HEADER_HEIGHT = 28;
 	const MIN_HEIGHT = 96;
@@ -331,8 +336,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 		if (!isEditorReady) return;
 		scheduleSyncHeight();
 	}, [isEditorReady, scheduleSyncHeight]);
-	const initialContent = initialContentRef.current;
-	const selectInitialContent = isEmptyCardContent(initialContent);
+	const selectInitialContent = isEmptyCardContent(currentContent);
 
 	return (
 		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
@@ -390,40 +394,50 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 					<ExternalLink className="size-3.5" />
 				</Link>
 				<div ref={cardRef} className="w-full px-8 py-8">
-					<CardDocumentEditor
-						editable={isEditing}
-						content={initialContent}
-						whiteboardId={boardWhiteboardId}
-						onOpenPreview={openWhiteboardPreview}
-						contentClassName="min-h-12 pr-7"
-						placeholder="Type '/' for commands"
-						onChange={scheduleSave}
-						onReady={() => setIsEditorReady(true)}
-						defaultFocusPosition={selectInitialContent ? "start" : "end"}
-						selectContentOnFocus={selectInitialContent}
-					/>
+					{isEditing ? (
+						<CardDocumentEditor
+							editable
+							content={currentContent}
+							whiteboardId={boardWhiteboardId}
+							onOpenPreview={openWhiteboardPreview}
+							contentClassName="min-h-12 pr-7"
+							placeholder="Type '/' for commands"
+							onChange={scheduleSave}
+							onReady={() => setIsEditorReady(true)}
+							defaultFocusPosition={selectInitialContent ? "start" : "end"}
+							selectContentOnFocus={selectInitialContent}
+						/>
+					) : (
+						<StaticRichTextRenderer
+							content={staticContent}
+							contentClassName="min-h-12 pr-7"
+						/>
+					)}
 				</div>
 			</div>
 		</HTMLContainer>
 	);
 }
 
-function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
+export function LocalMarkdownCardComponent({
+	shape,
+}: { shape: MarkdownCardShape }) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
 	const syncFrameRef = useRef<number | null>(null);
 	const [isEditorReady, setIsEditorReady] = useState(false);
-	// The TipTap editor is the source of truth after mount, so read the persisted
-	// content only once.
-	const initialContentRef = useRef<JSONContent | null>(
-		parseMarkdownContent(shape.props.content),
+	const currentContent = useMemo(
+		() => parseMarkdownContent(shape.props.content),
+		[shape.props.content],
 	);
+	const staticContent = currentContent;
 
 	latestPropsRef.current = shape.props;
 	const HEADER_HEIGHT = 28;
 	const MIN_HEIGHT = 64;
+	const selectInitialContent = isEmptyCardContent(currentContent);
 
 	const syncHeight = useCallback(() => {
 		syncFrameRef.current = null;
@@ -540,39 +554,42 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 						</Link>
 					</div>
 					<div className="px-8 py-8">
-						<RichTextEditor
-							editable={isEditing}
-							content={initialContentRef.current}
-							contentClassName="min-h-6"
-							placeholder="Type '/' for commands"
-							onChange={(value) => {
-								const latestProps = latestPropsRef.current;
-								const nextHeight = getMeasuredMarkdownCardHeight({
-									card: cardRef.current,
-									currentHeight: latestProps.h,
-									headerHeight: HEADER_HEIGHT,
-									minHeight: MIN_HEIGHT,
-									isEditorReady,
-								});
+						{isEditing ? (
+							<RichTextEditor
+								editable
+								content={currentContent}
+								contentClassName="min-h-6"
+								placeholder="Type '/' for commands"
+								onChange={(value) => {
+									const latestProps = latestPropsRef.current;
+									const nextHeight = getMeasuredMarkdownCardHeight({
+										card: cardRef.current,
+										currentHeight: latestProps.h,
+										headerHeight: HEADER_HEIGHT,
+										minHeight: MIN_HEIGHT,
+										isEditorReady,
+									});
 
-								editor.updateShape<MarkdownCardShape>({
-									id: shape.id,
-									type: "markdown-card",
-									props: {
-										...latestProps,
-										content: JSON.stringify(value),
-										h: nextHeight,
-									},
-								});
-							}}
-							onReady={() => setIsEditorReady(true)}
-							defaultFocusPosition={
-								isEmptyCardContent(initialContentRef.current) ? "start" : "end"
-							}
-							selectContentOnFocus={isEmptyCardContent(
-								initialContentRef.current,
-							)}
-						/>
+									editor.updateShape<MarkdownCardShape>({
+										id: shape.id,
+										type: "markdown-card",
+										props: {
+											...latestProps,
+											content: JSON.stringify(value),
+											h: nextHeight,
+										},
+									});
+								}}
+								onReady={() => setIsEditorReady(true)}
+								defaultFocusPosition={selectInitialContent ? "start" : "end"}
+								selectContentOnFocus={selectInitialContent}
+							/>
+						) : (
+							<StaticRichTextRenderer
+								content={staticContent}
+								contentClassName="min-h-6"
+							/>
+						)}
 					</div>
 				</div>
 			</div>
