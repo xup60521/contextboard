@@ -196,20 +196,20 @@ function getMeasuredMarkdownCardHeight({
 	currentHeight,
 	headerHeight,
 	minHeight,
-	isEditorReady,
+	isContentReady,
 }: {
 	card: HTMLDivElement | null;
 	currentHeight: number;
 	headerHeight: number;
 	minHeight: number;
-	isEditorReady: boolean;
+	isContentReady: boolean;
 }) {
 	return resolveMarkdownCardHeight({
 		currentHeight,
 		measuredScrollHeight: card ? Math.ceil(card.scrollHeight) : null,
 		headerHeight,
 		minHeight,
-		isEditorReady,
+		isContentReady,
 		isVisible: isMarkdownCardVisible(card),
 	});
 }
@@ -237,7 +237,9 @@ export function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 
 export function ConvexMarkdownCardComponent({
 	shape,
-}: { shape: MarkdownCardShape }) {
+}: {
+	shape: MarkdownCardShape;
+}) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
 	const cardId = shape.props.cardId as Id<"cards">;
@@ -247,7 +249,7 @@ export function ConvexMarkdownCardComponent({
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
 	const syncFrameRef = useRef<number | null>(null);
-	const [isEditorReady, setIsEditorReady] = useState(false);
+	const [isContentReady, setIsContentReady] = useState(false);
 	const currentContent = useMemo(
 		() => parseMarkdownContent(shape.props.content),
 		[shape.props.content],
@@ -265,7 +267,7 @@ export function ConvexMarkdownCardComponent({
 			currentHeight: latestProps.h,
 			headerHeight: HEADER_HEIGHT,
 			minHeight: MIN_HEIGHT,
-			isEditorReady,
+			isContentReady,
 		});
 
 		if (Math.abs(nextHeight - latestProps.h) < 1) {
@@ -280,7 +282,7 @@ export function ConvexMarkdownCardComponent({
 				h: nextHeight,
 			},
 		});
-	}, [editor, isEditorReady, shape.id]);
+	}, [editor, isContentReady, shape.id]);
 
 	const scheduleSyncHeight = useCallback(() => {
 		if (syncFrameRef.current !== null) return;
@@ -296,7 +298,7 @@ export function ConvexMarkdownCardComponent({
 				currentHeight: latestProps.h,
 				headerHeight: HEADER_HEIGHT,
 				minHeight: MIN_HEIGHT,
-				isEditorReady,
+				isContentReady,
 			});
 
 			editor.updateShape<MarkdownCardShape>({
@@ -311,7 +313,7 @@ export function ConvexMarkdownCardComponent({
 
 			schedulePersistedSave(value);
 		},
-		[editor, isEditorReady, schedulePersistedSave, shape.id],
+		[editor, isContentReady, schedulePersistedSave, shape.id],
 	);
 
 	useLayoutEffect(() => {
@@ -333,9 +335,9 @@ export function ConvexMarkdownCardComponent({
 	}, [scheduleSyncHeight]);
 
 	useEffect(() => {
-		if (!isEditorReady) return;
+		if (!isContentReady) return;
 		scheduleSyncHeight();
-	}, [isEditorReady, scheduleSyncHeight]);
+	}, [isContentReady, scheduleSyncHeight]);
 	const selectInitialContent = isEmptyCardContent(currentContent);
 
 	return (
@@ -403,7 +405,7 @@ export function ConvexMarkdownCardComponent({
 							contentClassName="min-h-12 pr-7"
 							placeholder="Type '/' for commands"
 							onChange={scheduleSave}
-							onReady={() => setIsEditorReady(true)}
+							onReady={() => setIsContentReady(true)}
 							defaultFocusPosition={selectInitialContent ? "start" : "end"}
 							selectContentOnFocus={selectInitialContent}
 						/>
@@ -411,6 +413,7 @@ export function ConvexMarkdownCardComponent({
 						<StaticRichTextRenderer
 							content={staticContent}
 							contentClassName="min-h-12 pr-7"
+							onReady={() => setIsContentReady(true)}
 						/>
 					)}
 				</div>
@@ -421,13 +424,15 @@ export function ConvexMarkdownCardComponent({
 
 export function LocalMarkdownCardComponent({
 	shape,
-}: { shape: MarkdownCardShape }) {
+}: {
+	shape: MarkdownCardShape;
+}) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
 	const syncFrameRef = useRef<number | null>(null);
-	const [isEditorReady, setIsEditorReady] = useState(false);
+	const [isContentReady, setIsContentReady] = useState(false);
 	const currentContent = useMemo(
 		() => parseMarkdownContent(shape.props.content),
 		[shape.props.content],
@@ -447,7 +452,7 @@ export function LocalMarkdownCardComponent({
 			currentHeight: latestProps.h,
 			headerHeight: HEADER_HEIGHT,
 			minHeight: MIN_HEIGHT,
-			isEditorReady,
+			isContentReady,
 		});
 
 		if (Math.abs(nextHeight - latestProps.h) < 1) {
@@ -462,7 +467,7 @@ export function LocalMarkdownCardComponent({
 				h: nextHeight,
 			},
 		});
-	}, [editor, isEditorReady, shape.id]);
+	}, [editor, isContentReady, shape.id]);
 
 	const scheduleSyncHeight = useCallback(() => {
 		if (syncFrameRef.current !== null) return;
@@ -488,9 +493,9 @@ export function LocalMarkdownCardComponent({
 	}, [scheduleSyncHeight]);
 
 	useEffect(() => {
-		if (!isEditorReady) return;
+		if (!isContentReady) return;
 		scheduleSyncHeight();
-	}, [isEditorReady, scheduleSyncHeight]);
+	}, [isContentReady, scheduleSyncHeight]);
 
 	return (
 		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
@@ -567,7 +572,7 @@ export function LocalMarkdownCardComponent({
 										currentHeight: latestProps.h,
 										headerHeight: HEADER_HEIGHT,
 										minHeight: MIN_HEIGHT,
-										isEditorReady,
+										isContentReady,
 									});
 
 									editor.updateShape<MarkdownCardShape>({
@@ -580,7 +585,7 @@ export function LocalMarkdownCardComponent({
 										},
 									});
 								}}
-								onReady={() => setIsEditorReady(true)}
+								onReady={() => setIsContentReady(true)}
 								defaultFocusPosition={selectInitialContent ? "start" : "end"}
 								selectContentOnFocus={selectInitialContent}
 							/>
@@ -588,6 +593,7 @@ export function LocalMarkdownCardComponent({
 							<StaticRichTextRenderer
 								content={staticContent}
 								contentClassName="min-h-6"
+								onReady={() => setIsContentReady(true)}
 							/>
 						)}
 					</div>

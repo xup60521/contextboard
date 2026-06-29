@@ -43,9 +43,9 @@ import {
 } from "tldraw";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { DeleteCardDialog } from "../cards/DeleteCardDialog";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { getThemeMode, setThemeMode, type ThemeMode } from "../../lib/theme";
+import { DeleteCardDialog } from "../cards/DeleteCardDialog";
 import { uploadImageToConvex } from "../editor/ImageUpload";
 import { ControlledTldrawContextMenu } from "./ControlledTldrawContextMenu";
 import {
@@ -1280,8 +1280,6 @@ export function itemToShape(
 			props: {
 				w: frame.w,
 				h: getHydratedMarkdownCardHeight({
-					content,
-					width: frame.w,
 					serverHeight: frame.h,
 					minHeight: 96,
 				}),
