@@ -1,5 +1,5 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import {
 	ArrowUpDown,
@@ -51,6 +51,7 @@ import {
 interface CardSearch {
 	orphan: string;
 	sort: CardSortBy;
+	q: string;
 }
 
 type SelectionRect = {
@@ -100,16 +101,20 @@ export const Route = createFileRoute("/cards/")({
 	validateSearch: (search: Record<string, unknown>): CardSearch => ({
 		orphan: typeof search.orphan === "string" ? search.orphan : "",
 		sort: isCardSortBy(search.sort) ? search.sort : DEFAULT_CARD_SORT_BY,
+		q: typeof search.q === "string" ? search.q : "",
 	}),
+	search: {
+		middlewares: [stripSearchParams({ q: "" })],
+	},
 	component: RouteComponent,
 });
 
 export function RouteComponent() {
 	const navigate = Route.useNavigate();
-	const { orphan, sort } = Route.useSearch();
+	const { orphan, sort, q } = Route.useSearch();
 	const initialOrphan = orphan === "true";
 
-	const [query, setQuery] = useState("");
+	const [query, setQuery] = useState(q);
 	const [debouncedQuery] = useDebouncedValue(query, { wait: 150 });
 	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
 	const [selectedCardIds, setSelectedCardIds] = useState<Id<"cards">[]>([]);
@@ -322,6 +327,14 @@ export function RouteComponent() {
 				...prev,
 				sort: nextSort,
 			}),
+			replace: true,
+		});
+	};
+
+	const setSearchQuery = (nextQuery: string) => {
+		setQuery(nextQuery);
+		navigate({
+			search: (prev) => ({ ...prev, q: nextQuery }),
 			replace: true,
 		});
 	};
@@ -564,7 +577,7 @@ export function RouteComponent() {
 								type="text"
 								placeholder="Find a card..."
 								value={query}
-								onChange={(e) => setQuery(e.target.value)}
+								onChange={(e) => setSearchQuery(e.target.value)}
 								className="w-44 rounded-md border border-[var(--line)] bg-[var(--surface)] py-1 pl-7 pr-3 text-xs text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--sea-ink)]/20"
 							/>
 						</div>

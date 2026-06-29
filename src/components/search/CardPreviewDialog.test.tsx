@@ -3,11 +3,11 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
-	CARD_PREVIEW_EDITOR_MOUNT_DELAY_MS,
 	CardPreviewDialog,
 	isInsidePreviewAllowedPortal,
 	shouldPreventPreviewOutsideDismiss,
 } from "./CardPreviewDialog";
+import { DEFERRED_EDITOR_MOUNT_DELAY_MS } from "../editor/useDeferredEditorMount";
 
 const navigateMock = vi.fn();
 const useQueryMock = vi.fn();
@@ -36,6 +36,26 @@ vi.mock("#/components/editor/CardEditorPane", () => ({
 	CardEditorPane: ({ cardId }: { cardId: string }) => (
 		<div data-testid="card-editor-pane">{cardId}</div>
 	),
+}));
+
+vi.mock("#/components/whiteboard/WhiteboardPickerDialog", () => ({
+	WhiteboardPickerDialog: ({
+		open,
+		onSelect,
+	}: {
+		open: boolean;
+		onSelect: (whiteboardId: Id<"whiteboards">) => void;
+	}) =>
+		open ? (
+			<div data-testid="whiteboard-picker">
+				<button
+					type="button"
+					onClick={() => onSelect("board_1" as Id<"whiteboards">)}
+				>
+					Select whiteboard
+				</button>
+			</div>
+		) : null,
 }));
 
 vi.mock("#/components/ui/dialog", () => ({
@@ -102,7 +122,7 @@ async function flushDeferredMount() {
 		await vi.advanceTimersByTimeAsync(16);
 	});
 	await act(async () => {
-		await vi.advanceTimersByTimeAsync(CARD_PREVIEW_EDITOR_MOUNT_DELAY_MS);
+		await vi.advanceTimersByTimeAsync(DEFERRED_EDITOR_MOUNT_DELAY_MS);
 	});
 }
 
@@ -261,7 +281,7 @@ describe("CardPreviewDialog", () => {
 
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(
-				CARD_PREVIEW_EDITOR_MOUNT_DELAY_MS + 50,
+				DEFERRED_EDITOR_MOUNT_DELAY_MS + 50,
 			);
 		});
 
@@ -549,7 +569,35 @@ describe("CardPreviewDialog", () => {
 		expect(screen.queryByText("Append to board")).toBeNull();
 	});
 
-	test("clicking Append to board calls mutation and navigates with returned shape id", async () => {
+	test("clicking Append to board opens the whiteboard picker", async () => {
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (args === undefined) {
+				return [{ _id: BOARD_1, title: "Board 1", breadcrumbs: [] }];
+			}
+			if (args === "skip") {
+				return undefined;
+			}
+
+			return makeCardData(CARD_1, { placements: [] });
+		});
+
+		render(
+			<CardPreviewDialog
+				cardId={CARD_1}
+				currentWhiteboardId={BOARD_1}
+				onClose={() => {}}
+			/>,
+		);
+
+		await act(async () => {
+			screen.getByText("Append to board").click();
+		});
+
+		expect(screen.getByTestId("whiteboard-picker")).not.toBeNull();
+		expect(useMutationMock).not.toHaveBeenCalled();
+	});
+
+	test("selecting a whiteboard from the picker calls mutation and navigates with returned shape id", async () => {
 		const onCloseMock = vi.fn();
 		useMutationMock.mockResolvedValue({
 			itemId: "item_new",
@@ -560,7 +608,7 @@ describe("CardPreviewDialog", () => {
 
 		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
 			if (args === undefined) {
-				return [];
+				return [{ _id: BOARD_1, title: "Board 1", breadcrumbs: [] }];
 			}
 			if (args === "skip") {
 				return undefined;
@@ -577,7 +625,12 @@ describe("CardPreviewDialog", () => {
 			/>,
 		);
 
-		screen.getByText("Append to board").click();
+		await act(async () => {
+			screen.getByText("Append to board").click();
+		});
+		await act(async () => {
+			screen.getByText("Select whiteboard").click();
+		});
 
 		await vi.waitFor(() => {
 			expect(useMutationMock).toHaveBeenCalledWith({
@@ -599,7 +652,7 @@ describe("CardPreviewDialog", () => {
 
 		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
 			if (args === undefined) {
-				return [];
+				return [{ _id: BOARD_1, title: "Board 1", breadcrumbs: [] }];
 			}
 			if (args === "skip") {
 				return undefined;
@@ -616,7 +669,12 @@ describe("CardPreviewDialog", () => {
 			/>,
 		);
 
-		screen.getByText("Append to board").click();
+		await act(async () => {
+			screen.getByText("Append to board").click();
+		});
+		await act(async () => {
+			screen.getByText("Select whiteboard").click();
+		});
 
 		await vi.waitFor(() => {
 			expect(screen.getByText("Whiteboard not found")).not.toBeNull();

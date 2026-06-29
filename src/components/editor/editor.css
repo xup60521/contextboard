@@ -331,7 +331,7 @@
 
 /* ProseMirror selected node (e.g. divider, math) highlight. */
 .tiptap .ProseMirror-selectednode {
-	outline: 2px solid var(--lagoon);
+	outline: 1px solid color-mix(in oklab, var(--sea-ink) 22%, transparent);
 	outline-offset: 2px;
 	border-radius: 4px;
 }
@@ -358,9 +358,9 @@
 }
 
 .tiptap .tiptap-mathematics-render--editable:hover {
-	background: color-mix(in oklab, var(--lagoon) 14%, transparent);
+	background: color-mix(in oklab, var(--sea-ink) 5%, transparent);
 	box-shadow: inset 0 0 0 1px
-		color-mix(in oklab, var(--lagoon-deep) 35%, transparent);
+		color-mix(in oklab, var(--sea-ink) 10%, transparent);
 }
 
 /* Slash command menu items (popup is portaled to <body>, so not .tiptap-scoped). */

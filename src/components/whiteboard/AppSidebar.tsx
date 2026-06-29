@@ -1,27 +1,12 @@
-import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Library, Monitor, Moon, Sun, X } from "lucide-react";
+import { Monitor, Moon, Sun, X } from "lucide-react";
 import { useCallback } from "react";
+import { SidebarTabs } from "#/components/sidebar/SidebarTabs";
 import { Button } from "#/components/ui/button";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { setThemeMode, type ThemeMode } from "../../lib/theme";
 import { useSidebarContext } from "./SidebarContext";
 
 type Theme = ThemeMode;
-
-const navItems = [
-	{
-		to: "/whiteboard" as const,
-		label: "Root whiteboard",
-		icon: LayoutDashboard,
-		matchPrefix: "/whiteboard",
-	},
-	{
-		to: "/cards" as const,
-		label: "Card library",
-		icon: Library,
-		matchPrefix: "/cards",
-	},
-];
 
 const themeIcons: Record<Theme, typeof Sun> = {
 	light: Sun,
@@ -39,7 +24,6 @@ const themeOrder: Theme[] = ["light", "dark", "auto"];
 
 export function AppSidebar() {
 	const { isOpen, close } = useSidebarContext();
-	const { location } = useRouterState();
 	const theme = useThemeMode();
 
 	const cycleTheme = useCallback(() => {
@@ -86,35 +70,7 @@ export function AppSidebar() {
 						<X />
 					</Button>
 				</header>
-
-				{/* Navigation */}
-				<nav className="flex flex-col gap-0.5 px-2 py-2">
-					{navItems.map((item) => {
-						const isActive = location.pathname.startsWith(item.matchPrefix);
-						return (
-							<Link
-								key={item.to}
-								to={item.to}
-								className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
-									isActive ? "bg-[var(--accent)]" : "hover:bg-[var(--accent)]"
-								}`}
-							>
-								<item.icon
-									size={14}
-									strokeWidth={isActive ? 2.5 : 2}
-									className={
-										isActive
-											? "text-[var(--card-foreground)]"
-											: "text-[var(--muted-foreground)]"
-									}
-								/>
-								<span className="text-[var(--card-foreground)]">
-									{item.label}
-								</span>
-							</Link>
-						);
-					})}
-				</nav>
+				<SidebarTabs />
 			</aside>
 		</div>
 	);

@@ -1,239 +1,56 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { PanelLeft } from "lucide-react";
-import {
-	createContext,
-	useCallback,
-	useContext,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
-import {
-	createShapeId,
-	DefaultContextMenuContent,
-	type Editor,
-	PORTRAIT_BREAKPOINT,
-	pointInPolygon,
-	type TLAssetStore,
-	type TLComponents,
-	type TLCursor,
-	type TLEventInfo,
-	type TLShape,
-	type TLShapeId,
-	type TLStoreSnapshot,
-	type TLUiContextMenuProps,
-	Tldraw,
-	type TldrawOptions,
-	TldrawUiMenuGroup,
-	TldrawUiMenuItem,
-	TldrawUiToolbar,
-	TldrawUiToolbarButton,
-	react as tldrawReact,
-	useBreakpoint,
-	useEditor,
-	usePassThroughWheelEvents,
-	useTldrawUiComponents,
-	useTranslation,
-	useValue,
-	Vec,
-	type VecLike,
-} from "tldraw";
-import { api } from "../../../convex/_generated/api";
+import { useEffect, useRef, useState } from "react";
+import { type TLComponents, type TLShapeId, Tldraw, type TldrawOptions, type VecLike } from "tldraw";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { DeleteCardDialog } from "../cards/DeleteCardDialog";
 import { useThemeMode } from "../../hooks/useThemeMode";
-import { getThemeMode, setThemeMode, type ThemeMode } from "../../lib/theme";
-import { uploadImageToConvex } from "../editor/ImageUpload";
-import { ControlledTldrawContextMenu } from "./ControlledTldrawContextMenu";
-import {
-	type MarkdownCardShape,
-	markdownWhiteboardShapeUtils,
-	type SubwhiteboardLinkShape,
-	WhiteboardCardContext,
-} from "./custom-shapes";
+import { DeleteCardDialog } from "../cards/DeleteCardDialog";
+import { markdownWhiteboardShapeUtils, WhiteboardCardContext } from "./custom-shapes";
+import { CustomMenuPanel } from "./CustomMenuPanel";
 import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
-import {
-	frameFromItem,
-	resolveFrameForHydration,
-	type SequencedFrame,
-	shouldClearOptimisticFrame,
-	type WhiteboardFrame,
-} from "./frame-sync";
-import { getHydratedMarkdownCardHeight } from "./markdown-card-sizing";
-import { useSidebarContext } from "./SidebarContext";
-import {
-	filterSnapshotForPersistence,
-	isManagedWhiteboardShapeRecord,
-} from "./tldraw-persistence";
-import {
-	singlePageTldrawComponents,
-	singlePageTldrawOptions,
-	singlePageTldrawUiOverrides,
-} from "./tldraw-single-page";
+import { EditableWhiteboardTitle } from "./EditableWhiteboardTitle";
+import type { SequencedFrame } from "./frame-sync";
+import { useCanvasEvents } from "./hooks/useCanvasEvents";
+import { useCardDeleteShortcut } from "./hooks/useCardDeleteShortcut";
+import { useCameraReset } from "./hooks/useCameraReset";
+import { useDrawingHydration } from "./hooks/useDrawingHydration";
+import { useDrawingSync } from "./hooks/useDrawingSync";
+import { useFocusShape } from "./hooks/useFocusShape";
+import { useFrameSync } from "./hooks/useFrameSync";
+import { useItemCreation } from "./hooks/useItemCreation";
+import { useItemsHydration } from "./hooks/useItemsHydration";
+import { useRightDragPan } from "./hooks/useRightDragPan";
+import { useStoreListener } from "./hooks/useStoreListener";
+import { useThemeSync } from "./hooks/useThemeSync";
+import { useVisibleCardContentHydration } from "./hooks/useVisibleCardContentHydration";
+import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
+import { useWhiteboardConvexData } from "./hooks/useWhiteboardConvexData";
+import { singlePageTldrawComponents, singlePageTldrawOptions, singlePageTldrawUiOverrides } from "./tldraw-single-page";
+import { type BoardItemResult, getWhiteboardKey, type ManagedWhiteboardShape } from "./whiteboard-canvas-helpers";
 import { WhiteboardCardPreviewLayer } from "./WhiteboardCardPreviewLayer";
+import { WhiteboardContextMenu, WhiteboardContextMenuContext } from "./WhiteboardContextMenu";
 import "tldraw/tldraw.css";
 
-type BoardItemResult = {
-	_id: Id<"boardItems">;
-	kind: "card" | "subwhiteboard";
-	cardId: Id<"cards"> | null;
-	childWhiteboardId: Id<"whiteboards"> | null;
-	shapeId: string;
-	x: number;
-	y: number;
-	w: number;
-	h: number;
-	rotation: number;
-	zIndex: number;
-	card: {
-		_id: Id<"cards">;
-		content: unknown;
-		derivedTitle: string;
-		version: number;
-	} | null;
-	childWhiteboard: {
-		_id: Id<"whiteboards">;
-		title: string;
-		depth: number;
-		cardCount: number;
-		childWhiteboardCount: number;
-	} | null;
-};
-
-type TldrawDocumentResult = {
-	snapshot: TLStoreSnapshot;
-	revision: number;
-} | null;
-
-type PendingDrawingSave = {
-	whiteboardId: Id<"whiteboards"> | null;
-	snapshot: TLStoreSnapshot;
-	expectedRevision?: number;
-};
-
-type CameraPosition = {
-	x: number;
-	y: number;
-	z: number;
-};
-
-type RightDragPanState = {
-	pointerId: number;
-	startClientX: number;
-	startClientY: number;
-	lastClientX: number;
-	lastClientY: number;
-	dragging: boolean;
-	previousCursor: Pick<TLCursor, "type" | "rotation">;
-};
-
-type ManagedShapePartial =
-	| {
-			id: TLShapeId;
-			type: "markdown-card";
-			x: number;
-			y: number;
-			rotation: number;
-			props: MarkdownCardShape["props"];
-	  }
-	| {
-			id: TLShapeId;
-			type: "subwhiteboard-link";
-			x: number;
-			y: number;
-			rotation: number;
-			props: SubwhiteboardLinkShape["props"];
-	  };
-
-type ManagedWhiteboardShape = MarkdownCardShape | SubwhiteboardLinkShape;
-
-type WhiteboardContextMenuValue = {
-	createCardAt: ((point: VecLike) => void) | null;
-	createSubwhiteboardAt: (point: VecLike) => void;
-	pointRef: { current: VecLike | null };
-};
-
-function toTldrawShapeId(shapeId: string): TLShapeId {
-	return (
-		shapeId.startsWith("shape:") ? shapeId : `shape:${shapeId}`
-	) as TLShapeId;
-}
+// Re-export the public API so the test file can keep its import path
+export {
+	collectGlobalDeleteCardIdsFromShapes,
+	getRightDragPanNextCamera,
+	hasExceededRightDragPanThreshold,
+	isGlobalCardDeleteShortcut,
+	itemToShape,
+	syncRightDragPanPointer,
+} from "./whiteboard-canvas-helpers";
+export type { GlobalCardDeleteShortcutEvent } from "./whiteboard-canvas-helpers";
 
 const whiteboardOptions = {
 	...singlePageTldrawOptions,
 	createTextOnCanvasDoubleClick: false,
 } satisfies Partial<TldrawOptions>;
 
-const RIGHT_DRAG_PAN_THRESHOLD_PX = 6;
-const SUPPRESS_CONTEXT_MENU_AFTER_RIGHT_DRAG_MS = 250;
-
-function CustomMenuPanel() {
-	const { isOpen, open } = useSidebarContext();
-	const breakpoint = useBreakpoint();
-	const msg = useTranslation();
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const ref = useRef(null) as any;
-	usePassThroughWheelEvents(ref);
-	const { MainMenu, QuickActions, ActionsMenu, PageMenu } =
-		useTldrawUiComponents();
-	const editor = useEditor();
-	const isSinglePageMode = useValue(
-		"isSinglePageMode",
-		() => editor.options.maxPages <= 1,
-		[editor],
-	);
-	const showQuickActions =
-		editor.options.actionShortcutsLocation === "menu"
-			? true
-			: editor.options.actionShortcutsLocation === "toolbar"
-				? false
-				: breakpoint >= PORTRAIT_BREAKPOINT.TABLET;
-	if (!MainMenu && !PageMenu && !showQuickActions) return null;
-	return (
-		<nav ref={ref} className="tlui-menu-zone">
-			<div className="tlui-buttons__horizontal">
-				{isOpen ? null : (
-					<TldrawUiToolbar label="Whiteboard sidebar">
-						<TldrawUiToolbarButton
-							type="icon"
-							title="Open sidebar"
-							aria-label="Open sidebar"
-							onClick={open}
-						>
-							<PanelLeft size={16} />
-						</TldrawUiToolbarButton>
-					</TldrawUiToolbar>
-				)}
-				{MainMenu && <MainMenu />}
-				{PageMenu && !isSinglePageMode && <PageMenu />}
-				{showQuickActions ? (
-					<TldrawUiToolbar
-						className="tlui-buttons__horizontal"
-						label={msg("actions-menu.title")}
-					>
-						{QuickActions && <QuickActions />}
-						{ActionsMenu && <ActionsMenu />}
-					</TldrawUiToolbar>
-				) : null}
-			</div>
-		</nav>
-	);
-}
-
 const whiteboardComponents = {
 	...singlePageTldrawComponents,
 	ContextMenu: WhiteboardContextMenu,
 	MenuPanel: CustomMenuPanel,
 } satisfies TLComponents;
-
-const WhiteboardContextMenuContext =
-	createContext<WhiteboardContextMenuValue | null>(null);
-
-function getWhiteboardKey(whiteboardId: Id<"whiteboards"> | null) {
-	return whiteboardId ?? "root";
-}
 
 export function WhiteboardCanvas({
 	whiteboardId,
@@ -243,219 +60,133 @@ export function WhiteboardCanvas({
 	focusShapeId?: string | null;
 }) {
 	const navigate = useNavigate();
-	const whiteboard = useQuery(
-		api.whiteboards.get,
-		whiteboardId ? { whiteboardId } : "skip",
-	);
-	const breadcrumbs = useQuery(
-		api.whiteboards.getBreadcrumbs,
-		whiteboardId ? { whiteboardId } : "skip",
-	);
-	const itemQuery = usePaginatedQuery(
-		api.canvas.listItems,
-		{ whiteboardId },
-		{ initialNumItems: 200 },
-	);
-	const tldrawDocument = useQuery(api.tldrawDocuments.get, {
-		whiteboardId,
-	}) as TldrawDocumentResult | undefined;
-	const createCardItem = useMutation(api.canvas.createCardItem);
-	const createSubwhiteboardItem = useMutation(
-		api.canvas.createSubwhiteboardItem,
-	);
-	const updateItemFrame = useMutation(api.canvas.updateItemFrame);
-	const archiveItem = useMutation(api.canvas.archiveItem);
-	const archiveCardGlobally = useMutation(api.cards.archiveCard);
-	const restoreOrAdoptCardItem = useMutation(api.canvas.restoreOrAdoptCardItem);
-	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
-	const generateUploadUrl = useMutation(api.files.generateUploadUrl);
-	const finalizeUpload = useMutation(api.files.finalizeUpload);
+	const themeMode = useThemeMode();
+	const whiteboardKey = getWhiteboardKey(whiteboardId);
 
-	// Store dropped/pasted images in Convex instead of inlining them as base64 in
-	// the tldraw snapshot. tldraw's default file handler computes the asset
-	// metadata and delegates the upload here via `editor.uploadAsset`.
-	const assetStore = useMemo<TLAssetStore>(
-		() => ({
-			async upload(_asset, file) {
-				const uploaded = await uploadImageToConvex(
-					generateUploadUrl,
-					finalizeUpload,
-					file,
-				);
-				return {
-					src: uploaded.src,
-					meta: { fileId: uploaded.fileId },
-				};
-			},
-		}),
-		[finalizeUpload, generateUploadUrl],
-	);
+	// ── Convex data ────────────────────────────────────────────────────────────
+	const {
+		whiteboard,
+		breadcrumbs,
+		itemQuery,
+		items,
+		tldrawDocument,
+		createCardItem,
+		createSubwhiteboardItem,
+		updateItemFrame,
+		archiveItem,
+		archiveCardGlobally,
+		restoreOrAdoptCardItem,
+		saveTldrawDocument,
+		generateUploadUrl,
+		finalizeUpload,
+	} = useWhiteboardConvexData(whiteboardId);
 
-	const [editor, setEditor] = useState<Editor | null>(null);
-	const [loadedDrawingKey, setLoadedDrawingKey] = useState<string | null>(null);
-	const [whiteboardCardDeletePending, setWhiteboardCardDeletePending] =
-		useState<{
-			cardIds: Id<"cards">[];
-		} | null>(null);
+	const assetStore = useWhiteboardAssetStore({ generateUploadUrl, finalizeUpload });
+
+	// ── Editor instance ────────────────────────────────────────────────────────
+	const [editor, setEditor] = useState<import("tldraw").Editor | null>(null);
 	const [whiteboardDeletePending, setWhiteboardDeletePending] = useState<{
 		itemId: Id<"boardItems">;
 		shape: ManagedWhiteboardShape;
 	} | null>(null);
-	const themeMode = useThemeMode();
-	const whiteboardKey = getWhiteboardKey(whiteboardId);
+
+	// ── Shared refs (written/read by multiple hooks) ───────────────────────────
 	const hydratingRef = useRef(false);
-	const itemIdByShapeIdRef = useRef(new Map<string, Id<"boardItems">>());
-	const contextMenuPointRef = useRef<VecLike | null>(null);
+	const optimisticFramesRef = useRef(new Map<Id<"boardItems">, SequencedFrame>());
 	const pendingEditShapeIdRef = useRef<TLShapeId | null>(null);
-	const loadedDrawingKeyRef = useRef<string | null>(null);
-	const emptyDrawingSnapshotRef = useRef<TLStoreSnapshot | null>(null);
-	const tldrawDocumentRevisionRef = useRef<number | null>(null);
-	const saveDrawingTimerRef = useRef<number | null>(null);
-	const pendingDrawingSaveRef = useRef<PendingDrawingSave | null>(null);
+	const itemIdByShapeIdRef = useRef(new Map<string, Id<"boardItems">>());
 	const latestItemsRef = useRef(new Map<Id<"boardItems">, BoardItemResult>());
-	const queuedFrameUpdatesRef = useRef(
-		new Map<Id<"boardItems">, SequencedFrame>(),
-	);
-	const optimisticFramesRef = useRef(
-		new Map<Id<"boardItems">, SequencedFrame>(),
-	);
-	const frameUpdateSeqRef = useRef(0);
-	const flushTimerRef = useRef<number | null>(null);
-	const pendingCameraResetRef = useRef(true);
-	const handledFocusRef = useRef<string | null>(null);
-	const rightDragPanStateRef = useRef<RightDragPanState | null>(null);
-	const suppressContextMenuUntilRef = useRef(0);
+	const contextMenuPointRef = useRef<VecLike | null>(null);
 
-	const flushFrameUpdates = useCallback(() => {
-		flushTimerRef.current = null;
-		const queuedFrames = queuedFrameUpdatesRef.current;
-		queuedFrameUpdatesRef.current = new Map();
+	// ── Hooks ──────────────────────────────────────────────────────────────────
+	const { flushFrameUpdates, queueFrameUpdate, queuedFrameUpdatesRef, flushTimerRef } =
+		useFrameSync({ editor, updateItemFrame, latestItemsRef, optimisticFramesRef, hydratingRef });
 
-		for (const [itemId, sequencedFrame] of queuedFrames) {
-			void updateItemFrame({ itemId, ...sequencedFrame.frame }).catch(() => {
-				const currentFrame = optimisticFramesRef.current.get(itemId);
-				if (!shouldClearOptimisticFrame(currentFrame, sequencedFrame.seq)) {
-					return;
-				}
+	const { flushDrawingSave, queueDrawingSave, pendingDrawingSaveRef, saveDrawingTimerRef } =
+		useDrawingSync({ whiteboardId, tldrawDocument, saveTldrawDocument });
 
-				optimisticFramesRef.current.delete(itemId);
-				const latestItem = latestItemsRef.current.get(itemId);
-				if (!latestItem || !editor) return;
+	const { createCardAt, createSubwhiteboardAt } = useItemCreation({
+		whiteboardId,
+		createCardItem,
+		createSubwhiteboardItem,
+		pendingEditShapeIdRef,
+	});
 
-				hydratingRef.current = true;
-				editor.run(() => rehydrateItemShape(editor, latestItem), {
-					history: "ignore",
-				});
-				window.setTimeout(() => {
-					hydratingRef.current = false;
-				}, 0);
-			});
-		}
-	}, [editor, updateItemFrame]);
+	const { loadedDrawingKey, setLoadedDrawingKey, emptyDrawingSnapshotRef, deferredBindingsRef } =
+		useDrawingHydration({ editor, whiteboardKey, tldrawDocument, hydratingRef });
 
-	const flushDrawingSave = useCallback(() => {
-		saveDrawingTimerRef.current = null;
-		const pendingSave = pendingDrawingSaveRef.current;
-		pendingDrawingSaveRef.current = null;
-		if (!pendingSave) return;
+	const { prioritizeCardContent, scheduleVisibleCardHydration } =
+		useVisibleCardContentHydration({
+		editor,
+		items,
+		loadedDrawingKey,
+		whiteboardKey,
+		pendingEditShapeIdRef,
+		});
 
-		void saveTldrawDocument({
-			whiteboardId: pendingSave.whiteboardId,
-			snapshot: pendingSave.snapshot,
-			expectedRevision: pendingSave.expectedRevision,
-		})
-			.then(({ revision }: { revision: number }) => {
-				if (pendingSave.whiteboardId === whiteboardId) {
-					tldrawDocumentRevisionRef.current = revision;
-				}
-			})
-			.catch((error) => {
-				console.warn("Failed to save tldraw document", error);
-			});
-	}, [saveTldrawDocument, whiteboardId]);
+	useItemsHydration({
+		editor,
+		items,
+		loadedDrawingKey,
+		whiteboardKey,
+		deferredBindingsRef,
+		optimisticFramesRef,
+		queuedFrameUpdatesRef,
+		itemIdByShapeIdRef,
+		latestItemsRef,
+		pendingEditShapeIdRef,
+		prioritizeCardContent,
+		scheduleVisibleCardHydration,
+		hydratingRef,
+	});
 
-	const queueDrawingSave = useCallback(
-		(snapshot: TLStoreSnapshot) => {
-			pendingDrawingSaveRef.current = {
-				whiteboardId,
-				snapshot,
-				expectedRevision: tldrawDocumentRevisionRef.current ?? undefined,
-			};
+	const { pendingCameraResetRef } = useCameraReset({
+		editor,
+		items,
+		itemQueryStatus: itemQuery.status,
+	});
 
-			if (saveDrawingTimerRef.current !== null) {
-				window.clearTimeout(saveDrawingTimerRef.current);
-			}
+	useFocusShape({
+		editor,
+		focusShapeId,
+		items,
+		loadedDrawingKey,
+		whiteboardKey,
+		pendingCameraResetRef,
+		navigate,
+	});
 
-			saveDrawingTimerRef.current = window.setTimeout(flushDrawingSave, 750);
-		},
-		[flushDrawingSave, whiteboardId],
-	);
+	const { whiteboardCardDeletePending, setWhiteboardCardDeletePending } =
+		useCardDeleteShortcut({ editor });
 
-	const queueFrameUpdate = useCallback(
-		(itemId: Id<"boardItems">, frame: WhiteboardFrame) => {
-			const sequencedFrame = {
-				seq: frameUpdateSeqRef.current + 1,
-				frame,
-			};
-			frameUpdateSeqRef.current = sequencedFrame.seq;
-			queuedFrameUpdatesRef.current.set(itemId, sequencedFrame);
-			optimisticFramesRef.current.set(itemId, sequencedFrame);
+	useStoreListener({
+		editor,
+		whiteboardId,
+		hydratingRef,
+		itemIdByShapeIdRef,
+		archiveItem,
+		restoreOrAdoptCardItem,
+		setWhiteboardDeletePending,
+		queueFrameUpdate,
+		queueDrawingSave,
+	});
 
-			if (flushTimerRef.current !== null) {
-				window.clearTimeout(flushTimerRef.current);
-			}
+	useCanvasEvents({
+		editor,
+		whiteboardId,
+		createCardAt,
+		createSubwhiteboardAt,
+		contextMenuPointRef,
+		prioritizeCardContent,
+		pendingEditShapeIdRef,
+		navigate,
+	});
 
-			flushTimerRef.current = window.setTimeout(flushFrameUpdates, 250);
-		},
-		[flushFrameUpdates],
-	);
+	useRightDragPan({ editor });
+	useThemeSync({ editor, themeMode });
 
-	const createCardAt = useCallback(
-		(point: VecLike) => {
-			if (!whiteboardId) return;
-
-			const shapeId = createShapeId();
-			pendingEditShapeIdRef.current = shapeId;
-
-			void createCardItem({
-				whiteboardId,
-				shapeId,
-				x: point.x,
-				y: point.y,
-			}).catch(() => {
-				if (pendingEditShapeIdRef.current === shapeId) {
-					pendingEditShapeIdRef.current = null;
-				}
-			});
-		},
-		[createCardItem, whiteboardId],
-	);
-
-	const createSubwhiteboardAt = useCallback(
-		(point: VecLike) => {
-			const shapeId = createShapeId();
-			pendingEditShapeIdRef.current = shapeId;
-
-			void createSubwhiteboardItem({
-				parentWhiteboardId: whiteboardId,
-				shapeId,
-				x: point.x,
-				y: point.y,
-			}).catch(() => {
-				if (pendingEditShapeIdRef.current === shapeId) {
-					pendingEditShapeIdRef.current = null;
-				}
-			});
-		},
-		[createSubwhiteboardItem, whiteboardId],
-	);
-
-	const items = (itemQuery.results ?? []) as BoardItemResult[];
-
-	// The editor is now persistent across whiteboard navigation, so reset the
-	// per-board bookkeeping whenever the active board changes. Any pending frame
-	// writes for the previous board are flushed first so moves aren't lost.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on whiteboardId; flushFrameUpdates is stable.
+	// ── Board reset: flush and clear all per-board state on whiteboard switch ──
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on whiteboardId; flush fns stable
 	useEffect(() => {
 		if (!editor) return;
 
@@ -470,497 +201,16 @@ export function WhiteboardCanvas({
 
 		itemIdByShapeIdRef.current = new Map();
 		optimisticFramesRef.current = new Map();
-		queuedFrameUpdatesRef.current = new Map();
 		pendingEditShapeIdRef.current = null;
+		queuedFrameUpdatesRef.current = new Map();
 		pendingDrawingSaveRef.current = null;
 		pendingCameraResetRef.current = true;
 		setWhiteboardCardDeletePending(null);
 		setWhiteboardDeletePending(null);
 		setLoadedDrawingKey(null);
-		loadedDrawingKeyRef.current = null;
-	}, [editor, flushDrawingSave, flushFrameUpdates, whiteboardId]);
+	}, [editor, whiteboardId]);
 
-	useEffect(() => {
-		tldrawDocumentRevisionRef.current = tldrawDocument?.revision ?? null;
-	}, [tldrawDocument?.revision]);
-
-	useEffect(() => {
-		loadedDrawingKeyRef.current = loadedDrawingKey;
-	}, [loadedDrawingKey]);
-
-	useEffect(() => {
-		if (!editor || tldrawDocument === undefined) return;
-		if (loadedDrawingKeyRef.current === whiteboardKey) return;
-
-		const snapshot =
-			tldrawDocument?.snapshot ?? emptyDrawingSnapshotRef.current;
-		hydratingRef.current = true;
-		if (snapshot) {
-			editor.loadSnapshot(snapshot);
-		}
-
-		setLoadedDrawingKey(whiteboardKey);
-		window.setTimeout(() => {
-			hydratingRef.current = false;
-		}, 0);
-	}, [editor, tldrawDocument, whiteboardKey]);
-
-	useEffect(() => {
-		if (!editor) return;
-		if (loadedDrawingKey !== whiteboardKey) return;
-
-		const itemIdByShapeId = new Map<string, Id<"boardItems">>();
-		const latestItems = new Map<Id<"boardItems">, BoardItemResult>();
-		const wantedItemIds = new Set<Id<"boardItems">>();
-		for (const item of items) {
-			itemIdByShapeId.set(item.shapeId, item._id);
-			latestItems.set(item._id, item);
-			wantedItemIds.add(item._id);
-		}
-		itemIdByShapeIdRef.current = itemIdByShapeId;
-		latestItemsRef.current = latestItems;
-
-		for (const itemId of optimisticFramesRef.current.keys()) {
-			if (!wantedItemIds.has(itemId)) {
-				optimisticFramesRef.current.delete(itemId);
-			}
-		}
-		for (const itemId of queuedFrameUpdatesRef.current.keys()) {
-			if (!wantedItemIds.has(itemId)) {
-				queuedFrameUpdatesRef.current.delete(itemId);
-			}
-		}
-
-		const wantedShapeIds = new Set(items.map((item) => item.shapeId));
-		const currentManagedShapes = editor
-			.getCurrentPageShapes()
-			.filter(isManagedWhiteboardShape);
-
-		hydratingRef.current = true;
-		editor.run(
-			() => {
-				const staleShapeIds = currentManagedShapes
-					.filter((shape) => !wantedShapeIds.has(shape.id))
-					.map((shape) => shape.id);
-
-				if (staleShapeIds.length > 0) {
-					editor.deleteShapes(staleShapeIds);
-				}
-
-				for (const item of items) {
-					const serverFrame = frameFromItem(item);
-					const optimisticFrame = optimisticFramesRef.current.get(item._id);
-					const frameResolution = resolveFrameForHydration(
-						serverFrame,
-						optimisticFrame,
-					);
-
-					if (frameResolution.acknowledged) {
-						optimisticFramesRef.current.delete(item._id);
-					}
-
-					rehydrateItemShape(editor, item, frameResolution.frame);
-				}
-			},
-			{ history: "ignore" },
-		);
-
-		window.setTimeout(() => {
-			hydratingRef.current = false;
-			const pendingEditShapeId = pendingEditShapeIdRef.current;
-			if (!pendingEditShapeId || !editor.getShape(pendingEditShapeId)) return;
-
-			pendingEditShapeIdRef.current = null;
-			editor.select(pendingEditShapeId);
-			editor.setEditingShape(pendingEditShapeId);
-		}, 0);
-	}, [editor, items, loadedDrawingKey, whiteboardKey]);
-
-	// After switching boards, reset the camera once the new board's first page
-	// has loaded so it opens at a sensible viewport instead of inheriting the
-	// previous board's pan/zoom. Runs after the hydration effect has created the
-	// new shapes (effects fire in definition order).
-	useEffect(() => {
-		if (!editor || !pendingCameraResetRef.current) return;
-		if (itemQuery.status === "LoadingFirstPage") return;
-
-		pendingCameraResetRef.current = false;
-		if (items.length > 0) {
-			editor.zoomToFit();
-		} else {
-			editor.setCamera({ x: 0, y: 0, z: 1 });
-		}
-	}, [editor, items, itemQuery.status]);
-
-	// Navigate & focus: when a `focus` shape id is present (set by the command
-	// palette via the route's search param), select and zoom to that shape once
-	// the board has hydrated, then clear the param so re-selecting re-triggers.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: items re-runs after hydration creates the focused shape.
-	useEffect(() => {
-		if (!focusShapeId) {
-			handledFocusRef.current = null;
-			return;
-		}
-		if (!editor || loadedDrawingKey !== whiteboardKey) return;
-		if (handledFocusRef.current === focusShapeId) return;
-
-		const shapeId = focusShapeId as TLShapeId;
-		if (!editor.getShape(shapeId)) return; // shape not hydrated yet; will re-run
-
-		handledFocusRef.current = focusShapeId;
-		pendingCameraResetRef.current = false;
-		editor.select(shapeId);
-		const bounds = editor.getShapePageBounds(shapeId);
-		if (bounds) {
-			editor.zoomToBounds(bounds, { animation: { duration: 300 }, inset: 128 });
-		}
-
-		void navigate({
-			to: ".",
-			replace: true,
-			search: (prev: { focus?: string }) => ({ ...prev, focus: undefined }),
-		});
-	}, [editor, focusShapeId, items, loadedDrawingKey, navigate, whiteboardKey]);
-
-	useEffect(() => {
-		if (!editor) return;
-
-		const removeListener = editor.store.listen(
-			({ changes }) => {
-				if (hydratingRef.current) return;
-
-				for (const record of Object.values(changes.added)) {
-					if (!isManagedWhiteboardShape(record)) continue;
-					if (record.type !== "markdown-card") continue; // cards only
-					if (itemIdByShapeIdRef.current.has(record.id)) continue; // already tracked; not a restore/adopt
-
-					if (!whiteboardId) {
-						// Root board can't host cards; drop the orphan so it doesn't
-						// ghost on screen until the next reload strips it.
-						editor.deleteShapes([record.id]);
-						continue;
-					}
-
-					void restoreOrAdoptCardItem({
-						whiteboardId,
-						shapeId: record.id,
-						sourceCardId: record.props.cardId,
-						content: record.props.content,
-						x: record.x,
-						y: record.y,
-						w: record.props.w,
-						h: record.props.h,
-						rotation: record.rotation,
-					});
-				}
-
-				for (const shape of Object.values(changes.removed)) {
-					if (!isManagedWhiteboardShape(shape)) continue;
-
-					const itemId = itemIdByShapeIdRef.current.get(shape.id);
-					if (itemId) {
-						if (shape.type === "subwhiteboard-link") {
-							setWhiteboardDeletePending({ itemId, shape });
-						} else {
-							void archiveItem({ itemId, deleteCards: true });
-						}
-					}
-				}
-
-				const sortedShapes = editor.getCurrentPageShapesSorted();
-				const zIndexByShapeId = new Map<TLShapeId, number>(
-					sortedShapes.map((shape, index) => [shape.id, index]),
-				);
-
-				for (const [, changed] of Object.values(changes.updated)) {
-					if (!isManagedWhiteboardShape(changed)) continue;
-
-					const itemId = itemIdByShapeIdRef.current.get(changed.id);
-					if (!itemId) continue;
-
-					queueFrameUpdate(itemId, {
-						x: changed.x,
-						y: changed.y,
-						w: changed.props.w,
-						h: changed.props.h,
-						rotation: changed.rotation,
-						zIndex: zIndexByShapeId.get(changed.id) ?? 0,
-					});
-				}
-
-				if (hasPersistableDrawingChange(changes)) {
-					queueDrawingSave(
-						filterSnapshotForPersistence(
-							editor.store.getStoreSnapshot("document"),
-						),
-					);
-				}
-			},
-			{ source: "user", scope: "document" },
-		);
-
-		return () => {
-			removeListener();
-		};
-	}, [
-		archiveItem,
-		restoreOrAdoptCardItem,
-		whiteboardId,
-		editor,
-		queueDrawingSave,
-		queueFrameUpdate,
-	]);
-
-	// Canvas interactions (right-click point capture, double-click to open a
-	// sub-whiteboard or create an item). Registered in an effect rather than
-	// `onMount` so the latest `whiteboardId`/create callbacks are used after
-	// navigating between boards on the now-persistent editor.
-	useEffect(() => {
-		if (!editor) return;
-
-		const handleEvent = (info: TLEventInfo) => {
-			if (info.type === "pointer" && info.name === "right_click") {
-				const point = editor.inputs.currentPagePoint;
-				contextMenuPointRef.current = { x: point.x, y: point.y };
-			}
-
-			if (
-				info.type !== "click" ||
-				info.name !== "double_click" ||
-				info.phase !== "up"
-			) {
-				return;
-			}
-
-			const point = editor.inputs.currentPagePoint;
-
-			if (info.target === "shape") {
-				openSubwhiteboardShape(navigate, info.shape);
-				return;
-			}
-
-			if (info.target !== "canvas") return;
-
-			const hitShape = getWhiteboardDoubleClickShape(editor, point);
-
-			if (hitShape) {
-				openSubwhiteboardShape(navigate, hitShape);
-				return;
-			}
-
-			if (isPointInCurrentSelection(editor, point)) {
-				return;
-			}
-
-			if (whiteboardId) {
-				createCardAt(point);
-			} else {
-				createSubwhiteboardAt(point);
-			}
-		};
-
-		editor.on("event", handleEvent);
-
-		return () => {
-			editor.off("event", handleEvent);
-		};
-	}, [editor, whiteboardId, createCardAt, createSubwhiteboardAt, navigate]);
-
-	useEffect(() => {
-		if (!editor) return;
-
-		const container = editor.getContainer();
-		const ownerDocument = container.ownerDocument;
-		const ownerWindow = ownerDocument.defaultView;
-
-		const finishRightDragPan = (pointerId?: number) => {
-			const state = rightDragPanStateRef.current;
-			if (!state) return;
-			if (pointerId !== undefined && state.pointerId !== pointerId) return;
-
-			if (state.dragging) {
-				suppressContextMenuUntilRef.current =
-					Date.now() + SUPPRESS_CONTEXT_MENU_AFTER_RIGHT_DRAG_MS;
-				editor.setCursor(state.previousCursor);
-			}
-
-			rightDragPanStateRef.current = null;
-		};
-
-		const handlePointerDown = (event: PointerEvent) => {
-			if (event.button !== 2) return;
-			if (
-				!(event.target instanceof Node) ||
-				!container.contains(event.target)
-			) {
-				return;
-			}
-
-			const { type, rotation } = editor.getInstanceState().cursor;
-			rightDragPanStateRef.current = {
-				pointerId: event.pointerId,
-				startClientX: event.clientX,
-				startClientY: event.clientY,
-				lastClientX: event.clientX,
-				lastClientY: event.clientY,
-				dragging: false,
-				previousCursor: { type, rotation },
-			};
-		};
-
-		const handlePointerMove = (event: PointerEvent) => {
-			const state = rightDragPanStateRef.current;
-			if (!state || state.pointerId !== event.pointerId) return;
-
-			if (
-				!state.dragging &&
-				!hasExceededRightDragPanThreshold({
-					startClientX: state.startClientX,
-					startClientY: state.startClientY,
-					currentClientX: event.clientX,
-					currentClientY: event.clientY,
-				})
-			) {
-				return;
-			}
-
-			if (!state.dragging) {
-				state.dragging = true;
-				editor.stopCameraAnimation();
-				editor.menus.clearOpenMenus();
-				editor.setCursor({ type: "grabbing", rotation: 0 });
-			}
-
-			const deltaX = event.clientX - state.lastClientX;
-			const deltaY = event.clientY - state.lastClientY;
-			state.lastClientX = event.clientX;
-			state.lastClientY = event.clientY;
-
-			if (deltaX === 0 && deltaY === 0) return;
-
-			syncRightDragPanPointer(editor, {
-				x: event.clientX,
-				y: event.clientY,
-				z: event.pressure,
-			});
-
-			editor.setCamera(
-				getRightDragPanNextCamera(editor.getCamera(), {
-					x: deltaX,
-					y: deltaY,
-				}),
-				{ immediate: true },
-			);
-			event.preventDefault();
-			event.stopPropagation();
-		};
-
-		const handlePointerUp = (event: PointerEvent) => {
-			finishRightDragPan(event.pointerId);
-		};
-
-		const handlePointerCancel = (event: PointerEvent) => {
-			finishRightDragPan(event.pointerId);
-		};
-
-		const handleContextMenu = (event: MouseEvent) => {
-			const state = rightDragPanStateRef.current;
-			const shouldSuppress =
-				(state?.dragging ?? false) ||
-				Date.now() < suppressContextMenuUntilRef.current;
-
-			if (!shouldSuppress) return;
-			if (
-				!(event.target instanceof Node) ||
-				!container.contains(event.target)
-			) {
-				return;
-			}
-
-			event.preventDefault();
-			event.stopPropagation();
-		};
-
-		const handleWindowBlur = () => {
-			finishRightDragPan();
-		};
-
-		container.addEventListener("pointerdown", handlePointerDown, true);
-		ownerDocument.addEventListener("pointermove", handlePointerMove, true);
-		ownerDocument.addEventListener("pointerup", handlePointerUp, true);
-		ownerDocument.addEventListener("pointercancel", handlePointerCancel, true);
-		container.addEventListener("contextmenu", handleContextMenu, true);
-		ownerWindow?.addEventListener("blur", handleWindowBlur);
-
-		return () => {
-			container.removeEventListener("pointerdown", handlePointerDown, true);
-			ownerDocument.removeEventListener("pointermove", handlePointerMove, true);
-			ownerDocument.removeEventListener("pointerup", handlePointerUp, true);
-			ownerDocument.removeEventListener(
-				"pointercancel",
-				handlePointerCancel,
-				true,
-			);
-			container.removeEventListener("contextmenu", handleContextMenu, true);
-			ownerWindow?.removeEventListener("blur", handleWindowBlur);
-			finishRightDragPan();
-		};
-	}, [editor]);
-
-	// Ctrl+Delete: confirm permanent delete for selected markdown cards.
-	useEffect(() => {
-		if (!editor) return;
-
-		const ownerDocument = editor.getContainer().ownerDocument;
-
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (!isGlobalCardDeleteShortcut(event)) return;
-			if (editor.getEditingShapeId()) return;
-			if (isEditableKeyboardTarget(event.target)) return;
-			if (whiteboardCardDeletePending) return;
-
-			const cardIds = collectGlobalDeleteCardIdsFromShapes(
-				editor.getSelectedShapes(),
-			);
-
-			if (cardIds.length === 0) return;
-
-			event.preventDefault();
-			event.stopPropagation();
-
-			setWhiteboardCardDeletePending({ cardIds });
-		};
-
-		ownerDocument.addEventListener("keydown", handleKeyDown, true);
-
-		return () => {
-			ownerDocument.removeEventListener("keydown", handleKeyDown, true);
-		};
-	}, [editor, whiteboardCardDeletePending]);
-
-	// App theme -> tldraw color scheme.
-	useEffect(() => {
-		if (!editor) return;
-		const target = modeToColorScheme(themeMode);
-		if (editor.user.getUserPreferences().colorScheme !== target) {
-			editor.user.updateUserPreferences({ colorScheme: target });
-		}
-	}, [editor, themeMode]);
-
-	// tldraw color scheme (e.g. its built-in theme menu) -> app theme, so the
-	// custom cards and the rest of the app follow tldraw's own toggle too.
-	useEffect(() => {
-		if (!editor) return;
-		return tldrawReact("sync tldraw color scheme to app theme", () => {
-			const nextMode = colorSchemeToMode(
-				editor.user.getUserPreferences().colorScheme,
-			);
-			if (getThemeMode() !== nextMode) {
-				setThemeMode(nextMode);
-			}
-		});
-	}, [editor]);
-
+	// ── Unmount: flush any pending writes ──────────────────────────────────────
 	useEffect(() => {
 		return () => {
 			if (flushTimerRef.current !== null) {
@@ -974,7 +224,8 @@ export function WhiteboardCanvas({
 		};
 	}, [flushDrawingSave, flushFrameUpdates]);
 
-	const contextValue: WhiteboardContextMenuValue = {
+	// ── Derived display values ─────────────────────────────────────────────────
+	const contextValue = {
 		createCardAt: whiteboardId ? createCardAt : null,
 		createSubwhiteboardAt,
 		pointRef: contextMenuPointRef,
@@ -1120,485 +371,5 @@ function WhiteboardLoadingOverlay({ label }: { label: string }) {
 				{label}
 			</div>
 		</div>
-	);
-}
-
-function EditableWhiteboardTitle({
-	whiteboardId,
-	title,
-}: {
-	whiteboardId: Id<"whiteboards">;
-	title: string;
-}) {
-	const updateTitle = useMutation(api.whiteboards.updateTitle);
-	const inputRef = useRef<HTMLInputElement>(null);
-	const isFocusedRef = useRef(false);
-	const skipNextBlurSaveRef = useRef(false);
-	const [draftTitle, setDraftTitle] = useState(title);
-
-	useEffect(() => {
-		if (isFocusedRef.current) return;
-		setDraftTitle(title);
-	}, [title]);
-
-	const saveTitle = useCallback(() => {
-		const nextTitle =
-			draftTitle.replace(/\s+/g, " ").trim() || "Untitled whiteboard";
-		setDraftTitle(nextTitle);
-
-		if (nextTitle !== title) {
-			void updateTitle({ whiteboardId, title: nextTitle });
-		}
-	}, [draftTitle, title, updateTitle, whiteboardId]);
-
-	return (
-		<span className="relative inline-block min-w-0 max-w-[min(42vw,28rem)] align-middle">
-			<span
-				aria-hidden
-				className="invisible block truncate whitespace-pre border border-transparent px-1 py-0.5 font-semibold"
-			>
-				{draftTitle || " "}
-			</span>
-			<input
-				ref={inputRef}
-				className="absolute inset-0 h-full w-full min-w-0 rounded border border-transparent bg-transparent px-1 py-0.5 font-semibold text-[var(--card-foreground)] outline-none transition focus:border-[var(--border)] focus:bg-[var(--background)]"
-				value={draftTitle}
-				aria-label="Whiteboard name"
-				spellCheck
-				onFocus={() => {
-					isFocusedRef.current = true;
-				}}
-				onChange={(event) => setDraftTitle(event.currentTarget.value)}
-				onKeyDown={(event) => {
-					if (event.key === "Enter") {
-						event.preventDefault();
-						inputRef.current?.blur();
-					}
-
-					if (event.key === "Escape") {
-						event.preventDefault();
-						skipNextBlurSaveRef.current = true;
-						setDraftTitle(title);
-						inputRef.current?.blur();
-					}
-				}}
-				onBlur={() => {
-					isFocusedRef.current = false;
-					if (skipNextBlurSaveRef.current) {
-						skipNextBlurSaveRef.current = false;
-						return;
-					}
-					saveTitle();
-				}}
-			/>
-		</span>
-	);
-}
-
-type TLColorScheme = "light" | "dark" | "system";
-
-function modeToColorScheme(mode: ThemeMode): TLColorScheme {
-	return mode === "auto" ? "system" : mode;
-}
-
-function colorSchemeToMode(scheme: TLColorScheme | undefined): ThemeMode {
-	return scheme === "light" || scheme === "dark" ? scheme : "auto";
-}
-
-export function itemToShape(
-	item: BoardItemResult,
-	frame = frameFromItem(item),
-): ManagedShapePartial {
-	const id = toTldrawShapeId(item.shapeId);
-
-	if (item.kind === "card") {
-		const content = item.card ? JSON.stringify(item.card.content) : "";
-
-		return {
-			id,
-			type: "markdown-card",
-			x: frame.x,
-			y: frame.y,
-			rotation: frame.rotation,
-			props: {
-				w: frame.w,
-				h: getHydratedMarkdownCardHeight({
-					content,
-					width: frame.w,
-					serverHeight: frame.h,
-					minHeight: 96,
-				}),
-				content,
-				cardId: item.cardId ?? undefined,
-				version: item.card?.version,
-			},
-		};
-	}
-
-	return {
-		id,
-		type: "subwhiteboard-link",
-		x: frame.x,
-		y: frame.y,
-		rotation: frame.rotation,
-		props: {
-			w: frame.w,
-			h: frame.h,
-			label: item.childWhiteboard?.title ?? "Sub-whiteboard",
-			subwhiteboardId: item.childWhiteboardId ?? "",
-			childWhiteboardId: item.childWhiteboardId ?? undefined,
-			depth: item.childWhiteboard?.depth,
-		},
-	};
-}
-
-function managedShapeChanged(
-	existing: TLShape,
-	next: ManagedShapePartial,
-): boolean {
-	if (
-		existing.x !== next.x ||
-		existing.y !== next.y ||
-		existing.rotation !== next.rotation
-	) {
-		return true;
-	}
-
-	if (isMarkdownCardShape(existing) && next.type === "markdown-card") {
-		return (
-			existing.props.w !== next.props.w ||
-			existing.props.content !== next.props.content ||
-			existing.props.cardId !== next.props.cardId ||
-			existing.props.version !== next.props.version
-		);
-	}
-
-	if (
-		isSubwhiteboardLinkShape(existing) &&
-		next.type === "subwhiteboard-link"
-	) {
-		return (
-			existing.props.w !== next.props.w ||
-			existing.props.h !== next.props.h ||
-			existing.props.label !== next.props.label ||
-			existing.props.childWhiteboardId !== next.props.childWhiteboardId
-		);
-	}
-
-	return false;
-}
-
-function rehydrateItemShape(
-	editor: Editor,
-	item: BoardItemResult,
-	frame = frameFromItem(item),
-) {
-	const nextShape = itemToShape(item, frame);
-	const existingShape = editor.getShape(nextShape.id);
-
-	if (existingShape) {
-		const updatedShape = preserveEditingCardContent(
-			editor,
-			existingShape,
-			nextShape,
-		);
-		if (managedShapeChanged(existingShape, updatedShape)) {
-			editor.updateShape(updatedShape);
-		}
-	} else {
-		editor.createShape(nextShape);
-	}
-}
-
-function isManagedWhiteboardShape(
-	shape: unknown,
-): shape is ManagedWhiteboardShape {
-	return (
-		typeof shape === "object" &&
-		shape !== null &&
-		"type" in shape &&
-		((shape as { type: string }).type === "markdown-card" ||
-			(shape as { type: string }).type === "subwhiteboard-link")
-	);
-}
-
-function hasPersistableDrawingChange(changes: {
-	added: Record<string, unknown>;
-	updated: Record<string, [unknown, unknown]>;
-	removed: Record<string, unknown>;
-}) {
-	for (const record of Object.values(changes.added)) {
-		if (!isManagedWhiteboardShapeRecord(record)) return true;
-	}
-
-	for (const [, nextRecord] of Object.values(changes.updated)) {
-		if (!isManagedWhiteboardShapeRecord(nextRecord)) return true;
-	}
-
-	for (const record of Object.values(changes.removed)) {
-		if (!isManagedWhiteboardShapeRecord(record)) return true;
-	}
-
-	return false;
-}
-
-function openSubwhiteboardShape(
-	navigate: ReturnType<typeof useNavigate>,
-	shape: TLShape,
-) {
-	if (!isSubwhiteboardLinkShape(shape)) return;
-
-	const childWhiteboardId = shape.props.childWhiteboardId;
-	if (!childWhiteboardId) return;
-
-	void navigate({
-		to: "/whiteboard/$whiteboardId",
-		params: { whiteboardId: childWhiteboardId },
-	});
-}
-
-function isSubwhiteboardLinkShape(
-	shape: TLShape,
-): shape is SubwhiteboardLinkShape {
-	return shape.type === "subwhiteboard-link";
-}
-
-function isMarkdownCardShape(shape: TLShape): shape is MarkdownCardShape {
-	return shape.type === "markdown-card";
-}
-
-function preserveEditingCardContent(
-	editor: Editor,
-	existingShape: TLShape,
-	nextShape: ManagedShapePartial,
-): ManagedShapePartial {
-	if (
-		!isMarkdownCardShape(existingShape) ||
-		nextShape.type !== "markdown-card"
-	) {
-		return nextShape;
-	}
-
-	const preserve: { h: number; content?: string } = {
-		h: existingShape.props.h,
-	};
-
-	if (existingShape.id === editor.getEditingShapeId()) {
-		preserve.content = existingShape.props.content;
-	}
-
-	return {
-		...nextShape,
-		props: { ...nextShape.props, ...preserve },
-	};
-}
-
-function getWhiteboardDoubleClickShape(
-	editor: Editor,
-	point: VecLike,
-): TLShape | undefined {
-	const hoveredShape = editor.getHoveredShape();
-
-	if (hoveredShape && !editor.isShapeOfType(hoveredShape, "group")) {
-		return hoveredShape;
-	}
-
-	return (
-		editor.getSelectedShapeAtPoint(point) ??
-		editor.getShapeAtPoint(point, {
-			margin: editor.options.hitTestMargin / editor.getZoomLevel(),
-			hitInside: true,
-			hitLabels: true,
-			hitLocked: true,
-			hitFrameInside: true,
-			renderingOnly: true,
-		})
-	);
-}
-
-function isPointInCurrentSelection(editor: Editor, point: VecLike) {
-	const selectionBounds = editor.getSelectionRotatedPageBounds();
-
-	if (!selectionBounds) return false;
-
-	const selectionRotation = editor.getSelectionRotation();
-
-	if (!selectionRotation) {
-		return selectionBounds.containsPoint(point);
-	}
-
-	return pointInPolygon(
-		point,
-		selectionBounds.corners.map((corner) =>
-			Vec.RotWith(corner, selectionBounds.point, selectionRotation),
-		),
-	);
-}
-
-export function hasExceededRightDragPanThreshold({
-	startClientX,
-	startClientY,
-	currentClientX,
-	currentClientY,
-}: {
-	startClientX: number;
-	startClientY: number;
-	currentClientX: number;
-	currentClientY: number;
-}) {
-	return (
-		Math.hypot(currentClientX - startClientX, currentClientY - startClientY) >=
-		RIGHT_DRAG_PAN_THRESHOLD_PX
-	);
-}
-
-export function getRightDragPanNextCamera(
-	camera: CameraPosition,
-	screenDelta: Pick<VecLike, "x" | "y">,
-): CameraPosition {
-	return {
-		x: camera.x + screenDelta.x / camera.z,
-		y: camera.y + screenDelta.y / camera.z,
-		z: camera.z,
-	};
-}
-
-export function syncRightDragPanPointer(
-	editor: Pick<Editor, "inputs" | "getViewportScreenBounds" | "screenToPage">,
-	point: VecLike,
-) {
-	const viewportBounds = editor.getViewportScreenBounds();
-
-	editor.inputs.previousScreenPoint.setTo(editor.inputs.currentScreenPoint);
-	editor.inputs.previousPagePoint.setTo(editor.inputs.currentPagePoint);
-
-	editor.inputs.currentScreenPoint.set(
-		point.x - viewportBounds.x,
-		point.y - viewportBounds.y,
-	);
-	editor.inputs.currentPagePoint.setTo(editor.screenToPage(point));
-}
-
-export type GlobalCardDeleteShortcutEvent = {
-	key: string;
-	ctrlKey: boolean;
-	altKey: boolean;
-	shiftKey: boolean;
-	repeat: boolean;
-};
-
-export function isGlobalCardDeleteShortcut(
-	event: GlobalCardDeleteShortcutEvent,
-) {
-	return (
-		event.key === "Delete" &&
-		event.ctrlKey &&
-		!event.altKey &&
-		!event.shiftKey &&
-		!event.repeat
-	);
-}
-
-export function collectGlobalDeleteCardIdsFromShapes(
-	shapes: TLShape[],
-): Id<"cards">[] {
-	const cardIds = new Set<Id<"cards">>();
-
-	for (const shape of shapes) {
-		if (!isMarkdownCardShape(shape)) continue;
-
-		const cardId = shape.props.cardId;
-		if (!cardId) continue;
-
-		cardIds.add(cardId as Id<"cards">);
-	}
-
-	return [...cardIds];
-}
-
-function isEditableKeyboardTarget(target: EventTarget | null) {
-	if (!(target instanceof HTMLElement)) return false;
-
-	return Boolean(
-		target.closest(
-			'input, textarea, select, [contenteditable="true"], [contenteditable=""]',
-		),
-	);
-}
-
-function WhiteboardContextMenu(props: TLUiContextMenuProps) {
-	return (
-		<ControlledTldrawContextMenu {...props}>
-			<WhiteboardContextMenuContent />
-			<DefaultContextMenuContent />
-		</ControlledTldrawContextMenu>
-	);
-}
-
-function WhiteboardContextMenuContent() {
-	const editor = useEditor();
-	const navigate = useNavigate();
-	const context = useContext(WhiteboardContextMenuContext);
-
-	if (!context) return null;
-
-	const getMenuPoint = () => {
-		const point = context.pointRef.current;
-		return point ? { x: point.x, y: point.y } : editor.inputs.currentPagePoint;
-	};
-
-	const onlySelectedShape = editor.getOnlySelectedShape();
-	const canEnterFullscreen =
-		onlySelectedShape &&
-		(isMarkdownCardShape(onlySelectedShape) ||
-			isSubwhiteboardLinkShape(onlySelectedShape));
-
-	return (
-		<TldrawUiMenuGroup id="whiteboard-convex">
-			{canEnterFullscreen && (
-				<TldrawUiMenuItem
-					id="enter-fullscreen"
-					label="Enter fullscreen"
-					onSelect={() => {
-						if (
-							isMarkdownCardShape(onlySelectedShape) &&
-							onlySelectedShape.props.cardId
-						) {
-							void navigate({
-								to: "/cards/$cardId",
-								params: {
-									cardId: onlySelectedShape.props.cardId as Id<"cards">,
-								},
-							});
-						} else if (
-							isSubwhiteboardLinkShape(onlySelectedShape) &&
-							onlySelectedShape.props.childWhiteboardId
-						) {
-							void navigate({
-								to: "/whiteboard/$whiteboardId",
-								params: {
-									whiteboardId: onlySelectedShape.props
-										.childWhiteboardId as Id<"whiteboards">,
-								},
-							});
-						}
-					}}
-				/>
-			)}
-			{context.createCardAt && (
-				<TldrawUiMenuItem
-					id="add-markdown-card"
-					label="Add markdown card"
-					onSelect={() => context.createCardAt?.(getMenuPoint())}
-				/>
-			)}
-			<TldrawUiMenuItem
-				id="add-sub-whiteboard-link"
-				label={
-					context.createCardAt ? "Add sub-whiteboard link" : "Add whiteboard"
-				}
-				onSelect={() => context.createSubwhiteboardAt(getMenuPoint())}
-			/>
-		</TldrawUiMenuGroup>
 	);
 }

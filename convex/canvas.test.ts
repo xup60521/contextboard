@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { restoreOrAdoptCardItemImpl } from "./canvas";
+import { listItems, restoreOrAdoptCardItemImpl } from "./canvas";
 
 type AnyDoc = Record<string, unknown> & { _id: string };
 
@@ -53,6 +53,13 @@ function makeMockCtx(state: MockState) {
 				build(query);
 				return this;
 			},
+			async paginate() {
+				return {
+					page: filtered(),
+					isDone: true,
+					continueCursor: "",
+				};
+			},
 			async first() {
 				return filtered()[0] ?? null;
 			},
@@ -101,6 +108,25 @@ function makeMockCtx(state: MockState) {
 	} as never;
 }
 
+const listItemsHandler = listItems as unknown as {
+	_handler: (
+		ctx: never,
+		args: {
+			whiteboardId: string | null;
+			paginationOpts: { cursor: string | null; numItems: number };
+		},
+	) => Promise<{
+		page: Array<{
+			card: {
+				_id: string;
+				derivedTitle: string;
+				preview: string;
+				version: number;
+			} | null;
+		}>;
+	}>;
+};
+
 function makeDoc(id: string, fields: Record<string, unknown>): AnyDoc {
 	return { _id: id, ...fields };
 }
@@ -118,6 +144,53 @@ function docText(text: string) {
 }
 
 describe("restoreOrAdoptCardItemImpl", () => {
+	test("listItems omits full card content from card payloads", async () => {
+		const state = makeState({
+			cards: [
+				makeDoc("card-1", {
+					whiteboardId: null,
+					content: { type: "doc", content: [{ type: "paragraph" }] },
+					derivedTitle: "Card title",
+					plainText: "Card title",
+					preview: "Card preview",
+					version: 4,
+					archivedAt: null,
+					updatedAt: 100,
+				}),
+			],
+			boardItems: [
+				makeDoc("boardItem-1", {
+					whiteboardId: "whiteboard-1",
+					kind: "card",
+					cardId: "card-1",
+					childWhiteboardId: null,
+					shapeId: "shape:card-1",
+					x: 10,
+					y: 20,
+					w: 576,
+					h: 160,
+					rotation: 0,
+					zIndex: 1,
+					archivedAt: null,
+					updatedAt: 100,
+				}),
+			],
+		});
+
+		const result = await listItemsHandler._handler(makeMockCtx(state), {
+			whiteboardId: "whiteboard-1",
+			paginationOpts: { cursor: null, numItems: 50 },
+		});
+
+		expect(result.page).toHaveLength(1);
+		expect(result.page[0]?.card).toEqual({
+			_id: "card-1",
+			derivedTitle: "Card title",
+			preview: "Card preview",
+			version: 4,
+		});
+	});
+
 	test("creates another placement for a pasted Convex-backed card", async () => {
 		const state = makeState({
 			whiteboards: [

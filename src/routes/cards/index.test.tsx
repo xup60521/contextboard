@@ -22,6 +22,7 @@ const whiteboardPickerDialogMock = vi.fn();
 let currentSearch = {
 	orphan: "",
 	sort: "created" as CardSortBy,
+	q: "",
 };
 
 vi.mock("@tanstack/react-pacer", () => ({
@@ -34,11 +35,16 @@ vi.mock("@tanstack/react-router", () => ({
 		(config: {
 			component: unknown;
 			validateSearch?: (search: Record<string, unknown>) => unknown;
+			search?: { middlewares?: unknown[] };
 		}) => ({
 			...config,
 			useNavigate: () => navigateMock,
 			useSearch: () => currentSearch,
 		}),
+	stripSearchParams: (defaults: Record<string, unknown>) => ({
+		type: "strip" as const,
+		defaults,
+	}),
 }));
 
 vi.mock("convex/react", () => ({
@@ -312,6 +318,7 @@ describe("cards library", () => {
 		currentSearch = {
 			orphan: "",
 			sort: "created",
+			q: "",
 		};
 		usePaginatedQueryMock.mockReturnValue({
 			status: "CanLoadMore",
@@ -354,6 +361,7 @@ describe("cards library", () => {
 		expect(navigateOptions.search(currentSearch)).toEqual({
 			orphan: "",
 			sort: "title",
+			q: "",
 		});
 	});
 
@@ -361,6 +369,7 @@ describe("cards library", () => {
 		currentSearch = {
 			orphan: "",
 			sort: "updated_asc",
+			q: "",
 		};
 
 		render(<RouteComponent />);
@@ -393,6 +402,7 @@ describe("cards library", () => {
 		expect(navigateOptions.search(currentSearch)).toEqual({
 			orphan: "true",
 			sort: "updated_asc",
+			q: "",
 		});
 	});
 

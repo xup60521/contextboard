@@ -9,6 +9,7 @@ import {
 	useContext,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -30,11 +31,13 @@ import {
 } from "tldraw";
 import { CardDocumentEditor } from "#/components/cards/CardDocumentEditor";
 import { useDebouncedCardSave } from "#/components/cards/useDebouncedCardSave";
+import { StaticRichTextRenderer } from "#/components/editor/static-renderer";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
 import { RichTextEditor } from "../editor/RichTextEditor";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
+import { hydrateCardShapes } from "./whiteboard-canvas-helpers";
 
 /**
  * The whiteboard a markdown card lives on, so its editor can offer card
@@ -61,7 +64,10 @@ export type MarkdownCardShape = TLBaseShape<
 		h: number;
 		content: string;
 		cardId?: string;
-		version?: number;
+		title?: string;
+		preview?: string;
+		contentLoaded?: boolean;
+		contentVersion?: number;
 	}
 >;
 
@@ -88,7 +94,10 @@ export const markdownCardShapeProps = {
 	h: T.number,
 	content: T.string,
 	cardId: T.string.optional(),
-	version: T.number.optional(),
+	title: T.string.optional(),
+	preview: T.string.optional(),
+	contentLoaded: T.boolean.optional(),
+	contentVersion: T.number.optional(),
 } satisfies RecordProps<MarkdownCardShape>;
 
 export const subwhiteboardLinkShapeProps = {
@@ -185,6 +194,72 @@ function parseMarkdownContent(content: string): JSONContent | null {
 	}
 }
 
+function isConvexCardLoaded(shape: MarkdownCardShape) {
+	return !shape.props.cardId || shape.props.contentLoaded === true;
+}
+
+function SummaryCardShell({
+	shape,
+}: {
+	shape: MarkdownCardShape;
+}) {
+	const cardId = shape.props.cardId as Id<"cards">;
+	const hasSummary = Boolean(shape.props.title || shape.props.preview);
+
+	return (
+		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
+			<div className="relative h-full w-full overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)] shadow-sm">
+				<Link
+					to="/cards/$cardId"
+					params={{ cardId }}
+					draggable={false}
+					onPointerDown={(e) => {
+						stopEventPropagation(e);
+						e.stopPropagation();
+					}}
+					onPointerUp={(e) => {
+						stopEventPropagation(e);
+						e.stopPropagation();
+					}}
+					onClick={(e) => {
+						stopEventPropagation(e);
+						e.stopPropagation();
+					}}
+					className="absolute right-2 top-2 z-10 flex size-6 items-center justify-center rounded bg-[var(--card)] text-[var(--muted-foreground)] shadow-sm transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+					style={{ pointerEvents: "auto" }}
+					aria-label="Open card editor"
+				>
+					<ExternalLink className="size-3.5" />
+				</Link>
+				<div className="flex h-full flex-col px-8 py-8">
+					<div className="mb-3 inline-flex w-fit rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted-foreground)]">
+						Loading card
+					</div>
+					{hasSummary ? (
+						<>
+							<div className="text-base font-semibold leading-6">
+								{shape.props.title || "Untitled card"}
+							</div>
+							<div className="mt-3 line-clamp-6 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-foreground)]">
+								{shape.props.preview || "No preview yet."}
+							</div>
+						</>
+					) : (
+						<>
+							<div className="text-base font-semibold leading-6">
+								Card content
+							</div>
+							<div className="mt-3 text-sm leading-6 text-[var(--muted-foreground)]">
+								Content loads when the card enters view.
+							</div>
+						</>
+					)}
+				</div>
+			</div>
+		</HTMLContainer>
+	);
+}
+
 function isMarkdownCardVisible(card: HTMLDivElement | null) {
 	return Boolean(card && card.getClientRects().length > 0);
 }
@@ -194,20 +269,20 @@ function getMeasuredMarkdownCardHeight({
 	currentHeight,
 	headerHeight,
 	minHeight,
-	isEditorReady,
+	isContentReady,
 }: {
 	card: HTMLDivElement | null;
 	currentHeight: number;
 	headerHeight: number;
 	minHeight: number;
-	isEditorReady: boolean;
+	isContentReady: boolean;
 }) {
 	return resolveMarkdownCardHeight({
 		currentHeight,
 		measuredScrollHeight: card ? Math.ceil(card.scrollHeight) : null,
 		headerHeight,
 		minHeight,
-		isEditorReady,
+		isContentReady,
 		isVisible: isMarkdownCardVisible(card),
 	});
 }
@@ -225,29 +300,45 @@ function getShapeContainerStyle(width: number, height: number) {
 	};
 }
 
-function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
+export function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	if (shape.props.cardId) {
+		if (!shape.props.contentLoaded) {
+			return <SummaryCardShell shape={shape} />;
+		}
 		return <ConvexMarkdownCardComponent shape={shape} />;
 	}
 
 	return <LocalMarkdownCardComponent shape={shape} />;
 }
 
-function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
+export function ConvexMarkdownCardComponent({
+	shape,
+}: {
+	shape: MarkdownCardShape;
+}) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
 	const cardId = shape.props.cardId as Id<"cards">;
 	const boardWhiteboardId = useContext(WhiteboardCardContext);
 	const openWhiteboardPreview = useSetAtom(whiteboardPreviewCardIdAtom);
-	const { scheduleSave: schedulePersistedSave } = useDebouncedCardSave(cardId);
+	const { scheduleSave: schedulePersistedSave } = useDebouncedCardSave(
+		cardId,
+		450,
+		{
+			onPersisted: ({ content, version }) => {
+				hydrateCardShapes(editor, { cardId, content, version });
+			},
+		},
+	);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
 	const syncFrameRef = useRef<number | null>(null);
-	const [isEditorReady, setIsEditorReady] = useState(false);
-	const initialContentRef = useRef<JSONContent | null>(
-		parseMarkdownContent(shape.props.content),
+	const [isContentReady, setIsContentReady] = useState(false);
+	const currentContent = useMemo(
+		() => parseMarkdownContent(shape.props.content),
+		[shape.props.content],
 	);
-
+	const staticContent = currentContent;
 	latestPropsRef.current = shape.props;
 	const HEADER_HEIGHT = 28;
 	const MIN_HEIGHT = 96;
@@ -260,7 +351,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 			currentHeight: latestProps.h,
 			headerHeight: HEADER_HEIGHT,
 			minHeight: MIN_HEIGHT,
-			isEditorReady,
+			isContentReady,
 		});
 
 		if (Math.abs(nextHeight - latestProps.h) < 1) {
@@ -275,7 +366,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 				h: nextHeight,
 			},
 		});
-	}, [editor, isEditorReady, shape.id]);
+	}, [editor, isContentReady, shape.id]);
 
 	const scheduleSyncHeight = useCallback(() => {
 		if (syncFrameRef.current !== null) return;
@@ -291,7 +382,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 				currentHeight: latestProps.h,
 				headerHeight: HEADER_HEIGHT,
 				minHeight: MIN_HEIGHT,
-				isEditorReady,
+				isContentReady,
 			});
 
 			editor.updateShape<MarkdownCardShape>({
@@ -306,7 +397,7 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 
 			schedulePersistedSave(value);
 		},
-		[editor, isEditorReady, schedulePersistedSave, shape.id],
+		[editor, isContentReady, schedulePersistedSave, shape.id],
 	);
 
 	useLayoutEffect(() => {
@@ -328,11 +419,10 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	}, [scheduleSyncHeight]);
 
 	useEffect(() => {
-		if (!isEditorReady) return;
+		if (!isContentReady) return;
 		scheduleSyncHeight();
-	}, [isEditorReady, scheduleSyncHeight]);
-	const initialContent = initialContentRef.current;
-	const selectInitialContent = isEmptyCardContent(initialContent);
+	}, [isContentReady, scheduleSyncHeight]);
+	const selectInitialContent = isEmptyCardContent(currentContent);
 
 	return (
 		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
@@ -390,40 +480,53 @@ function ConvexMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 					<ExternalLink className="size-3.5" />
 				</Link>
 				<div ref={cardRef} className="w-full px-8 py-8">
-					<CardDocumentEditor
-						editable={isEditing}
-						content={initialContent}
-						whiteboardId={boardWhiteboardId}
-						onOpenPreview={openWhiteboardPreview}
-						contentClassName="min-h-12 pr-7"
-						placeholder="Type '/' for commands"
-						onChange={scheduleSave}
-						onReady={() => setIsEditorReady(true)}
-						defaultFocusPosition={selectInitialContent ? "start" : "end"}
-						selectContentOnFocus={selectInitialContent}
-					/>
+					{isEditing ? (
+						<CardDocumentEditor
+							editable
+							content={currentContent}
+							whiteboardId={boardWhiteboardId}
+							onOpenPreview={openWhiteboardPreview}
+							contentClassName="min-h-12 pr-7"
+							placeholder="Type '/' for commands"
+							onChange={scheduleSave}
+							onReady={() => setIsContentReady(true)}
+							defaultFocusPosition={selectInitialContent ? "start" : "end"}
+							selectContentOnFocus={selectInitialContent}
+						/>
+					) : (
+						<StaticRichTextRenderer
+							content={staticContent}
+							contentClassName="min-h-12 pr-7"
+							onReady={() => setIsContentReady(true)}
+						/>
+					)}
 				</div>
 			</div>
 		</HTMLContainer>
 	);
 }
 
-function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
+export function LocalMarkdownCardComponent({
+	shape,
+}: {
+	shape: MarkdownCardShape;
+}) {
 	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
 	const syncFrameRef = useRef<number | null>(null);
-	const [isEditorReady, setIsEditorReady] = useState(false);
-	// The TipTap editor is the source of truth after mount, so read the persisted
-	// content only once.
-	const initialContentRef = useRef<JSONContent | null>(
-		parseMarkdownContent(shape.props.content),
+	const [isContentReady, setIsContentReady] = useState(false);
+	const currentContent = useMemo(
+		() => parseMarkdownContent(shape.props.content),
+		[shape.props.content],
 	);
+	const staticContent = currentContent;
 
 	latestPropsRef.current = shape.props;
 	const HEADER_HEIGHT = 28;
 	const MIN_HEIGHT = 64;
+	const selectInitialContent = isEmptyCardContent(currentContent);
 
 	const syncHeight = useCallback(() => {
 		syncFrameRef.current = null;
@@ -433,7 +536,7 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 			currentHeight: latestProps.h,
 			headerHeight: HEADER_HEIGHT,
 			minHeight: MIN_HEIGHT,
-			isEditorReady,
+			isContentReady,
 		});
 
 		if (Math.abs(nextHeight - latestProps.h) < 1) {
@@ -448,7 +551,7 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 				h: nextHeight,
 			},
 		});
-	}, [editor, isEditorReady, shape.id]);
+	}, [editor, isContentReady, shape.id]);
 
 	const scheduleSyncHeight = useCallback(() => {
 		if (syncFrameRef.current !== null) return;
@@ -474,9 +577,9 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	}, [scheduleSyncHeight]);
 
 	useEffect(() => {
-		if (!isEditorReady) return;
+		if (!isContentReady) return;
 		scheduleSyncHeight();
-	}, [isEditorReady, scheduleSyncHeight]);
+	}, [isContentReady, scheduleSyncHeight]);
 
 	return (
 		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
@@ -540,39 +643,43 @@ function LocalMarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 						</Link>
 					</div>
 					<div className="px-8 py-8">
-						<RichTextEditor
-							editable={isEditing}
-							content={initialContentRef.current}
-							contentClassName="min-h-6"
-							placeholder="Type '/' for commands"
-							onChange={(value) => {
-								const latestProps = latestPropsRef.current;
-								const nextHeight = getMeasuredMarkdownCardHeight({
-									card: cardRef.current,
-									currentHeight: latestProps.h,
-									headerHeight: HEADER_HEIGHT,
-									minHeight: MIN_HEIGHT,
-									isEditorReady,
-								});
+						{isEditing ? (
+							<RichTextEditor
+								editable
+								content={currentContent}
+								contentClassName="min-h-6"
+								placeholder="Type '/' for commands"
+								onChange={(value) => {
+									const latestProps = latestPropsRef.current;
+									const nextHeight = getMeasuredMarkdownCardHeight({
+										card: cardRef.current,
+										currentHeight: latestProps.h,
+										headerHeight: HEADER_HEIGHT,
+										minHeight: MIN_HEIGHT,
+										isContentReady,
+									});
 
-								editor.updateShape<MarkdownCardShape>({
-									id: shape.id,
-									type: "markdown-card",
-									props: {
-										...latestProps,
-										content: JSON.stringify(value),
-										h: nextHeight,
-									},
-								});
-							}}
-							onReady={() => setIsEditorReady(true)}
-							defaultFocusPosition={
-								isEmptyCardContent(initialContentRef.current) ? "start" : "end"
-							}
-							selectContentOnFocus={isEmptyCardContent(
-								initialContentRef.current,
-							)}
-						/>
+									editor.updateShape<MarkdownCardShape>({
+										id: shape.id,
+										type: "markdown-card",
+										props: {
+											...latestProps,
+											content: JSON.stringify(value),
+											h: nextHeight,
+										},
+									});
+								}}
+								onReady={() => setIsContentReady(true)}
+								defaultFocusPosition={selectInitialContent ? "start" : "end"}
+								selectContentOnFocus={selectInitialContent}
+							/>
+						) : (
+							<StaticRichTextRenderer
+								content={staticContent}
+								contentClassName="min-h-6"
+								onReady={() => setIsContentReady(true)}
+							/>
+						)}
 					</div>
 				</div>
 			</div>
@@ -661,8 +768,8 @@ export class MarkdownCardShapeUtil extends BaseBoxShapeUtil<MarkdownCardShape> {
 		return true;
 	}
 
-	override canEdit() {
-		return true;
+	override canEdit(shape: MarkdownCardShape) {
+		return isConvexCardLoaded(shape);
 	}
 
 	override hideSelectionBoundsBg(shape: MarkdownCardShape) {

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { CommandPalette } from "../components/search/CommandPalette";
+import { SidebarTabsProvider } from "../components/sidebar/SidebarTabsContext";
 import { AppSidebar } from "../components/whiteboard/AppSidebar";
 import { SidebarProvider } from "../components/whiteboard/SidebarContext";
 import ConvexProvider from "../integrations/convex/provider";
@@ -54,7 +55,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			<body className="font-sans antialiased h-screen [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">
 				<ConvexProvider>
 					<SidebarProvider>
-						<AppShell>{children}</AppShell>
+						<SidebarTabsProvider>
+							<AppShell>{children}</AppShell>
+						</SidebarTabsProvider>
 						<CommandPalette />
 						<TanStackDevtools
 							config={{
@@ -80,7 +83,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
 	return (
 		<div className="flex h-dvh overflow-hidden bg-[var(--background)]">
 			<AppSidebar />
-			<div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
+			<div
+				className="min-w-0 flex-1 overflow-y-auto"
+				data-app-scroll-host="true"
+			>
+				{children}
+			</div>
 		</div>
 	);
 }

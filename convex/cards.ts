@@ -104,6 +104,32 @@ export const get = query({
 	},
 });
 
+export const getContentsForWhiteboardItems = query({
+	args: {
+		cardIds: v.array(v.id("cards")),
+	},
+	handler: async (ctx, args) => {
+		const uniqueCardIds = [...new Set(args.cardIds)];
+		if (uniqueCardIds.length > 30) {
+			throw new Error("Cannot load more than 30 card contents at once");
+		}
+
+		const cards = await Promise.all(
+			uniqueCardIds.map(async (cardId) => {
+				const card = await ctx.db.get(cardId);
+				if (!card || card.archivedAt !== null) return null;
+				return {
+					cardId: card._id,
+					content: card.content,
+					version: card.version,
+				};
+			}),
+		);
+
+		return cards.filter((card) => card !== null);
+	},
+});
+
 export const updateContent = mutation({
 	args: {
 		cardId: v.id("cards"),
