@@ -66,7 +66,6 @@ export function CommandPalette() {
 			} else {
 				setMode(currentWhiteboardId ? "local" : "global");
 			}
-			setQuery("");
 			setOpen(true);
 		};
 
@@ -127,7 +126,6 @@ export function CommandPalette() {
 
 	const close = useCallback(() => {
 		setOpen(false);
-		setQuery("");
 	}, []);
 
 	const openCardPreview = useCallback(
