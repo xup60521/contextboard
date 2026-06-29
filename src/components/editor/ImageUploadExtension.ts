@@ -2,6 +2,7 @@ import { Extension } from "@tiptap/core";
 import type { UploadedImage } from "./ImageUpload";
 
 export type ImageUploadHandler = (file: File) => Promise<UploadedImage>;
+export type ImageUploadHandlerGetter = () => ImageUploadHandler | undefined;
 
 declare module "@tiptap/core" {
 	interface Commands<ReturnType> {
@@ -13,7 +14,7 @@ declare module "@tiptap/core" {
 }
 
 type ImageUploadStorage = {
-	onImageUpload: ImageUploadHandler;
+	onImageUpload: ImageUploadHandlerGetter;
 };
 
 /**
@@ -52,12 +53,14 @@ function pickImageFile(): Promise<File | null> {
  * Exposes the `uploadImageFromPicker` command used by the slash menu and stashes
  * the handler in `editor.storage` for any callers that need it directly.
  */
-export function createImageUploadExtension(onImageUpload: ImageUploadHandler) {
+export function createImageUploadExtension(
+	getImageUploadHandler: ImageUploadHandlerGetter,
+) {
 	return Extension.create<Record<string, never>, ImageUploadStorage>({
 		name: "imageUpload",
 
 		addStorage() {
-			return { onImageUpload };
+			return { onImageUpload: getImageUploadHandler };
 		},
 
 		addCommands() {
@@ -67,6 +70,8 @@ export function createImageUploadExtension(onImageUpload: ImageUploadHandler) {
 					({ editor }) => {
 						void pickImageFile().then(async (file) => {
 							if (!file) return;
+							const onImageUpload = getImageUploadHandler();
+							if (!onImageUpload) return;
 							try {
 								const uploaded = await onImageUpload(file);
 								editor

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	filterSnapshotForPersistence,
 	isManagedWhiteboardShapeRecord,
+	splitDeferredBindings,
 } from "./tldraw-persistence";
 
 const schema = { schemaVersion: 2, sequences: {} } as TLStoreSnapshot["schema"];
@@ -77,7 +78,7 @@ describe("tldraw persistence", () => {
 		expect(store["shape:text"]).toBeDefined();
 	});
 
-	test("drops bindings touching managed shapes and keeps unmanaged bindings", () => {
+	test("keeps bindings touching managed shapes so connections persist", () => {
 		const filtered = filterSnapshotForPersistence(
 			snapshot({
 				"shape:card": {
@@ -98,8 +99,8 @@ describe("tldraw persistence", () => {
 					type: "geo",
 					props: {},
 				},
-				"binding:drop": {
-					id: "binding:drop",
+				"binding:toCard": {
+					id: "binding:toCard",
 					typeName: "binding",
 					type: "arrow",
 					fromId: "shape:a",
@@ -118,8 +119,57 @@ describe("tldraw persistence", () => {
 		);
 
 		const store = records(filtered);
-		expect(store["binding:drop"]).toBeUndefined();
+		// The managed card shape is still excluded...
+		expect(store["shape:card"]).toBeUndefined();
+		// ...but the binding to it is preserved (re-attached on load once the
+		// card is hydrated), alongside bindings between unmanaged shapes.
+		expect(store["binding:toCard"]).toBeDefined();
 		expect(store["binding:keep"]).toBeDefined();
+	});
+
+	test("defers bindings whose endpoints are absent from the snapshot", () => {
+		const { snapshot: loadable, deferredBindings } = splitDeferredBindings(
+			snapshot({
+				"shape:a": {
+					id: "shape:a",
+					typeName: "shape",
+					type: "geo",
+					props: {},
+				},
+				"shape:b": {
+					id: "shape:b",
+					typeName: "shape",
+					type: "geo",
+					props: {},
+				},
+				// Target card shape is not present (hydrated separately on load).
+				"binding:toCard": {
+					id: "binding:toCard",
+					typeName: "binding",
+					type: "arrow",
+					fromId: "shape:a",
+					toId: "shape:card",
+					props: {},
+				},
+				"binding:present": {
+					id: "binding:present",
+					typeName: "binding",
+					type: "arrow",
+					fromId: "shape:a",
+					toId: "shape:b",
+					props: {},
+				},
+			}),
+		);
+
+		const store = records(loadable);
+		// Binding between present shapes stays in the loadable snapshot.
+		expect(store["binding:present"]).toBeDefined();
+		// Binding to an absent shape is removed from the loadable snapshot...
+		expect(store["binding:toCard"]).toBeUndefined();
+		// ...and surfaced for re-attachment after hydration.
+		expect(deferredBindings).toHaveLength(1);
+		expect((deferredBindings[0] as { id: string }).id).toBe("binding:toCard");
 	});
 
 	test("drops unreferenced assets and keeps referenced assets", () => {

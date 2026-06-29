@@ -20,6 +20,7 @@ import {
 	type TLComponents,
 	type TLCursor,
 	type TLEventInfo,
+	type TLRecord,
 	type TLShape,
 	type TLShapeId,
 	type TLStoreSnapshot,
@@ -66,6 +67,7 @@ import { useSidebarContext } from "./SidebarContext";
 import {
 	filterSnapshotForPersistence,
 	isManagedWhiteboardShapeRecord,
+	splitDeferredBindings,
 } from "./tldraw-persistence";
 import {
 	singlePageTldrawComponents,
@@ -159,6 +161,17 @@ function toTldrawShapeId(shapeId: string): TLShapeId {
 	return (
 		shapeId.startsWith("shape:") ? shapeId : `shape:${shapeId}`
 	) as TLShapeId;
+}
+
+function bothBindingEndpointsExist(editor: Editor, binding: unknown): boolean {
+	if (typeof binding !== "object" || binding === null) return false;
+	const { fromId, toId } = binding as { fromId?: unknown; toId?: unknown };
+	return (
+		typeof fromId === "string" &&
+		typeof toId === "string" &&
+		editor.getShape(fromId as TLShapeId) !== undefined &&
+		editor.getShape(toId as TLShapeId) !== undefined
+	);
 }
 
 const whiteboardOptions = {
@@ -309,6 +322,7 @@ export function WhiteboardCanvas({
 	const pendingEditShapeIdRef = useRef<TLShapeId | null>(null);
 	const loadedDrawingKeyRef = useRef<string | null>(null);
 	const emptyDrawingSnapshotRef = useRef<TLStoreSnapshot | null>(null);
+	const deferredBindingsRef = useRef<unknown[]>([]);
 	const tldrawDocumentRevisionRef = useRef<number | null>(null);
 	const saveDrawingTimerRef = useRef<number | null>(null);
 	const pendingDrawingSaveRef = useRef<PendingDrawingSave | null>(null);
@@ -495,8 +509,15 @@ export function WhiteboardCanvas({
 		const snapshot =
 			tldrawDocument?.snapshot ?? emptyDrawingSnapshotRef.current;
 		hydratingRef.current = true;
+		deferredBindingsRef.current = [];
 		if (snapshot) {
-			editor.loadSnapshot(snapshot);
+			// Bindings to managed cards reference shapes that are hydrated
+			// separately (after this effect), so they're absent from the snapshot.
+			// loadSnapshot would prune them; defer and re-attach once cards exist.
+			const { snapshot: loadableSnapshot, deferredBindings } =
+				splitDeferredBindings(snapshot);
+			deferredBindingsRef.current = deferredBindings;
+			editor.loadSnapshot(loadableSnapshot);
 		}
 
 		setLoadedDrawingKey(whiteboardKey);
@@ -573,6 +594,42 @@ export function WhiteboardCanvas({
 			pendingEditShapeIdRef.current = null;
 			editor.select(pendingEditShapeId);
 			editor.setEditingShape(pendingEditShapeId);
+		}, 0);
+	}, [editor, items, loadedDrawingKey, whiteboardKey]);
+
+	// Re-attach bindings (e.g. arrows connecting cards) that were deferred at load
+	// because their target card shapes hadn't been hydrated yet. Runs after the
+	// hydration effect above (definition order) and re-runs as more items arrive,
+	// applying each binding once both of its endpoints exist. Bindings whose card
+	// endpoint never reappears (deleted card) are dropped and self-heal on save.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: items re-runs this after hydration creates the bound card shapes.
+	useEffect(() => {
+		if (!editor) return;
+		if (loadedDrawingKey !== whiteboardKey) return;
+		if (deferredBindingsRef.current.length === 0) return;
+
+		const ready: TLRecord[] = [];
+		const stillPending: unknown[] = [];
+		for (const binding of deferredBindingsRef.current) {
+			if (bothBindingEndpointsExist(editor, binding)) {
+				ready.push(binding as TLRecord);
+			} else {
+				stillPending.push(binding);
+			}
+		}
+
+		deferredBindingsRef.current = stillPending;
+		if (ready.length === 0) return;
+
+		hydratingRef.current = true;
+		editor.run(
+			() => {
+				editor.store.put(ready);
+			},
+			{ history: "ignore" },
+		);
+		window.setTimeout(() => {
+			hydratingRef.current = false;
 		}, 0);
 	}, [editor, items, loadedDrawingKey, whiteboardKey]);
 

@@ -1,4 +1,4 @@
-import type { TLShapeId, TLStoreSnapshot } from "tldraw";
+import type { TLStoreSnapshot } from "tldraw";
 
 type UnknownRecord = {
 	id?: unknown;
@@ -20,13 +20,11 @@ export function isManagedWhiteboardShapeRecord(record: unknown): boolean {
 export function filterSnapshotForPersistence(
 	snapshot: TLStoreSnapshot,
 ): TLStoreSnapshot {
-	const removedShapeIds = new Set<TLShapeId>();
 	const store = snapshot.store as unknown as Record<string, unknown>;
 	const storeWithoutManagedShapes: Record<string, unknown> = {};
 
 	for (const [id, record] of Object.entries(store)) {
 		if (isManagedWhiteboardShapeRecord(record)) {
-			removedShapeIds.add(id as TLShapeId);
 			continue;
 		}
 
@@ -44,7 +42,6 @@ export function filterSnapshotForPersistence(
 
 	const filteredStore: Record<string, unknown> = {};
 	for (const [id, record] of Object.entries(storeWithoutManagedShapes)) {
-		if (isBindingTouchingRemovedShape(record, removedShapeIds)) continue;
 		if (isUnreferencedAsset(record, referencedAssetIds)) continue;
 
 		filteredStore[id] = record;
@@ -56,17 +53,60 @@ export function filterSnapshotForPersistence(
 	};
 }
 
-function isBindingTouchingRemovedShape(
+/**
+ * Splits a snapshot into one that is safe to feed to `editor.loadSnapshot`
+ * plus the binding records that reference shapes not present in the snapshot.
+ *
+ * Managed card shapes are excluded from the persisted snapshot (their source of
+ * truth is Convex `boardItems`), so a binding linking an arrow to a card points
+ * at a shape that does not exist at load time. `loadSnapshot` would prune such
+ * orphaned bindings, severing the connection. We instead defer those bindings so
+ * the caller can re-apply them once the cards have been hydrated. Bindings whose
+ * endpoint never reappears (e.g. the card was deleted) are simply never
+ * re-applied, which self-heals on the next save.
+ */
+export function splitDeferredBindings(snapshot: TLStoreSnapshot): {
+	snapshot: TLStoreSnapshot;
+	deferredBindings: unknown[];
+} {
+	const store = snapshot.store as unknown as Record<string, unknown>;
+	const presentShapeIds = new Set<string>();
+	for (const [id, record] of Object.entries(store)) {
+		if (isRecordObject(record) && record.typeName === "shape") {
+			presentShapeIds.add(id);
+		}
+	}
+
+	const loadableStore: Record<string, unknown> = {};
+	const deferredBindings: unknown[] = [];
+	for (const [id, record] of Object.entries(store)) {
+		if (isBindingWithAbsentEndpoint(record, presentShapeIds)) {
+			deferredBindings.push(record);
+			continue;
+		}
+
+		loadableStore[id] = record;
+	}
+
+	return {
+		snapshot: {
+			...snapshot,
+			store: loadableStore as TLStoreSnapshot["store"],
+		},
+		deferredBindings,
+	};
+}
+
+function isBindingWithAbsentEndpoint(
 	record: unknown,
-	removedShapeIds: Set<TLShapeId>,
+	presentShapeIds: Set<string>,
 ) {
 	return (
 		isRecordObject(record) &&
 		record.typeName === "binding" &&
 		((typeof record.fromId === "string" &&
-			removedShapeIds.has(record.fromId as TLShapeId)) ||
-			(typeof record.toId === "string" &&
-				removedShapeIds.has(record.toId as TLShapeId)))
+			!presentShapeIds.has(record.fromId)) ||
+			(typeof record.toId === "string" && !presentShapeIds.has(record.toId)))
 	);
 }
 
