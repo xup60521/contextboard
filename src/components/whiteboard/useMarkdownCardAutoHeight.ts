@@ -17,10 +17,12 @@ export function useMarkdownCardAutoHeight({
 	shape,
 	headerHeight,
 	minHeight,
+	isEditing,
 }: {
 	shape: MarkdownCardShape;
 	headerHeight: number;
 	minHeight: number;
+	isEditing: boolean;
 }) {
 	const editor = useEditor();
 	const cardRef = useRef<HTMLDivElement>(null);
@@ -63,13 +65,18 @@ export function useMarkdownCardAutoHeight({
 	}, [editor, measureNextHeight, shape.id]);
 
 	const scheduleSyncHeight = useCallback(() => {
+		// Only the editing card drives its own height. After blur the editor is
+		// swapped for the static renderer; letting the ResizeObserver keep writing
+		// `h` here re-fires the content-hydration reactive on every frame, which
+		// (combined with the other shape writers) never settles and freezes the app.
+		if (!isEditing) return;
 		if (syncFrameRef.current !== null) return;
 		syncFrameRef.current = window.requestAnimationFrame(syncHeight);
-	}, [syncHeight]);
+	}, [isEditing, syncHeight]);
 
 	useLayoutEffect(() => {
 		const card = cardRef.current;
-		if (!card) return;
+		if (!card || !isEditing) return;
 
 		scheduleSyncHeight();
 
@@ -83,7 +90,7 @@ export function useMarkdownCardAutoHeight({
 				syncFrameRef.current = null;
 			}
 		};
-	}, [scheduleSyncHeight]);
+	}, [isEditing, scheduleSyncHeight]);
 
 	useEffect(() => {
 		if (!isContentReady) return;

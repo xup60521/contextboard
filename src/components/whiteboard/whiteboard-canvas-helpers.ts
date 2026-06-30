@@ -16,6 +16,7 @@ import type {
 	MarkdownCardShape,
 	SubwhiteboardLinkShape,
 } from "./custom-shapes";
+import { isCardContentDirty } from "./dirty-card-content";
 import { frameFromItem } from "./frame-sync";
 import { getHydratedMarkdownCardHeight } from "./markdown-card-sizing";
 import { isManagedWhiteboardShapeRecord } from "./tldraw-persistence";
@@ -313,7 +314,10 @@ function preserveEditingCardContent(
 		};
 	}
 
-	if (existingShape.id === editor.getEditingShapeId()) {
+	const cardId = existingShape.props.cardId as Id<"cards"> | undefined;
+	const hasUnsavedLocalEdits = Boolean(cardId && isCardContentDirty(cardId));
+
+	if (existingShape.id === editor.getEditingShapeId() || hasUnsavedLocalEdits) {
 		return {
 			...nextShape,
 			props: {

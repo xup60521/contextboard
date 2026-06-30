@@ -3,6 +3,10 @@ import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import {
+	clearCardContentDirty,
+	markCardContentDirty,
+} from "../whiteboard/dirty-card-content";
 
 type UseDebouncedCardSaveResult = {
 	scheduleSave: (content: JSONContent) => void;
@@ -69,6 +73,12 @@ export function useDebouncedCardSave(
 			if (typeof version === "number") {
 				persistedVersionByCardIdRef.current.set(pendingSave.cardId, version);
 			}
+			// Only the latest content is now safely persisted; if a newer edit was
+			// queued while this save was in flight, leave the card dirty so that
+			// pending save keeps protecting it.
+			if (pendingSaveRef.current?.cardId !== pendingSave.cardId) {
+				clearCardContentDirty(pendingSave.cardId);
+			}
 			onPersistedRef.current?.({ content: pendingSave.content, version });
 		});
 	}, [updateContent]);
@@ -81,6 +91,7 @@ export function useDebouncedCardSave(
 
 			if (persistedSerialized === serializedContent) {
 				pendingSaveRef.current = null;
+				clearCardContentDirty(cardId);
 				if (saveTimerRef.current !== null) {
 					window.clearTimeout(saveTimerRef.current);
 					saveTimerRef.current = null;
@@ -88,6 +99,7 @@ export function useDebouncedCardSave(
 				return;
 			}
 
+			markCardContentDirty(cardId);
 			pendingSaveRef.current = {
 				cardId,
 				content,

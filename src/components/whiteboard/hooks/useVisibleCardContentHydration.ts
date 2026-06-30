@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, type MutableRefObject } from "
 import { react as tldrawReact, type Editor, type TLShapeId } from "tldraw";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { isCardContentDirty } from "../dirty-card-content";
 import {
 	hydrateCardShapes,
 	isMarkdownCardShape,
@@ -106,6 +107,10 @@ export function useVisibleCardContentHydration({
 			if (shape.id === editingShapeId) continue;
 
 			const cardId = shape.props.cardId as Id<"cards">;
+			// Never re-hydrate a card with unsaved local edits: hydrating would
+			// overwrite the freshly-edited content and, because the write re-fires
+			// this reactive, keep rescheduling.
+			if (isCardContentDirty(cardId)) continue;
 			const serverVersion = serverVersionByCardId.get(cardId);
 			const needsContent =
 				shape.props.contentLoaded !== true ||

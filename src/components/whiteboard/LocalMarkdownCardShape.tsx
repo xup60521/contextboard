@@ -31,6 +31,7 @@ export function LocalMarkdownCardComponent({
 			shape,
 			headerHeight: HEADER_HEIGHT,
 			minHeight: MIN_HEIGHT,
+			isEditing,
 		});
 	const selectInitialContent = isEmptyCardContent(currentContent);
 

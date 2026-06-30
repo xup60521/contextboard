@@ -4,6 +4,10 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { TLShapeId } from "tldraw";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import {
+	clearCardContentDirty,
+	markCardContentDirty,
+} from "../dirty-card-content";
 import { useVisibleCardContentHydration } from "./useVisibleCardContentHydration";
 
 const queryMock = vi.fn();
@@ -128,6 +132,7 @@ describe("useVisibleCardContentHydration", () => {
 	afterEach(() => {
 		vi.runOnlyPendingTimers();
 		vi.useRealTimers();
+		clearCardContentDirty("card-1" as Id<"cards">);
 	});
 
 	test("fetches visible unloaded cards and hydrates their shapes", async () => {
@@ -193,6 +198,65 @@ describe("useVisibleCardContentHydration", () => {
 		});
 		expect(getShapeSnapshot()?.props.contentLoaded).toBe(true);
 		expect(getShapeSnapshot()?.props.contentVersion).toBe(2);
+		expect(getShapeSnapshot()?.props.content).toContain('"type":"doc"');
+	});
+
+	test("skips cards with unsaved local edits", async () => {
+		const { editor, getShapeSnapshot } = createEditor({
+			id: "shape:card-1",
+			type: "markdown-card",
+			x: 0,
+			y: 0,
+			rotation: 0,
+			props: {
+				w: 320,
+				h: 160,
+				content: '{"type":"doc","content":[{"type":"paragraph"}]}',
+				cardId: "card-1",
+				title: "Alpha",
+				preview: "Preview",
+				contentLoaded: false,
+				contentVersion: 1,
+			},
+		});
+
+		// Card has been edited locally but not yet persisted (newer than its
+		// version). Hydration must not run for it — doing so would clobber the
+		// unsaved content and re-trigger the reactive in a loop.
+		markCardContentDirty("card-1" as Id<"cards">);
+
+		render(
+			<Harness
+				editor={editor}
+				items={[
+					{
+						_id: "item-1",
+						kind: "card",
+						cardId: "card-1" as Id<"cards">,
+						childWhiteboardId: null,
+						shapeId: "shape:card-1",
+						x: 0,
+						y: 0,
+						w: 320,
+						h: 160,
+						rotation: 0,
+						zIndex: 1,
+						card: {
+							_id: "card-1" as Id<"cards">,
+							derivedTitle: "Alpha",
+							preview: "Preview",
+							version: 2,
+						},
+						childWhiteboard: null,
+					},
+				]}
+			/>,
+		);
+
+		await vi.runAllTimersAsync();
+
+		expect(queryMock).not.toHaveBeenCalled();
+		expect(editor.updateShapes).not.toHaveBeenCalled();
 		expect(getShapeSnapshot()?.props.content).toContain('"type":"doc"');
 	});
 

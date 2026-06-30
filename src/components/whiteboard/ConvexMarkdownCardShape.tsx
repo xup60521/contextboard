@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import { useSetAtom } from "jotai";
-import { useCallback, useContext, useMemo } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import { useEditor, useIsEditing } from "tldraw";
 import { CardDocumentEditor } from "#/components/cards/CardDocumentEditor";
 import { useDebouncedCardSave } from "#/components/cards/useDebouncedCardSave";
@@ -35,23 +35,32 @@ export function ConvexMarkdownCardComponent({
 		() => parseMarkdownContent(shape.props.content),
 		[shape.props.content],
 	);
-	const { scheduleSave: schedulePersistedSave } = useDebouncedCardSave(
-		cardId,
-		450,
-		{
+	const { scheduleSave: schedulePersistedSave, flushSave } =
+		useDebouncedCardSave(cardId, 450, {
 			initialContent: currentContent,
 			initialVersion: shape.props.contentVersion ?? null,
 			onPersisted: ({ content, version }) => {
 				hydrateCardShapes(editor, { cardId, content, version });
 			},
-		},
-	);
+		});
 	const { cardRef, setIsContentReady, latestPropsRef, measureNextHeight } =
 		useMarkdownCardAutoHeight({
 			shape,
 			headerHeight: HEADER_HEIGHT,
 			minHeight: MIN_HEIGHT,
+			isEditing,
 		});
+
+	// On tap-out the card stops being the editing shape, which removes the guard
+	// that protects unsaved local content. Flush the pending save immediately so
+	// the server version catches up and the dirty window closes promptly.
+	const wasEditingRef = useRef(isEditing);
+	useEffect(() => {
+		if (wasEditingRef.current && !isEditing) {
+			flushSave();
+		}
+		wasEditingRef.current = isEditing;
+	}, [isEditing, flushSave]);
 	const staticContent = currentContent;
 	const selectInitialContent = isEmptyCardContent(currentContent);
 
