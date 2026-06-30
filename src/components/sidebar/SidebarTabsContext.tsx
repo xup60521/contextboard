@@ -21,13 +21,12 @@ import {
 	type OpenTabInput,
 	openSidebarTab,
 	persistableSidebarTabs,
+	pruneMissingCardTabs,
 	pruneMissingWhiteboardTabs,
 	readPersistedSidebarTabs,
 	SIDEBAR_TABS_STORAGE_KEY,
 	type SidebarTab,
 	setSidebarTabPinned,
-	syncActiveCardTabTitle,
-	syncActiveWhiteboardTabTitle,
 	toggleSidebarTabPinned,
 } from "./sidebar-tabs";
 
@@ -74,12 +73,42 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 	});
 	const tabsRef = useRef(tabs);
 
+	const sidebarWhiteboardIds = useMemo(() => {
+		const ids = new Set<string>();
+
+		for (const tab of tabs) {
+			if (tab.kind === "whiteboard" && tab.id !== null) {
+				ids.add(tab.id);
+			}
+		}
+
+		if (routeTab?.kind === "whiteboard" && routeTab.id !== null) {
+			ids.add(routeTab.id);
+		}
+
+		return [...ids].sort() as Id<"whiteboards">[];
+	}, [routeTab, tabs]);
+
+	const sidebarCardIds = useMemo(() => {
+		const ids = new Set<string>();
+
+		for (const tab of tabs) {
+			if (tab.kind === "card" && tab.id !== null) {
+				ids.add(tab.id);
+			}
+		}
+
+		if (routeTab?.kind === "card" && routeTab.id !== null) {
+			ids.add(routeTab.id);
+		}
+
+		return [...ids].sort() as Id<"cards">[];
+	}, [routeTab, tabs]);
+
 	const sidebarData = useQuery(api.sidebar.get, {
-		activeCardId:
-			routeTab?.kind === "card" ? (routeTab.id as Id<"cards">) : null,
+		whiteboardIds: sidebarWhiteboardIds,
+		cardIds: sidebarCardIds,
 	});
-	const sidebarWhiteboards = sidebarData?.whiteboards;
-	const activeCardTitle = sidebarData?.activeCardTitle;
 
 	useEffect(() => {
 		tabsRef.current = tabs;
@@ -115,62 +144,38 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 	}, [routeTab]);
 
 	const whiteboardTitleById = useMemo(() => {
-		if (!sidebarWhiteboards) {
+		if (!sidebarData) {
 			return null;
 		}
 
 		return new Map(
-			sidebarWhiteboards.map((whiteboard) => [
+			sidebarData.whiteboards.map((whiteboard) => [
 				String(whiteboard._id),
 				whiteboard.title,
 			]),
 		);
-	}, [sidebarWhiteboards]);
+	}, [sidebarData]);
 
-	useEffect(() => {
-		if (sidebarWhiteboards === undefined) {
-			return;
+	const cardTitleById = useMemo(() => {
+		if (!sidebarData) {
+			return null;
 		}
 
-		setTabs((current) =>
-			pruneMissingWhiteboardTabs(current, whiteboardTitleById),
+		return new Map(
+			sidebarData.cards.map((card) => [String(card._id), card.title]),
 		);
-	}, [sidebarWhiteboards, whiteboardTitleById]);
+	}, [sidebarData]);
 
 	useEffect(() => {
-		if (routeTab?.kind !== "whiteboard" || routeTab.id === null) {
-			return;
-		}
-
-		if (sidebarWhiteboards === undefined) {
+		if (!sidebarData) {
 			return;
 		}
 
 		setTabs((current) => {
-			const whiteboardTab =
-				current.find((tab) => tab.key === routeTab.key) ?? null;
-			return syncActiveWhiteboardTabTitle(
-				current,
-				whiteboardTab,
-				whiteboardTitleById?.get(routeTab.id) ?? null,
-			);
+			const next = pruneMissingWhiteboardTabs(current, whiteboardTitleById);
+			return pruneMissingCardTabs(next, cardTitleById);
 		});
-	}, [routeTab, sidebarWhiteboards, whiteboardTitleById]);
-
-	useEffect(() => {
-		if (routeTab?.kind !== "card") {
-			return;
-		}
-
-		if (activeCardTitle === undefined) {
-			return;
-		}
-
-		setTabs((current) => {
-			const cardTab = current.find((tab) => tab.key === routeTab.key) ?? null;
-			return syncActiveCardTabTitle(current, cardTab, activeCardTitle);
-		});
-	}, [activeCardTitle, routeTab]);
+	}, [cardTitleById, sidebarData, whiteboardTitleById]);
 
 	const activeTabKey = routeTab?.key ?? null;
 

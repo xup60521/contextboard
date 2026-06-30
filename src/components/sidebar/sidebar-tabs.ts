@@ -447,21 +447,35 @@ export function pruneMissingWhiteboardTabs(
 	return normalizeTabs(next, now);
 }
 
-export function syncActiveCardTabTitle(
+export function pruneMissingCardTabs(
 	tabs: SidebarTab[],
-	cardTab: SidebarTab | null,
-	title: string | null,
+	cardTitleById: ReadonlyMap<string, string> | null | undefined,
 	now = Date.now(),
 ) {
-	if (!cardTab) {
+	if (!cardTitleById) {
 		return normalizeTabs(tabs, now);
 	}
 
-	if (title === null) {
-		return updateSidebarTabTitle(tabs, cardTab.key, "Card not found", now);
-	}
+	const next = tabs.flatMap((tab) => {
+		if (isRootTab(tab) || tab.kind !== "card" || tab.id === null) {
+			return [tab];
+		}
 
-	return updateSidebarTabTitle(tabs, cardTab.key, title, now);
+		const title = cardTitleById.get(tab.id);
+		if (!title) {
+			return [];
+		}
+
+		return [
+			{
+				...tab,
+				title,
+				updatedAt: tab.title === title ? tab.updatedAt : now,
+			},
+		];
+	});
+
+	return normalizeTabs(next, now);
 }
 
 export function syncActiveWhiteboardTabTitle(

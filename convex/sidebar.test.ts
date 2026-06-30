@@ -20,39 +20,9 @@ function makeCollection(items?: AnyDoc[]) {
 }
 
 function makeMockCtx(state: MockState) {
-	function makeQuery(map: Map<string, AnyDoc>) {
-		const criteria: Array<[string, unknown]> = [];
-
-		const query = {
-			eq(field: string, value: unknown) {
-				criteria.push([field, value]);
-				return query;
-			},
-			field(field: string) {
-				return field;
-			},
-		};
-
-		const filtered = () =>
-			[...map.values()].filter((doc) =>
-				criteria.every(([field, value]) => doc[field] === value),
-			);
-
-		return {
-			filter(build: (q: typeof query) => unknown) {
-				build(query);
-				return this;
-			},
-			async collect() {
-				return filtered();
-			},
-		};
-	}
-
 	return {
 		db: {
-			get: async (id: string) => state.cards.get(id) ?? null,
-			query: (table: keyof MockState) => makeQuery(state[table]),
+			get: async (id: string) => state.whiteboards.get(id) ?? state.cards.get(id) ?? null,
 		},
 	} as never;
 }
@@ -64,15 +34,15 @@ function makeDoc(id: string, fields: Record<string, unknown>): AnyDoc {
 const getHandler = get as unknown as {
 	_handler: (
 		ctx: never,
-		args: { activeCardId: string | null },
+		args: { whiteboardIds: string[]; cardIds: string[] },
 	) => Promise<{
 		whiteboards: Array<{ _id: string; title: string }>;
-		activeCardTitle: string | null;
+		cards: Array<{ _id: string; title: string }>;
 	}>;
 };
 
 describe("sidebar.get", () => {
-	test("returns only active whiteboards and the active card title", async () => {
+	test("returns only active whiteboards and cards with stable minimal fields", async () => {
 		const result = await getHandler._handler(
 			makeMockCtx(
 				makeState({
@@ -80,11 +50,55 @@ describe("sidebar.get", () => {
 						makeDoc("whiteboard-2", {
 							title: "Board B",
 							archivedAt: null,
+							ancestorIds: ["ancestor-1"],
+							breadcrumbs: ["should not leak"],
 						}),
 						makeDoc("whiteboard-3", {
 							title: "Archived",
 							archivedAt: 123,
+							ancestorIds: ["ancestor-2"],
 						}),
+						makeDoc("whiteboard-1", {
+							title: "Board A",
+							archivedAt: null,
+							ancestorIds: [],
+						}),
+					],
+					cards: [
+						makeDoc("card-1", {
+							derivedTitle: "Alpha card",
+							archivedAt: null,
+							content: { text: "should not leak" },
+							backlinks: ["should not leak"],
+							placements: ["should not leak"],
+						}),
+						makeDoc("card-2", {
+							derivedTitle: "Archived card",
+							archivedAt: 123,
+						}),
+					],
+				}),
+			),
+			{
+				whiteboardIds: ["whiteboard-2", "whiteboard-3", "whiteboard-1"],
+				cardIds: ["card-1", "card-2"],
+			},
+		);
+
+		expect(result).toEqual({
+			whiteboards: [
+				{ _id: "whiteboard-1", title: "Board A" },
+				{ _id: "whiteboard-2", title: "Board B" },
+			],
+			cards: [{ _id: "card-1", title: "Alpha card" }],
+		});
+	});
+
+	test("dedupes ids and skips missing documents", async () => {
+		const result = await getHandler._handler(
+			makeMockCtx(
+				makeState({
+					whiteboards: [
 						makeDoc("whiteboard-1", {
 							title: "Board A",
 							archivedAt: null,
@@ -99,43 +113,33 @@ describe("sidebar.get", () => {
 				}),
 			),
 			{
-				activeCardId: "card-1",
+				whiteboardIds: ["whiteboard-1", "whiteboard-1", "missing-whiteboard"],
+				cardIds: ["card-1", "card-1", "missing-card"],
 			},
 		);
 
 		expect(result).toEqual({
-			whiteboards: [
-				{ _id: "whiteboard-1", title: "Board A" },
-				{ _id: "whiteboard-2", title: "Board B" },
-			],
-			activeCardTitle: "Alpha card",
+			whiteboards: [{ _id: "whiteboard-1", title: "Board A" }],
+			cards: [{ _id: "card-1", title: "Alpha card" }],
 		});
 	});
 
-	test("returns null when the active card is missing or archived", async () => {
-		const missingResult = await getHandler._handler(makeMockCtx(makeState()), {
-			activeCardId: "missing-card",
-		});
+	test("rejects more than 100 ids per collection", async () => {
+		const whiteboardIds = Array.from({ length: 101 }, (_, index) => `whiteboard-${index}`);
+		const cardIds = Array.from({ length: 101 }, (_, index) => `card-${index}`);
 
-		expect(missingResult.activeCardTitle).toBeNull();
+		await expect(
+			getHandler._handler(makeMockCtx(makeState()), {
+				whiteboardIds,
+				cardIds: [],
+			}),
+		).rejects.toThrow("Cannot load more than 100 whiteboards at once");
 
-		const archivedResult = await getHandler._handler(
-			makeMockCtx(
-				makeState({
-					cards: [
-						makeDoc("card-archived", {
-							derivedTitle: "Hidden card",
-							archivedAt: 123,
-						}),
-					],
-				}),
-			),
-			{
-				activeCardId: "card-archived",
-			},
-		);
-
-		expect(archivedResult.activeCardTitle).toBeNull();
-		expect(archivedResult.whiteboards).toEqual([]);
+		await expect(
+			getHandler._handler(makeMockCtx(makeState()), {
+				whiteboardIds: [],
+				cardIds,
+			}),
+		).rejects.toThrow("Cannot load more than 100 cards at once");
 	});
 });

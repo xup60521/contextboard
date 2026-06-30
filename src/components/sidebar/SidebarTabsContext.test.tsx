@@ -14,16 +14,46 @@ const useQueryMock = vi.fn();
 
 let currentPathname = "/whiteboard";
 let currentParams: Record<string, string | undefined> = {};
-const sidebarWhiteboards = [
-	{
-		_id: "whiteboard-2",
-		title: "Board 2",
-	},
-];
-let sidebarQueryResult: {
-	whiteboards: typeof sidebarWhiteboards;
-	activeCardTitle: string | null;
+const sidebarState = {
+	whiteboards: new Map<string, string>(),
+	cards: new Map<string, string>(),
 };
+const sidebarQueryCache = new Map<
+	string,
+	{
+		whiteboards: Array<{ _id: string; title: string }>;
+		cards: Array<{ _id: string; title: string }>;
+	}
+>();
+
+function resetSidebarQueryCache() {
+	sidebarQueryCache.clear();
+}
+
+function buildSidebarQueryResult(args: {
+	whiteboardIds: string[];
+	cardIds: string[];
+}) {
+	const cacheKey = JSON.stringify(args);
+	const cached = sidebarQueryCache.get(cacheKey);
+	if (cached) {
+		return cached;
+	}
+
+	const result = {
+		whiteboards: args.whiteboardIds.flatMap((id) => {
+			const title = sidebarState.whiteboards.get(id);
+			return title ? [{ _id: id, title }] : [];
+		}),
+		cards: args.cardIds.flatMap((id) => {
+			const title = sidebarState.cards.get(id);
+			return title ? [{ _id: id, title }] : [];
+		}),
+	};
+
+	sidebarQueryCache.set(cacheKey, result);
+	return result;
+}
 
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigateMock,
@@ -65,11 +95,24 @@ describe("SidebarTabsProvider", () => {
 		window.localStorage.clear();
 		currentPathname = "/whiteboard";
 		currentParams = {};
-		sidebarQueryResult = {
-			whiteboards: sidebarWhiteboards,
-			activeCardTitle: null,
-		};
-		useQueryMock.mockReturnValue(sidebarQueryResult);
+		sidebarState.whiteboards.clear();
+		sidebarState.cards.clear();
+		sidebarState.whiteboards.set("whiteboard-2", "Board 2");
+		sidebarState.cards.set("card-1", "Alpha card");
+		sidebarState.cards.set("pinned", "Pinned card");
+		resetSidebarQueryCache();
+		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
+			if (!args) {
+				return undefined;
+			}
+
+			const { whiteboardIds = [], cardIds = [] } = args as {
+				whiteboardIds: string[];
+				cardIds: string[];
+			};
+
+			return buildSidebarQueryResult({ whiteboardIds, cardIds });
+		});
 	});
 
 	afterEach(() => {
@@ -100,13 +143,17 @@ describe("SidebarTabsProvider", () => {
 
 		currentPathname = "/cards/card-1";
 		currentParams = { cardId: "card-1" };
-		sidebarQueryResult = {
-			whiteboards: sidebarWhiteboards,
-			activeCardTitle: "Alpha card",
-		};
-		useQueryMock.mockReturnValue(sidebarQueryResult);
 
 		renderProvider();
+
+		await waitFor(() => {
+			expect(useQueryMock).toHaveBeenCalled();
+		});
+
+		expect(useQueryMock.mock.calls.at(-1)?.[1]).toEqual({
+			whiteboardIds: [],
+			cardIds: ["card-1"],
+		});
 
 		await waitFor(() => {
 			expect(screen.getByTestId("active-key").textContent).toBe("card:card-1");
@@ -124,13 +171,17 @@ describe("SidebarTabsProvider", () => {
 	test("activates whiteboard tabs from route changes", async () => {
 		currentPathname = "/whiteboard/whiteboard-2";
 		currentParams = { whiteboardId: "whiteboard-2" };
-		sidebarQueryResult = {
-			whiteboards: sidebarWhiteboards,
-			activeCardTitle: null,
-		};
-		useQueryMock.mockReturnValue(sidebarQueryResult);
 
 		renderProvider();
+
+		await waitFor(() => {
+			expect(useQueryMock).toHaveBeenCalled();
+		});
+
+		expect(useQueryMock.mock.calls.at(-1)?.[1]).toEqual({
+			whiteboardIds: ["whiteboard-2"],
+			cardIds: [],
+		});
 
 		await waitFor(() => {
 			expect(screen.getByTestId("active-key").textContent).toBe(
@@ -144,6 +195,164 @@ describe("SidebarTabsProvider", () => {
 
 		await waitFor(() => {
 			expect(screen.getByTestId("tabs-json").textContent).toContain("Board 2");
+		});
+	});
+
+	test("removes deleted card tabs and marks missing whiteboards", async () => {
+		window.localStorage.setItem(
+			"contextboard.sidebarTabs.v1",
+			JSON.stringify({
+				version: 1,
+				updatedAt: 1,
+				tabs: [
+					{
+						key: "whiteboard:root",
+						kind: "whiteboard",
+						id: null,
+						title: "Root whiteboard",
+						pinned: true,
+						order: 0,
+						lastActiveAt: 1,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					{
+						key: "whiteboard:whiteboard-2",
+						kind: "whiteboard",
+						id: "whiteboard-2",
+						title: "Board 2",
+						pinned: true,
+						order: 1,
+						lastActiveAt: 2,
+						createdAt: 2,
+						updatedAt: 2,
+					},
+					{
+						key: "card:pinned",
+						kind: "card",
+						id: "pinned",
+						title: "Pinned card",
+						pinned: true,
+						order: 2,
+						lastActiveAt: 3,
+						createdAt: 3,
+						updatedAt: 3,
+					},
+				],
+			}),
+		);
+
+		const view = renderProvider();
+
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-json").textContent).toContain("Board 2");
+		});
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-json").textContent).toContain(
+				"Pinned card",
+			);
+		});
+
+		expect(useQueryMock.mock.calls.at(-1)?.[1]).toEqual({
+			whiteboardIds: ["whiteboard-2"],
+			cardIds: ["pinned"],
+		});
+
+		sidebarState.whiteboards.delete("whiteboard-2");
+		sidebarState.cards.delete("pinned");
+		resetSidebarQueryCache();
+		view.rerender(
+			<SidebarTabsProvider>
+				<ExposeTabs />
+			</SidebarTabsProvider>,
+		);
+
+		await waitFor(() => {
+			expect(useQueryMock.mock.calls.map((call) => call[1])).toContainEqual({
+				whiteboardIds: ["whiteboard-2"],
+				cardIds: [],
+			});
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-json").textContent).toContain(
+				"Missing whiteboard",
+			);
+		});
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-json").textContent).not.toContain(
+				"Pinned card",
+			);
+		});
+	});
+
+	test("subscribes to open whiteboard tabs and prunes missing tabs", async () => {
+		window.localStorage.setItem(
+			"contextboard.sidebarTabs.v1",
+			JSON.stringify({
+				version: 1,
+				updatedAt: 1,
+				tabs: [
+					{
+						key: "whiteboard:root",
+						kind: "whiteboard",
+						id: null,
+						title: "Root whiteboard",
+						pinned: true,
+						order: 0,
+						lastActiveAt: 1,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					{
+						key: "whiteboard:whiteboard-1",
+						kind: "whiteboard",
+						id: "whiteboard-1",
+						title: "Board A",
+						pinned: false,
+						order: 1,
+						lastActiveAt: 10,
+						createdAt: 10,
+						updatedAt: 10,
+					},
+					{
+						key: "whiteboard:missing",
+						kind: "whiteboard",
+						id: "whiteboard-missing",
+						title: "Ghost board",
+						pinned: false,
+						order: 2,
+						lastActiveAt: 11,
+						createdAt: 11,
+						updatedAt: 11,
+					},
+				],
+			}),
+		);
+
+		currentPathname = "/whiteboard/whiteboard-1";
+		currentParams = { whiteboardId: "whiteboard-1" };
+		sidebarState.whiteboards.set("whiteboard-1", "Board A");
+
+		renderProvider();
+
+		await waitFor(() => {
+			expect(useQueryMock).toHaveBeenCalled();
+		});
+
+		expect(useQueryMock.mock.calls.map((call) => call[1])).toContainEqual({
+			whiteboardIds: ["whiteboard-1", "whiteboard-missing"],
+			cardIds: [],
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-json").textContent).toContain("Board A");
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-json").textContent).not.toContain(
+				"whiteboard-missing",
+			);
 		});
 	});
 
@@ -193,11 +402,6 @@ describe("SidebarTabsProvider", () => {
 
 		currentPathname = "/cards/card-1";
 		currentParams = { cardId: "card-1" };
-		sidebarQueryResult = {
-			whiteboards: sidebarWhiteboards,
-			activeCardTitle: "Alpha card",
-		};
-		useQueryMock.mockReturnValue(sidebarQueryResult);
 
 		renderProvider();
 

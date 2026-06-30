@@ -8,6 +8,7 @@ import {
 	moveSidebarTabByDropTarget,
 	normalizeTabs,
 	openSidebarTab,
+	pruneMissingCardTabs,
 	pruneMissingWhiteboardTabs,
 	setSidebarTabPinned,
 	type SidebarTab,
@@ -204,7 +205,11 @@ describe("sidebarTabs", () => {
 			500,
 		);
 
-		expect(next.map((tab) => tab.key)).toEqual([root.key, open.key, pinned.key]);
+		expect(next.map((tab) => tab.key)).toEqual([
+			root.key,
+			open.key,
+			pinned.key,
+		]);
 		expect(next.find((tab) => tab.key === open.key)?.pinned).toBe(true);
 	});
 
@@ -233,7 +238,11 @@ describe("sidebarTabs", () => {
 			500,
 		);
 
-		expect(next.map((tab) => tab.key)).toEqual([root.key, pinned.key, open.key]);
+		expect(next.map((tab) => tab.key)).toEqual([
+			root.key,
+			pinned.key,
+			open.key,
+		]);
 		expect(next.find((tab) => tab.key === pinned.key)?.pinned).toBe(false);
 	});
 
@@ -452,6 +461,43 @@ describe("sidebarTabs", () => {
 		});
 		expect(next.find((tab) => tab.key === present.key)).toMatchObject({
 			title: "Present board",
+		});
+	});
+
+	test("pruning missing card tabs removes deleted cards from the sidebar", () => {
+		const root = createRootTab(100);
+		const pinnedCard = makeTab({
+			key: "card:pinned",
+			id: "pinned",
+			title: "Pinned card",
+			pinned: true,
+			order: 1,
+		});
+		const openCard = makeTab({
+			key: "card:open",
+			id: "open",
+			title: "Open card",
+			pinned: false,
+			order: 2,
+		});
+		const present = makeTab({
+			key: "card:present",
+			id: "present",
+			title: "Present card",
+			pinned: false,
+			order: 3,
+		});
+
+		const next = pruneMissingCardTabs(
+			[root, pinnedCard, openCard, present],
+			new Map([["present", "Present card"]]),
+			500,
+		);
+
+		expect(next.some((tab) => tab.key === pinnedCard.key)).toBe(false);
+		expect(next.some((tab) => tab.key === openCard.key)).toBe(false);
+		expect(next.find((tab) => tab.key === present.key)).toMatchObject({
+			title: "Present card",
 		});
 	});
 
