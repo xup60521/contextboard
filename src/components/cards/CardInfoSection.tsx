@@ -1,7 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import {
-	ChevronDown,
-	ChevronRight,
 	Clock,
 	FileText,
 	Info,
@@ -72,8 +70,6 @@ export function groupPlacementsByWhiteboard(
 type Backlink = {
 	cardId: Id<"cards">;
 	title: string;
-	boardWhiteboardId: Id<"whiteboards"> | null;
-	shapeId: string | null;
 };
 
 type CardInfoSectionProps = {
@@ -124,33 +120,9 @@ export function CardInfoSection({
 	onNavigate,
 }: CardInfoSectionProps) {
 	const [visible, setVisible] = useState(true);
-	// collapsed set — groups start expanded
-	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-
-	// Group backlinks by whiteboard
-	const groups = new Map<string, { label: string; links: Backlink[] }>();
-	for (const bl of backlinks) {
-		const key = bl.boardWhiteboardId ?? "__orphan__";
-		if (!groups.has(key)) {
-			const label =
-				bl.boardWhiteboardId
-					? (whiteboardTitleById.get(bl.boardWhiteboardId) ?? bl.boardWhiteboardId)
-					: "No whiteboard";
-			groups.set(key, { label, links: [] });
-		}
-		groups.get(key)!.links.push(bl);
-	}
 
 	// Group placements by whiteboard
 	const placementGroups = groupPlacementsByWhiteboard(placements, whiteboardTitleById);
-
-	const toggleGroup = (key: string) =>
-		setCollapsed((prev: Set<string>) => {
-			const next = new Set(prev);
-			if (next.has(key)) next.delete(key);
-			else next.add(key);
-			return next;
-		});
 
 	const words = wordCount(plainText);
 	const chars = plainText.length;
@@ -215,43 +187,19 @@ export function CardInfoSection({
 							)}
 						</div>
 						{backlinks.length === 0 ? null : (
-							<div className="grid gap-1">
-								{Array.from(groups.entries()).map(([key, { label, links }]) => {
-									const isExpanded = !collapsed.has(key);
-									return (
-										<div key={key}>
-											<button
-												type="button"
-												onClick={() => toggleGroup(key)}
-												className="flex w-full items-center gap-1.5 rounded px-1 py-1.5 text-xs text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
-											>
-												{isExpanded ? (
-													<ChevronDown className="size-3 shrink-0" />
-												) : (
-													<ChevronRight className="size-3 shrink-0" />
-												)}
-												<FileText className="size-3 shrink-0 text-[var(--sea-ink-soft)]" />
-												<span className="truncate">{label}</span>
-											</button>
-											{isExpanded && (
-												<div className="ml-5 grid gap-0.5">
-													{links.map((bl) => (
-														<Link
-															key={bl.cardId}
-															to="/cards/$cardId"
-															params={{ cardId: bl.cardId }}
-															onClick={onNavigate}
-															className="flex items-center gap-1.5 rounded px-1 py-1.5 text-xs text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
-														>
-															<FileText className="size-3 shrink-0 text-[var(--sea-ink-soft)]" />
-															<span className="truncate">{bl.title || "Untitled"}</span>
-														</Link>
-													))}
-												</div>
-											)}
-										</div>
-									);
-								})}
+							<div className="grid gap-0.5">
+								{backlinks.map((bl) => (
+									<Link
+										key={bl.cardId}
+										to="/cards/$cardId"
+										params={{ cardId: bl.cardId }}
+										onClick={onNavigate}
+										className="flex items-center gap-1.5 rounded px-1 py-1.5 text-xs text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
+									>
+										<FileText className="size-3 shrink-0 text-[var(--sea-ink-soft)]" />
+										<span className="truncate">{bl.title || "Untitled"}</span>
+									</Link>
+								))}
 							</div>
 						)}
 					</div>

@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SidebarTabsProvider, useSidebarTabs } from "./SidebarTabsContext";
@@ -8,17 +14,15 @@ const useQueryMock = vi.fn();
 
 let currentPathname = "/whiteboard";
 let currentParams: Record<string, string | undefined> = {};
-const emptyWhiteboards: never[] = [];
-const boardList = [
+const sidebarWhiteboards = [
 	{
 		_id: "whiteboard-2",
 		title: "Board 2",
 	},
 ];
-const cardData = {
-	card: {
-		derivedTitle: "Alpha card",
-	},
+let sidebarQueryResult: {
+	whiteboards: typeof sidebarWhiteboards;
+	activeCardTitle: string | null;
 };
 
 vi.mock("@tanstack/react-router", () => ({
@@ -61,21 +65,11 @@ describe("SidebarTabsProvider", () => {
 		window.localStorage.clear();
 		currentPathname = "/whiteboard";
 		currentParams = {};
-		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
-			if (args === "skip") {
-				return undefined;
-			}
-
-			if (args === undefined) {
-				return emptyWhiteboards;
-			}
-
-			if (currentPathname.startsWith("/cards/")) {
-				return cardData;
-			}
-
-			return emptyWhiteboards;
-		});
+		sidebarQueryResult = {
+			whiteboards: sidebarWhiteboards,
+			activeCardTitle: null,
+		};
+		useQueryMock.mockReturnValue(sidebarQueryResult);
 	});
 
 	afterEach(() => {
@@ -106,17 +100,11 @@ describe("SidebarTabsProvider", () => {
 
 		currentPathname = "/cards/card-1";
 		currentParams = { cardId: "card-1" };
-		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
-			if (args === "skip") {
-				return undefined;
-			}
-
-			if (args === undefined) {
-				return boardList;
-			}
-
-			return cardData;
-		});
+		sidebarQueryResult = {
+			whiteboards: sidebarWhiteboards,
+			activeCardTitle: "Alpha card",
+		};
+		useQueryMock.mockReturnValue(sidebarQueryResult);
 
 		renderProvider();
 
@@ -136,17 +124,11 @@ describe("SidebarTabsProvider", () => {
 	test("activates whiteboard tabs from route changes", async () => {
 		currentPathname = "/whiteboard/whiteboard-2";
 		currentParams = { whiteboardId: "whiteboard-2" };
-		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
-			if (args === "skip") {
-				return undefined;
-			}
-
-			if (args === undefined) {
-				return boardList;
-			}
-
-			return undefined;
-		});
+		sidebarQueryResult = {
+			whiteboards: sidebarWhiteboards,
+			activeCardTitle: null,
+		};
+		useQueryMock.mockReturnValue(sidebarQueryResult);
 
 		renderProvider();
 
@@ -158,6 +140,10 @@ describe("SidebarTabsProvider", () => {
 
 		await waitFor(() => {
 			expect(screen.getByTestId("tabs-count").textContent).toBe("2");
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-json").textContent).toContain("Board 2");
 		});
 	});
 
@@ -207,6 +193,11 @@ describe("SidebarTabsProvider", () => {
 
 		currentPathname = "/cards/card-1";
 		currentParams = { cardId: "card-1" };
+		sidebarQueryResult = {
+			whiteboards: sidebarWhiteboards,
+			activeCardTitle: "Alpha card",
+		};
+		useQueryMock.mockReturnValue(sidebarQueryResult);
 
 		renderProvider();
 

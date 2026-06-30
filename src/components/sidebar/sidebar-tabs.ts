@@ -369,9 +369,10 @@ export function enforceUnpinnedTabLimit(
 	}
 
 	const protectedKeys = new Set(
-		(Array.isArray(protectedTabKeys) ? protectedTabKeys : [protectedTabKeys]).filter(
-			(key): key is string => typeof key === "string" && key.length > 0,
-		),
+		(Array.isArray(protectedTabKeys)
+			? protectedTabKeys
+			: [protectedTabKeys]
+		).filter((key): key is string => typeof key === "string" && key.length > 0),
 	);
 	const victims = new Set<string>();
 	while (openTabs.length > MAX_UNPINNED_TABS) {
@@ -463,6 +464,28 @@ export function syncActiveCardTabTitle(
 	return updateSidebarTabTitle(tabs, cardTab.key, title, now);
 }
 
+export function syncActiveWhiteboardTabTitle(
+	tabs: SidebarTab[],
+	whiteboardTab: SidebarTab | null,
+	title: string | null,
+	now = Date.now(),
+) {
+	if (!whiteboardTab) {
+		return normalizeTabs(tabs, now);
+	}
+
+	if (title === null) {
+		return updateSidebarTabTitle(
+			tabs,
+			whiteboardTab.key,
+			"Missing whiteboard",
+			now,
+		);
+	}
+
+	return updateSidebarTabTitle(tabs, whiteboardTab.key, title, now);
+}
+
 export function getRouteSidebarTabIdentity(args: {
 	pathname: string;
 	whiteboardId: string | null | undefined;
@@ -538,7 +561,11 @@ function rebuildSidebarTabs(
 }
 
 function getDropInsertIndex(tabs: SidebarTab[], overId?: string | null) {
-	if (!overId || overId === PINNED_TABS_DROP_ID || overId === OPEN_TABS_DROP_ID) {
+	if (
+		!overId ||
+		overId === PINNED_TABS_DROP_ID ||
+		overId === OPEN_TABS_DROP_ID
+	) {
 		return tabs.length;
 	}
 
@@ -567,7 +594,9 @@ export function moveSidebarTabByDropTarget(
 
 	const secondaryTabs = normalized.filter((tab) => !isRootTab(tab));
 	const withoutActive = secondaryTabs.filter((tab) => tab.key !== activeKey);
-	const pinnedCountWithoutActive = withoutActive.filter((tab) => tab.pinned).length;
+	const pinnedCountWithoutActive = withoutActive.filter(
+		(tab) => tab.pinned,
+	).length;
 
 	if (overId === PINNED_TABS_DROP_ID || overId === OPEN_TABS_DROP_ID) {
 		const pinnedTabs = withoutActive.filter((tab) => tab.pinned);

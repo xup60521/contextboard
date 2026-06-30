@@ -1,5 +1,5 @@
 import type { Id } from "../_generated/dataModel";
-import type { QueryCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 /**
  * Card references are persisted as ordinary TipTap `link` marks carrying extra
@@ -190,6 +190,64 @@ export function resolveCardReferenceTitles(
 		}
 		return { ...node, text: currentTitle };
 	});
+}
+
+/**
+ * Diffs the outgoing card references for `sourceCardId` against what's stored
+ * in the `cardReferences` table and reconciles the difference. Call this
+ * whenever a card's content is saved (after normalization).
+ */
+export async function reconcileCardReferences(
+	ctx: MutationCtx,
+	sourceCardId: Id<"cards">,
+	content: unknown,
+) {
+	const nextTargetIds = new Set<Id<"cards">>();
+	for (const rawId of collectCardReferenceIds(content)) {
+		const targetId = ctx.db.normalizeId("cards", rawId);
+		if (!targetId || targetId === sourceCardId) continue;
+		nextTargetIds.add(targetId);
+	}
+
+	const existing = new Map<Id<"cards">, Id<"cardReferences">>();
+	for await (const ref of ctx.db
+		.query("cardReferences")
+		.withIndex("by_sourceCardId", (q) => q.eq("sourceCardId", sourceCardId))) {
+		existing.set(ref.targetCardId, ref._id);
+	}
+
+	for (const [targetId, refId] of existing) {
+		if (!nextTargetIds.has(targetId)) await ctx.db.delete(refId);
+	}
+
+	const now = Date.now();
+	for (const targetId of nextTargetIds) {
+		if (existing.has(targetId)) continue;
+		await ctx.db.insert("cardReferences", {
+			sourceCardId,
+			targetCardId: targetId,
+			updatedAt: now,
+		});
+	}
+}
+
+/**
+ * Removes all outgoing card reference rows where `sourceCardId` is the source.
+ * Call this when a card is archived.
+ */
+export async function clearCardReferences(
+	ctx: MutationCtx,
+	sourceCardId: Id<"cards">,
+) {
+	const toDelete: Id<"cardReferences">[] = [];
+	for await (const ref of ctx.db
+		.query("cardReferences")
+		.withIndex("by_sourceCardId", (q) => q.eq("sourceCardId", sourceCardId))) {
+		toDelete.push(ref._id);
+	}
+	for (const refId of toDelete) {
+		await ctx.db.delete(refId);
+	}
 }
 
 /** Fetches the current titles of the given cards (skipping missing/archived). */

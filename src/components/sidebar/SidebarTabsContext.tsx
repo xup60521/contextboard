@@ -27,6 +27,7 @@ import {
 	type SidebarTab,
 	setSidebarTabPinned,
 	syncActiveCardTabTitle,
+	syncActiveWhiteboardTabTitle,
 	toggleSidebarTabPinned,
 } from "./sidebar-tabs";
 
@@ -73,11 +74,12 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 	});
 	const tabsRef = useRef(tabs);
 
-	const whiteboards = useQuery(api.whiteboards.listActive);
-	const activeCard = useQuery(
-		api.cards.get,
-		routeTab?.kind === "card" ? { cardId: routeTab.id as Id<"cards"> } : "skip",
-	);
+	const sidebarData = useQuery(api.sidebar.get, {
+		activeCardId:
+			routeTab?.kind === "card" ? (routeTab.id as Id<"cards">) : null,
+	});
+	const sidebarWhiteboards = sidebarData?.whiteboards;
+	const activeCardTitle = sidebarData?.activeCardTitle;
 
 	useEffect(() => {
 		tabsRef.current = tabs;
@@ -113,46 +115,62 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 	}, [routeTab]);
 
 	const whiteboardTitleById = useMemo(() => {
-		if (!whiteboards) {
+		if (!sidebarWhiteboards) {
 			return null;
 		}
 
 		return new Map(
-			whiteboards.map((whiteboard) => [
+			sidebarWhiteboards.map((whiteboard) => [
 				String(whiteboard._id),
 				whiteboard.title,
 			]),
 		);
-	}, [whiteboards]);
+	}, [sidebarWhiteboards]);
 
 	useEffect(() => {
-		if (whiteboards === undefined) {
+		if (sidebarWhiteboards === undefined) {
 			return;
 		}
 
 		setTabs((current) =>
 			pruneMissingWhiteboardTabs(current, whiteboardTitleById),
 		);
-	}, [whiteboardTitleById, whiteboards]);
+	}, [sidebarWhiteboards, whiteboardTitleById]);
+
+	useEffect(() => {
+		if (routeTab?.kind !== "whiteboard" || routeTab.id === null) {
+			return;
+		}
+
+		if (sidebarWhiteboards === undefined) {
+			return;
+		}
+
+		setTabs((current) => {
+			const whiteboardTab =
+				current.find((tab) => tab.key === routeTab.key) ?? null;
+			return syncActiveWhiteboardTabTitle(
+				current,
+				whiteboardTab,
+				whiteboardTitleById?.get(routeTab.id) ?? null,
+			);
+		});
+	}, [routeTab, sidebarWhiteboards, whiteboardTitleById]);
 
 	useEffect(() => {
 		if (routeTab?.kind !== "card") {
 			return;
 		}
 
-		if (activeCard === undefined) {
+		if (activeCardTitle === undefined) {
 			return;
 		}
 
 		setTabs((current) => {
 			const cardTab = current.find((tab) => tab.key === routeTab.key) ?? null;
-			return syncActiveCardTabTitle(
-				current,
-				cardTab,
-				activeCard ? activeCard.card.derivedTitle || "Untitled card" : null,
-			);
+			return syncActiveCardTabTitle(current, cardTab, activeCardTitle);
 		});
-	}, [activeCard, routeTab]);
+	}, [activeCardTitle, routeTab]);
 
 	const activeTabKey = routeTab?.key ?? null;
 
@@ -206,10 +224,13 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 
 	const unpinTab = useCallback(
 		(key: string) => {
+			const protectedTabKeys = [activeTabKey, key].filter(
+				(tabKey): tabKey is string => tabKey !== null,
+			);
 			setTabs((current) =>
 				enforceUnpinnedTabLimit(
 					setSidebarTabPinned(current, key, false),
-					[activeTabKey, key],
+					protectedTabKeys,
 				),
 			);
 		},
@@ -218,28 +239,28 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 
 	const togglePinned = useCallback(
 		(key: string) => {
+			const protectedTabKeys = [activeTabKey, key].filter(
+				(tabKey): tabKey is string => tabKey !== null,
+			);
 			setTabs((current) => {
 				const next = toggleSidebarTabPinned(current, key);
 				const tab = next.find((item) => item.key === key);
 				return tab?.pinned
 					? next
-					: enforceUnpinnedTabLimit(next, [activeTabKey, key]);
+					: enforceUnpinnedTabLimit(next, protectedTabKeys);
 			});
 		},
 		[activeTabKey],
 	);
 
-	const reorderTabs = useCallback(
-		(nextTabs: SidebarTab[]) => {
-			setTabs(nextTabs);
-		},
-		[],
-	);
+	const reorderTabs = useCallback((nextTabs: SidebarTab[]) => {
+		setTabs(nextTabs);
+	}, []);
 
 	const clearOpenTabs = useCallback(() => {
 		const current = tabsRef.current;
 		const activeTab = activeTabKey
-			? current.find((tab) => tab.key === activeTabKey) ?? null
+			? (current.find((tab) => tab.key === activeTabKey) ?? null)
 			: null;
 		const result = clearUnpinnedSidebarTabs(current);
 		setTabs(result.tabs);

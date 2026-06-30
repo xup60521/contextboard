@@ -20,6 +20,7 @@ import type * as model_cardSorting from "../model/cardSorting.js";
 import type * as model_fileReferences from "../model/fileReferences.js";
 import type * as model_shapeIds from "../model/shapeIds.js";
 import type * as search from "../search.js";
+import type * as sidebar from "../sidebar.js";
 import type * as tldrawDocuments from "../tldrawDocuments.js";
 import type * as todos from "../todos.js";
 import type * as whiteboards from "../whiteboards.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   "model/fileReferences": typeof model_fileReferences;
   "model/shapeIds": typeof model_shapeIds;
   search: typeof search;
+  sidebar: typeof sidebar;
   tldrawDocuments: typeof tldrawDocuments;
   todos: typeof todos;
   whiteboards: typeof whiteboards;
