@@ -16,6 +16,7 @@ import {
 	clearUnpinnedSidebarTabs,
 	closeSidebarTab,
 	enforceUnpinnedTabLimit,
+	getCloseFallbackTab,
 	getRouteSidebarTabIdentity,
 	isRootTab,
 	type OpenTabInput,
@@ -72,6 +73,8 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 		return readPersistedSidebarTabs(window.localStorage);
 	});
 	const tabsRef = useRef(tabs);
+	const pendingCloseTabKeyRef = useRef<string | null>(null);
+	const suppressedRouteTabKeyRef = useRef<string | null>(null);
 
 	const sidebarWhiteboardIds = useMemo(() => {
 		const ids = new Set<string>();
@@ -130,19 +133,6 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 		}
 	}, [tabs]);
 
-	useEffect(() => {
-		if (!routeTab) {
-			return;
-		}
-
-		setTabs((current) =>
-			openSidebarTab(current, {
-				kind: routeTab.kind,
-				id: routeTab.id,
-			}),
-		);
-	}, [routeTab]);
-
 	const whiteboardTitleById = useMemo(() => {
 		if (!sidebarData) {
 			return null;
@@ -165,6 +155,39 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 			sidebarData.cards.map((card) => [String(card._id), card.title]),
 		);
 	}, [sidebarData]);
+
+	const routeTabTitle = useMemo(() => {
+		if (!routeTab) {
+			return undefined;
+		}
+
+		if (routeTab.kind === "whiteboard") {
+			return routeTab.id ? whiteboardTitleById?.get(routeTab.id) : undefined;
+		}
+
+		return routeTab.id ? cardTitleById?.get(routeTab.id) : undefined;
+	}, [cardTitleById, routeTab, whiteboardTitleById]);
+
+	useEffect(() => {
+		if (!routeTab) {
+			suppressedRouteTabKeyRef.current = null;
+			return;
+		}
+
+		if (suppressedRouteTabKeyRef.current === routeTab.key) {
+			return;
+		}
+
+		suppressedRouteTabKeyRef.current = null;
+
+		setTabs((current) =>
+			openSidebarTab(current, {
+				kind: routeTab.kind,
+				id: routeTab.id,
+				title: routeTabTitle,
+			}),
+		);
+	}, [routeTab, routeTabTitle]);
 
 	useEffect(() => {
 		if (!sidebarData) {
@@ -212,15 +235,14 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 
 	const closeTab = useCallback(
 		(key: string) => {
-			const current = tabsRef.current;
-			const result = closeSidebarTab(current, key);
-			setTabs(result.tabs);
-
-			if (key === activeTabKey && result.fallbackTab.key !== key) {
-				void navigateToTab(result.fallbackTab);
+			if (key === activeTabKey) {
+				pendingCloseTabKeyRef.current = key;
+				suppressedRouteTabKeyRef.current = key;
 			}
+
+			setTabs((current) => closeSidebarTab(current, key).tabs);
 		},
-		[activeTabKey, navigateToTab],
+		[activeTabKey],
 	);
 
 	const pinTab = useCallback((key: string) => {
@@ -274,6 +296,20 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 			void navigateToTab(result.fallbackTab);
 		}
 	}, [activeTabKey, navigateToTab]);
+
+	useEffect(() => {
+		const pendingCloseTabKey = pendingCloseTabKeyRef.current;
+		if (!pendingCloseTabKey) {
+			return;
+		}
+
+		if (tabs.some((tab) => tab.key === pendingCloseTabKey)) {
+			return;
+		}
+
+		pendingCloseTabKeyRef.current = null;
+		void navigateToTab(getCloseFallbackTab(tabs));
+	}, [navigateToTab, tabs]);
 
 	const value = useMemo<SidebarTabsContextValue>(
 		() => ({

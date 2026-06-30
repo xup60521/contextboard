@@ -70,13 +70,25 @@ vi.mock("convex/react", () => ({
 }));
 
 function ExposeTabs() {
-	const { activeTabKey, clearOpenTabs, tabs } = useSidebarTabs();
+	const { activeTabKey, clearOpenTabs, closeTab, tabs } = useSidebarTabs();
 
 	return (
 		<div>
 			<div data-testid="active-key">{activeTabKey ?? ""}</div>
 			<div data-testid="tabs-count">{tabs.length}</div>
 			<div data-testid="tabs-json">{JSON.stringify(tabs)}</div>
+			<div>
+				{tabs.map((tab) => (
+					<button
+						key={tab.key}
+						type="button"
+						onClick={() => closeTab(tab.key)}
+						aria-label={`close ${tab.key}`}
+					>
+						Close {tab.key}
+					</button>
+				))}
+			</div>
 			<button type="button" onClick={clearOpenTabs}>
 				Clear open tabs
 			</button>
@@ -99,6 +111,7 @@ describe("SidebarTabsProvider", () => {
 		sidebarState.cards.clear();
 		sidebarState.whiteboards.set("whiteboard-2", "Board 2");
 		sidebarState.cards.set("card-1", "Alpha card");
+		sidebarState.cards.set("card-2", "Beta card");
 		sidebarState.cards.set("pinned", "Pinned card");
 		resetSidebarQueryCache();
 		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
@@ -166,6 +179,129 @@ describe("SidebarTabsProvider", () => {
 		expect(
 			window.localStorage.getItem("contextboard.sidebarTabs.v1"),
 		).toContain("Alpha card");
+	});
+
+	test("closing the active card tab removes it and navigates to the latest fallback", async () => {
+		window.localStorage.setItem(
+			"contextboard.sidebarTabs.v1",
+			JSON.stringify({
+				version: 1,
+				updatedAt: 1,
+				tabs: [
+					{
+						key: "whiteboard:root",
+						kind: "whiteboard",
+						id: null,
+						title: "Root whiteboard",
+						pinned: true,
+						order: 0,
+						lastActiveAt: 1,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					{
+						key: "card:card-2",
+						kind: "card",
+						id: "card-2",
+						title: "Beta card",
+						pinned: false,
+						order: 1,
+						lastActiveAt: 10,
+						createdAt: 10,
+						updatedAt: 10,
+					},
+				],
+			}),
+		);
+
+		currentPathname = "/cards/card-1";
+		currentParams = { cardId: "card-1" };
+
+		renderProvider();
+
+		await waitFor(() => {
+			expect(screen.getByTestId("active-key").textContent).toBe("card:card-1");
+		});
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-json").textContent).toContain(
+				"Alpha card",
+			);
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "close card:card-1" }));
+
+		await waitFor(() => {
+			expect(navigateMock).toHaveBeenCalledWith({
+				to: "/cards/$cardId",
+				params: { cardId: "card-2" },
+			});
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-count").textContent).toBe("2");
+		});
+
+		expect(screen.getByTestId("tabs-json").textContent).not.toContain(
+			'"title":"Card"',
+		);
+		expect(screen.getByTestId("tabs-json").textContent).not.toContain(
+			'"key":"card:card-1"',
+		);
+	});
+
+	test("closing a non-active card tab removes it without navigating away", async () => {
+		window.localStorage.setItem(
+			"contextboard.sidebarTabs.v1",
+			JSON.stringify({
+				version: 1,
+				updatedAt: 1,
+				tabs: [
+					{
+						key: "whiteboard:root",
+						kind: "whiteboard",
+						id: null,
+						title: "Root whiteboard",
+						pinned: true,
+						order: 0,
+						lastActiveAt: 1,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					{
+						key: "card:card-2",
+						kind: "card",
+						id: "card-2",
+						title: "Beta card",
+						pinned: false,
+						order: 1,
+						lastActiveAt: 10,
+						createdAt: 10,
+						updatedAt: 10,
+					},
+				],
+			}),
+		);
+
+		currentPathname = "/cards/card-1";
+		currentParams = { cardId: "card-1" };
+
+		renderProvider();
+
+		await waitFor(() => {
+			expect(screen.getByTestId("active-key").textContent).toBe("card:card-1");
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "close card:card-2" }));
+
+		await waitFor(() => {
+			expect(screen.getByTestId("tabs-count").textContent).toBe("2");
+		});
+
+		expect(navigateMock).not.toHaveBeenCalled();
+		expect(screen.getByTestId("tabs-json").textContent).not.toContain(
+			'"key":"card:card-2"',
+		);
+		expect(screen.getByTestId("active-key").textContent).toBe("card:card-1");
 	});
 
 	test("activates whiteboard tabs from route changes", async () => {
