@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import type { JSONContent } from "@tiptap/core";
+import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { MarkdownCardComponent, type MarkdownCardShape } from "./custom-shapes";
 
@@ -17,7 +18,7 @@ const useDebouncedCardSaveMock = vi.fn();
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, ...props }: Record<string, unknown>) => (
-		<a {...props}>{children}</a>
+		<a {...props as React.ComponentPropsWithoutRef<"a">}>{children as React.ReactNode}</a>
 	),
 }));
 
@@ -76,7 +77,7 @@ vi.mock("tldraw", () => {
 		BaseBoxShapeUtil: MockBaseBoxShapeUtil,
 		createShapeId: vi.fn(() => "shape:generated"),
 		HTMLContainer: ({ children, ...props }: Record<string, unknown>) => (
-			<div {...props}>{children}</div>
+			<div {...props as React.ComponentPropsWithoutRef<"div">}>{children as React.ReactNode}</div>
 		),
 		Rectangle2d: class {},
 		resizeBox: vi.fn((shape: unknown) => shape),

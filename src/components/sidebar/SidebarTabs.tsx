@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/sortable";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Layers, Library } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { ClearOpenTabsDialog } from "./ClearOpenTabsDialog";
 import { SidebarTabRow } from "./SidebarTabRow";
@@ -180,6 +180,7 @@ export function SidebarTabs() {
 
 					<Link
 						to="/cards"
+						search={{ orphan: "", sort: "title", q: "" }}
 						className={[
 							"flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] font-medium outline-none transition-colors",
 							isCardLib

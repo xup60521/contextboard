@@ -2,7 +2,8 @@ import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { Id } from "../../../../../convex/_generated/dataModel";
+import type { TLShapeId } from "tldraw";
+import type { Id } from "../../../../convex/_generated/dataModel";
 import { useVisibleCardContentHydration } from "./useVisibleCardContentHydration";
 
 const queryMock = vi.fn();
@@ -98,11 +99,11 @@ function Harness({
 		childWhiteboard: null;
 	}>;
 	onReady?: (
-		prioritizeCardContent: (shapeId: string, cardId: Id<"cards">) => void,
+		prioritizeCardContent: (shapeId: TLShapeId, cardId: Id<"cards">) => void,
 	) => void;
 	children?: ReactNode;
 }) {
-	const pendingEditShapeIdRef = { current: null as string | null };
+	const pendingEditShapeIdRef = { current: null as TLShapeId | null };
 	const { prioritizeCardContent } = useVisibleCardContentHydration({
 		editor: editor as never,
 		items: items as never,
@@ -226,7 +227,7 @@ describe("useVisibleCardContentHydration", () => {
 		]);
 
 		let prioritize:
-			| ((shapeId: string, cardId: Id<"cards">) => void)
+			| ((shapeId: TLShapeId, cardId: Id<"cards">) => void)
 			| undefined;
 		render(
 			<Harness
@@ -259,7 +260,7 @@ describe("useVisibleCardContentHydration", () => {
 			/>,
 		);
 
-		prioritize?.("shape:card-1", "card-1" as Id<"cards">);
+		prioritize?.("shape:card-1" as TLShapeId, "card-1" as Id<"cards">);
 		await vi.runAllTimersAsync();
 
 		expect(editor.select).toHaveBeenCalledWith("shape:card-1");

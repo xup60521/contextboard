@@ -34,8 +34,10 @@ describe("itemToShape", () => {
 
 		expect(shape.type).toBe("markdown-card");
 		expect(shape.props.h).toBeGreaterThan(64);
-		expect(shape.props.content).toBe("");
-		expect(shape.props.contentLoaded).toBe(false);
+		if (shape.type === "markdown-card") {
+			expect(shape.props.content).toBe("");
+			expect(shape.props.contentLoaded).toBe(false);
+		}
 	});
 
 	test("hydrates Convex-backed cards as unloaded summary shells", () => {
@@ -61,14 +63,15 @@ describe("itemToShape", () => {
 		} as never);
 
 		expect(shape.type).toBe("markdown-card");
-		expect(shape.props).toMatchObject({
+		if (shape.type === "markdown-card") {
+			expect(shape.props).toMatchObject({
 			cardId: "card-1",
 			title: "Card",
 			preview: "Preview text",
 			content: "",
 			contentLoaded: false,
 			contentVersion: 7,
-		});
+		});}
 	});
 
 	test("leaves non-markdown board items on their persisted height", () => {

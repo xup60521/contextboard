@@ -90,7 +90,7 @@ export function ensureRootTab(tabs: SidebarTab[], now = Date.now()) {
 			isRootTab(tab)
 				? {
 						...tab,
-						kind: "whiteboard",
+						kind: "whiteboard" as const,
 						id: null,
 						title: "Root whiteboard",
 						pinned: true,

@@ -2,6 +2,7 @@
   "name": "contextboard",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.3.13",
   "imports": {
     "#/*": "./src/*"
   },
@@ -28,6 +29,7 @@
     "@floating-ui/dom": "^1.7.6",
     "@floating-ui/react": "^0.27.19",
     "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/query-core": "5.101.2",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-pacer": "^0.22.1",
     "@tanstack/react-query": "latest",
@@ -85,11 +87,5 @@
     "vite": "^8.0.0",
     "vitest": "^4.1.5",
     "wrangler": "^4.70.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "lightningcss"
-    ]
   }
 }

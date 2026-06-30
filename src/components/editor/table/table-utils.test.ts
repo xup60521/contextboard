@@ -95,7 +95,10 @@ function createEditor() {
 afterEach(() => {
 	for (const editor of editors.splice(0)) {
 		editor.destroy();
-		editor.options.element.remove();
+		const el = editor.options.element;
+		if (el && typeof el === "object" && "remove" in el) {
+			(el as HTMLElement).remove();
+		}
 	}
 });
 
