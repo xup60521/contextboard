@@ -78,6 +78,12 @@ export default defineSchema({
 		])
 		.index("by_whiteboard_shape", ["whiteboardId", "shapeId"])
 		.index("by_card", ["cardId"])
+		.index("by_card_archived_updated", ["cardId", "archivedAt", "updatedAt"])
+		.index("by_card_whiteboard_archived", [
+			"cardId",
+			"whiteboardId",
+			"archivedAt",
+		])
 		.index("by_childWhiteboard", ["childWhiteboardId"]),
 
 	tldrawDocuments: defineTable({

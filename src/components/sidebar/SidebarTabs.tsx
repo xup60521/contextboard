@@ -190,7 +190,7 @@ export function SidebarTabs() {
 						].join(" ")}
 					>
 						<Library className="size-3.5 shrink-0 text-[var(--muted-foreground)]" />
-						<span className="truncate">Card Library</span>
+						<span className="truncate text-black">Card Library</span>
 					</Link>
 				</div>
 

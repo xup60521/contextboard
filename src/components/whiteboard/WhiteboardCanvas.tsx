@@ -1,17 +1,26 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { type TLComponents, type TLShapeId, Tldraw, type TldrawOptions, type VecLike } from "tldraw";
+import {
+	type TLComponents,
+	type TLShapeId,
+	Tldraw,
+	type TldrawOptions,
+	type VecLike,
+} from "tldraw";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { DeleteCardDialog } from "../cards/DeleteCardDialog";
-import { markdownWhiteboardShapeUtils, WhiteboardCardContext } from "./custom-shapes";
 import { CustomMenuPanel } from "./CustomMenuPanel";
+import {
+	markdownWhiteboardShapeUtils,
+	WhiteboardCardContext,
+} from "./custom-shapes";
 import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import { EditableWhiteboardTitle } from "./EditableWhiteboardTitle";
 import type { SequencedFrame } from "./frame-sync";
+import { useCameraReset } from "./hooks/useCameraReset";
 import { useCanvasEvents } from "./hooks/useCanvasEvents";
 import { useCardDeleteShortcut } from "./hooks/useCardDeleteShortcut";
-import { useCameraReset } from "./hooks/useCameraReset";
 import { useDrawingHydration } from "./hooks/useDrawingHydration";
 import { useDrawingSync } from "./hooks/useDrawingSync";
 import { useFocusShape } from "./hooks/useFocusShape";
@@ -24,22 +33,34 @@ import { useThemeSync } from "./hooks/useThemeSync";
 import { useVisibleCardContentHydration } from "./hooks/useVisibleCardContentHydration";
 import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
 import { useWhiteboardConvexData } from "./hooks/useWhiteboardConvexData";
-import { singlePageTldrawComponents, singlePageTldrawOptions, singlePageTldrawUiOverrides } from "./tldraw-single-page";
-import { type BoardItemResult, getWhiteboardKey, type ManagedWhiteboardShape } from "./whiteboard-canvas-helpers";
+import {
+	singlePageTldrawComponents,
+	singlePageTldrawOptions,
+	singlePageTldrawUiOverrides,
+} from "./tldraw-single-page";
 import { WhiteboardCardPreviewLayer } from "./WhiteboardCardPreviewLayer";
-import { WhiteboardContextMenu, WhiteboardContextMenuContext } from "./WhiteboardContextMenu";
+import {
+	WhiteboardContextMenu,
+	WhiteboardContextMenuContext,
+} from "./WhiteboardContextMenu";
+import {
+	type BoardItemResult,
+	getWhiteboardKey,
+	type ManagedWhiteboardShape,
+} from "./whiteboard-canvas-helpers";
 import "tldraw/tldraw.css";
 
+export type { GlobalCardDeleteShortcutEvent } from "./whiteboard-canvas-helpers";
 // Re-export the public API so the test file can keep its import path
 export {
 	collectGlobalDeleteCardIdsFromShapes,
 	getRightDragPanNextCamera,
 	hasExceededRightDragPanThreshold,
+	hasManagedShapeFrameChanged,
 	isGlobalCardDeleteShortcut,
 	itemToShape,
 	syncRightDragPanPointer,
 } from "./whiteboard-canvas-helpers";
-export type { GlobalCardDeleteShortcutEvent } from "./whiteboard-canvas-helpers";
 
 const whiteboardOptions = {
 	...singlePageTldrawOptions,
@@ -74,14 +95,17 @@ export function WhiteboardCanvas({
 		createSubwhiteboardItem,
 		updateItemFrame,
 		archiveItem,
-		archiveCardGlobally,
+		archiveCardsGlobally,
 		restoreOrAdoptCardItem,
 		saveTldrawDocument,
 		generateUploadUrl,
 		finalizeUpload,
 	} = useWhiteboardConvexData(whiteboardId);
 
-	const assetStore = useWhiteboardAssetStore({ generateUploadUrl, finalizeUpload });
+	const assetStore = useWhiteboardAssetStore({
+		generateUploadUrl,
+		finalizeUpload,
+	});
 
 	// ── Editor instance ────────────────────────────────────────────────────────
 	const [editor, setEditor] = useState<import("tldraw").Editor | null>(null);
@@ -92,18 +116,34 @@ export function WhiteboardCanvas({
 
 	// ── Shared refs (written/read by multiple hooks) ───────────────────────────
 	const hydratingRef = useRef(false);
-	const optimisticFramesRef = useRef(new Map<Id<"boardItems">, SequencedFrame>());
+	const optimisticFramesRef = useRef(
+		new Map<Id<"boardItems">, SequencedFrame>(),
+	);
 	const pendingEditShapeIdRef = useRef<TLShapeId | null>(null);
 	const itemIdByShapeIdRef = useRef(new Map<string, Id<"boardItems">>());
 	const latestItemsRef = useRef(new Map<Id<"boardItems">, BoardItemResult>());
 	const contextMenuPointRef = useRef<VecLike | null>(null);
 
 	// ── Hooks ──────────────────────────────────────────────────────────────────
-	const { flushFrameUpdates, queueFrameUpdate, queuedFrameUpdatesRef, flushTimerRef } =
-		useFrameSync({ editor, updateItemFrame, latestItemsRef, optimisticFramesRef, hydratingRef });
+	const {
+		flushFrameUpdates,
+		queueFrameUpdate,
+		queuedFrameUpdatesRef,
+		flushTimerRef,
+	} = useFrameSync({
+		editor,
+		updateItemFrame,
+		latestItemsRef,
+		optimisticFramesRef,
+		hydratingRef,
+	});
 
-	const { flushDrawingSave, queueDrawingSave, pendingDrawingSaveRef, saveDrawingTimerRef } =
-		useDrawingSync({ whiteboardId, tldrawDocument, saveTldrawDocument });
+	const {
+		flushDrawingSave,
+		queueDrawingSave,
+		pendingDrawingSaveRef,
+		saveDrawingTimerRef,
+	} = useDrawingSync({ whiteboardId, tldrawDocument, saveTldrawDocument });
 
 	const { createCardAt, createSubwhiteboardAt } = useItemCreation({
 		whiteboardId,
@@ -112,16 +152,25 @@ export function WhiteboardCanvas({
 		pendingEditShapeIdRef,
 	});
 
-	const { loadedDrawingKey, setLoadedDrawingKey, emptyDrawingSnapshotRef, deferredBindingsRef } =
-		useDrawingHydration({ editor, whiteboardKey, tldrawDocument, hydratingRef });
+	const {
+		loadedDrawingKey,
+		setLoadedDrawingKey,
+		emptyDrawingSnapshotRef,
+		deferredBindingsRef,
+	} = useDrawingHydration({
+		editor,
+		whiteboardKey,
+		tldrawDocument,
+		hydratingRef,
+	});
 
 	const { prioritizeCardContent, scheduleVisibleCardHydration } =
 		useVisibleCardContentHydration({
-		editor,
-		items,
-		loadedDrawingKey,
-		whiteboardKey,
-		pendingEditShapeIdRef,
+			editor,
+			items,
+			loadedDrawingKey,
+			whiteboardKey,
+			pendingEditShapeIdRef,
 		});
 
 	useItemsHydration({
@@ -211,6 +260,7 @@ export function WhiteboardCanvas({
 	}, [editor, whiteboardId]);
 
 	// ── Unmount: flush any pending writes ──────────────────────────────────────
+	// biome-ignore lint/correctness/useExhaustiveDependencies: cleanup reads timer refs at unmount
 	useEffect(() => {
 		return () => {
 			if (flushTimerRef.current !== null) {
@@ -347,14 +397,14 @@ export function WhiteboardCanvas({
 				onConfirm={() => {
 					if (!whiteboardCardDeletePending) return;
 
-					for (const cardId of whiteboardCardDeletePending.cardIds) {
-						void archiveCardGlobally({ cardId }).catch((error) => {
-							console.warn(
-								"Failed to archive card from whiteboard shortcut",
-								error,
-							);
-						});
-					}
+					void archiveCardsGlobally({
+						cardIds: whiteboardCardDeletePending.cardIds,
+					}).catch((error) => {
+						console.warn(
+							"Failed to archive cards from whiteboard shortcut",
+							error,
+						);
+					});
 
 					setWhiteboardCardDeletePending(null);
 				}}

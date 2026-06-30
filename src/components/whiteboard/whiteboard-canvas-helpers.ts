@@ -1,18 +1,21 @@
 import type { useNavigate } from "@tanstack/react-router";
 import {
-	pointInPolygon,
-	Vec,
 	type Editor,
+	pointInPolygon,
 	type TLCursor,
 	type TLRecord,
 	type TLShape,
 	type TLShapeId,
 	type TLStoreSnapshot,
+	Vec,
 	type VecLike,
 } from "tldraw";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ThemeMode } from "../../lib/theme";
-import type { MarkdownCardShape, SubwhiteboardLinkShape } from "./custom-shapes";
+import type {
+	MarkdownCardShape,
+	SubwhiteboardLinkShape,
+} from "./custom-shapes";
 import { frameFromItem } from "./frame-sync";
 import { getHydratedMarkdownCardHeight } from "./markdown-card-sizing";
 import { isManagedWhiteboardShapeRecord } from "./tldraw-persistence";
@@ -151,15 +154,47 @@ export function isSubwhiteboardLinkShape(
 	return shape.type === "subwhiteboard-link";
 }
 
-export function isMarkdownCardShape(shape: TLShape): shape is MarkdownCardShape {
+export function isMarkdownCardShape(
+	shape: TLShape,
+): shape is MarkdownCardShape {
 	return shape.type === "markdown-card";
 }
 
-export function isLoadedMarkdownCardShape(shape: TLShape): shape is MarkdownCardShape {
+export function isLoadedMarkdownCardShape(
+	shape: TLShape,
+): shape is MarkdownCardShape {
 	return isMarkdownCardShape(shape) && shape.props.contentLoaded === true;
 }
 
 // ── Shape hydration ───────────────────────────────────────────────────────────
+
+export function getManagedShapeFrame(shape: ManagedWhiteboardShape) {
+	return {
+		x: shape.x,
+		y: shape.y,
+		w: shape.props.w,
+		h: shape.props.h,
+		rotation: shape.rotation,
+		index: (shape as { index?: unknown }).index,
+	};
+}
+
+export function hasManagedShapeFrameChanged(
+	previous: ManagedWhiteboardShape,
+	next: ManagedWhiteboardShape,
+): boolean {
+	const previousFrame = getManagedShapeFrame(previous);
+	const nextFrame = getManagedShapeFrame(next);
+
+	return (
+		previousFrame.x !== nextFrame.x ||
+		previousFrame.y !== nextFrame.y ||
+		previousFrame.w !== nextFrame.w ||
+		previousFrame.h !== nextFrame.h ||
+		previousFrame.rotation !== nextFrame.rotation ||
+		previousFrame.index !== nextFrame.index
+	);
+}
 
 export function itemToShape(
 	item: BoardItemResult,

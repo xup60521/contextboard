@@ -1,11 +1,20 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import type { JSONContent } from "@tiptap/core";
 import type React from "react";
-import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 import { MarkdownCardComponent, type MarkdownCardShape } from "./custom-shapes";
 
 let isEditing = false;
 const editorMock = {
+	run: vi.fn((callback: () => void) => callback()),
 	updateShape: vi.fn(),
 	setEditingShape: vi.fn(),
 	getEditingShapeId: vi.fn(() => null),
@@ -18,7 +27,9 @@ const useDebouncedCardSaveMock = vi.fn();
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, ...props }: Record<string, unknown>) => (
-		<a {...props as React.ComponentPropsWithoutRef<"a">}>{children as React.ReactNode}</a>
+		<a {...(props as React.ComponentPropsWithoutRef<"a">)}>
+			{children as React.ReactNode}
+		</a>
 	),
 }));
 
@@ -43,7 +54,8 @@ vi.mock("#/components/cards/CardDocumentEditor", () => ({
 }));
 
 vi.mock("#/components/cards/useDebouncedCardSave", () => ({
-	useDebouncedCardSave: (...args: unknown[]) => useDebouncedCardSaveMock(...args),
+	useDebouncedCardSave: (...args: unknown[]) =>
+		useDebouncedCardSaveMock(...args),
 }));
 
 vi.mock("#/components/editor/RichTextEditor", () => ({
@@ -77,7 +89,9 @@ vi.mock("tldraw", () => {
 		BaseBoxShapeUtil: MockBaseBoxShapeUtil,
 		createShapeId: vi.fn(() => "shape:generated"),
 		HTMLContainer: ({ children, ...props }: Record<string, unknown>) => (
-			<div {...props as React.ComponentPropsWithoutRef<"div">}>{children as React.ReactNode}</div>
+			<div {...(props as React.ComponentPropsWithoutRef<"div">)}>
+				{children as React.ReactNode}
+			</div>
 		),
 		Rectangle2d: class {},
 		resizeBox: vi.fn((shape: unknown) => shape),
@@ -149,6 +163,7 @@ beforeEach(() => {
 		flushSave: vi.fn(),
 	});
 	editorMock.updateShape.mockReset();
+	editorMock.run.mockClear();
 	editorMock.setEditingShape.mockReset();
 	editorMock.getEditingShapeId.mockReset();
 	editorMock.getEditingShapeId.mockReturnValue(null);
@@ -291,6 +306,67 @@ describe("MarkdownCardComponent", () => {
 			expect.objectContaining({
 				initialContent: CONTENT_A,
 				onPersisted: expect.any(Function),
+			}),
+		);
+	});
+
+	test("updates Convex-backed card content without adding tldraw history", () => {
+		const scheduleSave = vi.fn();
+		useDebouncedCardSaveMock.mockReturnValue({
+			scheduleSave,
+			flushSave: vi.fn(),
+		});
+		isEditing = true;
+
+		render(
+			<MarkdownCardComponent
+				shape={createShape({
+					cardId: "card-1",
+					content: JSON.stringify(CONTENT_A),
+				})}
+			/>,
+		);
+
+		(cardDocumentEditorProps?.onChange as (content: JSONContent) => void)(
+			CONTENT_B,
+		);
+
+		expect(editorMock.run).toHaveBeenCalledWith(expect.any(Function), {
+			history: "ignore",
+		});
+		expect(editorMock.updateShape).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "shape:card-1",
+				type: "markdown-card",
+				props: expect.objectContaining({
+					content: JSON.stringify(CONTENT_B),
+				}),
+			}),
+		);
+		expect(scheduleSave).toHaveBeenCalledWith(CONTENT_B);
+	});
+
+	test("updates local card content without adding tldraw history", () => {
+		isEditing = true;
+
+		render(
+			<MarkdownCardComponent shape={createShape({ cardId: undefined })} />,
+		);
+
+		(richTextEditorProps?.onChange as (content: JSONContent) => void)(
+			CONTENT_B,
+		);
+
+		expect(editorMock.run).toHaveBeenCalledWith(expect.any(Function), {
+			history: "ignore",
+		});
+		expect(editorMock.updateShape).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "shape:card-1",
+				type: "markdown-card",
+				props: expect.objectContaining({
+					content: JSON.stringify(CONTENT_B),
+				}),
 			}),
 		);
 	});

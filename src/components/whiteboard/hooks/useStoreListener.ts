@@ -1,9 +1,15 @@
-import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import {
+	type Dispatch,
+	type MutableRefObject,
+	type SetStateAction,
+	useEffect,
+} from "react";
 import type { Editor, TLShapeId, TLStoreSnapshot } from "tldraw";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import type { WhiteboardFrame } from "../frame-sync";
 import { filterSnapshotForPersistence } from "../tldraw-persistence";
 import {
+	hasManagedShapeFrameChanged,
 	hasPersistableDrawingChange,
 	isManagedWhiteboardShape,
 	type ManagedWhiteboardShape,
@@ -93,16 +99,25 @@ export function useStoreListener({
 					}
 				}
 
-				const sortedShapes = editor.getCurrentPageShapesSorted();
-				const zIndexByShapeId = new Map<TLShapeId, number>(
-					sortedShapes.map((shape, index) => [shape.id, index]),
-				);
+				let zIndexByShapeId: Map<TLShapeId, number> | null = null;
 
-				for (const [, changed] of Object.values(changes.updated)) {
-					if (!isManagedWhiteboardShape(changed)) continue;
+				for (const [previous, changed] of Object.values(changes.updated)) {
+					if (
+						!isManagedWhiteboardShape(previous) ||
+						!isManagedWhiteboardShape(changed)
+					) {
+						continue;
+					}
+					if (!hasManagedShapeFrameChanged(previous, changed)) continue;
 
 					const itemId = itemIdByShapeIdRef.current.get(changed.id);
 					if (!itemId) continue;
+
+					zIndexByShapeId ??= new Map<TLShapeId, number>(
+						editor
+							.getCurrentPageShapesSorted()
+							.map((shape, index) => [shape.id, index]),
+					);
 
 					queueFrameUpdate(itemId, {
 						x: changed.x,

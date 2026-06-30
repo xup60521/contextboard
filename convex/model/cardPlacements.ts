@@ -14,8 +14,9 @@ export async function listActivePlacements(
 ): Promise<ActiveCardPlacement[]> {
 	const placements = await ctx.db
 		.query("boardItems")
-		.withIndex("by_card", (q) => q.eq("cardId", cardId))
-		.filter((q) => q.eq(q.field("archivedAt"), null))
+		.withIndex("by_card_archived_updated", (q) =>
+			q.eq("cardId", cardId).eq("archivedAt", null),
+		)
 		.collect();
 
 	return placements
@@ -103,8 +104,7 @@ export async function hasActivePlacementOnBoard(
 	cardId: Id<"cards">,
 	whiteboardId: Id<"whiteboards">,
 ): Promise<boolean> {
-	const placements = await listActivePlacements(ctx, cardId);
-	return placements.some((placement) => placement.whiteboardId === whiteboardId);
+	return (await getActivePlacementOnBoard(ctx, cardId, whiteboardId)) !== null;
 }
 
 export async function getActivePlacementOnBoard(
@@ -112,8 +112,25 @@ export async function getActivePlacementOnBoard(
 	cardId: Id<"cards">,
 	whiteboardId: Id<"whiteboards">,
 ): Promise<ActiveCardPlacement | null> {
-	const placements = await listActivePlacements(ctx, cardId);
-	return placements.find((placement) => placement.whiteboardId === whiteboardId) ?? null;
+	const item = await ctx.db
+		.query("boardItems")
+		.withIndex("by_card_whiteboard_archived", (q) =>
+			q
+				.eq("cardId", cardId)
+				.eq("whiteboardId", whiteboardId)
+				.eq("archivedAt", null),
+		)
+		.first();
+
+	if (!item || item.kind !== "card" || item.cardId !== cardId) return null;
+
+	return {
+		_id: item._id,
+		cardId: item.cardId,
+		whiteboardId: item.whiteboardId,
+		shapeId: item.shapeId,
+		updatedAt: item.updatedAt,
+	};
 }
 
 export async function getPreferredPlacement(

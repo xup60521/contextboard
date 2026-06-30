@@ -18,22 +18,26 @@ export function useDebouncedCardSave(
 	delayMs = 450,
 	options?: {
 		initialContent?: JSONContent | null;
-		onPersisted?: (result: {
-			content: JSONContent;
-			version: number;
-		}) => void;
+		initialVersion?: number | null;
+		onPersisted?: (result: { content: JSONContent; version: number }) => void;
 	},
 ): UseDebouncedCardSaveResult {
 	const updateContent = useMutation(api.cards.updateContent);
+	const initialContent = options?.initialContent;
+	const initialVersion = options?.initialVersion;
+	const initialContentRef = useRef(initialContent);
+	const onPersistedRef = useRef(options?.onPersisted);
 	const pendingSaveRef = useRef<{
 		cardId: Id<"cards">;
 		content: JSONContent;
 		serializedContent: string;
 	} | null>(null);
 	const saveTimerRef = useRef<number | null>(null);
-	const persistedSerializedByCardIdRef = useRef(
-		new Map<Id<"cards">, string>(),
-	);
+	const persistedSerializedByCardIdRef = useRef(new Map<Id<"cards">, string>());
+	const persistedVersionByCardIdRef = useRef(new Map<Id<"cards">, number>());
+
+	initialContentRef.current = initialContent;
+	onPersistedRef.current = options?.onPersisted;
 
 	const flushSave = useCallback(() => {
 		if (saveTimerRef.current !== null) {
@@ -62,14 +66,18 @@ export function useDebouncedCardSave(
 				pendingSave.cardId,
 				pendingSave.serializedContent,
 			);
-			options?.onPersisted?.({ content: pendingSave.content, version });
+			if (typeof version === "number") {
+				persistedVersionByCardIdRef.current.set(pendingSave.cardId, version);
+			}
+			onPersistedRef.current?.({ content: pendingSave.content, version });
 		});
-	}, [options, updateContent]);
+	}, [updateContent]);
 
 	const scheduleSave = useCallback(
 		(content: JSONContent) => {
 			const serializedContent = serializeContent(content);
-			const persistedSerialized = persistedSerializedByCardIdRef.current.get(cardId);
+			const persistedSerialized =
+				persistedSerializedByCardIdRef.current.get(cardId);
 
 			if (persistedSerialized === serializedContent) {
 				pendingSaveRef.current = null;
@@ -92,21 +100,40 @@ export function useDebouncedCardSave(
 
 			saveTimerRef.current = window.setTimeout(flushSave, delayMs);
 		},
-		[delayMs, flushSave],
+		[cardId, delayMs, flushSave],
 	);
 
 	useEffect(() => {
+		initialContentRef.current = initialContent;
+
+		if (initialVersion !== undefined && initialVersion !== null) {
+			const seededVersion = persistedVersionByCardIdRef.current.get(cardId);
+			const hasPendingSaveForCard = pendingSaveRef.current?.cardId === cardId;
+			if (seededVersion === initialVersion || hasPendingSaveForCard) {
+				return;
+			}
+
+			persistedVersionByCardIdRef.current.set(cardId, initialVersion);
+			persistedSerializedByCardIdRef.current.set(
+				cardId,
+				serializeContent(initialContentRef.current),
+			);
+			return;
+		}
+
 		persistedSerializedByCardIdRef.current.set(
 			cardId,
-			serializeContent(options?.initialContent),
+			serializeContent(initialContentRef.current),
 		);
-	}, [cardId, options?.initialContent]);
+	}, [cardId, initialContent, initialVersion]);
 
 	useEffect(() => {
 		return () => {
-			flushSave();
+			if (pendingSaveRef.current?.cardId === cardId) {
+				flushSave();
+			}
 		};
-	}, [flushSave]);
+	}, [cardId, flushSave]);
 
 	return { scheduleSave, flushSave };
 }

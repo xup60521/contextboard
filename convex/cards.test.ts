@@ -23,6 +23,11 @@ type MockState = {
 	cardReferences: Map<string, AnyDoc>;
 };
 
+type PatchCall = {
+	id: string;
+	patch: Record<string, unknown>;
+};
+
 function makeState(initial?: Partial<Record<keyof MockState, AnyDoc[]>>): MockState {
 	return {
 		whiteboards: makeCollection(initial?.whiteboards),
@@ -38,7 +43,7 @@ function makeCollection(items?: AnyDoc[]) {
 	return new Map((items ?? []).map((item) => [item._id, item] as const));
 }
 
-function makeMockCtx(state: MockState) {
+function makeMockCtx(state: MockState, options?: { patchLog?: PatchCall[] }) {
 	let nextId = 1;
 
 	const getById = (id: string) =>
@@ -171,6 +176,7 @@ function makeMockCtx(state: MockState) {
 				if (!doc) {
 					throw new Error(`Missing doc: ${id}`);
 				}
+				options?.patchLog?.push({ id, patch });
 				Object.assign(doc, patch);
 			},
 			delete: async (id: string) => {
@@ -738,7 +744,7 @@ describe("card archive mutations", () => {
 				],
 			});
 
-			expect(result).toEqual({ archivedCount: 3 });
+			expect(result).toEqual({ archivedCount: 2 });
 		} finally {
 			nowSpy.mockRestore();
 		}
@@ -795,6 +801,89 @@ describe("card archive mutations", () => {
 			refCount: 0,
 			status: "pending_delete",
 		});
+	});
+
+	test("archiveCards counts only cards archived by the mutation", async () => {
+		const state = makeState({
+			whiteboards: [whiteboardDoc("whiteboard-1", 1)],
+			cards: [
+				cardDoc("card-active", null, 1),
+				cardDoc("card-archived", 123),
+			],
+			boardItems: [
+				boardItemDoc("board-item-1", "card-active", "whiteboard-1"),
+			],
+		});
+
+		const ctx = makeMockCtx(state);
+		const now = 1_700_000_000_000;
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+
+		try {
+			const result = await archiveCardsHandler._handler(ctx, {
+				cardIds: [
+					"card-active" as Id<"cards">,
+					"card-active" as Id<"cards">,
+					"card-archived" as Id<"cards">,
+					"card-missing" as Id<"cards">,
+				],
+			});
+
+			expect(result).toEqual({ archivedCount: 1 });
+		} finally {
+			nowSpy.mockRestore();
+		}
+
+		expect(state.cards.get("card-active")).toMatchObject({
+			activePlacementCount: 0,
+			archivedAt: now,
+			updatedAt: now,
+		});
+		expect(state.cards.get("card-archived")).toMatchObject({
+			archivedAt: 123,
+			updatedAt: 100,
+		});
+		expect(state.whiteboards.get("whiteboard-1")).toMatchObject({
+			cardCount: 0,
+			updatedAt: now,
+		});
+	});
+
+	test("archiveCards aggregates whiteboard card count patches", async () => {
+		const state = makeState({
+			whiteboards: [whiteboardDoc("whiteboard-1", 2)],
+			cards: [
+				cardDoc("card-1", null, 1),
+				cardDoc("card-2", null, 1),
+			],
+			boardItems: [
+				boardItemDoc("board-item-1", "card-1", "whiteboard-1"),
+				boardItemDoc("board-item-2", "card-2", "whiteboard-1"),
+			],
+		});
+		const patchLog: PatchCall[] = [];
+
+		const ctx = makeMockCtx(state, { patchLog });
+		const now = 1_700_000_000_000;
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+
+		try {
+			const result = await archiveCardsHandler._handler(ctx, {
+				cardIds: ["card-1" as Id<"cards">, "card-2" as Id<"cards">],
+			});
+
+			expect(result).toEqual({ archivedCount: 2 });
+		} finally {
+			nowSpy.mockRestore();
+		}
+
+		expect(state.whiteboards.get("whiteboard-1")).toMatchObject({
+			cardCount: 0,
+			updatedAt: now,
+		});
+		expect(
+			patchLog.filter((call) => call.id === "whiteboard-1"),
+		).toHaveLength(1);
 	});
 
 	test("archiveCards handles an empty array", async () => {

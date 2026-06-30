@@ -1,7 +1,10 @@
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import type { BoardItemResult, TldrawDocumentResult } from "../whiteboard-canvas-helpers";
+import type {
+	BoardItemResult,
+	TldrawDocumentResult,
+} from "../whiteboard-canvas-helpers";
 
 export function useWhiteboardConvexData(
 	whiteboardId: Id<"whiteboards"> | null,
@@ -29,7 +32,7 @@ export function useWhiteboardConvexData(
 	);
 	const updateItemFrame = useMutation(api.canvas.updateItemFrame);
 	const archiveItem = useMutation(api.canvas.archiveItem);
-	const archiveCardGlobally = useMutation(api.cards.archiveCard);
+	const archiveCardsGlobally = useMutation(api.cards.archiveCards);
 	const restoreOrAdoptCardItem = useMutation(api.canvas.restoreOrAdoptCardItem);
 	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
 	const generateUploadUrl = useMutation(api.files.generateUploadUrl);
@@ -47,7 +50,7 @@ export function useWhiteboardConvexData(
 		createSubwhiteboardItem,
 		updateItemFrame,
 		archiveItem,
-		archiveCardGlobally,
+		archiveCardsGlobally,
 		restoreOrAdoptCardItem,
 		saveTldrawDocument,
 		generateUploadUrl,

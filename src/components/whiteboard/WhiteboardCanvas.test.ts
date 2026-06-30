@@ -1,13 +1,48 @@
 import { type Editor, Vec } from "tldraw";
 import { describe, expect, test } from "vitest";
+import type { MarkdownCardShape } from "./custom-shapes";
 import {
 	collectGlobalDeleteCardIdsFromShapes,
 	getRightDragPanNextCamera,
 	hasExceededRightDragPanThreshold,
+	hasManagedShapeFrameChanged,
 	isGlobalCardDeleteShortcut,
 	itemToShape,
 	syncRightDragPanPointer,
 } from "./WhiteboardCanvas";
+import type { ManagedWhiteboardShape } from "./whiteboard-canvas-helpers";
+
+type ManagedFrameTestShape = ManagedWhiteboardShape & { index?: string };
+
+function createManagedFrameShape(
+	overrides: Partial<ManagedFrameTestShape> = {},
+): ManagedFrameTestShape {
+	const base = {
+		id: "shape:card",
+		type: "markdown-card",
+		x: 10,
+		y: 20,
+		rotation: 0,
+		props: {
+			w: 320,
+			h: 160,
+			content: "{}",
+			title: "Title",
+			preview: "Preview",
+			contentLoaded: true,
+			contentVersion: 1,
+		},
+	} as MarkdownCardShape;
+
+	return {
+		...base,
+		...overrides,
+		props: {
+			...base.props,
+			...(overrides.props ?? {}),
+		},
+	};
+}
 
 describe("itemToShape", () => {
 	test("uses a hydrated height floor for markdown cards", () => {
@@ -65,13 +100,14 @@ describe("itemToShape", () => {
 		expect(shape.type).toBe("markdown-card");
 		if (shape.type === "markdown-card") {
 			expect(shape.props).toMatchObject({
-			cardId: "card-1",
-			title: "Card",
-			preview: "Preview text",
-			content: "",
-			contentLoaded: false,
-			contentVersion: 7,
-		});}
+				cardId: "card-1",
+				title: "Card",
+				preview: "Preview text",
+				content: "",
+				contentLoaded: false,
+				contentVersion: 7,
+			});
+		}
 	});
 
 	test("leaves non-markdown board items on their persisted height", () => {
@@ -310,6 +346,46 @@ describe("collectGlobalDeleteCardIdsFromShapes", () => {
 		]);
 
 		expect(result).toEqual([]);
+	});
+});
+
+describe("hasManagedShapeFrameChanged", () => {
+	test("ignores markdown-card content and metadata changes", () => {
+		const previous = createManagedFrameShape();
+		const next = createManagedFrameShape({
+			props: {
+				w: 320,
+				h: 160,
+				content: '{"type":"doc"}',
+				title: "Updated title",
+				preview: "Updated preview",
+				contentLoaded: false,
+				contentVersion: 2,
+			},
+		});
+
+		expect(hasManagedShapeFrameChanged(previous, next)).toBe(false);
+	});
+
+	test("detects persisted geometry changes", () => {
+		const previous = createManagedFrameShape();
+
+		for (const next of [
+			createManagedFrameShape({ x: 11 }),
+			createManagedFrameShape({ y: 21 }),
+			createManagedFrameShape({ rotation: 0.25 }),
+			createManagedFrameShape({ props: { ...previous.props, w: 321 } }),
+			createManagedFrameShape({ props: { ...previous.props, h: 161 } }),
+		]) {
+			expect(hasManagedShapeFrameChanged(previous, next)).toBe(true);
+		}
+	});
+
+	test("detects tldraw ordering changes when present", () => {
+		const previous = createManagedFrameShape({ index: "a1" });
+		const next = createManagedFrameShape({ index: "a2" });
+
+		expect(hasManagedShapeFrameChanged(previous, next)).toBe(true);
 	});
 });
 

@@ -110,9 +110,9 @@ export function SidebarTabRow({
 						className="flex size-5 items-center justify-center rounded text-[var(--muted-foreground)] outline-none transition-colors hover:bg-[var(--surface-strong)] hover:text-[var(--card-foreground)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
 					>
 						{tab.pinned ? (
-							<Pin className="size-3" />
-						) : (
 							<PinOff className="size-3" />
+						) : (
+							<Pin className="size-3" />
 						)}
 					</button>
 

@@ -309,8 +309,19 @@ export async function archiveCardById(
 	cardId: Id<"cards">,
 	now: number,
 ) {
+	await archiveCardByIdInternal(ctx, cardId, now, "immediate");
+}
+
+async function archiveCardByIdInternal(
+	ctx: MutationCtx,
+	cardId: Id<"cards">,
+	now: number,
+	whiteboardUpdates:
+		| "immediate"
+		| Map<Id<"whiteboards">, number>,
+) {
 	const card = await ctx.db.get(cardId);
-	if (!card || card.archivedAt !== null) return;
+	if (!card || card.archivedAt !== null) return false;
 
 	const placements = await listActivePlacements(ctx, card._id);
 	for (const placement of placements) {
@@ -320,6 +331,14 @@ export async function archiveCardById(
 		});
 
 		if (!placement.whiteboardId) continue;
+		if (whiteboardUpdates !== "immediate") {
+			whiteboardUpdates.set(
+				placement.whiteboardId,
+				(whiteboardUpdates.get(placement.whiteboardId) ?? 0) + 1,
+			);
+			continue;
+		}
+
 		const whiteboard = await ctx.db.get(placement.whiteboardId);
 		if (whiteboard && whiteboard.archivedAt === null) {
 			await ctx.db.patch(whiteboard._id, {
@@ -336,6 +355,39 @@ export async function archiveCardById(
 		archivedAt: now,
 		updatedAt: now,
 	});
+
+	return true;
+}
+
+async function archiveCardsByIds(
+	ctx: MutationCtx,
+	cardIds: Id<"cards">[],
+	now: number,
+) {
+	const whiteboardDecrements = new Map<Id<"whiteboards">, number>();
+	let archivedCount = 0;
+
+	for (const cardId of cardIds) {
+		const archived = await archiveCardByIdInternal(
+			ctx,
+			cardId,
+			now,
+			whiteboardDecrements,
+		);
+		if (archived) archivedCount += 1;
+	}
+
+	for (const [whiteboardId, decrement] of whiteboardDecrements) {
+		const whiteboard = await ctx.db.get(whiteboardId);
+		if (!whiteboard || whiteboard.archivedAt !== null) continue;
+
+		await ctx.db.patch(whiteboard._id, {
+			cardCount: Math.max(0, (whiteboard.cardCount ?? 0) - decrement),
+			updatedAt: now,
+		});
+	}
+
+	return { archivedCount };
 }
 
 export const archiveCard = mutation({
@@ -357,13 +409,7 @@ export const archiveCards = mutation({
 			throw new Error("Cannot delete more than 100 cards at once");
 		}
 
-		for (const cardId of uniqueCardIds) {
-			await archiveCardById(ctx, cardId, now);
-		}
-
-		return {
-			archivedCount: uniqueCardIds.length,
-		};
+		return await archiveCardsByIds(ctx, uniqueCardIds, now);
 	},
 });
 
