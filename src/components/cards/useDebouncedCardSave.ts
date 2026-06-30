@@ -9,10 +9,15 @@ type UseDebouncedCardSaveResult = {
 	flushSave: () => void;
 };
 
+function serializeContent(content: JSONContent | null | undefined) {
+	return JSON.stringify(content ?? null);
+}
+
 export function useDebouncedCardSave(
 	cardId: Id<"cards">,
 	delayMs = 450,
 	options?: {
+		initialContent?: JSONContent | null;
 		onPersisted?: (result: {
 			content: JSONContent;
 			version: number;
@@ -20,8 +25,15 @@ export function useDebouncedCardSave(
 	},
 ): UseDebouncedCardSaveResult {
 	const updateContent = useMutation(api.cards.updateContent);
-	const pendingContentRef = useRef<JSONContent | null>(null);
+	const pendingSaveRef = useRef<{
+		cardId: Id<"cards">;
+		content: JSONContent;
+		serializedContent: string;
+	} | null>(null);
 	const saveTimerRef = useRef<number | null>(null);
+	const persistedSerializedByCardIdRef = useRef(
+		new Map<Id<"cards">, string>(),
+	);
 
 	const flushSave = useCallback(() => {
 		if (saveTimerRef.current !== null) {
@@ -29,18 +41,50 @@ export function useDebouncedCardSave(
 			saveTimerRef.current = null;
 		}
 
-		const content = pendingContentRef.current;
-		pendingContentRef.current = null;
-		if (!content) return;
+		const pendingSave = pendingSaveRef.current;
+		pendingSaveRef.current = null;
+		if (!pendingSave) return;
 
-		void Promise.resolve(updateContent({ cardId, content })).then((version) => {
-			options?.onPersisted?.({ content, version });
+		const persistedSerialized = persistedSerializedByCardIdRef.current.get(
+			pendingSave.cardId,
+		);
+		if (persistedSerialized === pendingSave.serializedContent) {
+			return;
+		}
+
+		void Promise.resolve(
+			updateContent({
+				cardId: pendingSave.cardId,
+				content: pendingSave.content,
+			}),
+		).then((version) => {
+			persistedSerializedByCardIdRef.current.set(
+				pendingSave.cardId,
+				pendingSave.serializedContent,
+			);
+			options?.onPersisted?.({ content: pendingSave.content, version });
 		});
-	}, [cardId, options, updateContent]);
+	}, [options, updateContent]);
 
 	const scheduleSave = useCallback(
 		(content: JSONContent) => {
-			pendingContentRef.current = content;
+			const serializedContent = serializeContent(content);
+			const persistedSerialized = persistedSerializedByCardIdRef.current.get(cardId);
+
+			if (persistedSerialized === serializedContent) {
+				pendingSaveRef.current = null;
+				if (saveTimerRef.current !== null) {
+					window.clearTimeout(saveTimerRef.current);
+					saveTimerRef.current = null;
+				}
+				return;
+			}
+
+			pendingSaveRef.current = {
+				cardId,
+				content,
+				serializedContent,
+			};
 
 			if (saveTimerRef.current !== null) {
 				window.clearTimeout(saveTimerRef.current);
@@ -50,6 +94,13 @@ export function useDebouncedCardSave(
 		},
 		[delayMs, flushSave],
 	);
+
+	useEffect(() => {
+		persistedSerializedByCardIdRef.current.set(
+			cardId,
+			serializeContent(options?.initialContent),
+		);
+	}, [cardId, options?.initialContent]);
 
 	useEffect(() => {
 		return () => {

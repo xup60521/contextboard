@@ -1,26 +1,34 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { DEFAULT_CARD_HEIGHT, DEFAULT_CARD_WIDTH } from "./canvas";
-import { clearCardFileRefs, reconcileCardFileRefs } from "./fileLifecycle";
+import {
+	clearCardFileRefs,
+	prepareCardFileRefs,
+	reconcileCardFileRefs,
+} from "./fileLifecycle";
 import { deriveCardMetadata } from "./model/cardMetadata";
 import {
 	getActivePlacementOnBoard,
 	getPreferredPlacement,
+	incrementActivePlacementCount,
 	listActivePlacements,
+	setActivePlacementCount,
 } from "./model/cardPlacements";
 import { makeCardShapeId } from "./model/shapeIds";
 import {
 	DEFAULT_CARD_SORT_BY,
+	type CardSortBy,
 	cardSortByValidator,
-	sortCards,
 } from "./model/cardSorting";
 import {
+	clearCardReferences,
 	collectCardReferenceIds,
 	fetchCardTitles,
 	normalizeCardReferences,
+	reconcileCardReferences,
 	resolveCardReferenceTitles,
 } from "./model/cardReferences";
 
@@ -28,6 +36,46 @@ const MAX_CARD_CONTENT_BYTES = 250_000;
 const APPENDED_CARD_HORIZONTAL_GAP = 48;
 
 type AppendCardLayoutMode = "vertical_stack" | "horizontal_row";
+
+async function fetchCardTitlesForContent(
+	ctx: MutationCtx | QueryCtx,
+	content: unknown,
+) {
+	const referenceIds = collectCardReferenceIds(content);
+	if (referenceIds.length === 0) {
+		return null;
+	}
+
+	return await fetchCardTitles(ctx as QueryCtx, referenceIds);
+}
+
+async function normalizeIncomingCardContent(
+	ctx: MutationCtx,
+	content: unknown,
+) {
+	const titles = await fetchCardTitlesForContent(ctx, content);
+	if (!titles) {
+		return content;
+	}
+
+	return normalizeCardReferences(content, titles);
+}
+
+async function buildComparableStoredCardContent(
+	ctx: MutationCtx,
+	content: unknown,
+) {
+	const prepared = await prepareCardFileRefs(ctx, content);
+	const titles = await fetchCardTitlesForContent(ctx, prepared.content);
+	if (!titles) {
+		return prepared.content;
+	}
+
+	return normalizeCardReferences(
+		resolveCardReferenceTitles(prepared.content, titles),
+		titles,
+	);
+}
 
 export const get = query({
 	args: { cardId: v.id("cards") },
@@ -44,21 +92,19 @@ export const get = query({
 			cardId: Id<"cards">;
 			title: string;
 			preview: string;
-			boardWhiteboardId: Id<"whiteboards"> | null;
-			shapeId: string | null;
 		}[] = [];
 
-		for await (const candidate of ctx.db.query("cards")) {
-			if (candidate._id === card._id || candidate.archivedAt !== null) continue;
-			const referencedIds = collectCardReferenceIds(candidate.content);
-			if (!referencedIds.includes(card._id)) continue;
-			const backlinkPlacement = await getPreferredPlacement(ctx, candidate._id);
+		const references = await ctx.db
+			.query("cardReferences")
+			.withIndex("by_targetCardId", (q) => q.eq("targetCardId", card._id))
+			.collect();
+		for (const ref of references) {
+			const source = await ctx.db.get(ref.sourceCardId);
+			if (!source || source.archivedAt !== null) continue;
 			backlinks.push({
-				cardId: candidate._id,
-				title: candidate.derivedTitle,
-				preview: candidate.preview,
-				boardWhiteboardId: backlinkPlacement?.whiteboardId ?? null,
-				shapeId: backlinkPlacement?.shapeId ?? null,
+				cardId: source._id,
+				title: source.derivedTitle,
+				preview: source.preview,
 			});
 		}
 		backlinks.sort((left, right) => left.title.localeCompare(right.title));
@@ -156,27 +202,31 @@ export const updateContent = mutation({
 		);
 		// Normalize card-reference link marks: canonical href, auto/custom label
 		// tracking, and refreshed resolved titles.
-		const referenceIds = collectCardReferenceIds(reconciledContent);
-		const nextContent =
-			referenceIds.length > 0
-				? normalizeCardReferences(
-						reconciledContent,
-						await fetchCardTitles(ctx, referenceIds),
-					)
-				: reconciledContent;
+		const nextContent = await normalizeIncomingCardContent(ctx, reconciledContent);
 		const serializedContent = JSON.stringify(nextContent);
 		if (serializedContent.length > MAX_CARD_CONTENT_BYTES) {
 			throw new Error("Card content is too large");
 		}
 
+		const comparableStoredContent = await buildComparableStoredCardContent(
+			ctx,
+			card.content,
+		);
+		if (serializedContent === JSON.stringify(comparableStoredContent)) {
+			return card.version;
+		}
+
+		await reconcileCardReferences(ctx, card._id, nextContent);
+
 		const now = Date.now();
+		const nextVersion = card.version + 1;
 		const metadata = deriveCardMetadata(nextContent);
 		await ctx.db.patch(card._id, {
 			content: nextContent,
 			derivedTitle: metadata.derivedTitle,
 			plainText: metadata.plainText,
 			preview: metadata.preview,
-			version: card.version + 1,
+			version: nextVersion,
 			updatedAt: now,
 		});
 		const placements = await listActivePlacements(ctx, card._id);
@@ -187,7 +237,7 @@ export const updateContent = mutation({
 			});
 		}
 
-		return card.version + 1;
+		return nextVersion;
 	},
 });
 
@@ -235,56 +285,13 @@ export const listOrphans = query({
 		searchTerm: v.optional(v.string()),
 		sortBy: v.optional(cardSortByValidator),
 	},
-	handler: async (ctx, args) => {
-		const activeCards = await ctx.db
-			.query("cards")
-			.filter((q) => q.eq(q.field("archivedAt"), null))
-			.collect();
-
-		const activeCardsFiltered =
-			args.searchTerm?.trim()
-				? activeCards.filter((card) => {
-						const term = args.searchTerm!.toLowerCase();
-						return (
-							card.plainText.toLowerCase().includes(term) ||
-							card.derivedTitle.toLowerCase().includes(term)
-						);
-					})
-				: activeCards;
-
-		const placementCounts = new Map<Id<"cards">, number>();
-		for await (const item of ctx.db.query("boardItems")) {
-			if (
-				item.archivedAt === null &&
-				item.kind === "card" &&
-				item.cardId !== null
-			) {
-				placementCounts.set(
-					item.cardId,
-					(placementCounts.get(item.cardId) ?? 0) + 1,
-				);
-			}
-		}
-
-		const orphans = activeCardsFiltered.filter(
-			(card) => (placementCounts.get(card._id) ?? 0) === 0,
-		);
-		const sortedOrphans = sortCards(
-			orphans,
-			args.sortBy ?? DEFAULT_CARD_SORT_BY,
-		);
-		const start = parseOffsetCursor(args.paginationOpts.cursor);
-		const end = Math.min(
-			start + args.paginationOpts.numItems,
-			sortedOrphans.length,
-		);
-
-		return {
-			isDone: end >= sortedOrphans.length,
-			page: sortedOrphans.slice(start, end),
-			continueCursor: String(end),
-		};
-	},
+	handler: async (ctx, args) =>
+		await listCardsInternal(ctx, {
+			paginationOpts: args.paginationOpts,
+			searchTerm: args.searchTerm,
+			orphanOnly: true,
+			sortBy: "updated",
+		}),
 });
 
 export const listAll = query({
@@ -294,62 +301,7 @@ export const listAll = query({
 		orphanOnly: v.optional(v.boolean()),
 		sortBy: v.optional(cardSortByValidator),
 	},
-	handler: async (ctx, args) => {
-		const activeCards = await ctx.db
-			.query("cards")
-			.filter((q) => q.eq(q.field("archivedAt"), null))
-			.collect();
-
-		const placementCounts = new Map<Id<"cards">, number>();
-		for await (const item of ctx.db.query("boardItems")) {
-			if (
-				item.archivedAt === null &&
-				item.kind === "card" &&
-				item.cardId !== null
-			) {
-				placementCounts.set(
-					item.cardId,
-					(placementCounts.get(item.cardId) ?? 0) + 1,
-				);
-			}
-		}
-
-		let filtered = activeCards;
-
-		if (args.searchTerm?.trim()) {
-			const term = args.searchTerm!.toLowerCase();
-			filtered = filtered.filter(
-				(card) =>
-					card.plainText.toLowerCase().includes(term) ||
-					card.derivedTitle.toLowerCase().includes(term),
-			);
-		}
-
-		if (args.orphanOnly) {
-			filtered = filtered.filter(
-				(card) => (placementCounts.get(card._id) ?? 0) === 0,
-			);
-		}
-
-		const sortedCards = sortCards(
-			filtered,
-			args.sortBy ?? DEFAULT_CARD_SORT_BY,
-		);
-		const withCounts = sortedCards
-			.map((card) => ({
-				...card,
-				placementCount: placementCounts.get(card._id) ?? 0,
-			}));
-
-		const start = parseOffsetCursor(args.paginationOpts.cursor);
-		const end = Math.min(start + args.paginationOpts.numItems, withCounts.length);
-
-		return {
-			isDone: end >= withCounts.length,
-			page: withCounts.slice(start, end),
-			continueCursor: String(end),
-		};
-	},
+	handler: async (ctx, args) => await listCardsInternal(ctx, args),
 });
 
 export async function archiveCardById(
@@ -378,6 +330,8 @@ export async function archiveCardById(
 	}
 
 	await clearCardFileRefs(ctx, card._id);
+	await clearCardReferences(ctx, card._id);
+	await setActivePlacementCount(ctx, card._id, 0);
 	await ctx.db.patch(card._id, {
 		archivedAt: now,
 		updatedAt: now,
@@ -488,6 +442,7 @@ async function appendCardToWhiteboardInternal(
 			archivedAt: null,
 			updatedAt: now,
 		});
+		await incrementActivePlacementCount(ctx, card._id);
 
 		await ctx.db.patch(whiteboard._id, {
 			cardCount: whiteboardCardCount + 1,
@@ -536,6 +491,7 @@ async function appendCardToWhiteboardInternal(
 		archivedAt: null,
 		updatedAt: now,
 	});
+	await incrementActivePlacementCount(ctx, card._id);
 
 	await ctx.db.patch(whiteboard._id, {
 		cardCount: whiteboardCardCount + 1,
@@ -644,4 +600,53 @@ function parseOffsetCursor(cursor: string | null) {
 
 	const offset = Number.parseInt(cursor, 10);
 	return Number.isFinite(offset) && offset >= 0 ? offset : 0;
+}
+
+async function listCardsInternal(
+	ctx: QueryCtx,
+	args: {
+		paginationOpts: { cursor: string | null; numItems: number };
+		searchTerm?: string;
+		orphanOnly?: boolean;
+		sortBy?: CardSortBy;
+	},
+) {
+	const searchTerm = args.searchTerm?.trim() ?? "";
+	const sortBy = args.sortBy ?? DEFAULT_CARD_SORT_BY;
+
+	if (searchTerm.length > 0) {
+		const searchQuery = ctx.db
+			.query("cards")
+			.withSearchIndex("search_text", (q) => {
+				const builder = q.search("plainText", searchTerm).eq("archivedAt", null);
+				return args.orphanOnly
+					? builder.eq("activePlacementCount", 0)
+					: builder;
+			});
+		return await searchQuery.paginate(args.paginationOpts);
+	}
+
+	if (args.orphanOnly) {
+		return await ctx.db
+			.query("cards")
+			.withIndex("by_archived_activePlacementCount_updated", (q) =>
+				q.eq("archivedAt", null).eq("activePlacementCount", 0),
+			)
+			.order("desc")
+			.paginate(args.paginationOpts);
+	}
+
+	if (sortBy === "title" || sortBy === "title_desc") {
+		return await ctx.db
+			.query("cards")
+			.withIndex("by_archived_title", (q) => q.eq("archivedAt", null))
+			.order(sortBy === "title" ? "asc" : "desc")
+			.paginate(args.paginationOpts);
+	}
+
+	return await ctx.db
+		.query("cards")
+		.withIndex("by_archived_updated", (q) => q.eq("archivedAt", null))
+		.order(sortBy === "updated_asc" ? "asc" : "desc")
+		.paginate(args.paginationOpts);
 }

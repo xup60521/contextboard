@@ -321,10 +321,15 @@ export function ConvexMarkdownCardComponent({
 	const cardId = shape.props.cardId as Id<"cards">;
 	const boardWhiteboardId = useContext(WhiteboardCardContext);
 	const openWhiteboardPreview = useSetAtom(whiteboardPreviewCardIdAtom);
+	const currentContent = useMemo(
+		() => parseMarkdownContent(shape.props.content),
+		[shape.props.content],
+	);
 	const { scheduleSave: schedulePersistedSave } = useDebouncedCardSave(
 		cardId,
 		450,
 		{
+			initialContent: currentContent,
 			onPersisted: ({ content, version }) => {
 				hydrateCardShapes(editor, { cardId, content, version });
 			},
@@ -334,10 +339,6 @@ export function ConvexMarkdownCardComponent({
 	const latestPropsRef = useRef(shape.props);
 	const syncFrameRef = useRef<number | null>(null);
 	const [isContentReady, setIsContentReady] = useState(false);
-	const currentContent = useMemo(
-		() => parseMarkdownContent(shape.props.content),
-		[shape.props.content],
-	);
 	const staticContent = currentContent;
 	latestPropsRef.current = shape.props;
 	const HEADER_HEIGHT = 28;

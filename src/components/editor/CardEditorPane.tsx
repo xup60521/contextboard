@@ -30,7 +30,9 @@ export function CardEditorPane({
 }: CardEditorPaneProps) {
 	const { support, previewCardId, closePreview } =
 		useCardReferenceSupport(whiteboardId);
-	const { scheduleSave } = useDebouncedCardSave(cardId);
+	const { scheduleSave } = useDebouncedCardSave(cardId, 450, {
+		initialContent: content,
+	});
 
 	return (
 		<>

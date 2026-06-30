@@ -13,6 +13,7 @@ const editorMock = {
 let cardDocumentEditorProps: Record<string, unknown> | null = null;
 let richTextEditorProps: Record<string, unknown> | null = null;
 let staticRendererProps: Record<string, unknown> | null = null;
+const useDebouncedCardSaveMock = vi.fn();
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, ...props }: Record<string, unknown>) => (
@@ -41,10 +42,7 @@ vi.mock("#/components/cards/CardDocumentEditor", () => ({
 }));
 
 vi.mock("#/components/cards/useDebouncedCardSave", () => ({
-	useDebouncedCardSave: () => ({
-		scheduleSave: vi.fn(),
-		flushSave: vi.fn(),
-	}),
+	useDebouncedCardSave: (...args: unknown[]) => useDebouncedCardSaveMock(...args),
 }));
 
 vi.mock("#/components/editor/RichTextEditor", () => ({
@@ -144,6 +142,11 @@ beforeEach(() => {
 	cardDocumentEditorProps = null;
 	richTextEditorProps = null;
 	staticRendererProps = null;
+	useDebouncedCardSaveMock.mockReset();
+	useDebouncedCardSaveMock.mockReturnValue({
+		scheduleSave: vi.fn(),
+		flushSave: vi.fn(),
+	});
 	editorMock.updateShape.mockReset();
 	editorMock.setEditingShape.mockReset();
 	editorMock.getEditingShapeId.mockReset();
@@ -267,5 +270,27 @@ describe("MarkdownCardComponent", () => {
 		expect(cardDocumentEditorProps?.content).toEqual(CONTENT_B);
 		expect(cardDocumentEditorProps?.defaultFocusPosition).toBe("end");
 		expect(cardDocumentEditorProps?.selectContentOnFocus).toBe(false);
+	});
+
+	test("passes the current persisted Convex card content into autosave", () => {
+		isEditing = true;
+
+		render(
+			<MarkdownCardComponent
+				shape={createShape({
+					cardId: "card-1",
+					content: JSON.stringify(CONTENT_A),
+				})}
+			/>,
+		);
+
+		expect(useDebouncedCardSaveMock).toHaveBeenCalledWith(
+			"card-1",
+			450,
+			expect.objectContaining({
+				initialContent: CONTENT_A,
+				onPersisted: expect.any(Function),
+			}),
+		);
 	});
 });
