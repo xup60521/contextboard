@@ -37,7 +37,65 @@ export async function countActiveCardPlacements(
 	ctx: DbCtx,
 	cardId: Id<"cards">,
 ): Promise<number> {
-	return (await listActivePlacements(ctx, cardId)).length;
+	const card = await ctx.db.get(cardId);
+	if (!card) return 0;
+	return card.activePlacementCount ?? (await listActivePlacements(ctx, cardId)).length;
+}
+
+export async function incrementActivePlacementCount(
+	ctx: MutationCtx,
+	cardId: Id<"cards">,
+): Promise<number> {
+	const card = await ctx.db.get(cardId);
+	if (!card) {
+		throw new Error("Card not found");
+	}
+
+	const nextCount = (card.activePlacementCount ?? 0) + 1;
+	await ctx.db.patch(card._id, {
+		activePlacementCount: nextCount,
+	});
+	return nextCount;
+}
+
+export async function decrementActivePlacementCount(
+	ctx: MutationCtx,
+	cardId: Id<"cards">,
+): Promise<number> {
+	const card = await ctx.db.get(cardId);
+	if (!card) {
+		throw new Error("Card not found");
+	}
+
+	const currentCount = card.activePlacementCount ?? 0;
+	if (currentCount <= 0) {
+		throw new Error(`Card ${cardId} activePlacementCount underflow`);
+	}
+
+	const nextCount = currentCount - 1;
+	await ctx.db.patch(card._id, {
+		activePlacementCount: nextCount,
+	});
+	return nextCount;
+}
+
+export async function setActivePlacementCount(
+	ctx: MutationCtx,
+	cardId: Id<"cards">,
+	count: number,
+): Promise<void> {
+	if (count < 0) {
+		throw new Error(`Card ${cardId} activePlacementCount cannot be negative`);
+	}
+
+	const card = await ctx.db.get(cardId);
+	if (!card) {
+		throw new Error("Card not found");
+	}
+
+	await ctx.db.patch(card._id, {
+		activePlacementCount: count,
+	});
 }
 
 export async function hasActivePlacementOnBoard(

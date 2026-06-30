@@ -8,8 +8,16 @@ import {
 	clearTldrawFileRefs,
 	reconcileCardFileRefs,
 } from "./fileLifecycle";
+import {
+	clearCardReferences,
+	reconcileCardReferences,
+} from "./model/cardReferences";
 import { deriveCardMetadata } from "./model/cardMetadata";
-import { countActiveCardPlacements } from "./model/cardPlacements";
+import {
+	decrementActivePlacementCount,
+	incrementActivePlacementCount,
+	setActivePlacementCount,
+} from "./model/cardPlacements";
 import { assertValidTldrawShapeId } from "./model/shapeIds";
 
 export const DEFAULT_CARD_WIDTH = 576;
@@ -138,6 +146,7 @@ export const createCardItem = mutation({
 			plainText: metadata.plainText,
 			preview: metadata.preview,
 			version: 1,
+			activePlacementCount: 1,
 			archivedAt: null,
 			updatedAt: now,
 		});
@@ -276,6 +285,7 @@ export const archiveItem = mutation({
 
 		const parent = item.whiteboardId ? await ctx.db.get(item.whiteboardId) : null;
 		if (item.kind === "card" && item.cardId) {
+			await decrementActivePlacementCount(ctx, item.cardId);
 			if (parent) {
 				await ctx.db.patch(parent._id, {
 					cardCount: Math.max(0, (parent.cardCount ?? 0) - 1),
@@ -345,15 +355,18 @@ async function restoreArchivedCardItem(
 	await ctx.db.patch(item._id, { archivedAt: null, updatedAt: now });
 
 	const card = await ctx.db.get(item.cardId);
+	if (!card) {
+		throw new Error("Card not found");
+	}
 	if (card && card.archivedAt !== null) {
 		await ctx.db.patch(card._id, {
 			archivedAt: null,
 			updatedAt: now,
 		});
 	}
-	if (card) {
-		await reconcileCardFileRefs(ctx, card._id, card.content);
-	}
+	await incrementActivePlacementCount(ctx, card._id);
+	await reconcileCardFileRefs(ctx, card._id, card.content);
+	await reconcileCardReferences(ctx, card._id, card.content);
 	if (parent) {
 		await ctx.db.patch(parent._id, {
 			cardCount: (parent.cardCount ?? 0) + 1, // symmetric with archiveItem's decrement
@@ -450,6 +463,7 @@ export async function restoreOrAdoptCardItemImpl(
 			archivedAt: null,
 			updatedAt: now,
 		});
+		await incrementActivePlacementCount(ctx, sourceCard._id);
 
 		await ctx.db.patch(whiteboard._id, {
 			cardCount: (whiteboard.cardCount ?? 0) + 1,
@@ -475,6 +489,7 @@ export async function restoreOrAdoptCardItemImpl(
 		plainText: metadata.plainText,
 		preview: metadata.preview,
 		version: 1,
+		activePlacementCount: 1,
 		archivedAt: null,
 		updatedAt: now,
 	});
@@ -499,6 +514,7 @@ export async function restoreOrAdoptCardItemImpl(
 		updatedAt: now,
 	});
 	await reconcileCardFileRefs(ctx, cardId, content);
+	await reconcileCardReferences(ctx, cardId, content);
 
 	return itemId;
 }
@@ -521,6 +537,8 @@ async function archiveCard(
 	if (!card || card.archivedAt !== null) return;
 
 	await clearCardFileRefs(ctx, cardId);
+	await clearCardReferences(ctx, cardId);
+	await setActivePlacementCount(ctx, card._id, 0);
 	await ctx.db.patch(card._id, {
 		archivedAt,
 		updatedAt: archivedAt,
@@ -579,8 +597,12 @@ async function archiveWhiteboardContents(
 		});
 
 		if (item.kind === "card" && item.cardId) {
+			const nextPlacementCount = await decrementActivePlacementCount(
+				ctx,
+				item.cardId,
+			);
 			if (options.deleteCards) {
-				if ((await countActiveCardPlacements(ctx, item.cardId)) === 0) {
+				if (nextPlacementCount === 0) {
 					await archiveCard(ctx, item.cardId, options.archivedAt);
 				}
 			}

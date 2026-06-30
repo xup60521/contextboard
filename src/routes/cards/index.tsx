@@ -138,6 +138,14 @@ export function RouteComponent() {
 	const suppressCardClickTimeoutRef = useRef<number | null>(null);
 	const selectionResetKey = `${debouncedQuery}\u0000${orphanOnly ? "1" : "0"}\u0000${sort}`;
 	const previousSelectionResetKeyRef = useRef(selectionResetKey);
+	const trimmedQuery = debouncedQuery.trim();
+	const hasSearchQuery = trimmedQuery.length > 0;
+	const isSortLocked = hasSearchQuery || orphanOnly;
+	const displayedSortLabel = hasSearchQuery
+		? "Relevance"
+		: orphanOnly
+			? getCardSortLabel("updated")
+			: getCardSortLabel(sort);
 
 	const isSelected = (cardId: Id<"cards">) => selectedCardIds.includes(cardId);
 
@@ -315,7 +323,7 @@ export function RouteComponent() {
 			search: (prev) => ({
 				...prev,
 				orphan: next ? "true" : "",
-				sort,
+				sort: "updated",
 			}),
 			replace: true,
 		});
@@ -342,7 +350,7 @@ export function RouteComponent() {
 	const cards = usePaginatedQuery(
 		api.cards.listAll,
 		{
-			...(debouncedQuery.trim() ? { searchTerm: debouncedQuery.trim() } : {}),
+			...(trimmedQuery ? { searchTerm: trimmedQuery } : {}),
 			...(orphanOnly ? { orphanOnly: true } : {}),
 			sortBy: sort,
 		},
@@ -601,17 +609,19 @@ export function RouteComponent() {
 								<DropdownMenuTrigger asChild>
 									<button
 										type="button"
+										disabled={isSortLocked}
 										className="flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--sea-ink-soft)] shadow-[0_8px_20px_rgba(15,23,42,0.04)] backdrop-blur-sm transition hover:border-[var(--sea-ink)]/15 hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
-										aria-label={`Sort cards by ${getCardSortLabel(sort)}`}
+										aria-label={`Sort cards by ${displayedSortLabel}`}
 									>
 										<ArrowUpDown size={11} />
 										<span>Sort</span>
 										<span className="font-semibold text-[var(--sea-ink)]">
-											{getCardSortLabel(sort)}
+											{displayedSortLabel}
 										</span>
 									</button>
 								</DropdownMenuTrigger>
-								<DropdownMenuContent align="end" className="w-56">
+								{isSortLocked ? null : (
+									<DropdownMenuContent align="end" className="w-56">
 									<div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--sea-ink-soft)]">
 										Sort cards
 									</div>
@@ -632,7 +642,8 @@ export function RouteComponent() {
 											</DropdownMenuRadioItem>
 										))}
 									</DropdownMenuRadioGroup>
-								</DropdownMenuContent>
+									</DropdownMenuContent>
+								)}
 							</DropdownMenu>
 							{selectedCardIds.length > 0 ? (
 								<div className="flex h-8 items-center overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface)] p-0.5 text-xs shadow-[0_10px_24px_rgba(15,23,42,0.05)] backdrop-blur-sm">
@@ -810,7 +821,7 @@ export function RouteComponent() {
 	);
 }
 
-type CardTile = Doc<"cards"> & { placementCount: number };
+type CardTile = Doc<"cards">;
 
 function CardLibraryTile({
 	card,
@@ -865,9 +876,9 @@ function CardLibraryTile({
 						{card.preview || "No preview yet."}
 					</p>
 					<p className="mt-auto pt-2 text-[10px] text-[var(--sea-ink-soft)]">
-						{card.placementCount === 0
+						{(card.activePlacementCount ?? 0) === 0
 							? "Unplaced"
-							: `Placed on ${card.placementCount} board${card.placementCount === 1 ? "" : "s"}`}
+							: `Placed on ${card.activePlacementCount ?? 0} board${(card.activePlacementCount ?? 0) === 1 ? "" : "s"}`}
 					</p>
 				</button>
 			</ContextMenuTrigger>

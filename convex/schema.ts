@@ -35,9 +35,17 @@ export default defineSchema({
 		plainText: v.string(),
 		preview: v.string(),
 		version: v.number(),
+		activePlacementCount: v.optional(v.number()),
 		archivedAt: v.union(v.number(), v.null()),
 		updatedAt: v.number(),
 	})
+		.index("by_archived_updated", ["archivedAt", "updatedAt"])
+		.index("by_archived_title", ["archivedAt", "derivedTitle"])
+		.index("by_archived_activePlacementCount_updated", [
+			"archivedAt",
+			"activePlacementCount",
+			"updatedAt",
+		])
 		.index("by_whiteboard_archived_updated", [
 			"whiteboardId",
 			"archivedAt",
@@ -45,7 +53,7 @@ export default defineSchema({
 		])
 		.searchIndex("search_text", {
 			searchField: "plainText",
-			filterFields: ["archivedAt", "whiteboardId"],
+			filterFields: ["archivedAt", "activePlacementCount"],
 		}),
 
 	boardItems: defineTable({
@@ -111,6 +119,14 @@ export default defineSchema({
 		.index("by_targetKey", ["targetKey"])
 		.index("by_fileId_targetKey", ["fileId", "targetKey"])
 		.index("by_fileId", ["fileId"]),
+
+	cardReferences: defineTable({
+		sourceCardId: v.id("cards"),
+		targetCardId: v.id("cards"),
+		updatedAt: v.number(),
+	})
+		.index("by_sourceCardId", ["sourceCardId"])
+		.index("by_targetCardId", ["targetCardId"]),
 
 	todos: defineTable({
 		text: v.string(),

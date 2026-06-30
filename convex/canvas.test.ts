@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { listItems, restoreOrAdoptCardItemImpl } from "./canvas";
+import {
+	archiveItem,
+	createCardItem,
+	listItems,
+	restoreOrAdoptCardItemImpl,
+} from "./canvas";
 
 type AnyDoc = Record<string, unknown> & { _id: string };
 
@@ -8,6 +13,7 @@ type MockState = {
 	cards: Map<string, AnyDoc>;
 	boardItems: Map<string, AnyDoc>;
 	fileReferences: Map<string, AnyDoc>;
+	cardReferences: Map<string, AnyDoc>;
 };
 
 function makeState(initial?: Partial<Record<keyof MockState, AnyDoc[]>>): MockState {
@@ -16,6 +22,7 @@ function makeState(initial?: Partial<Record<keyof MockState, AnyDoc[]>>): MockSt
 		cards: makeCollection(initial?.cards),
 		boardItems: makeCollection(initial?.boardItems),
 		fileReferences: makeCollection(initial?.fileReferences),
+		cardReferences: makeCollection(initial?.cardReferences),
 	};
 }
 
@@ -31,6 +38,7 @@ function makeMockCtx(state: MockState) {
 		state.cards.get(id) ??
 		state.boardItems.get(id) ??
 		state.fileReferences.get(id) ??
+		state.cardReferences.get(id) ??
 		null;
 
 	function makeQuery(map: Map<string, AnyDoc>) {
@@ -127,6 +135,20 @@ const listItemsHandler = listItems as unknown as {
 	}>;
 };
 
+const createCardItemHandler = createCardItem as unknown as {
+	_handler: (
+		ctx: never,
+		args: { whiteboardId: string; shapeId: string; x: number; y: number },
+	) => Promise<string>;
+};
+
+const archiveItemHandler = archiveItem as unknown as {
+	_handler: (
+		ctx: never,
+		args: { itemId: string; deleteCards?: boolean },
+	) => Promise<void>;
+};
+
 function makeDoc(id: string, fields: Record<string, unknown>): AnyDoc {
 	return { _id: id, ...fields };
 }
@@ -144,6 +166,35 @@ function docText(text: string) {
 }
 
 describe("restoreOrAdoptCardItemImpl", () => {
+	test("createCardItem initializes activePlacementCount to 1", async () => {
+		const state = makeState({
+			whiteboards: [
+				makeDoc("whiteboard-1", {
+					title: "Board",
+					cardCount: 0,
+					childWhiteboardCount: 0,
+					archivedAt: null,
+					updatedAt: 100,
+				}),
+			],
+		});
+
+		const itemId = await createCardItemHandler._handler(makeMockCtx(state), {
+			whiteboardId: "whiteboard-1",
+			shapeId: "shape:new-card",
+			x: 12,
+			y: 34,
+		});
+
+		expect(itemId).toBeDefined();
+		expect(state.cards.size).toBe(1);
+		expect([...state.cards.values()][0]).toMatchObject({
+			activePlacementCount: 1,
+			archivedAt: null,
+		});
+		expect(state.whiteboards.get("whiteboard-1")?.cardCount).toBe(1);
+	});
+
 	test("listItems omits full card content from card payloads", async () => {
 		const state = makeState({
 			cards: [
@@ -154,6 +205,7 @@ describe("restoreOrAdoptCardItemImpl", () => {
 					plainText: "Card title",
 					preview: "Card preview",
 					version: 4,
+					activePlacementCount: 1,
 					archivedAt: null,
 					updatedAt: 100,
 				}),
@@ -210,6 +262,7 @@ describe("restoreOrAdoptCardItemImpl", () => {
 					plainText: "Original",
 					preview: "Original",
 					version: 1,
+					activePlacementCount: 1,
 					archivedAt: null,
 					updatedAt: 100,
 				}),
@@ -248,6 +301,7 @@ describe("restoreOrAdoptCardItemImpl", () => {
 
 		expect(itemId).toBeDefined();
 		expect(state.cards.size).toBe(1);
+		expect(state.cards.get("card-1")?.activePlacementCount).toBe(2);
 		expect(state.whiteboards.get("whiteboard-1")?.cardCount).toBe(2);
 
 		const pastedItem = state.boardItems.get(itemId as string);
@@ -293,6 +347,7 @@ describe("restoreOrAdoptCardItemImpl", () => {
 
 		expect(itemId).toBeDefined();
 		expect(state.cards.size).toBe(1);
+		expect([...state.cards.values()][0]?.activePlacementCount).toBe(1);
 		expect(state.whiteboards.get("whiteboard-1")?.cardCount).toBe(1);
 
 		const pastedItem = state.boardItems.get(itemId as string);
@@ -323,6 +378,7 @@ describe("restoreOrAdoptCardItemImpl", () => {
 					plainText: "Archived",
 					preview: "Archived",
 					version: 1,
+					activePlacementCount: 0,
 					archivedAt: 123,
 					updatedAt: 100,
 				}),
@@ -363,6 +419,59 @@ describe("restoreOrAdoptCardItemImpl", () => {
 		expect(state.boardItems.size).toBe(1);
 		expect(state.boardItems.get("boardItem-1")?.archivedAt).toBeNull();
 		expect(state.cards.get("card-1")?.archivedAt).toBeNull();
+		expect(state.cards.get("card-1")?.activePlacementCount).toBe(1);
 		expect(state.whiteboards.get("whiteboard-1")?.cardCount).toBe(1);
+	});
+
+	test("archiveItem decrements activePlacementCount for card placements", async () => {
+		const state = makeState({
+			whiteboards: [
+				makeDoc("whiteboard-1", {
+					title: "Board",
+					cardCount: 1,
+					childWhiteboardCount: 0,
+					archivedAt: null,
+					updatedAt: 100,
+				}),
+			],
+			cards: [
+				makeDoc("card-1", {
+					whiteboardId: null,
+					content: { type: "doc", content: [] },
+					derivedTitle: "Card",
+					plainText: "Card",
+					preview: "Card",
+					version: 1,
+					activePlacementCount: 2,
+					archivedAt: null,
+					updatedAt: 100,
+				}),
+			],
+			boardItems: [
+				makeDoc("boardItem-1", {
+					whiteboardId: "whiteboard-1",
+					kind: "card",
+					cardId: "card-1",
+					childWhiteboardId: null,
+					shapeId: "shape:archive-1",
+					x: 10,
+					y: 20,
+					w: 576,
+					h: 160,
+					rotation: 0,
+					zIndex: 1,
+					archivedAt: null,
+					updatedAt: 100,
+				}),
+			],
+		});
+
+		await archiveItemHandler._handler(makeMockCtx(state), {
+			itemId: "boardItem-1",
+		});
+
+		expect(state.boardItems.get("boardItem-1")?.archivedAt).not.toBeNull();
+		expect(state.cards.get("card-1")?.activePlacementCount).toBe(1);
+		expect(state.whiteboards.get("whiteboard-1")?.cardCount).toBe(0);
 	});
 });

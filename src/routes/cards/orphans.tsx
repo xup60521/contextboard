@@ -19,7 +19,8 @@ export const Route = createFileRoute("/cards/orphans")({
 			to: "/cards",
 			search: {
 				orphan: "true",
-				sort: search.sort,
+				q: "",
+				sort: search.sort ?? DEFAULT_CARD_SORT_BY,
 			},
 			replace: true,
 		});

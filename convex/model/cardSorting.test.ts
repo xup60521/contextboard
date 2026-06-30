@@ -38,8 +38,6 @@ describe("card sorting metadata", () => {
 		expect(CARD_SORT_OPTIONS.map((option) => getCardSortLabel(option))).toEqual([
 			"Title A-Z",
 			"Title Z-A",
-			"Newest first",
-			"Oldest first",
 			"Recently updated",
 			"Least recently updated",
 		]);
@@ -47,14 +45,14 @@ describe("card sorting metadata", () => {
 });
 
 describe("sortCards", () => {
-	test("defaults to newest-first ordering", () => {
+	test("defaults to recently-updated ordering", () => {
 		expect(sortCards(CARDS).map((card) => card._id)).toEqual([
-			"card-c",
-			"card-d",
 			"card-a",
+			"card-c",
 			"card-b",
+			"card-d",
 		]);
-		expect(DEFAULT_CARD_SORT_BY).toBe("created");
+		expect(DEFAULT_CARD_SORT_BY).toBe("updated");
 	});
 
 	test("sorts title ascending and descending", () => {
@@ -69,21 +67,6 @@ describe("sortCards", () => {
 			"card-d",
 			"card-a",
 			"card-b",
-		]);
-	});
-
-	test("sorts by creation time in both directions", () => {
-		expect(sortCards(CARDS, "created").map((card) => card._id)).toEqual([
-			"card-c",
-			"card-d",
-			"card-a",
-			"card-b",
-		]);
-		expect(sortCards(CARDS, "created_asc").map((card) => card._id)).toEqual([
-			"card-a",
-			"card-b",
-			"card-d",
-			"card-c",
 		]);
 	});
 

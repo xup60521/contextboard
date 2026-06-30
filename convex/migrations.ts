@@ -1,5 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation } from "./_generated/server";
+import { reconcileCardReferences } from "./model/cardReferences";
 
 type WhiteboardPatch = {
 	parentWhiteboardId?: Id<"whiteboards"> | null;
@@ -11,6 +12,10 @@ type WhiteboardPatch = {
 	childWhiteboardCount?: number;
 	archivedAt?: number | null;
 	updatedAt?: number;
+};
+
+type CardPatch = {
+	activePlacementCount?: number;
 };
 
 type WhiteboardMetadata = {
@@ -161,6 +166,67 @@ export const normalizeLegacyWhiteboards = mutation({
 			if (!whiteboard.parentId) return null;
 			return ctx.db.normalizeId("whiteboards", whiteboard.parentId);
 		}
+	},
+});
+
+export const backfillCardActivePlacementCounts = mutation({
+	args: {},
+	handler: async (ctx) => {
+		const placementCounts = new Map<Id<"cards">, number>();
+		let scannedBoardItems = 0;
+		for await (const item of ctx.db.query("boardItems")) {
+			scannedBoardItems += 1;
+			if (
+				item.archivedAt !== null ||
+				item.kind !== "card" ||
+				item.cardId === null
+			) {
+				continue;
+			}
+
+			placementCounts.set(
+				item.cardId,
+				(placementCounts.get(item.cardId) ?? 0) + 1,
+			);
+		}
+
+		let scannedCards = 0;
+		let updatedCards = 0;
+		for await (const card of ctx.db.query("cards")) {
+			scannedCards += 1;
+			const nextCount = placementCounts.get(card._id) ?? 0;
+			const patch: CardPatch = {};
+			if (card.activePlacementCount !== nextCount) {
+				patch.activePlacementCount = nextCount;
+			}
+
+			if (Object.keys(patch).length > 0) {
+				await ctx.db.patch(card._id, patch);
+				updatedCards += 1;
+			}
+		}
+
+		return {
+			scannedCards,
+			scannedBoardItems,
+			updatedCards,
+		};
+	},
+});
+
+export const backfillCardReferences = mutation({
+	args: {},
+	handler: async (ctx) => {
+		for await (const ref of ctx.db.query("cardReferences")) {
+			await ctx.db.delete(ref._id);
+		}
+		let scanned = 0;
+		for await (const card of ctx.db.query("cards")) {
+			if (card.archivedAt !== null) continue;
+			await reconcileCardReferences(ctx, card._id, card.content);
+			scanned += 1;
+		}
+		return { scanned };
 	},
 });
 

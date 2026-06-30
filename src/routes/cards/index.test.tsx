@@ -21,7 +21,7 @@ const whiteboardPickerDialogMock = vi.fn();
 
 let currentSearch = {
 	orphan: "",
-	sort: "created" as CardSortBy,
+	sort: "updated" as CardSortBy,
 	q: "",
 };
 
@@ -219,7 +219,7 @@ function makeCard(overrides?: Partial<Record<string, unknown>>) {
 		creationTime: 1,
 		derivedTitle: "Alpha card",
 		preview: "Alpha preview",
-		placementCount: 0,
+		activePlacementCount: 0,
 		...(overrides ?? {}),
 	};
 }
@@ -317,7 +317,7 @@ describe("cards library", () => {
 		});
 		currentSearch = {
 			orphan: "",
-			sort: "created",
+			sort: "updated",
 			q: "",
 		};
 		usePaginatedQueryMock.mockReturnValue({
@@ -337,7 +337,7 @@ describe("cards library", () => {
 		expect(usePaginatedQueryMock).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({
-				sortBy: "created",
+				sortBy: "updated",
 			}),
 			expect.objectContaining({
 				initialNumItems: 50,
@@ -345,7 +345,7 @@ describe("cards library", () => {
 		);
 
 		const trigger = screen.getByRole("button", {
-			name: /sort cards by newest first/i,
+			name: /sort cards by recently updated/i,
 		});
 		fireEvent.pointerDown(trigger, { button: 0 });
 
@@ -365,7 +365,7 @@ describe("cards library", () => {
 		});
 	});
 
-	test("keeps the active sort visible and preserves it when toggling orphans", () => {
+	test("orphan toggle resets the sort to recently updated", () => {
 		currentSearch = {
 			orphan: "",
 			sort: "updated_asc",
@@ -401,9 +401,50 @@ describe("cards library", () => {
 		};
 		expect(navigateOptions.search(currentSearch)).toEqual({
 			orphan: "true",
-			sort: "updated_asc",
+			sort: "updated",
 			q: "",
 		});
+	});
+
+	test("orphan mode locks sorting to recently updated", () => {
+		currentSearch = {
+			orphan: "true",
+			sort: "title",
+			q: "",
+		};
+
+		render(<RouteComponent />);
+
+		const trigger = screen.getByRole("button", {
+			name: /sort cards by recently updated/i,
+		});
+		expect(trigger.getAttribute("disabled")).not.toBeNull();
+		expect(screen.queryByRole("menuitemradio")).toBeNull();
+	});
+
+	test("search mode locks sorting to relevance", () => {
+		currentSearch = {
+			orphan: "",
+			sort: "updated",
+			q: "alpha",
+		};
+
+		render(<RouteComponent />);
+
+		expect(usePaginatedQueryMock).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				searchTerm: "alpha",
+				sortBy: "updated",
+			}),
+			expect.anything(),
+		);
+
+		const trigger = screen.getByRole("button", {
+			name: /sort cards by relevance/i,
+		});
+		expect(trigger.getAttribute("disabled")).not.toBeNull();
+		expect(screen.queryByRole("menuitemradio")).toBeNull();
 	});
 
 	test("sort changes clear selection instead of transferring it onto the reordered list", () => {
@@ -417,7 +458,7 @@ describe("cards library", () => {
 		usePaginatedQueryMock.mockImplementation(() => ({
 			status: "Idle",
 			results:
-				currentSearch.sort === "created"
+				currentSearch.sort === "updated"
 					? [alphaCard, betaCard]
 					: [betaCard, alphaCard],
 			loadMore: vi.fn(),

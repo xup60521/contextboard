@@ -4,21 +4,17 @@ import type { Doc } from "../_generated/dataModel";
 export const CARD_SORT_OPTIONS = [
 	"title",
 	"title_desc",
-	"created",
-	"created_asc",
 	"updated",
 	"updated_asc",
 ] as const;
 
 export type CardSortBy = (typeof CARD_SORT_OPTIONS)[number];
 
-export const DEFAULT_CARD_SORT_BY: CardSortBy = "created";
+export const DEFAULT_CARD_SORT_BY: CardSortBy = "updated";
 
 export const CARD_SORT_LABELS: Record<CardSortBy, string> = {
 	title: "Title A-Z",
 	title_desc: "Title Z-A",
-	created: "Newest first",
-	created_asc: "Oldest first",
 	updated: "Recently updated",
 	updated_asc: "Least recently updated",
 };
@@ -26,8 +22,6 @@ export const CARD_SORT_LABELS: Record<CardSortBy, string> = {
 export const cardSortByValidator = v.union(
 	v.literal("title"),
 	v.literal("title_desc"),
-	v.literal("created"),
-	v.literal("created_asc"),
 	v.literal("updated"),
 	v.literal("updated_asc"),
 );
@@ -90,11 +84,6 @@ export function sortCards<T extends SortableCard>(
 					compareStringDesc(left.derivedTitle, right.derivedTitle) ||
 					compareCardFallback(left, right)
 				);
-			case "created_asc":
-				return (
-					compareNumberAsc(left._creationTime, right._creationTime) ||
-					compareCardFallback(left, right)
-				);
 			case "updated":
 				return (
 					compareNumberDesc(left.updatedAt, right.updatedAt) ||
@@ -105,10 +94,9 @@ export function sortCards<T extends SortableCard>(
 					compareNumberAsc(left.updatedAt, right.updatedAt) ||
 					compareCardFallback(left, right)
 				);
-			case "created":
 			default:
 				return (
-					compareNumberDesc(left._creationTime, right._creationTime) ||
+					compareNumberDesc(left.updatedAt, right.updatedAt) ||
 					compareCardFallback(left, right)
 				);
 		}
