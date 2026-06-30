@@ -9,6 +9,29 @@ import {
 	type BoardItemResult,
 } from "../whiteboard-canvas-helpers";
 
+class LRUCache {
+	private readonly map = new Map<string, unknown>();
+	constructor(private readonly capacity: number) {}
+
+	get(key: string): unknown | undefined {
+		if (!this.map.has(key)) return undefined;
+		const value = this.map.get(key);
+		this.map.delete(key);
+		this.map.set(key, value);
+		return value;
+	}
+
+	set(key: string, value: unknown): void {
+		if (this.map.has(key)) {
+			this.map.delete(key);
+		} else if (this.map.size >= this.capacity) {
+			this.map.delete(this.map.keys().next().value!);
+		}
+		this.map.set(key, value);
+	}
+}
+
+const cardContentCache = new LRUCache(100);
 const MAX_CARD_CONTENT_BATCH = 30;
 
 export function useVisibleCardContentHydration({
@@ -107,32 +130,73 @@ export function useVisibleCardContentHydration({
 				const cardIds = collectCandidateCardIds();
 				if (cardIds.length === 0) break;
 
+				const hits: Array<{
+					cardId: Id<"cards">;
+					content: unknown;
+					version: number;
+				}> = [];
+				const missIds: Id<"cards">[] = [];
+
 				for (const cardId of cardIds) {
-					inFlightCardIdsRef.current.add(cardId);
+					const version = serverVersionByCardId.get(cardId);
+					if (version === undefined) {
+						missIds.push(cardId);
+						continue;
+					}
+					const cached = cardContentCache.get(`${cardId}:${version}`);
+					if (cached !== undefined) {
+						hits.push({ cardId, content: cached, version });
+					} else {
+						missIds.push(cardId);
+					}
 				}
-				priorityCardIdsRef.current = priorityCardIdsRef.current.filter(
-					(cardId) => !cardIds.includes(cardId),
-				);
 
-				try {
-					const results = await convex.query(
-						api.cards.getContentsForWhiteboardItems,
-						{ cardIds },
-					);
-
+				if (hits.length > 0) {
 					editor.run(
 						() => {
-							for (const result of results) {
-								hydrateCardShapes(editor, result);
-							}
+							for (const result of hits) hydrateCardShapes(editor, result);
 						},
 						{ history: "ignore" },
 					);
 					enterPendingEditIfReady();
-				} finally {
-					for (const cardId of cardIds) {
-						inFlightCardIdsRef.current.delete(cardId);
+				}
+
+				if (missIds.length > 0) {
+					for (const cardId of missIds) {
+						inFlightCardIdsRef.current.add(cardId);
 					}
+					priorityCardIdsRef.current = priorityCardIdsRef.current.filter(
+						(id) => !missIds.includes(id),
+					);
+
+					try {
+						const results = await convex.query(
+							api.cards.getContentsForWhiteboardItems,
+							{ cardIds: missIds },
+						);
+
+						editor.run(
+							() => {
+								for (const result of results) {
+									cardContentCache.set(
+										`${result.cardId}:${result.version}`,
+										result.content,
+									);
+									hydrateCardShapes(editor, result);
+								}
+							},
+							{ history: "ignore" },
+						);
+						enterPendingEditIfReady();
+					} finally {
+						for (const cardId of missIds) {
+							inFlightCardIdsRef.current.delete(cardId);
+						}
+					}
+				} else {
+					priorityCardIdsRef.current = priorityCardIdsRef.current.filter(
+						(id) => !cardIds.includes(id),
+					);
 				}
 			}
 		} finally {
@@ -144,6 +208,7 @@ export function useVisibleCardContentHydration({
 		editor,
 		enterPendingEditIfReady,
 		loadedDrawingKey,
+		serverVersionByCardId,
 		whiteboardKey,
 	]);
 
