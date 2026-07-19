@@ -61,3 +61,4 @@ The Cloudflare Worker serves the application only. Persistent workspace data rem
 IndexedDB remains authoritative. Local commands reserve workspace/device IDs, revisions, tombstones, hybrid logical clocks, and change batches. `packages/sync-protocol` defines push, pull, cursor, conflict, and blob contracts, while the current `LocalOnlyTransport` never performs network requests.
 
 The intended future server is optional and self-hostable, using SQLite plus filesystem blobs by default. `apps/sync-server` intentionally contains no runtime implementation yet.
+
