@@ -1,0 +1,44 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "globalEnv": [
+    "CONVEX_DEPLOYMENT",
+    "VITE_CONVEX_URL",
+    "CONVEX_DEPLOY_KEY",
+    "CONVEX_PREVIEW_DEPLOY_KEY",
+    "CONVEX_DEV_DEPLOY_KEY",
+    "CONVEX_PRODUCTION_BRANCH"
+  ],
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".output/**"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "check": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "lint": {
+      "outputs": []
+    },
+    "format": {
+      "cache": false,
+      "outputs": []
+    },
+    "generate-routes": {
+      "cache": false,
+      "outputs": ["src/routeTree.gen.ts"]
+    },
+    "deploy": {
+      "cache": false
+    }
+  }
+}

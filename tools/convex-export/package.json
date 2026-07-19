@@ -1,0 +1,12 @@
+{
+  "name": "@contextboard/convex-export",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "export": "bun run src/index.ts",
+    "build": "tsc --noEmit",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": { "@types/node": "^22.10.2" }
+}

@@ -1,6 +1,8 @@
 # Contextboard
 
-Contextboard is a canvas-first workspace for organizing markdown cards and nested whiteboards. It combines a tldraw canvas, TipTap-based rich text cards, Convex persistence, global search, and TanStack Router routes for direct links into boards and cards.
+Contextboard is a canvas-first workspace for organizing markdown cards and nested whiteboards. It combines a tldraw canvas, TipTap-based rich text cards, global search, and TanStack Router routes for direct links into boards and cards.
+
+The repository is a Bun/Turborepo monorepo. The current migration branch is replacing Convex with browser-local IndexedDB while retaining a versioned change log for a future optional self-hosted sync service.
 
 # Story
 
@@ -41,7 +43,7 @@ CONVEX_DEPLOYMENT=
 VITE_CONVEX_URL=
 ```
 
-Start the app and Convex together:
+Install and start the transitional web app and Convex backend from the repository root:
 
 ```bash
 bun --bun run dev
@@ -52,8 +54,8 @@ The web app runs on `http://localhost:3000`. The root route redirects to `/white
 ## Scripts
 
 ```bash
-bun --bun run dev              # Start Convex and Vite
-bun --bun run dev:convex       # Start Convex only
+bun install
+bun run dev
 bun --bun run dev:web          # Start Vite only
 bun --bun run generate-routes  # Regenerate TanStack Router route tree
 bun --bun run build            # Production build
@@ -71,7 +73,12 @@ bun --bun run deploy           # Build and deploy with Wrangler
 - `src/components/whiteboard` contains the tldraw integration, custom shapes, persistence helpers, and sizing logic.
 - `src/components/editor` contains the TipTap rich text editor, markdown paste extension, math editor, and slash command UI.
 - `src/components/search` contains the command palette and card preview dialog.
-- `convex` contains the schema, queries, mutations, migrations, and generated Convex types.
+- `apps/web` contains the TanStack Start application and the transitional Convex backend.
+- `apps/sync-server` reserves the future optional self-hosted sync service; it intentionally has no runtime code.
+- `packages/domain` owns backend-independent entity types and integrity rules.
+- `packages/local-db` owns the versioned Dexie schema and atomic local change log.
+- `packages/sync-protocol` owns transport-neutral synchronization contracts.
+- `tools/convex-export` preserves the one-time hosted-data export path.
 
 ## Development Notes
 

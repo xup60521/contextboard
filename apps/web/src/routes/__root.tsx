@@ -11,6 +11,7 @@ import { SidebarTabsProvider } from "../components/sidebar/SidebarTabsContext";
 import { AppSidebar } from "../components/whiteboard/AppSidebar";
 import { SidebarProvider } from "../components/whiteboard/SidebarContext";
 import ConvexProvider from "../integrations/convex/provider";
+import { LocalDatabaseProvider } from "../integrations/local/provider";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import appCss from "../styles.css?url";
 
@@ -53,7 +54,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				<HeadContent />
 			</head>
 			<body className="font-sans antialiased h-screen [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">
-				<ConvexProvider>
+				<LocalDatabaseProvider>
+					<ConvexProvider>
 					<SidebarProvider>
 						<SidebarTabsProvider>
 							<AppShell>{children}</AppShell>
@@ -72,7 +74,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 							]}
 						/>
 					</SidebarProvider>
-				</ConvexProvider>
+					</ConvexProvider>
+				</LocalDatabaseProvider>
 				<Scripts />
 			</body>
 		</html>

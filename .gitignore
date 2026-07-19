@@ -2,10 +2,16 @@ node_modules
 .DS_Store
 dist
 dist-ssr
+apps/*/dist
+apps/*/dist-ssr
+apps/*/.output
+apps/*/.wrangler
+apps/*/.tanstack
 *.local
 .env
 .nitro
 .tanstack
+.turbo
 .wrangler
 .output
 .vinxi

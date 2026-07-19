@@ -9,32 +9,32 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AboutRouteImport } from './routes/about'
-import { Route as WhiteboardRouteRouteImport } from './routes/whiteboard/route'
-import { Route as CardsRouteRouteImport } from './routes/cards/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as WhiteboardIndexRouteImport } from './routes/whiteboard/index'
-import { Route as TestIndexRouteImport } from './routes/test/index'
+import { Route as AboutRouteImport } from './routes/about'
+import { Route as CardsRouteRouteImport } from './routes/cards/route'
+import { Route as WhiteboardRouteRouteImport } from './routes/whiteboard/route'
 import { Route as CardsIndexRouteImport } from './routes/cards/index'
-import { Route as WhiteboardWhiteboardIdRouteImport } from './routes/whiteboard/$whiteboardId'
-import { Route as TestWhiteboardInWhiteboardRouteImport } from './routes/test/whiteboard-in-whiteboard'
-import { Route as TestStaticRendererRouteImport } from './routes/test/static-renderer'
-import { Route as TestMarkdownInWhiteboardRouteImport } from './routes/test/markdown-in-whiteboard'
-import { Route as TestMarkdownRouteImport } from './routes/test/markdown'
-import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
-import { Route as DemoConvexRouteImport } from './routes/demo/convex'
-import { Route as CardsOrphansRouteImport } from './routes/cards/orphans'
 import { Route as CardsCardIdRouteImport } from './routes/cards/$cardId'
+import { Route as CardsOrphansRouteImport } from './routes/cards/orphans'
+import { Route as DemoConvexRouteImport } from './routes/demo/convex'
+import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
+import { Route as TestIndexRouteImport } from './routes/test/index'
+import { Route as TestMarkdownRouteImport } from './routes/test/markdown'
+import { Route as TestMarkdownInWhiteboardRouteImport } from './routes/test/markdown-in-whiteboard'
+import { Route as TestStaticRendererRouteImport } from './routes/test/static-renderer'
+import { Route as TestWhiteboardInWhiteboardRouteImport } from './routes/test/whiteboard-in-whiteboard'
+import { Route as WhiteboardIndexRouteImport } from './routes/whiteboard/index'
+import { Route as WhiteboardWhiteboardIdRouteImport } from './routes/whiteboard/$whiteboardId'
 import { Route as TestSubwhiteboardSubwhiteboardidRouteImport } from './routes/test/subwhiteboard/$subwhiteboardid'
 
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WhiteboardRouteRoute = WhiteboardRouteRouteImport.update({
-  id: '/whiteboard',
-  path: '/whiteboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CardsRouteRoute = CardsRouteRouteImport.update({
@@ -42,19 +42,9 @@ const CardsRouteRoute = CardsRouteRouteImport.update({
   path: '/cards',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WhiteboardIndexRoute = WhiteboardIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WhiteboardRouteRoute,
-} as any)
-const TestIndexRoute = TestIndexRouteImport.update({
-  id: '/test/',
-  path: '/test/',
+const WhiteboardRouteRoute = WhiteboardRouteRouteImport.update({
+  id: '/whiteboard',
+  path: '/whiteboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CardsIndexRoute = CardsIndexRouteImport.update({
@@ -62,20 +52,34 @@ const CardsIndexRoute = CardsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => CardsRouteRoute,
 } as any)
-const WhiteboardWhiteboardIdRoute = WhiteboardWhiteboardIdRouteImport.update({
-  id: '/$whiteboardId',
-  path: '/$whiteboardId',
-  getParentRoute: () => WhiteboardRouteRoute,
+const CardsCardIdRoute = CardsCardIdRouteImport.update({
+  id: '/$cardId',
+  path: '/$cardId',
+  getParentRoute: () => CardsRouteRoute,
 } as any)
-const TestWhiteboardInWhiteboardRoute =
-  TestWhiteboardInWhiteboardRouteImport.update({
-    id: '/test/whiteboard-in-whiteboard',
-    path: '/test/whiteboard-in-whiteboard',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const TestStaticRendererRoute = TestStaticRendererRouteImport.update({
-  id: '/test/static-renderer',
-  path: '/test/static-renderer',
+const CardsOrphansRoute = CardsOrphansRouteImport.update({
+  id: '/orphans',
+  path: '/orphans',
+  getParentRoute: () => CardsRouteRoute,
+} as any)
+const DemoConvexRoute = DemoConvexRouteImport.update({
+  id: '/demo/convex',
+  path: '/demo/convex',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
+  id: '/demo/tanstack-query',
+  path: '/demo/tanstack-query',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestIndexRoute = TestIndexRouteImport.update({
+  id: '/test/',
+  path: '/test/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestMarkdownRoute = TestMarkdownRouteImport.update({
+  id: '/test/markdown',
+  path: '/test/markdown',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TestMarkdownInWhiteboardRoute =
@@ -84,30 +88,26 @@ const TestMarkdownInWhiteboardRoute =
     path: '/test/markdown-in-whiteboard',
     getParentRoute: () => rootRouteImport,
   } as any)
-const TestMarkdownRoute = TestMarkdownRouteImport.update({
-  id: '/test/markdown',
-  path: '/test/markdown',
+const TestStaticRendererRoute = TestStaticRendererRouteImport.update({
+  id: '/test/static-renderer',
+  path: '/test/static-renderer',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
-  id: '/demo/tanstack-query',
-  path: '/demo/tanstack-query',
-  getParentRoute: () => rootRouteImport,
+const TestWhiteboardInWhiteboardRoute =
+  TestWhiteboardInWhiteboardRouteImport.update({
+    id: '/test/whiteboard-in-whiteboard',
+    path: '/test/whiteboard-in-whiteboard',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const WhiteboardIndexRoute = WhiteboardIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WhiteboardRouteRoute,
 } as any)
-const DemoConvexRoute = DemoConvexRouteImport.update({
-  id: '/demo/convex',
-  path: '/demo/convex',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CardsOrphansRoute = CardsOrphansRouteImport.update({
-  id: '/orphans',
-  path: '/orphans',
-  getParentRoute: () => CardsRouteRoute,
-} as any)
-const CardsCardIdRoute = CardsCardIdRouteImport.update({
-  id: '/$cardId',
-  path: '/$cardId',
-  getParentRoute: () => CardsRouteRoute,
+const WhiteboardWhiteboardIdRoute = WhiteboardWhiteboardIdRouteImport.update({
+  id: '/$whiteboardId',
+  path: '/$whiteboardId',
+  getParentRoute: () => WhiteboardRouteRoute,
 } as any)
 const TestSubwhiteboardSubwhiteboardidRoute =
   TestSubwhiteboardSubwhiteboardidRouteImport.update({
@@ -247,18 +247,18 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/about': {
       id: '/about'
       path: '/about'
       fullPath: '/about'
       preLoaderRoute: typeof AboutRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/whiteboard': {
-      id: '/whiteboard'
-      path: '/whiteboard'
-      fullPath: '/whiteboard'
-      preLoaderRoute: typeof WhiteboardRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cards': {
@@ -268,25 +268,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CardsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/whiteboard/': {
-      id: '/whiteboard/'
-      path: '/'
-      fullPath: '/whiteboard/'
-      preLoaderRoute: typeof WhiteboardIndexRouteImport
-      parentRoute: typeof WhiteboardRouteRoute
-    }
-    '/test/': {
-      id: '/test/'
-      path: '/test'
-      fullPath: '/test/'
-      preLoaderRoute: typeof TestIndexRouteImport
+    '/whiteboard': {
+      id: '/whiteboard'
+      path: '/whiteboard'
+      fullPath: '/whiteboard'
+      preLoaderRoute: typeof WhiteboardRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cards/': {
@@ -296,39 +282,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CardsIndexRouteImport
       parentRoute: typeof CardsRouteRoute
     }
-    '/whiteboard/$whiteboardId': {
-      id: '/whiteboard/$whiteboardId'
-      path: '/$whiteboardId'
-      fullPath: '/whiteboard/$whiteboardId'
-      preLoaderRoute: typeof WhiteboardWhiteboardIdRouteImport
-      parentRoute: typeof WhiteboardRouteRoute
+    '/cards/$cardId': {
+      id: '/cards/$cardId'
+      path: '/$cardId'
+      fullPath: '/cards/$cardId'
+      preLoaderRoute: typeof CardsCardIdRouteImport
+      parentRoute: typeof CardsRouteRoute
     }
-    '/test/whiteboard-in-whiteboard': {
-      id: '/test/whiteboard-in-whiteboard'
-      path: '/test/whiteboard-in-whiteboard'
-      fullPath: '/test/whiteboard-in-whiteboard'
-      preLoaderRoute: typeof TestWhiteboardInWhiteboardRouteImport
-      parentRoute: typeof rootRouteImport
+    '/cards/orphans': {
+      id: '/cards/orphans'
+      path: '/orphans'
+      fullPath: '/cards/orphans'
+      preLoaderRoute: typeof CardsOrphansRouteImport
+      parentRoute: typeof CardsRouteRoute
     }
-    '/test/static-renderer': {
-      id: '/test/static-renderer'
-      path: '/test/static-renderer'
-      fullPath: '/test/static-renderer'
-      preLoaderRoute: typeof TestStaticRendererRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/test/markdown-in-whiteboard': {
-      id: '/test/markdown-in-whiteboard'
-      path: '/test/markdown-in-whiteboard'
-      fullPath: '/test/markdown-in-whiteboard'
-      preLoaderRoute: typeof TestMarkdownInWhiteboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/test/markdown': {
-      id: '/test/markdown'
-      path: '/test/markdown'
-      fullPath: '/test/markdown'
-      preLoaderRoute: typeof TestMarkdownRouteImport
+    '/demo/convex': {
+      id: '/demo/convex'
+      path: '/demo/convex'
+      fullPath: '/demo/convex'
+      preLoaderRoute: typeof DemoConvexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/demo/tanstack-query': {
@@ -338,26 +310,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoTanstackQueryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/demo/convex': {
-      id: '/demo/convex'
-      path: '/demo/convex'
-      fullPath: '/demo/convex'
-      preLoaderRoute: typeof DemoConvexRouteImport
+    '/test/': {
+      id: '/test/'
+      path: '/test'
+      fullPath: '/test/'
+      preLoaderRoute: typeof TestIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/cards/orphans': {
-      id: '/cards/orphans'
-      path: '/orphans'
-      fullPath: '/cards/orphans'
-      preLoaderRoute: typeof CardsOrphansRouteImport
-      parentRoute: typeof CardsRouteRoute
+    '/test/markdown': {
+      id: '/test/markdown'
+      path: '/test/markdown'
+      fullPath: '/test/markdown'
+      preLoaderRoute: typeof TestMarkdownRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/cards/$cardId': {
-      id: '/cards/$cardId'
-      path: '/$cardId'
-      fullPath: '/cards/$cardId'
-      preLoaderRoute: typeof CardsCardIdRouteImport
-      parentRoute: typeof CardsRouteRoute
+    '/test/markdown-in-whiteboard': {
+      id: '/test/markdown-in-whiteboard'
+      path: '/test/markdown-in-whiteboard'
+      fullPath: '/test/markdown-in-whiteboard'
+      preLoaderRoute: typeof TestMarkdownInWhiteboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test/static-renderer': {
+      id: '/test/static-renderer'
+      path: '/test/static-renderer'
+      fullPath: '/test/static-renderer'
+      preLoaderRoute: typeof TestStaticRendererRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test/whiteboard-in-whiteboard': {
+      id: '/test/whiteboard-in-whiteboard'
+      path: '/test/whiteboard-in-whiteboard'
+      fullPath: '/test/whiteboard-in-whiteboard'
+      preLoaderRoute: typeof TestWhiteboardInWhiteboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/whiteboard/': {
+      id: '/whiteboard/'
+      path: '/'
+      fullPath: '/whiteboard/'
+      preLoaderRoute: typeof WhiteboardIndexRouteImport
+      parentRoute: typeof WhiteboardRouteRoute
+    }
+    '/whiteboard/$whiteboardId': {
+      id: '/whiteboard/$whiteboardId'
+      path: '/$whiteboardId'
+      fullPath: '/whiteboard/$whiteboardId'
+      preLoaderRoute: typeof WhiteboardWhiteboardIdRouteImport
+      parentRoute: typeof WhiteboardRouteRoute
     }
     '/test/subwhiteboard/$subwhiteboardid': {
       id: '/test/subwhiteboard/$subwhiteboardid'
