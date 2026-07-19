@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { TLAssetStore } from "tldraw";
-import type { Id } from "../../../../convex/_generated/dataModel";
-import { uploadImageToConvex } from "../../editor/ImageUpload";
+import type { Id } from "#/integrations/local/types";
+import { uploadImageLocally } from "../../editor/ImageUpload";
 
 export function useWhiteboardAssetStore({
 	generateUploadUrl,
@@ -17,7 +17,7 @@ export function useWhiteboardAssetStore({
 	return useMemo<TLAssetStore>(
 		() => ({
 			async upload(_asset, file) {
-				const uploaded = await uploadImageToConvex(
+				const uploaded = await uploadImageLocally(
 					generateUploadUrl,
 					finalizeUpload,
 					file,

@@ -7,7 +7,7 @@ import {
 	Link2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 
 export type Placement = {
 	itemId: string;

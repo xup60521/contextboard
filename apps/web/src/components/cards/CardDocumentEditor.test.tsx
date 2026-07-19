@@ -3,7 +3,7 @@ import type { JSONContent } from "@tiptap/core";
 import type { ImageUploadHandler } from "#/components/editor/ImageUploadExtension";
 import type { CardReferenceSupport } from "#/components/editor/card-reference/types";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { CardDocumentEditor } from "./CardDocumentEditor";
 
 let richTextEditorProps: Record<string, unknown> | null = null;

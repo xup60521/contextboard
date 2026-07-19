@@ -8,11 +8,14 @@ const output = resolve(outputArg);
 await mkdir(dirname(output), { recursive: true });
 
 const toolRoot = dirname(fileURLToPath(import.meta.url));
-const webRoot = resolve(toolRoot, "../../../apps/web");
+const toolPackageRoot = resolve(toolRoot, "..");
+const deployment = process.env.CONVEX_DEPLOYMENT;
+const exportArgs = ["convex", "export", "--path", output, "--include-file-storage"];
+if (deployment) exportArgs.push("--deployment", deployment);
 const result = spawnSync(
   "bunx",
-  ["convex", "export", "--path", output, "--include-file-storage"],
-  { cwd: webRoot, stdio: "inherit", shell: process.platform === "win32" },
+  exportArgs,
+  { cwd: toolPackageRoot, stdio: "inherit", shell: process.platform === "win32" },
 );
 
 if (result.status !== 0) process.exit(result.status ?? 1);

@@ -12,11 +12,12 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as CardsRouteRouteImport } from './routes/cards/route'
+import { Route as DataRouteImport } from './routes/data'
 import { Route as WhiteboardRouteRouteImport } from './routes/whiteboard/route'
 import { Route as CardsIndexRouteImport } from './routes/cards/index'
 import { Route as CardsCardIdRouteImport } from './routes/cards/$cardId'
 import { Route as CardsOrphansRouteImport } from './routes/cards/orphans'
-import { Route as DemoConvexRouteImport } from './routes/demo/convex'
+import { Route as DemoLocalRouteImport } from './routes/demo/local'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as TestIndexRouteImport } from './routes/test/index'
 import { Route as TestMarkdownRouteImport } from './routes/test/markdown'
@@ -42,6 +43,11 @@ const CardsRouteRoute = CardsRouteRouteImport.update({
   path: '/cards',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DataRoute = DataRouteImport.update({
+  id: '/data',
+  path: '/data',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WhiteboardRouteRoute = WhiteboardRouteRouteImport.update({
   id: '/whiteboard',
   path: '/whiteboard',
@@ -62,9 +68,9 @@ const CardsOrphansRoute = CardsOrphansRouteImport.update({
   path: '/orphans',
   getParentRoute: () => CardsRouteRoute,
 } as any)
-const DemoConvexRoute = DemoConvexRouteImport.update({
-  id: '/demo/convex',
-  path: '/demo/convex',
+const DemoLocalRoute = DemoLocalRouteImport.update({
+  id: '/demo/local',
+  path: '/demo/local',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
@@ -121,9 +127,10 @@ export interface FileRoutesByFullPath {
   '/cards': typeof CardsRouteRouteWithChildren
   '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
+  '/data': typeof DataRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
-  '/demo/convex': typeof DemoConvexRoute
+  '/demo/local': typeof DemoLocalRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
@@ -138,9 +145,10 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/data': typeof DataRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
-  '/demo/convex': typeof DemoConvexRoute
+  '/demo/local': typeof DemoLocalRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
@@ -158,9 +166,10 @@ export interface FileRoutesById {
   '/cards': typeof CardsRouteRouteWithChildren
   '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
+  '/data': typeof DataRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
-  '/demo/convex': typeof DemoConvexRoute
+  '/demo/local': typeof DemoLocalRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/test/markdown': typeof TestMarkdownRoute
   '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
@@ -179,9 +188,10 @@ export interface FileRouteTypes {
     | '/cards'
     | '/whiteboard'
     | '/about'
+    | '/data'
     | '/cards/$cardId'
     | '/cards/orphans'
-    | '/demo/convex'
+    | '/demo/local'
     | '/demo/tanstack-query'
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
@@ -196,9 +206,10 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/data'
     | '/cards/$cardId'
     | '/cards/orphans'
-    | '/demo/convex'
+    | '/demo/local'
     | '/demo/tanstack-query'
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
@@ -215,9 +226,10 @@ export interface FileRouteTypes {
     | '/cards'
     | '/whiteboard'
     | '/about'
+    | '/data'
     | '/cards/$cardId'
     | '/cards/orphans'
-    | '/demo/convex'
+    | '/demo/local'
     | '/demo/tanstack-query'
     | '/test/markdown'
     | '/test/markdown-in-whiteboard'
@@ -235,7 +247,8 @@ export interface RootRouteChildren {
   CardsRouteRoute: typeof CardsRouteRouteWithChildren
   WhiteboardRouteRoute: typeof WhiteboardRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
-  DemoConvexRoute: typeof DemoConvexRoute
+  DataRoute: typeof DataRoute
+  DemoLocalRoute: typeof DemoLocalRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
   TestMarkdownRoute: typeof TestMarkdownRoute
   TestMarkdownInWhiteboardRoute: typeof TestMarkdownInWhiteboardRoute
@@ -268,6 +281,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CardsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/data': {
+      id: '/data'
+      path: '/data'
+      fullPath: '/data'
+      preLoaderRoute: typeof DataRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/whiteboard': {
       id: '/whiteboard'
       path: '/whiteboard'
@@ -296,11 +316,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CardsOrphansRouteImport
       parentRoute: typeof CardsRouteRoute
     }
-    '/demo/convex': {
-      id: '/demo/convex'
-      path: '/demo/convex'
-      fullPath: '/demo/convex'
-      preLoaderRoute: typeof DemoConvexRouteImport
+    '/demo/local': {
+      id: '/demo/local'
+      path: '/demo/local'
+      fullPath: '/demo/local'
+      preLoaderRoute: typeof DemoLocalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/demo/tanstack-query': {
@@ -404,7 +424,8 @@ const rootRouteChildren: RootRouteChildren = {
   CardsRouteRoute: CardsRouteRouteWithChildren,
   WhiteboardRouteRoute: WhiteboardRouteRouteWithChildren,
   AboutRoute: AboutRoute,
-  DemoConvexRoute: DemoConvexRoute,
+  DataRoute: DataRoute,
+  DemoLocalRoute: DemoLocalRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
   TestMarkdownRoute: TestMarkdownRoute,
   TestMarkdownInWhiteboardRoute: TestMarkdownInWhiteboardRoute,

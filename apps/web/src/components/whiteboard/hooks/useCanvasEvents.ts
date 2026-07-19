@@ -1,7 +1,7 @@
 import type { useNavigate } from "@tanstack/react-router";
 import { useEffect, type MutableRefObject } from "react";
 import type { Editor, TLEventInfo, TLShapeId, VecLike } from "tldraw";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import {
 	getWhiteboardDoubleClickShape,
 	isMarkdownCardShape,

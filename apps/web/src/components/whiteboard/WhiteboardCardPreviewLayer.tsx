@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { memo, useCallback } from "react";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
 import { whiteboardPreviewCardIdAtom } from "#/lib/atoms";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 
 type WhiteboardCardPreviewLayerProps = {
 	currentWhiteboardId: Id<"whiteboards"> | null;

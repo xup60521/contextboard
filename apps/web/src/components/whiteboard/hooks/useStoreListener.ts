@@ -5,7 +5,7 @@ import {
 	useEffect,
 } from "react";
 import type { Editor, TLShapeId, TLStoreSnapshot } from "tldraw";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import type { WhiteboardFrame } from "../frame-sync";
 import { filterSnapshotForPersistence } from "../tldraw-persistence";
 import {

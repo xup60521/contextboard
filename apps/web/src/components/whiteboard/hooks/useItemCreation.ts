@@ -1,6 +1,6 @@
 import { useCallback, type MutableRefObject } from "react";
 import { createShapeId, type TLShapeId, type VecLike } from "tldraw";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 
 export function useItemCreation({
 	whiteboardId,

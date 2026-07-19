@@ -5,7 +5,7 @@ import { useEditor, useIsEditing } from "tldraw";
 import { CardDocumentEditor } from "#/components/cards/CardDocumentEditor";
 import { useDebouncedCardSave } from "#/components/cards/useDebouncedCardSave";
 import { StaticRichTextRenderer } from "#/components/editor/static-renderer";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import {
@@ -21,7 +21,7 @@ import { hydrateCardShapes } from "./whiteboard-canvas-helpers";
 const HEADER_HEIGHT = 28;
 const MIN_HEIGHT = 96;
 
-export function ConvexMarkdownCardComponent({
+export function PersistedMarkdownCardComponent({
 	shape,
 }: {
 	shape: MarkdownCardShape;

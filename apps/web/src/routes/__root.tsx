@@ -10,7 +10,6 @@ import { CommandPalette } from "../components/search/CommandPalette";
 import { SidebarTabsProvider } from "../components/sidebar/SidebarTabsContext";
 import { AppSidebar } from "../components/whiteboard/AppSidebar";
 import { SidebarProvider } from "../components/whiteboard/SidebarContext";
-import ConvexProvider from "../integrations/convex/provider";
 import { LocalDatabaseProvider } from "../integrations/local/provider";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import appCss from "../styles.css?url";
@@ -55,7 +54,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			</head>
 			<body className="font-sans antialiased h-screen [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">
 				<LocalDatabaseProvider>
-					<ConvexProvider>
 					<SidebarProvider>
 						<SidebarTabsProvider>
 							<AppShell>{children}</AppShell>
@@ -74,7 +72,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 							]}
 						/>
 					</SidebarProvider>
-					</ConvexProvider>
 				</LocalDatabaseProvider>
 				<Scripts />
 			</body>

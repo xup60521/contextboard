@@ -4,7 +4,7 @@ import { RichTextEditor } from "#/components/editor/RichTextEditor";
 import type { CardReferenceSupport } from "#/components/editor/card-reference/types";
 import { useCardReferenceSupport } from "#/components/editor/useCardReferenceSupport";
 import { useImageUpload } from "#/components/editor/useImageUpload";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 
 export type CardDocumentEditorProps = {
 	content: JSONContent | null;

@@ -8,5 +8,5 @@
     "build": "tsc --noEmit",
     "check": "tsc --noEmit"
   },
-  "devDependencies": { "@types/node": "^22.10.2" }
+  "devDependencies": { "@types/node": "^22.10.2", "convex": "^1.42.0" }
 }

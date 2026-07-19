@@ -9,7 +9,7 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "#/components/ui/context-menu";
-import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { Doc, Id } from "#/integrations/local/types";
 
 type CardTile = Doc<"cards">;
 type CardGridStatus = "LoadingFirstPage" | "CanLoadMore" | string;

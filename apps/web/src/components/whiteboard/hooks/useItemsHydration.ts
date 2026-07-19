@@ -1,6 +1,6 @@
 import { useEffect, type MutableRefObject } from "react";
 import type { Editor, TLRecord, TLShapeId } from "tldraw";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { frameFromItem, resolveFrameForHydration, type SequencedFrame } from "../frame-sync";
 import {
 	bothBindingEndpointsExist,
@@ -39,7 +39,7 @@ export function useItemsHydration({
 	scheduleVisibleCardHydration: () => void;
 	hydratingRef: MutableRefObject<boolean>;
 }) {
-	// Sync Convex board items → tldraw shapes
+	// Sync persisted board items → tldraw shapes
 	// biome-ignore lint/correctness/useExhaustiveDependencies: items drives this; all refs are stable
 	useEffect(() => {
 		if (!editor) return;

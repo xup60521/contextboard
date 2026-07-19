@@ -1,8 +1,8 @@
 import type { JSONContent } from "@tiptap/core";
-import { useMutation } from "convex/react";
+import { useMutation } from "#/integrations/local/react";
 import { useCallback, useEffect, useRef } from "react";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 import {
 	clearCardContentDirty,
 	markCardContentDirty,

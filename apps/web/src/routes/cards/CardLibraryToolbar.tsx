@@ -13,7 +13,7 @@ import {
 	type CardSortBy,
 	getCardSortLabel,
 	isCardSortBy,
-} from "../../../convex/model/cardSorting";
+} from "#/lib/card-sorting";
 
 export function CardLibraryToolbar({
 	query,

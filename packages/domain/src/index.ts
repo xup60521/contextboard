@@ -68,6 +68,7 @@ export type LocalFile = EntityBase<FileId> & {
   blob: Blob;
   contentType: string;
   size: number;
+  refCount: number;
   status: "active" | "pending_delete";
   pendingDeleteAt: number | null;
 };

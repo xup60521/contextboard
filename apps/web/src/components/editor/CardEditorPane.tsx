@@ -3,7 +3,7 @@ import { CardDocumentEditor } from "#/components/cards/CardDocumentEditor";
 import { useDebouncedCardSave } from "#/components/cards/useDebouncedCardSave";
 import { useCardReferenceSupport } from "#/components/editor/useCardReferenceSupport";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 
 type CardEditorPaneProps = {
 	cardId: Id<"cards">;

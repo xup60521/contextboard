@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { CardDetailPage } from "./CardDetailPage";
 
 const navigateMock = vi.fn();
@@ -12,7 +12,7 @@ vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigateMock,
 }));
 
-vi.mock("convex/react", () => ({
+vi.mock("#/integrations/local/react", () => ({
 	useQuery: (...args: unknown[]) => useQueryMock(...args),
 	useMutation: (...args: unknown[]) => useMutationMock(...args),
 }));

@@ -3,7 +3,7 @@ import {
 	type CardSortBy,
 	DEFAULT_CARD_SORT_BY,
 	isCardSortBy,
-} from "../../../convex/model/cardSorting";
+} from "#/lib/card-sorting";
 
 type OrphansSearch = {
 	sort?: CardSortBy;

@@ -1,4 +1,4 @@
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 
 export type UploadedImage = {
 	fileId: Id<"files">;
@@ -12,12 +12,16 @@ type FinalizedUpload = {
 	url: string;
 };
 
-export async function uploadImageToConvex(
+export async function uploadImageLocally(
 	generateUploadUrl: () => Promise<string>,
-	finalizeUpload: (args: { storageId: Id<"_storage"> }) => Promise<FinalizedUpload>,
+	finalizeUpload: (args: { storageId: Id<"_storage">; file?: File }) => Promise<FinalizedUpload>,
 	file: File,
 ): Promise<UploadedImage> {
 	const uploadUrl = await generateUploadUrl();
+	if (uploadUrl === "contextboard-local:") {
+		const uploaded = await finalizeUpload({ storageId: "local" as Id<"_storage">, file });
+		return { fileId: uploaded.fileId, src: uploaded.url, storageId: uploaded.storageId };
+	}
 
 	const response = await fetch(uploadUrl, {
 		method: "POST",

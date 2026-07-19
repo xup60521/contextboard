@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { RouteComponent } from "./index";
-import type { CardSortBy } from "../../../convex/model/cardSorting";
+import type { CardSortBy } from "#/lib/card-sorting";
 
 const navigateMock = vi.fn();
 const usePaginatedQueryMock = vi.fn();
@@ -47,7 +47,7 @@ vi.mock("@tanstack/react-router", () => ({
 	}),
 }));
 
-vi.mock("convex/react", () => ({
+vi.mock("#/integrations/local/react", () => ({
 	useMutation: (...args: unknown[]) => useMutationMock(...args),
 	usePaginatedQuery: (...args: unknown[]) => usePaginatedQueryMock(...args),
 }));

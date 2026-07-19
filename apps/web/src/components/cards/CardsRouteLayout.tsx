@@ -1,5 +1,5 @@
 import { Outlet, useParams } from "@tanstack/react-router";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { CardDetailPage } from "./CardDetailPage";
 
 export function CardsRouteLayout() {

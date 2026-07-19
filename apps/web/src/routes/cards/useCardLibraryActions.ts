@@ -1,8 +1,8 @@
 import type { useNavigate } from "@tanstack/react-router";
-import { useMutation } from "convex/react";
+import { useMutation } from "#/integrations/local/react";
 import { useState } from "react";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 
 type Navigate = ReturnType<typeof useNavigate>;
 

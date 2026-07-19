@@ -2,12 +2,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { JSONContent } from "@tiptap/core";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { useDebouncedCardSave } from "./useDebouncedCardSave";
 
 const updateContentMock = vi.fn();
 
-vi.mock("convex/react", () => ({
+vi.mock("#/integrations/local/react", () => ({
 	useMutation: () => updateContentMock,
 }));
 

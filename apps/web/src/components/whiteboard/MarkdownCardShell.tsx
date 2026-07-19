@@ -3,7 +3,7 @@ import type { JSONContent } from "@tiptap/core";
 import { ExternalLink } from "lucide-react";
 import type { ReactNode, Ref } from "react";
 import { HTMLContainer, stopEventPropagation, useEditor } from "tldraw";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import { getShapeContainerStyle } from "./MarkdownCardShapeTypes";
 

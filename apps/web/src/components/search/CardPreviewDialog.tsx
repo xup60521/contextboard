@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "#/integrations/local/react";
 import {
 	Crosshair,
 	Maximize2,
@@ -28,8 +28,8 @@ import {
 } from "#/components/ui/dropdown-menu";
 import { WhiteboardPickerDialog } from "#/components/whiteboard/WhiteboardPickerDialog";
 import { CARD_EDITOR_MAX_WIDTH } from "#/lib/constants";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 
 type CardPreviewDialogProps = {
 	cardId: Id<"cards"> | null;
@@ -127,8 +127,8 @@ export function CardPreviewDialog({
 		data !== null &&
 		currentPlacement == null;
 
-	const whiteboardTitleById = new Map(
-		(whiteboards ?? []).map((wb) => [wb._id, wb.title]),
+	const whiteboardTitleById = new Map<Id<"whiteboards">, string>(
+		(whiteboards ?? []).map((wb: { _id: Id<"whiteboards">; title: string }) => [wb._id, wb.title]),
 	);
 
 	useEffect(() => {

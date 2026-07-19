@@ -1,18 +1,18 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
-import { usePaginatedQuery } from "convex/react";
+import { usePaginatedQuery } from "#/integrations/local/react";
 import { useMemo, useRef, useState } from "react";
 import { DeleteCardDialog } from "#/components/cards/DeleteCardDialog";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
 import { WhiteboardPickerDialog } from "#/components/whiteboard/WhiteboardPickerDialog";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 import {
 	type CardSortBy,
 	DEFAULT_CARD_SORT_BY,
 	getCardSortLabel,
 	isCardSortBy,
-} from "../../../convex/model/cardSorting";
+} from "#/lib/card-sorting";
 import { CardGrid } from "./CardGrid";
 import { CardLibraryToolbar } from "./CardLibraryToolbar";
 import { useCardLibraryActions } from "./useCardLibraryActions";

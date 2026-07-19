@@ -1,8 +1,8 @@
-import { useConvex } from "convex/react";
+import { useLocalClient } from "#/integrations/local/react";
 import { useCallback, useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { react as tldrawReact, type Editor, type TLShapeId } from "tldraw";
-import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 import { isCardContentDirty } from "../dirty-card-content";
 import {
 	hydrateCardShapes,
@@ -48,7 +48,7 @@ export function useVisibleCardContentHydration({
 	whiteboardKey: string;
 	pendingEditShapeIdRef: MutableRefObject<TLShapeId | null>;
 }) {
-	const convex = useConvex();
+	const localClient = useLocalClient();
 	const inFlightCardIdsRef = useRef(new Set<Id<"cards">>());
 	const priorityCardIdsRef = useRef<Id<"cards">[]>([]);
 	const flushTimerRef = useRef<number | null>(null);
@@ -175,7 +175,7 @@ export function useVisibleCardContentHydration({
 					);
 
 					try {
-						const results = await convex.query(
+						const results = await localClient.query(
 							api.cards.getContentsForWhiteboardItems,
 							{ cardIds: missIds },
 						);
@@ -209,7 +209,7 @@ export function useVisibleCardContentHydration({
 		}
 	}, [
 		collectCandidateCardIds,
-		convex,
+		localClient,
 		editor,
 		enterPendingEditIfReady,
 		loadedDrawingKey,

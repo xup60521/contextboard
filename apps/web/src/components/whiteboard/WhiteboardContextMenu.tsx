@@ -7,7 +7,7 @@ import {
 	TldrawUiMenuItem,
 	useEditor,
 } from "tldraw";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { ControlledTldrawContextMenu } from "./ControlledTldrawContextMenu";
 import {
 	isMarkdownCardShape,
@@ -48,7 +48,7 @@ function WhiteboardContextMenuContent() {
 			isSubwhiteboardLinkShape(onlySelectedShape));
 
 	return (
-		<TldrawUiMenuGroup id="whiteboard-convex">
+		<TldrawUiMenuGroup id="whiteboard-persistence">
 			{canEnterFullscreen && (
 				<TldrawUiMenuItem
 					id="enter-fullscreen"

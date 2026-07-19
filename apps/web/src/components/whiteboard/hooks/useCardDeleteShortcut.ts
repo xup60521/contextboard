@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Editor } from "tldraw";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import {
 	collectGlobalDeleteCardIdsFromShapes,
 	isEditableKeyboardTarget,

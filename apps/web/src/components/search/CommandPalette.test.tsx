@@ -29,7 +29,7 @@ vi.mock("@tanstack/react-router", () => ({
 	useParams: () => ({}),
 }));
 
-vi.mock("convex/react", () => ({
+vi.mock("#/integrations/local/react", () => ({
 	useQuery: (...args: unknown[]) => useQueryMock(...args),
 }));
 

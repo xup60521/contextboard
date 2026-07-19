@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { TLStoreSnapshot } from "tldraw";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import type { TldrawDocumentResult } from "../whiteboard-canvas-helpers";
 
 export function useDrawingSync({

@@ -1,12 +1,12 @@
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import { useMutation, usePaginatedQuery, useQuery } from "#/integrations/local/react";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 import type {
 	BoardItemResult,
 	TldrawDocumentResult,
 } from "../whiteboard-canvas-helpers";
 
-export function useWhiteboardConvexData(
+export function useWhiteboardData(
 	whiteboardId: Id<"whiteboards"> | null,
 ) {
 	const whiteboard = useQuery(

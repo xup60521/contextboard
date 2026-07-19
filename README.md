@@ -1,113 +1,63 @@
 # Contextboard
 
-Contextboard is a canvas-first workspace for organizing markdown cards and nested whiteboards. It combines a tldraw canvas, TipTap-based rich text cards, global search, and TanStack Router routes for direct links into boards and cards.
+Contextboard is a local-first canvas workspace for rich-text cards and nested whiteboards. Data is stored in the browser with IndexedDB; no account, hosted database, or network connection is required.
 
-The repository is a Bun/Turborepo monorepo. The current migration branch is replacing Convex with browser-local IndexedDB while retaining a versioned change log for a future optional self-hosted sync service.
+## Repository
 
-# Story
+This is a Bun/Turborepo monorepo:
 
-Originally, I was frustrated with the performance of Heptabase and wanted to find a better alternative. More than that, I always wanted to actually *draw* on a whiteboard rather than drag around pre-defined HTML elements — but there was no good candidate for it. Existing note-taking apps either focus entirely on markdown cards or go all-in on hand-written notes, with nothing in between.
+- `apps/web` — TanStack Start web application deployed to Cloudflare Workers.
+- `apps/sync-server` — reserved manifest-only workspace for a future optional self-hosted sync server.
+- `packages/domain` — application-owned entities and integrity rules.
+- `packages/local-db` — Dexie schema, workspace/device identity, and atomic change log.
+- `packages/sync-protocol` — versioned transport-neutral sync contracts. Networking is disabled today.
+- `tools/convex-export` — transitional utility for exporting a previous Convex deployment.
 
-In June 2026, after finishing the semester, I finally had time to build something. The first thing that came to mind was a simple yet better note-taking app. The MVP turned out well: markdown cards work (both as a standalone editor and embedded in whiteboard view), hand-drawn strokes are properly stored, and sub-whiteboards made it in too.
+## Development
 
-The only problem: I forgot to read the tldraw license. During development, the TanStack devtools panel covered the "Get a license for production" watermark. Not until I tried to deploy to Cloudflare did I realize that tldraw is not MIT-licensed the way Excalidraw is. So I decided to open source the project, even though I will probably not continue developing it. Considering how much I put into it (mostly with Claude Code and Codex), it has still been a great learning experience.
-
-## Stack
-
-- React 19 with TanStack Start, TanStack Router, and TanStack Query
-- Convex for realtime data and server functions
-- tldraw for the whiteboard surface
-- TipTap, markdown-it, and KaTeX for card editing and rendering
-- Tailwind CSS 4 for styling
-- Vitest for unit tests
-- Cloudflare Workers via Wrangler for deployment
-
-## Getting Started
-
-Install dependencies:
-
-```bash
-bun install
-```
-
-Create a local environment file:
-
-```bash
-cp .env.example .env.local
-```
-
-Set the Convex values in `.env.local`:
-
-```bash
-CONVEX_DEPLOYMENT=
-VITE_CONVEX_URL=
-```
-
-Install and start the transitional web app and Convex backend from the repository root:
-
-```bash
-bun --bun run dev
-```
-
-The web app runs on `http://localhost:3000`. The root route redirects to `/whiteboard`.
-
-## Scripts
+Requirements: Bun 1.3.13 or newer.
 
 ```bash
 bun install
 bun run dev
-bun --bun run dev:web          # Start Vite only
-bun --bun run generate-routes  # Regenerate TanStack Router route tree
-bun --bun run build            # Production build
-bun --bun run preview          # Preview the production build
-bun --bun run test             # Run Vitest
-bun --bun run lint             # Run Biome lint
-bun --bun run format           # Format with Biome
-bun --bun run check            # Run Biome checks
-bun --bun run deploy           # Build and deploy with Wrangler
 ```
 
-## Project Layout
+The app runs at `http://localhost:3000`. It does not require environment variables or a backend process.
 
-- `src/routes/whiteboard` contains the primary whiteboard route. The layout route keeps one persistent `WhiteboardCanvas` mounted while navigating between boards.
-- `src/components/whiteboard` contains the tldraw integration, custom shapes, persistence helpers, and sizing logic.
-- `src/components/editor` contains the TipTap rich text editor, markdown paste extension, math editor, and slash command UI.
-- `src/components/search` contains the command palette and card preview dialog.
-- `apps/web` contains the TanStack Start application and the transitional Convex backend.
-- `apps/sync-server` reserves the future optional self-hosted sync service; it intentionally has no runtime code.
-- `packages/domain` owns backend-independent entity types and integrity rules.
-- `packages/local-db` owns the versioned Dexie schema and atomic local change log.
-- `packages/sync-protocol` owns transport-neutral synchronization contracts.
-- `tools/convex-export` preserves the one-time hosted-data export path.
+Useful commands:
 
-## Development Notes
+```bash
+bun run build
+bun run test
+bun run generate-routes
+bun run --filter @contextboard/web preview
+```
 
-- Route files live in `src/routes`. Run `bun --bun run generate-routes` after adding, removing, or renaming routes if the generated route tree is not updated automatically.
-- Convex generated files live in `convex/_generated` and should be regenerated by Convex tooling when the backend API changes.
-- The app expects Convex to be available for the whiteboard, card, and search workflows.
+## Local data and backups
+
+Open `/data` to export a `.contextboard.zip` backup or import an existing backup. Import validates the archive and its relationships before replacing the current workspace. The importer also accepts Convex export ZIP files containing Contextboard tables.
+
+Browser storage belongs to the current origin and browser profile. Clearing site data can erase the workspace, so keep external backups. Images are retained as IndexedDB blobs and native backups include those blobs by SHA-256.
+
+To create a final raw export from a previous Convex deployment:
+
+```bash
+$env:CONVEX_DEPLOYMENT="your-deployment-name"
+bun run export:convex -- snapshot.zip
+```
+
+The Convex CLI dependency is isolated inside the transitional export tool and is not part of the web runtime or build.
 
 ## Deployment
 
-The project is configured for Cloudflare Workers through `vite.config.ts` and `wrangler.jsonc`.
-
-Authenticate once:
-
 ```bash
-wrangler login
+bun run deploy
 ```
 
-Deploy:
+The Cloudflare Worker serves the application only. Persistent workspace data remains in each browser.
 
-```bash
-bun --bun run deploy
-```
+## Future synchronization
 
-For production secrets, use `wrangler secret put` for the values from `.env.example`. Public non-secret values can be added under `vars` in `wrangler.jsonc`.
+IndexedDB remains authoritative. Local commands reserve workspace/device IDs, revisions, tombstones, hybrid logical clocks, and change batches. `packages/sync-protocol` defines push, pull, cursor, conflict, and blob contracts, while the current `LocalOnlyTransport` never performs network requests.
 
-For Cloudflare Git builds, use `bun run build:cloudflare` as the build command. The wrapper script keeps `main` on the current production deployment and lets non-production branches target a non-prod Convex backend:
-
-- `CONVEX_PREVIEW_DEPLOY_KEY`: recommended for one Convex preview deployment per branch.
-- `CONVEX_DEV_DEPLOY_KEY`: optional fallback if you want every non-production branch to share one Convex dev deployment instead.
-- `CONVEX_PRODUCTION_BRANCH`: optional override if your production branch is not `main`.
-
-If you are using Workers Builds, set the production trigger with your production `CONVEX_DEPLOY_KEY`, and set the preview trigger with either `CONVEX_PREVIEW_DEPLOY_KEY` or `CONVEX_DEV_DEPLOY_KEY`.
+The intended future server is optional and self-hostable, using SQLite plus filesystem blobs by default. `apps/sync-server` intentionally contains no runtime implementation yet.

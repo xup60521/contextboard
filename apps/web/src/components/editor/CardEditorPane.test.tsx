@@ -2,7 +2,7 @@ import { cleanup, render } from "@testing-library/react";
 import type { JSONContent } from "@tiptap/core";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { CardEditorPane } from "./CardEditorPane";
 
 const useDebouncedCardSaveMock = vi.fn();

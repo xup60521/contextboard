@@ -7,7 +7,7 @@ import {
 	type TldrawOptions,
 	type VecLike,
 } from "tldraw";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { DeleteCardDialog } from "../cards/DeleteCardDialog";
 import { CustomMenuPanel } from "./CustomMenuPanel";
@@ -32,7 +32,7 @@ import { useStoreListener } from "./hooks/useStoreListener";
 import { useThemeSync } from "./hooks/useThemeSync";
 import { useVisibleCardContentHydration } from "./hooks/useVisibleCardContentHydration";
 import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
-import { useWhiteboardConvexData } from "./hooks/useWhiteboardConvexData";
+import { useWhiteboardData } from "./hooks/useWhiteboardData";
 import {
 	singlePageTldrawComponents,
 	singlePageTldrawOptions,
@@ -84,7 +84,7 @@ export function WhiteboardCanvas({
 	const themeMode = useThemeMode();
 	const whiteboardKey = getWhiteboardKey(whiteboardId);
 
-	// ── Convex data ────────────────────────────────────────────────────────────
+	// ── Persisted data ─────────────────────────────────────────────────────────
 	const {
 		whiteboard,
 		breadcrumbs,
@@ -100,7 +100,7 @@ export function WhiteboardCanvas({
 		saveTldrawDocument,
 		generateUploadUrl,
 		finalizeUpload,
-	} = useWhiteboardConvexData(whiteboardId);
+	} = useWhiteboardData(whiteboardId);
 
 	const assetStore = useWhiteboardAssetStore({
 		generateUploadUrl,

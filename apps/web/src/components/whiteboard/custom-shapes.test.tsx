@@ -33,7 +33,7 @@ vi.mock("@tanstack/react-router", () => ({
 	),
 }));
 
-vi.mock("convex/react", () => ({
+vi.mock("#/integrations/local/react", () => ({
 	useMutation: () => vi.fn(),
 }));
 

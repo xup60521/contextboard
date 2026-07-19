@@ -5,7 +5,7 @@ import {
 } from "#/components/editor/useDeferredEditorMount";
 import { ReadonlyRichTextPreview } from "#/components/editor/ReadonlyRichTextPreview";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import { CardEditorPane } from "../editor/CardEditorPane";
 
 type CardDetailDocumentSurfaceProps = {

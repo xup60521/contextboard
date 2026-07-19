@@ -1,7 +1,7 @@
-import { useConvex } from "convex/react";
+import { useLocalClient } from "#/integrations/local/react";
 import { useCallback, useMemo, useState } from "react";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 import type { CardReferenceSupport } from "./card-reference/types";
 
 type CardReferenceSupportOptions = {
@@ -21,18 +21,18 @@ export function useCardReferenceSupport(
 	previewCardId: Id<"cards"> | null;
 	closePreview: () => void;
 } {
-	const convex = useConvex();
+	const localClient = useLocalClient();
 	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
 
 	const search = useCallback(
 		async (query: string) => {
 			const term = query.trim();
-			return await convex.query(
+			return await localClient.query(
 				api.search.searchCardsForReference,
 				whiteboardId ? { term, whiteboardId } : { term },
 			);
 		},
-		[convex, whiteboardId],
+		[localClient, whiteboardId],
 	);
 
 	const onOpenPreview = useCallback(

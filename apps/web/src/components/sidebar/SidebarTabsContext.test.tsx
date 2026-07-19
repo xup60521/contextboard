@@ -65,7 +65,7 @@ vi.mock("@tanstack/react-router", () => ({
 	}),
 }));
 
-vi.mock("convex/react", () => ({
+vi.mock("#/integrations/local/react", () => ({
 	useQuery: (...args: unknown[]) => useQueryMock(...args),
 }));
 

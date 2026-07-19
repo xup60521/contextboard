@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import {
 	CardPreviewDialog,
 	isInsidePreviewAllowedPortal,
@@ -13,7 +13,7 @@ const navigateMock = vi.fn();
 const useQueryMock = vi.fn();
 const useMutationMock = vi.fn();
 
-vi.mock("convex/react", () => ({
+vi.mock("#/integrations/local/react", () => ({
 	useMutation: () => useMutationMock,
 	useQuery: (...args: unknown[]) => useQueryMock(...args),
 }));

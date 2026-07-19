@@ -7,17 +7,15 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "run-p dev:convex dev:web",
-    "dev:convex": "convex dev",
-    "dev:web": "vite dev --port 3000",
+    "dev": "vite dev --port 3000",
     "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "format": "biome format",
     "lint": "biome lint",
-    "check": "biome check",
-    "build:cloudflare": "bun run ./scripts/build-cloudflare.ts",
+    "check": "tsc --noEmit",
+    "build:cloudflare": "bun run build",
     "deploy": "bun run build && wrangler deploy"
   },
   "dependencies": {
@@ -25,7 +23,6 @@
     "@contextboard/local-db": "workspace:*",
     "@contextboard/sync-protocol": "workspace:*",
     "@cloudflare/vite-plugin": "^1.26.0",
-    "@convex-dev/react-query": "0.1.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -57,8 +54,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "convex": "^1.42.0",
     "dexie-react-hooks": "^4.2.0",
+    "fflate": "^0.8.2",
     "jotai": "^2.15.1",
     "katex": "^0.16.22",
     "lucide-react": "^0.577.0",
@@ -84,8 +81,8 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "babel-plugin-react-compiler": "^1.0.0",
+    "fake-indexeddb": "^6.2.4",
     "jsdom": "^28.1.0",
-    "npm-run-all": "^4.1.5",
     "vite": "^8.0.0",
     "vitest": "^4.1.5",
     "wrangler": "^4.70.0"

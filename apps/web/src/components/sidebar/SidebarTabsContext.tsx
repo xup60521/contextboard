@@ -1,5 +1,5 @@
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
+import { useQuery } from "#/integrations/local/react";
 import {
 	createContext,
 	type ReactNode,
@@ -10,8 +10,8 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 import {
 	clearUnpinnedSidebarTabs,
 	closeSidebarTab,
@@ -138,8 +138,8 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 			return null;
 		}
 
-		return new Map(
-			sidebarData.whiteboards.map((whiteboard) => [
+		return new Map<string, string>(
+			sidebarData.whiteboards.map((whiteboard: { _id: string; title: string }) => [
 				String(whiteboard._id),
 				whiteboard.title,
 			]),
@@ -151,12 +151,12 @@ export function SidebarTabsProvider({ children }: { children: ReactNode }) {
 			return null;
 		}
 
-		return new Map(
-			sidebarData.cards.map((card) => [String(card._id), card.title]),
+		return new Map<string, string>(
+			sidebarData.cards.map((card: { _id: string; title: string }) => [String(card._id), card.title]),
 		);
 	}, [sidebarData]);
 
-	const routeTabTitle = useMemo(() => {
+	const routeTabTitle = useMemo<string | undefined>(() => {
 		if (!routeTab) {
 			return undefined;
 		}

@@ -55,7 +55,7 @@ function pickImageFile(): Promise<File | null> {
 }
 
 /**
- * TipTap extension that wires a Convex (or any) upload handler into the editor.
+ * TipTap extension that wires a persistence upload handler into the editor.
  * Exposes the `uploadImageFromPicker` command used by the slash menu and stashes
  * the handler in `editor.storage` for any callers that need it directly.
  */

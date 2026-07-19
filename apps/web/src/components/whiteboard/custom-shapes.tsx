@@ -7,7 +7,7 @@ import {
 	type TLResizeInfo,
 	type VecLike,
 } from "tldraw";
-import { ConvexMarkdownCardComponent } from "./ConvexMarkdownCardShape";
+import { PersistedMarkdownCardComponent } from "./PersistedMarkdownCardShape";
 import { LocalMarkdownCardComponent } from "./LocalMarkdownCardShape";
 import {
 	getBoxIndicatorPath,
@@ -32,7 +32,7 @@ export {
 	subwhiteboardLinkShapeProps,
 	textCardShapeProps,
 } from "./MarkdownCardShapeTypes";
-export { ConvexMarkdownCardComponent, LocalMarkdownCardComponent };
+export { PersistedMarkdownCardComponent, LocalMarkdownCardComponent };
 export {
 	createSubwhiteboardLinkShape,
 	makeSubwhiteboardId,
@@ -41,7 +41,7 @@ export {
 export { createTextCardShape, TextCardShapeUtil };
 export { WhiteboardCardContext } from "./WhiteboardCardContext";
 
-function isConvexCardLoaded(shape: MarkdownCardShape) {
+function isPersistedCardLoaded(shape: MarkdownCardShape) {
 	return !shape.props.cardId || shape.props.contentLoaded === true;
 }
 
@@ -50,7 +50,7 @@ export function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 		if (!shape.props.contentLoaded) {
 			return <MarkdownCardSummaryShell shape={shape} />;
 		}
-		return <ConvexMarkdownCardComponent shape={shape} />;
+		return <PersistedMarkdownCardComponent shape={shape} />;
 	}
 
 	return <LocalMarkdownCardComponent shape={shape} />;
@@ -73,7 +73,7 @@ export class MarkdownCardShapeUtil extends BaseBoxShapeUtil<MarkdownCardShape> {
 	}
 
 	override canEdit(shape: MarkdownCardShape) {
-		return isConvexCardLoaded(shape);
+		return isPersistedCardLoaded(shape);
 	}
 
 	override hideSelectionBoundsBg(shape: MarkdownCardShape) {

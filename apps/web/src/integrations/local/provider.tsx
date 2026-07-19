@@ -1,5 +1,5 @@
 import type { ContextboardDatabase } from "@contextboard/local-db";
-import { createContextboardDatabase, ensureLocalIdentity } from "@contextboard/local-db";
+import { cleanupOrphanedFiles, createContextboardDatabase, ensureLocalIdentity } from "@contextboard/local-db";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 
 type LocalDatabaseState =
@@ -7,7 +7,7 @@ type LocalDatabaseState =
   | { status: "ready"; database: ContextboardDatabase; workspaceId: string; deviceId: string; error: null }
   | { status: "error"; database: ContextboardDatabase; workspaceId: null; deviceId: null; error: Error };
 
-const LocalDatabaseContext = createContext<LocalDatabaseState | null>(null);
+export const LocalDatabaseContext = createContext<LocalDatabaseState | null>(null);
 
 export function LocalDatabaseProvider({ children }: { children: ReactNode }) {
   const database = useMemo(() => createContextboardDatabase(), []);
@@ -16,7 +16,12 @@ export function LocalDatabaseProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     void ensureLocalIdentity(database).then(
-      ({ workspaceId, deviceId }) => active && setState({ status: "ready", database, workspaceId, deviceId, error: null }),
+      ({ workspaceId, deviceId }) => {
+        if (!active) return;
+        setState({ status: "ready", database, workspaceId, deviceId, error: null });
+        void cleanupOrphanedFiles(database);
+        void navigator.storage?.persist?.();
+      },
       (reason: unknown) => active && setState({ status: "error", database, workspaceId: null, deviceId: null, error: reason instanceof Error ? reason : new Error(String(reason)) }),
     );
     return () => {

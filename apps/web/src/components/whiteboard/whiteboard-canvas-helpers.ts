@@ -10,7 +10,7 @@ import {
 	Vec,
 	type VecLike,
 } from "tldraw";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import type { ThemeMode } from "../../lib/theme";
 import type {
 	MarkdownCardShape,

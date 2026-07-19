@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { TLShapeId } from "tldraw";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 import {
 	clearCardContentDirty,
 	markCardContentDirty,
@@ -12,8 +12,8 @@ import { useVisibleCardContentHydration } from "./useVisibleCardContentHydration
 
 const queryMock = vi.fn();
 
-vi.mock("convex/react", () => ({
-	useConvex: () => ({
+vi.mock("#/integrations/local/react", () => ({
+	useLocalClient: () => ({
 		query: queryMock,
 	}),
 }));

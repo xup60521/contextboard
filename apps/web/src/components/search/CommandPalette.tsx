@@ -1,7 +1,7 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
-import { useQuery } from "convex/react";
+import { useQuery } from "#/integrations/local/react";
 import { FileText, Layers } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReadonlyRichTextPreview } from "#/components/editor/ReadonlyRichTextPreview";
@@ -14,12 +14,10 @@ import {
 	CommandList,
 } from "#/components/ui/command";
 import { Dialog, DialogContent } from "#/components/ui/dialog";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
-import type {
-	CardSearchResult,
-	WhiteboardSearchResult,
-} from "../../../convex/search";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
+type CardSearchResult = { kind: "card"; id: Id<"cards">; title: string; preview: string; content: JSONContent; boardWhiteboardId: Id<"whiteboards"> | null; shapeId: string | null };
+type WhiteboardSearchResult = { kind: "whiteboard"; id: Id<"whiteboards">; title: string; boardWhiteboardId: Id<"whiteboards"> | null; shapeId: string | null };
 import { CardPreviewDialog } from "./CardPreviewDialog";
 
 type Mode = "global" | "local";

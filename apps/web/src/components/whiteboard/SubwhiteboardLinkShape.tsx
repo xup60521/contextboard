@@ -1,4 +1,4 @@
-import { useMutation } from "convex/react";
+import { useMutation } from "#/integrations/local/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	BaseBoxShapeUtil,
@@ -13,8 +13,8 @@ import {
 	useIsEditing,
 	type VecLike,
 } from "tldraw";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 import {
 	getBoxIndicatorPath,
 	getShapeContainerStyle,

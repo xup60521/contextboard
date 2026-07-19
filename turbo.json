@@ -1,14 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
-  "globalEnv": [
-    "CONVEX_DEPLOYMENT",
-    "VITE_CONVEX_URL",
-    "CONVEX_DEPLOY_KEY",
-    "CONVEX_PREVIEW_DEPLOY_KEY",
-    "CONVEX_DEV_DEPLOY_KEY",
-    "CONVEX_PRODUCTION_BRANCH"
-  ],
   "tasks": {
     "dev": {
       "cache": false,

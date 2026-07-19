@@ -1,4 +1,4 @@
-import { useQuery } from "convex/react";
+import { useQuery } from "#/integrations/local/react";
 import {
 	Command,
 	CommandEmpty,
@@ -8,8 +8,8 @@ import {
 	CommandList,
 } from "#/components/ui/command";
 import { Dialog, DialogContent } from "#/components/ui/dialog";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 
 export function WhiteboardPickerDialog({
 	open,

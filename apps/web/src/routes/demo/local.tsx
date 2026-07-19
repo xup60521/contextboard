@@ -1,17 +1,17 @@
 import { useCallback, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { useQuery, useMutation } from 'convex/react'
+import { useQuery, useMutation } from '#/integrations/local/react'
 import { Trash2, Plus, Check, Circle } from 'lucide-react'
 
-import { api } from '../../../convex/_generated/api'
-import type { Id } from '../../../convex/_generated/dataModel'
+import { api } from "#/integrations/local/api"
+import type { Id } from "#/integrations/local/types"
 
-export const Route = createFileRoute('/demo/convex')({
+export const Route = createFileRoute('/demo/local')({
   ssr: false,
-  component: ConvexTodos,
+  component: LocalTodos,
 })
 
-function ConvexTodos() {
+function LocalTodos() {
   const todos = useQuery(api.todos.list)
   const addTodo = useMutation(api.todos.add)
   const toggleTodo = useMutation(api.todos.toggle)
@@ -48,7 +48,7 @@ function ConvexTodos() {
       <div className="mx-auto w-full max-w-2xl space-y-6">
         <section className="demo-panel">
           <div className="text-center">
-            <p className="island-kicker mb-2">Convex</p>
+            <p className="island-kicker mb-2">Local IndexedDB</p>
             <h1 className="demo-title">Todos</h1>
             <p className="demo-muted mt-2">Powered by real-time sync</p>
             {totalCount > 0 && (
@@ -148,7 +148,7 @@ function ConvexTodos() {
 
         <div className="text-center mt-6">
           <p className="demo-muted text-sm">
-            Built with Convex, real-time updates, and synced state.
+            Built with Local IndexedDB, offline persistence and local state.
           </p>
         </div>
       </div>

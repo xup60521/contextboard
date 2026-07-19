@@ -1,5 +1,5 @@
 import { createContext } from "react";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "#/integrations/local/types";
 
 /**
  * The whiteboard a markdown card lives on, so its editor can offer card

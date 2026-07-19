@@ -36,13 +36,13 @@ export type RichTextEditorProps = {
 	selectContentOnFocus?: boolean;
 	/**
 	 * Uploads a pasted/dropped/picked image and resolves to its URL. When
-	 * provided, images are stored externally (Convex) instead of being embedded
+	 * provided, images are stored by the persistence layer instead of being embedded
 	 * as base64 data URLs, and the `/upload image` slash command is enabled.
 	 */
 	onImageUpload?: ImageUploadHandler;
 	/**
 	 * Connects the editor to card references: the `@` picker and
-	 * modifier-click-to-preview. When omitted, the editor stays free of Convex
+	 * modifier-click-to-preview. When omitted, the editor stays free of persistence
 	 * dependencies (card-reference link marks still render and round-trip).
 	 */
 	cardReferenceSupport?: CardReferenceSupport;

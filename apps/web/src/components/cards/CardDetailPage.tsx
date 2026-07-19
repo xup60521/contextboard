@@ -1,10 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "#/integrations/local/react";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "#/integrations/local/api";
+import type { Id } from "#/integrations/local/types";
 import { CardInfoSection } from "./CardInfoSection";
 import { CardDetailDocumentSurface } from "./CardDetailDocumentSurface";
 import { SidebarOpenButton } from "../navigation/SidebarOpenButton";
@@ -49,8 +49,8 @@ export function CardDetailPage({ cardId }: CardDetailPageProps) {
 
 	const whiteboardTitleById = useMemo(
 		() =>
-			new Map(
-				(whiteboards ?? []).map((whiteboard) => [
+			new Map<Id<"whiteboards">, string>(
+				(whiteboards ?? []).map((whiteboard: { _id: Id<"whiteboards">; title: string }) => [
 					whiteboard._id,
 					whiteboard.title,
 				]),

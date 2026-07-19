@@ -1,8 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx"],
   "compilerOptions": {
     "jsx": "react-jsx",
+    "noImplicitAny": false,
     "paths": {
       "#/*": ["./src/*"],
       "@/*": ["./src/*"]
