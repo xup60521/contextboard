@@ -10,7 +10,7 @@ In June 2026, after finishing the semester, I finally had time to build somethin
 
 The only problem: I forgot to read the tldraw license. During development, the TanStack devtools panel covered the "Get a license for production" watermark. Not until I tried to deploy to Cloudflare did I realize that tldraw is not MIT-licensed the way Excalidraw is. So I decided to open source the project, even though I will probably not continue developing it. Considering how much I put into it (mostly with Claude Code and Codex), it has still been a great learning experience.
 
-Update: A local-first version with IndexedDB version can be found [here](https://github.com/xup60521/contextboard/tree/migration/local-first). Go [https://contextboard-local.xup60521.workers.dev] to play around with it.
+Update: A local-first version can be found [here](https://github.com/xup60521/contextboard/tree/migration/local-first). Go [https://contextboard-local.xup60521.workers.dev] to play around with it.
 
 ## Stack
 
