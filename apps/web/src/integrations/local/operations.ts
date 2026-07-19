@@ -16,6 +16,17 @@ import {
 } from "@contextboard/sync-protocol";
 
 type Args = Record<string, unknown>;
+const DEFAULT_CARD_WIDTH = 576;
+const DEFAULT_CARD_CONTENT = {
+	type: "doc",
+	content: [
+		{
+			type: "heading",
+			attrs: { level: 1 },
+			content: [{ type: "text", text: "New card" }],
+		},
+	],
+};
 const active = <
 	T extends { archivedAt?: number | null; deletedAt: number | null },
 >(
@@ -33,24 +44,64 @@ const publicRow = <T extends { id: string; createdAt: number }>(row: T) => ({
 });
 const id = () => crypto.randomUUID();
 
-function textFromContent(value: unknown): string {
-	if (typeof value === "string") return value;
-	if (Array.isArray(value)) return value.map(textFromContent).join(" ");
-	if (!value || typeof value !== "object") return "";
-	const record = value as Record<string, unknown>;
-	return [
-		typeof record.text === "string" ? record.text : "",
-		textFromContent(record.content),
-	]
-		.filter(Boolean)
-		.join(" ");
+function metadata(content: unknown) {
+	const rows: string[] = [];
+	collectTextRows(content, rows);
+	const normalizedRows = rows
+		.map((row) => row.replace(/\s+/g, " ").trim())
+		.filter(Boolean);
+	const plainText = normalizedRows.join("\n").slice(0, 10_000).trim();
+	return {
+		plainText,
+		derivedTitle: normalizedRows[0]?.slice(0, 120) || "Untitled card",
+		preview: plainText.slice(0, 400),
+	};
 }
 
-function metadata(content: unknown) {
-	const plainText = textFromContent(content).replace(/\s+/g, " ").trim();
-	const derivedTitle =
-		plainText.split("\n")[0]?.slice(0, 120) || "Untitled card";
-	return { plainText, derivedTitle, preview: plainText.slice(0, 240) };
+function parseClipboardCardContent(content: unknown) {
+	if (typeof content !== "string" || !content) return DEFAULT_CARD_CONTENT;
+	try {
+		const parsed = JSON.parse(content) as { type?: unknown };
+		return parsed && typeof parsed === "object" && parsed.type === "doc"
+			? parsed
+			: DEFAULT_CARD_CONTENT;
+	} catch {
+		return DEFAULT_CARD_CONTENT;
+	}
+}
+
+function collectTextRows(value: unknown, rows: string[]) {
+	if (!value || typeof value !== "object") return;
+	const node = value as {
+		type?: unknown;
+		text?: unknown;
+		attrs?: Record<string, unknown>;
+		content?: unknown;
+	};
+	if (node.type === "text" && typeof node.text === "string") {
+		rows.push(node.text);
+		return;
+	}
+	if (node.type === "inlineMath" || node.type === "blockMath") {
+		if (typeof node.attrs?.latex === "string") rows.push(node.attrs.latex);
+		return;
+	}
+	if (!Array.isArray(node.content)) return;
+	const children: string[] = [];
+	for (const child of node.content) collectTextRows(child, children);
+	if (
+		node.type === "heading" ||
+		node.type === "paragraph" ||
+		node.type === "listItem" ||
+		node.type === "blockquote" ||
+		node.type === "codeBlock" ||
+		node.type === "tableCell" ||
+		node.type === "tableHeader"
+	) {
+		rows.push(children.join(" "));
+	} else {
+		rows.push(...children);
+	}
 }
 
 function collectStringFields(
@@ -214,13 +265,19 @@ async function enrichCard(db: ContextboardDatabase, card: Card) {
 		}))
 		.sort((a, b) => a.title.localeCompare(b.title));
 	return {
-		...publicRow(card),
-		content: card.content,
-		placements: placements.map(publicRow),
+		card: { ...publicRow(card), content: card.content },
+		placements: placements.map((placement) => ({
+			itemId: placement.id,
+			whiteboardId: placement.whiteboardId,
+			shapeId: placement.shapeId,
+			updatedAt: placement.updatedAt,
+		})),
 		preferredPlacement: preferred ? publicRow(preferred) : null,
 		whiteboard: whiteboard ? publicRow(whiteboard) : null,
 		breadcrumbs,
 		backlinks,
+		boardWhiteboardId: preferred?.whiteboardId ?? null,
+		shapeId: preferred?.shapeId ?? null,
 	};
 }
 
@@ -523,27 +580,34 @@ async function executeMutation(
 		case "cards.updateContent": {
 			const row = await db.cards.get(String(args.cardId));
 			if (!row || !active(row)) throw new Error("Card not found");
+			if (
+				typeof args.expectedVersion === "number" &&
+				args.expectedVersion !== row.contentVersion
+			) {
+				throw new Error("Card was updated elsewhere");
+			}
 			const content = args.content;
+			if (JSON.stringify(content) === JSON.stringify(row.content)) {
+				return row.contentVersion;
+			}
+			const nextVersion = row.contentVersion + 1;
 			await db.cards.update(row.id, {
 				content,
 				...metadata(content),
-				contentVersion: row.contentVersion + 1,
+				contentVersion: nextVersion,
 				updatedAt: now,
 				revision: row.revision + 1,
 				updatedByDeviceId: deviceId,
 			});
 			await reconcileReferences(db, deviceId, "card", row.id, content);
-			return { version: row.contentVersion + 1, updatedAt: now };
+			return nextVersion;
 		}
 		case "canvas.createCardItem": {
 			const whiteboardId = String(args.whiteboardId) as WhiteboardId;
 			const board = await db.whiteboards.get(whiteboardId);
 			if (!board || !active(board)) throw new Error("Whiteboard not found");
 			const cardId = id() as CardId;
-			const content = args.content ?? {
-				type: "doc",
-				content: [{ type: "paragraph" }],
-			};
+			const content = args.content ?? DEFAULT_CARD_CONTENT;
 			const card: Card = {
 				id: cardId,
 				...base(deviceId, now),
@@ -564,7 +628,7 @@ async function executeMutation(
 				shapeId: String(args.shapeId),
 				x: Number(args.x ?? 0),
 				y: Number(args.y ?? 0),
-				w: Number(args.w ?? 320),
+				w: Number(args.w ?? DEFAULT_CARD_WIDTH),
 				h: Number(args.h ?? 180),
 				rotation: Number(args.rotation ?? 0),
 				zIndex: now,
@@ -740,7 +804,7 @@ async function executeMutation(
 					shapeId,
 					x: Number(args.x ?? 0),
 					y: Number(args.y ?? 0),
-					w: Number(args.w ?? 320),
+					w: Number(args.w ?? DEFAULT_CARD_WIDTH),
 					h: Number(args.h ?? 180),
 					rotation: Number(args.rotation ?? 0),
 					zIndex: now + results.length,
@@ -756,22 +820,85 @@ async function executeMutation(
 			return single ? results[0] : { whiteboardId, placements: results };
 		}
 		case "canvas.restoreOrAdoptCardItem": {
+			const whiteboardId =
+				typeof args.whiteboardId === "string"
+					? (args.whiteboardId as WhiteboardId)
+					: null;
+			if (!whiteboardId) return null;
+			const board = await db.whiteboards.get(whiteboardId);
+			if (!board || !active(board)) throw new Error("Whiteboard not found");
+
+			const shapeId = String(args.shapeId);
+			const existing = await db.boardItems
+				.where("[whiteboardId+shapeId]")
+				.equals([whiteboardId, shapeId])
+				.first();
+			if (existing) {
+				if (active(existing)) return existing.id;
+				if (existing.kind !== "card" || !existing.cardId) return null;
+				const card = await db.cards.get(existing.cardId);
+				if (!card) throw new Error("Card not found");
+				await db.boardItems.update(existing.id, {
+					archivedAt: null,
+					updatedAt: now,
+					revision: existing.revision + 1,
+					updatedByDeviceId: deviceId,
+				});
+				await db.cards.update(card.id, {
+					archivedAt: null,
+					activePlacementCount: card.activePlacementCount + 1,
+					updatedAt: now,
+					revision: card.revision + 1,
+					updatedByDeviceId: deviceId,
+				});
+				await adjustCounts(db, whiteboardId, 1);
+				return existing.id;
+			}
+
 			const source =
 				typeof args.sourceCardId === "string"
 					? await db.cards.get(args.sourceCardId)
 					: null;
-			if (source && active(source))
-				return executeMutation(db, deviceId, "cards.appendToWhiteboard", {
+			if (source && active(source)) {
+				const itemId = id();
+				await db.boardItems.add({
+					id: itemId as BoardItem["id"],
+					...base(deviceId, now),
+					whiteboardId,
+					kind: "card",
 					cardId: source.id,
-					whiteboardId: args.whiteboardId,
-					shapeId: args.shapeId,
-					x: args.x,
-					y: args.y,
-					w: args.w,
-					h: args.h,
-					rotation: args.rotation,
+					childWhiteboardId: null,
+					shapeId,
+					x: Number(args.x ?? 0),
+					y: Number(args.y ?? 0),
+					w: Number(args.w ?? DEFAULT_CARD_WIDTH),
+					h: Number(args.h ?? 180),
+					rotation: Number(args.rotation ?? 0),
+					zIndex: now,
+					archivedAt: null,
 				});
-			return executeMutation(db, deviceId, "canvas.createCardItem", args);
+				await db.cards.update(source.id, {
+					activePlacementCount: source.activePlacementCount + 1,
+					updatedAt: now,
+					revision: source.revision + 1,
+					updatedByDeviceId: deviceId,
+				});
+				await adjustCounts(db, whiteboardId, 1);
+				return itemId;
+			}
+
+			const adopted = await executeMutation(
+				db,
+				deviceId,
+				"canvas.createCardItem",
+				{
+				...args,
+				whiteboardId,
+				shapeId,
+				content: parseClipboardCardContent(args.content),
+				},
+			);
+			return adopted.itemId;
 		}
 		case "tldrawDocuments.save": {
 			const whiteboardId = (args.whiteboardId ?? null) as WhiteboardId | null;

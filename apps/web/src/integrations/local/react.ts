@@ -13,12 +13,15 @@ function useLocalState() {
 }
 
 export function useQuery(reference: Reference, args?: Arguments): any {
-	const { database } = useLocalState();
+	const state = useLocalState();
+	const { database } = state;
 	const key = JSON.stringify(args);
 	return useLiveQuery(
 		() =>
-			args === "skip" ? undefined : localQuery(database, reference, args ?? {}),
-		[database, reference, key],
+			args === "skip" || state.status !== "ready"
+				? undefined
+				: localQuery(database, reference, args ?? {}),
+		[database, reference, key, state.status],
 	);
 }
 

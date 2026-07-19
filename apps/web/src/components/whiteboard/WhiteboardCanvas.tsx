@@ -152,17 +152,13 @@ export function WhiteboardCanvas({
 		pendingEditShapeIdRef,
 	});
 
-	const {
-		loadedDrawingKey,
-		setLoadedDrawingKey,
-		emptyDrawingSnapshotRef,
-		deferredBindingsRef,
-	} = useDrawingHydration({
-		editor,
-		whiteboardKey,
-		tldrawDocument,
-		hydratingRef,
-	});
+	const { loadedDrawingKey, emptyDrawingSnapshotRef, deferredBindingsRef } =
+		useDrawingHydration({
+			editor,
+			whiteboardKey,
+			tldrawDocument,
+			hydratingRef,
+		});
 
 	const { prioritizeCardContent, scheduleVisibleCardHydration } =
 		useVisibleCardContentHydration({
@@ -256,7 +252,6 @@ export function WhiteboardCanvas({
 		pendingCameraResetRef.current = true;
 		setWhiteboardCardDeletePending(null);
 		setWhiteboardDeletePending(null);
-		setLoadedDrawingKey(null);
 	}, [editor, whiteboardId]);
 
 	// ── Unmount: flush any pending writes ──────────────────────────────────────

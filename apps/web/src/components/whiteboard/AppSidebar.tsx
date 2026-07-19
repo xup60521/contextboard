@@ -1,5 +1,5 @@
 import { Monitor, Moon, Sun, X } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SidebarTabs } from "#/components/sidebar/SidebarTabs";
 import { Button } from "#/components/ui/button";
 import { useThemeMode } from "../../hooks/useThemeMode";
@@ -25,6 +25,11 @@ const themeOrder: Theme[] = ["light", "dark", "auto"];
 export function AppSidebar() {
 	const { isOpen, close } = useSidebarContext();
 	const theme = useThemeMode();
+	const [mounted, setMounted] = useState(false);
+
+	useEffect(() => {
+		setMounted(true);
+	}, []);
 
 	const cycleTheme = useCallback(() => {
 		const next =
@@ -70,7 +75,7 @@ export function AppSidebar() {
 						<X />
 					</Button>
 				</header>
-				<SidebarTabs />
+				{mounted ? <SidebarTabs /> : null}
 			</aside>
 		</div>
 	);
