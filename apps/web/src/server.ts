@@ -6,12 +6,7 @@ type FetchHandler = (
 
 let cachedFetch: FetchHandler | null = null;
 
-// SYNC_VPS remains supplemental until the production Connectivity Directory
-// service UUID is configured and `wrangler types` can generate the binding.
-export type WorkerEnv = (Env | Cloudflare.DevEnv) & {
-	SYNC_VPS?: Fetcher;
-	SYNC_VPS_URL?: string;
-};
+export type WorkerEnv = Env;
 
 const VPC_PLACEHOLDER_ORIGIN = "https://contextboard.internal";
 const JSON_BODY_LIMIT = 2 * 1024 * 1024;

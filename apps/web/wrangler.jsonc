@@ -58,11 +58,10 @@
         }
       ]
     }
-  }
-  // Production must add:
-  // "vpc_services": [{
-  //   "binding": "SYNC_VPS",
-  //   "service_id": "<Cloudflare Connectivity Directory service UUID>",
-  //   "remote": true
-  // }]
+  },
+  "vpc_services": [{
+    "binding": "SYNC_VPS",
+    "service_id": "019fa942-f01d-7f82-81ad-f11d3d95a1a0",
+    "remote": true
+  }]
 }
