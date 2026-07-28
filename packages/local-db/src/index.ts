@@ -14,6 +14,8 @@ import {
 	type BlobDescriptor,
 	type ChangeBatch,
 	type ConflictRecord,
+	conflictCopyCardId,
+	deterministicEntityId,
 	type EntityChange,
 	type HybridLogicalClock,
 	parseChangeBatch,
@@ -178,6 +180,11 @@ export async function runLocalCommand<T>(
 			return result;
 		},
 	);
+}
+
+/** Keeps the active Dexie transaction alive while a browser API promise settles. */
+export function waitForExternal<T>(promise: PromiseLike<T>): Promise<T> {
+	return Dexie.waitFor(promise);
 }
 
 export async function ensureLocalIdentity(db: ContextboardDatabase) {
@@ -563,7 +570,7 @@ export async function applyRemoteBatches(
 					].sort();
 					const conflictId = `conflict:${change.entityId}:${participants.join(":")}`;
 					if (!(await db.conflicts.get(conflictId))) {
-						const conflictCardId = `card:${conflictId}`;
+						const conflictCardId = conflictCopyCardId(conflictId);
 						const placements = (
 							await db.boardItems
 								.where("cardId")
@@ -583,9 +590,17 @@ export async function applyRemoteBatches(
 						for (const [index, placement] of placements.entries()) {
 							await db.boardItems.put({
 								...placement,
-								id: `placement:${conflictId}:${placement.id}`,
+								id: deterministicEntityId(
+									"conflict-placement",
+									conflictId,
+									placement.id,
+								),
 								cardId: conflictCardId,
-								shapeId: `shape:${conflictId}:${placement.shapeId}`,
+								shapeId: deterministicEntityId(
+									"conflict-shape",
+									conflictId,
+									placement.shapeId,
+								),
 								x: placement.x + 48 * (index + 1),
 								y: placement.y + 48 * (index + 1),
 							} as never);
@@ -598,7 +613,11 @@ export async function applyRemoteBatches(
 							.toArray())
 							await db.cardReferences.put({
 								...reference,
-								id: `reference:${conflictId}:${reference.id}`,
+								id: deterministicEntityId(
+									"conflict-reference",
+									conflictId,
+									reference.id,
+								),
 								sourceCardId: conflictCardId,
 							} as never);
 						for (const reference of await db.fileReferences
@@ -607,7 +626,11 @@ export async function applyRemoteBatches(
 							.toArray())
 							await db.fileReferences.put({
 								...reference,
-								id: `file-reference:${conflictId}:${reference.id}`,
+								id: deterministicEntityId(
+									"conflict-file-reference",
+									conflictId,
+									reference.id,
+								),
 								targetKey: `card:${conflictCardId}`,
 							} as never);
 						await db.conflicts.add({

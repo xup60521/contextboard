@@ -1,6 +1,35 @@
 export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const SYNC_SCHEMA_VERSION = 2 as const;
 
+function hash32(value: string, seed: number): string {
+	let hash = seed;
+	for (let index = 0; index < value.length; index++) {
+		hash ^= value.charCodeAt(index);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export function deterministicEntityId(
+	namespace: string,
+	...parts: string[]
+): string {
+	const value = parts
+		.map((part) => `${part.length}:${part}`)
+		.join("|");
+	const digest = [
+		hash32(value, 0x811c9dc5),
+		hash32(value, 0x9e3779b9),
+		hash32(value, 0x85ebca6b),
+		hash32(value, 0xc2b2ae35),
+	].join("");
+	return `${namespace}:${digest}`;
+}
+
+export function conflictCopyCardId(conflictId: string): string {
+	return deterministicEntityId("conflict-card", conflictId);
+}
+
 export type WorkspaceIdentity = {
 	workspaceId: string;
 	createdAt: number;

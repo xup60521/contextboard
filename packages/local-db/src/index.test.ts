@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import {
 	type ChangeBatch,
+	conflictCopyCardId,
 	HybridLogicalClock,
 	parsePushChangesRequest,
 	SYNC_PROTOCOL_VERSION,
@@ -573,7 +574,7 @@ describe("local database", () => {
 		expect(conflictsA).toHaveLength(1);
 		expect(conflictsB).toHaveLength(1);
 		expect(conflictsA[0]?.conflictId).toBe(conflictsB[0]?.conflictId);
-		const copyId = `card:${conflictsA[0]?.conflictId}`;
+		const copyId = conflictCopyCardId(conflictsA[0]?.conflictId ?? "");
 		const copyA = await dbA.cards.get(copyId);
 		const copyB = await dbB.cards.get(copyId);
 		expect(copyA?.content).toEqual(cardB.content);

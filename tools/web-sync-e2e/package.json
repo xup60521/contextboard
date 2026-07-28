@@ -1,0 +1,21 @@
+{
+  "name": "@contextboard/web-sync-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test:e2e": "bun test --preload ./src/preload.ts ./src/web-sync.e2e.test.ts"
+  },
+  "dependencies": {
+    "@contextboard/client-core": "workspace:*",
+    "@contextboard/local-db": "workspace:*",
+    "@contextboard/sync-protocol": "workspace:*",
+    "fake-indexeddb": "^6.2.4",
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.2"
+  }
+}

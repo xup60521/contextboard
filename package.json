@@ -13,6 +13,7 @@
     "dev:sync": "turbo run dev --filter=@contextboard/sync-server",
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:e2e": "bun run --filter @contextboard/web-sync-e2e test:e2e",
     "check": "turbo run check",
     "lint": "turbo run lint",
     "format": "turbo run format",

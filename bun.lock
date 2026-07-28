@@ -171,6 +171,21 @@
         "convex": "^1.42.0",
       },
     },
+    "tools/web-sync-e2e": {
+      "name": "@contextboard/web-sync-e2e",
+      "version": "0.0.0",
+      "dependencies": {
+        "@contextboard/client-core": "workspace:*",
+        "@contextboard/local-db": "workspace:*",
+        "@contextboard/sync-protocol": "workspace:*",
+        "fake-indexeddb": "^6.2.4",
+        "fflate": "^0.8.2",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^6.0.2",
+      },
+    },
   },
   "packages": {
     "@acemir/cssom": ["@acemir/cssom@0.9.31", "", {}, "sha512-ZnR3GSaH+/vJ0YlHau21FjfLYjMpYVIzTD8M8vIEQvIGxeOXyXdzCI140rrCY862p/C/BbzWsjc1dgnM9mkoTA=="],
@@ -288,6 +303,8 @@
     "@contextboard/sync-server": ["@contextboard/sync-server@workspace:apps/sync-server"],
 
     "@contextboard/web": ["@contextboard/web@workspace:apps/web"],
+
+    "@contextboard/web-sync-e2e": ["@contextboard/web-sync-e2e@workspace:tools/web-sync-e2e"],
 
     "@cspotcode/source-map-support": ["@cspotcode/source-map-support@0.8.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.9" } }, "sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw=="],
 

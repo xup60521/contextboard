@@ -1,6 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
 import {
+	conflictCopyCardId,
+	deterministicEntityId,
 	HybridLogicalClock,
+	parseChangeBatch,
 	parseCheckpointDescriptor,
 	parsePullChangesRequest,
 	parseSyncVersionHeaders,
@@ -36,6 +39,40 @@ describe("HybridLogicalClock", () => {
 				createdAt: 1,
 			}),
 		).toThrow("hash is invalid");
+	});
+
+	test("creates compact deterministic IDs for conflict-derived entities", () => {
+		const conflictId = `conflict:${"card-id:".repeat(20)}device-a:42:device-b:57`;
+		const cardId = conflictCopyCardId(conflictId);
+		expect(cardId).toBe(conflictCopyCardId(conflictId));
+		expect(cardId).not.toBe(conflictCopyCardId(`${conflictId}:other`));
+		expect(
+			deterministicEntityId("conflict-placement", conflictId, "placement-id"),
+		).toHaveLength("conflict-placement:".length + 32);
+		expect(() =>
+			parseChangeBatch({
+				protocolVersion: 1,
+				schemaVersion: 2,
+				changeId: "change",
+				workspaceId: "workspace",
+				deviceId: "device",
+				deviceSequence: 1,
+				clock: "0000000000001:000000:device",
+				command: "conflicts.resolve",
+				createdAt: 1,
+				changes: [
+					{
+						entityType: "card",
+						entityId: cardId,
+						baseRevision: null,
+						revision: 1,
+						operation: "upsert",
+						clock: "0000000000001:000000:device",
+						value: {},
+					},
+				],
+			}),
+		).not.toThrow();
 	});
 
 	test("the local-only transport never attempts network access", async () => {

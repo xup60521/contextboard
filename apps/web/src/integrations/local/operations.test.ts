@@ -7,6 +7,7 @@ import {
 } from "@contextboard/local-db";
 import {
 	type ChangeBatch,
+	conflictCopyCardId,
 	parsePushChangesRequest,
 	SYNC_PROTOCOL_VERSION,
 	SYNC_SCHEMA_VERSION,
@@ -475,7 +476,7 @@ describe("local operations", () => {
 			await applyRemoteBatches(db, [remote], "cloud", "1");
 			const conflict = (await db.conflicts.toArray())[0];
 			if (!conflict) throw new Error("Expected conflict");
-			const copyId = `card:${conflict.conflictId}`;
+			const copyId = conflictCopyCardId(conflict.conflictId);
 
 			await localMutation(db, deviceId, "conflicts.resolve", {
 				conflictId: conflict.conflictId,

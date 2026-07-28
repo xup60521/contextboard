@@ -10,8 +10,10 @@ import {
 	type ContextboardDatabase,
 	runLocalCommand,
 	type Todo,
+	waitForExternal,
 } from "@contextboard/local-db";
 import {
+	conflictCopyCardId,
 	type EntityChange,
 	HybridLogicalClock,
 	type SyncEntityType,
@@ -190,13 +192,15 @@ async function reconcileReferences(
 }
 
 async function blobDataUrl(blob: Blob): Promise<string> {
-	return await new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onload = () => resolve(String(reader.result));
-		reader.onerror = () =>
-			reject(reader.error ?? new Error("Could not read local image"));
-		reader.readAsDataURL(blob);
-	});
+	return await waitForExternal(
+		new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(String(reader.result));
+			reader.onerror = () =>
+				reject(reader.error ?? new Error("Could not read local image"));
+			reader.readAsDataURL(blob);
+		}),
+	);
 }
 
 async function placementFor(
@@ -1087,8 +1091,10 @@ async function executeMutation(
 			const file = args.file;
 			if (!(file instanceof Blob))
 				throw new Error("Local upload is missing its file");
-			const bytes = await file.arrayBuffer();
-			const digest = await crypto.subtle.digest("SHA-256", bytes);
+			const bytes = await waitForExternal(file.arrayBuffer());
+			const digest = await waitForExternal(
+				crypto.subtle.digest("SHA-256", bytes),
+			);
 			const sha256 = [...new Uint8Array(digest)]
 				.map((byte) => byte.toString(16).padStart(2, "0"))
 				.join("");
@@ -1210,7 +1216,7 @@ async function executeMutation(
 						selected.content,
 					);
 				}
-				const copy = await db.cards.get(`card:${conflictId}`);
+				const copy = await db.cards.get(conflictCopyCardId(conflictId));
 				if (copy) {
 					await reconcileReferences(
 						db,
@@ -1281,11 +1287,18 @@ async function executeMutation(
 const clocks = new Map<string, HybridLogicalClock>();
 
 type TrackableRow = {
-	id: string;
+	id?: string;
+	conflictId?: string;
 	revision?: number;
 	deletedAt?: number | null;
 	[key: string]: unknown;
 };
+
+function syncRowId(row: TrackableRow): string {
+	const id = row.id ?? row.conflictId;
+	if (!id) throw new Error("A syncable row is missing its entity ID");
+	return id;
+}
 
 function syncValue(entityType: SyncEntityType, row: TrackableRow) {
 	if (entityType === "file") {
@@ -1340,7 +1353,10 @@ export async function localMutation(
 			const before = new Map<string, TrackableRow>();
 			for (const [entityType, table] of tracked) {
 				for (const row of (await table.toArray()) as TrackableRow[]) {
-					before.set(`${entityType}:${row.id}`, structuredClone(row));
+					before.set(
+						`${entityType}:${syncRowId(row)}`,
+						structuredClone(row),
+					);
 				}
 			}
 			const result = await executeMutation(db, deviceId, reference, args);
@@ -1349,7 +1365,8 @@ export async function localMutation(
 			const now = Date.now();
 			for (const [entityType, table] of tracked) {
 				for (const row of (await table.toArray()) as TrackableRow[]) {
-					const key = `${entityType}:${row.id}`;
+					const rowId = syncRowId(row);
+					const key = `${entityType}:${rowId}`;
 					seen.add(key);
 					const previous = before.get(key);
 					const value = syncValue(entityType, row);
@@ -1361,7 +1378,7 @@ export async function localMutation(
 						continue;
 					changes.push({
 						entityType,
-						entityId: row.id,
+						entityId: rowId,
 						baseRevision: previous?.revision ?? null,
 						revision: row.revision ?? (previous?.revision ?? 0) + 1,
 						operation: row.deletedAt
@@ -1378,7 +1395,7 @@ export async function localMutation(
 				const entityType = key.slice(0, separator) as SyncEntityType;
 				changes.push({
 					entityType,
-					entityId: previous.id,
+					entityId: syncRowId(previous),
 					baseRevision: previous.revision ?? null,
 					revision: (previous.revision ?? 0) + 1,
 					operation: "delete" as const,
