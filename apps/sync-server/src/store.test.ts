@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,6 +15,8 @@ const createStore = () => {
 	roots.push(root);
 	return new SyncStore(":memory:", join(root, "blobs"));
 };
+const sha256 = (bytes: Uint8Array) =>
+	new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
 const batch = (
 	sequence: number,
 	changeId = `change-${sequence}`,
@@ -102,6 +104,61 @@ describe("SyncStore", () => {
 				new Blob([bytes]).stream(),
 			),
 		).rejects.toThrow("hash or size mismatch");
+		expect(store.getBlobDescriptor("workspace-1", "0".repeat(64))).toBeNull();
+		expect(
+			readdirSync(join(store.blobRoot, "workspace-1")),
+		).toHaveLength(0);
+		store.close();
+	});
+
+	test("stores blobs idempotently and isolates identical hashes by workspace", async () => {
+		const store = createStore();
+		const bytes = new TextEncoder().encode("content-addressed");
+		const descriptor = {
+			hash: sha256(bytes),
+			contentType: "text/plain",
+			size: bytes.length,
+		};
+		await store.putBlob("workspace-1", descriptor, new Blob([bytes]).stream());
+		await store.putBlob("workspace-1", descriptor, new Blob([bytes]).stream());
+		expect(store.getBlobDescriptor("workspace-1", descriptor.hash)).toEqual(
+			descriptor,
+		);
+		expect(store.getBlobDescriptor("workspace-2", descriptor.hash)).toBeNull();
+
+		await store.putBlob("workspace-2", descriptor, new Blob([bytes]).stream());
+		expect(store.getBlobDescriptor("workspace-2", descriptor.hash)).toEqual(
+			descriptor,
+		);
+		expect(store.blobPath("workspace-1", descriptor.hash)).not.toBe(
+			store.blobPath("workspace-2", descriptor.hash),
+		);
+		store.close();
+	});
+
+	test("an interrupted upload leaves neither a completed record nor temp file", async () => {
+		const store = createStore();
+		const bytes = new TextEncoder().encode("partial");
+		const descriptor = {
+			hash: sha256(bytes),
+			contentType: "application/octet-stream",
+			size: bytes.length,
+		};
+		const interrupted = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(bytes.slice(0, 2));
+				controller.error(new Error("connection lost"));
+			},
+		});
+		await expect(
+			store.putBlob("workspace-1", descriptor, interrupted),
+		).rejects.toThrow("connection lost");
+		expect(
+			store.getBlobDescriptor("workspace-1", descriptor.hash),
+		).toBeNull();
+		expect(
+			readdirSync(join(store.blobRoot, "workspace-1")),
+		).toHaveLength(0);
 		store.close();
 	});
 });

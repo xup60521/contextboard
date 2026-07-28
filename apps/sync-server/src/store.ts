@@ -240,6 +240,7 @@ export class SyncStore {
 		const hasher = new Bun.CryptoHasher("sha256");
 		const reader = body.getReader();
 		let size = 0;
+		let renamed = false;
 		try {
 			for (;;) {
 				const { done, value } = await reader.read();
@@ -258,7 +259,9 @@ export class SyncStore {
 				await Bun.file(temporary).delete();
 				throw new Error("Blob hash or size mismatch");
 			}
+			if (await Bun.file(path).exists()) await Bun.file(path).delete();
 			renameSync(temporary, path);
+			renamed = true;
 			this.db
 				.prepare(
 					`INSERT OR IGNORE INTO blobs(workspace_id, hash, content_type, size, created_at)
@@ -276,6 +279,10 @@ export class SyncStore {
 			await Promise.resolve(Bun.file(temporary).delete()).catch(
 				() => undefined,
 			);
+			if (renamed)
+				await Promise.resolve(Bun.file(path).delete()).catch(
+					() => undefined,
+				);
 			throw error;
 		}
 	}

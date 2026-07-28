@@ -41,24 +41,35 @@ export async function bootstrapLatestCheckpoint(
 ) {
 	const descriptor = await transport.getLatestCheckpoint(workspaceId);
 	if (!descriptor) return false;
-	const blob = await verifiedDownload(transport, workspaceId, descriptor.blob);
-	const payload = JSON.parse(
-		strFromU8(gunzipSync(new Uint8Array(await blob.arrayBuffer()))),
-	) as WorkspaceCheckpoint;
-	if (
-		payload.workspaceId !== workspaceId ||
-		payload.coveredCursor !== descriptor.coveredCursor ||
-		!payload.entities ||
-		typeof payload.entities !== "object"
-	)
-		throw new Error("Checkpoint payload does not match its descriptor");
-	await importCheckpointEntities(
-		db,
-		workspaceId,
-		payload.entities,
-		payload.coveredCursor,
-	);
-	return true;
+	try {
+		const blob = await verifiedDownload(
+			transport,
+			workspaceId,
+			descriptor.blob,
+		);
+		const payload = JSON.parse(
+			strFromU8(gunzipSync(new Uint8Array(await blob.arrayBuffer()))),
+		) as WorkspaceCheckpoint;
+		if (
+			payload.workspaceId !== workspaceId ||
+			payload.coveredCursor !== descriptor.coveredCursor ||
+			!payload.entities ||
+			typeof payload.entities !== "object"
+		)
+			throw new Error("Checkpoint payload does not match its descriptor");
+		await importCheckpointEntities(
+			db,
+			workspaceId,
+			payload.entities,
+			payload.coveredCursor,
+		);
+		return true;
+	} catch {
+		// A checkpoint is only an optimization. Corruption, interruption, or an
+		// IndexedDB transaction failure must leave the cursor untouched so the
+		// coordinator can fall back to the append-only change log.
+		return false;
+	}
 }
 
 export async function maybeCreateCheckpoint(
