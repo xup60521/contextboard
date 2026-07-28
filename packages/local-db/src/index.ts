@@ -290,10 +290,36 @@ async function rebuildLegacyPendingBatches(
 
 		const now = Date.now();
 		const sequenceSetting = await db.settings.get("deviceSequence");
+		const appliedSequences = (await db.appliedChangeBatches.toArray())
+			.filter(
+				(batch) =>
+					batch.workspaceId === workspaceId && batch.deviceId === deviceId,
+			)
+			.map((batch) => batch.deviceSequence);
+		const pendingSequences = pending
+			.filter(
+				(batch) =>
+					batch.workspaceId === workspaceId && batch.deviceId === deviceId,
+			)
+			.flatMap((batch) => {
+				const legacy = batch as ChangeBatch & { sequence?: unknown };
+				const value =
+					typeof batch.deviceSequence === "number"
+						? batch.deviceSequence
+						: legacy.sequence;
+				return typeof value === "number" && Number.isSafeInteger(value)
+					? [value]
+					: [];
+			});
 		const deviceSequence =
-			typeof sequenceSetting?.value === "number"
-				? sequenceSetting.value + 1
-				: 1;
+			Math.max(
+				0,
+				typeof sequenceSetting?.value === "number"
+					? sequenceSetting.value
+					: 0,
+				...appliedSequences,
+				...pendingSequences,
+			) + 1;
 		const clock = `${String(now).padStart(13, "0")}:000000:${deviceId}`;
 
 		// Preserve legacy non-managed tldraw records without ever putting the

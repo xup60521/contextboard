@@ -123,6 +123,219 @@ describe("local database", () => {
 		expect(JSON.stringify(batches)).not.toContain("stale mutation arguments");
 	});
 
+	test("rebuilds every syncable entity, excludes binary snapshots, and is idempotent", async () => {
+		const db = makeDb();
+		const identity = await ensureLocalIdentity(db);
+		const now = Date.now();
+		const base = {
+			revision: 1,
+			createdAt: now,
+			updatedAt: now,
+			updatedByDeviceId: identity.deviceId,
+			deletedAt: null,
+		};
+		await db.whiteboards.put({
+			...base,
+			id: "board-1",
+			title: "Board",
+			parentWhiteboardId: null,
+			ancestorIds: [],
+			depth: 0,
+			sortKey: "a",
+			pathKey: "a",
+			cardCount: 1,
+			childWhiteboardCount: 0,
+			archivedAt: null,
+		} as never);
+		await db.cards.put({
+			...base,
+			id: "card-1",
+			derivedTitle: "Card",
+			content: { type: "doc", content: [{ type: "paragraph" }] },
+			archivedAt: null,
+			activePlacementCount: 1,
+		} as never);
+		await db.boardItems.put({
+			...base,
+			id: "placement-1",
+			whiteboardId: "board-1",
+			shapeId: "shape-1",
+			kind: "card",
+			cardId: "card-1",
+			childWhiteboardId: null,
+			x: 10,
+			y: 20,
+			w: 300,
+			h: 200,
+			rotation: 0,
+			zIndex: 1,
+			archivedAt: null,
+		} as never);
+		await db.cardReferences.put({
+			...base,
+			id: "reference-1",
+			sourceCardId: "card-1",
+			targetCardId: "card-2",
+		} as never);
+		await db.cardRelations.put({
+			...base,
+			id: "relation-1",
+			whiteboardId: "board-1",
+			sourceCardId: "card-1",
+			targetCardId: "card-2",
+			relationType: "supports",
+			ordinal: 1,
+			clock: "0000000000001:000000:device-1",
+		} as never);
+		await db.files.put({
+			...base,
+			id: "file-1",
+			sha256: "a".repeat(64),
+			contentType: "image/png",
+			size: 3,
+			status: "available",
+			blob: new Blob(["raw"]),
+			pendingDeleteAt: null,
+		} as never);
+		await db.fileReferences.put({
+			...base,
+			id: "file-reference-1",
+			fileId: "file-1",
+			targetKey: "card:card-1",
+		} as never);
+		await db.canvasRecords.put({
+			...base,
+			id: "board-1:shape-existing",
+			whiteboardId: "board-1",
+			recordId: "shape-existing",
+			recordType: "shape",
+			payload: { id: "shape-existing", typeName: "shape", type: "arrow" },
+			clock: "0000000000001:000000:device-1",
+		} as never);
+		await db.tldrawDocuments.put({
+			...base,
+			id: "document-1",
+			whiteboardId: "board-1",
+			snapshot: {
+				store: {
+					"shape:arrow": {
+						id: "shape:arrow",
+						typeName: "shape",
+						type: "arrow",
+					},
+					"shape:managed": {
+						id: "shape:managed",
+						typeName: "shape",
+						type: "markdown-card",
+					},
+				},
+			},
+		} as never);
+		await db.appliedChangeBatches.put({
+			changeId: "server-known",
+			workspaceId: identity.workspaceId,
+			deviceId: identity.deviceId,
+			deviceSequence: 40,
+			appliedAt: now,
+		});
+		await db.settings.put({ key: "deviceSequence", value: 2 });
+		await db.changeLog.add({
+			protocolVersion: 1,
+			changeId: "legacy-arguments",
+			workspaceId: identity.workspaceId,
+			deviceId: identity.deviceId,
+			sequence: 7,
+			clock: "legacy",
+			command: "cards.update",
+			createdAt: now,
+			changes: [{ args: { content: "stale mutation arguments" } }],
+		} as never);
+
+		const [rebuilt] = await getPendingBatches(db, 100);
+		expect(rebuilt.deviceSequence).toBe(41);
+		expect(new Set(rebuilt.changes.map((change) => change.entityType))).toEqual(
+			new Set([
+				"whiteboard",
+				"card",
+				"boardItem",
+				"file",
+				"fileReference",
+				"cardReference",
+				"cardRelation",
+				"canvasRecord",
+			]),
+		);
+		expect(
+			rebuilt.changes.find(
+				(change) =>
+					change.entityType === "canvasRecord" &&
+					change.entityId === "board-1:shape:arrow",
+			),
+		).toBeDefined();
+		expect(
+			rebuilt.changes.find((change) => change.entityType === "file")?.value,
+		).toMatchObject({ hash: "a".repeat(64), size: 3 });
+		const serialized = JSON.stringify(rebuilt);
+		expect(serialized).not.toContain("stale mutation arguments");
+		expect(serialized).not.toContain('"snapshot"');
+		expect(serialized).not.toContain('"blob"');
+		expect(serialized).not.toContain("shape:managed");
+
+		const [second] = await getPendingBatches(db, 100);
+		expect(second.changeId).toBe(rebuilt.changeId);
+		expect(second.deviceSequence).toBe(41);
+	});
+
+	test("rolls back a crashed legacy migration transaction", async () => {
+		const db = makeDb();
+		const identity = await ensureLocalIdentity(db);
+		const now = Date.now();
+		await db.tldrawDocuments.put({
+			id: "document-1",
+			whiteboardId: "board-1",
+			snapshot: {
+				store: {
+					"shape:collision": {
+						id: "shape:collision",
+						typeName: "shape",
+						type: "arrow",
+					},
+				},
+			},
+			revision: 1,
+			createdAt: now,
+			updatedAt: now,
+			updatedByDeviceId: identity.deviceId,
+			deletedAt: null,
+		} as never);
+		await db.canvasRecords.put({
+			id: "board-1:shape:collision",
+			whiteboardId: "different-board",
+			recordId: "different-record",
+			recordType: "shape",
+			payload: { id: "different-record" },
+			clock: "legacy",
+			revision: 1,
+			createdAt: now,
+			updatedAt: now,
+			updatedByDeviceId: identity.deviceId,
+			deletedAt: null,
+		} as never);
+		await db.changeLog.add({
+			changeId: "legacy-change",
+			workspaceId: identity.workspaceId,
+			deviceId: identity.deviceId,
+			sequence: 1,
+			createdAt: now,
+			changes: [{ args: true }],
+		} as never);
+
+		await expect(getPendingBatches(db, 100)).rejects.toThrow();
+		expect(await db.changeLog.get("legacy-change")).toBeDefined();
+		expect(await db.canvasRecords.count()).toBe(1);
+		expect((await db.settings.get("deviceSequence"))?.value).toBeUndefined();
+	});
+
 	test("skips an echoed local batch while atomically advancing the cursor", async () => {
 		const db = makeDb();
 		const identity = await ensureLocalIdentity(db);
