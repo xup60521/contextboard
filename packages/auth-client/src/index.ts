@@ -47,7 +47,7 @@ export async function signInWithGitHubPopup() {
 	await waitForPopup(popup);
 }
 
-function waitForPopup(popup: Window) {
+export function waitForPopup(popup: Window) {
 	return new Promise<void>((resolve, reject) => {
 		let settled = false;
 		const finish = (error?: Error) => {
