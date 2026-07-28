@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "contextboard",
   "main": "./src/server.ts",
-  "compatibility_date": "2026-07-28",
+  "compatibility_date": "2026-06-30", // don't change this unless you know what you're doing
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": true,
@@ -37,7 +37,7 @@
       "vars": {
         // Local development has no VPC tunnel connector. Override this in
         // .env.local when the Bun sync server uses another address.
-        "SYNC_VPS_URL": "http://127.0.0.1:8788"
+        "SYNC_VPS_URL": "http://127.0.0.1:8789"
       },
       "ratelimits": [
         {
