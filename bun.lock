@@ -156,6 +156,29 @@
         "vitest": "^4.1.5",
       },
     },
+    "packages/storage-desktop": {
+      "name": "@contextboard/storage-desktop",
+      "version": "0.0.0",
+      "dependencies": {
+        "@contextboard/client-core": "workspace:*",
+        "@contextboard/sync-protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.2",
+        "vitest": "^4.1.5",
+      },
+    },
+    "packages/storage-indexeddb": {
+      "name": "@contextboard/storage-indexeddb",
+      "version": "0.0.0",
+      "dependencies": {
+        "@contextboard/local-db": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.2",
+        "vitest": "^4.1.5",
+      },
+    },
     "packages/sync-protocol": {
       "name": "@contextboard/sync-protocol",
       "version": "0.0.0",
@@ -297,6 +320,10 @@
     "@contextboard/domain": ["@contextboard/domain@workspace:packages/domain"],
 
     "@contextboard/local-db": ["@contextboard/local-db@workspace:packages/local-db"],
+
+    "@contextboard/storage-desktop": ["@contextboard/storage-desktop@workspace:packages/storage-desktop"],
+
+    "@contextboard/storage-indexeddb": ["@contextboard/storage-indexeddb@workspace:packages/storage-indexeddb"],
 
     "@contextboard/sync-protocol": ["@contextboard/sync-protocol@workspace:packages/sync-protocol"],
 
