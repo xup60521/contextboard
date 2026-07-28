@@ -34,6 +34,9 @@ describe("private API gateway", () => {
 		);
 		expect(await response.json()).toEqual({ source: "vpc" });
 		expect(bindingFetch).toHaveBeenCalledOnce();
+		const upstream = bindingFetch.mock.calls[0]?.[0] as Request;
+		expect(new URL(upstream.url).protocol).toBe("http:");
+		expect(upstream.url).toBe("http://localhost:8788/api/sync/v1/pull");
 	});
 
 	test("returns 503 instead of guessing a production origin", async () => {

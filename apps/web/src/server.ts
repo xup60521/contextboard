@@ -8,7 +8,7 @@ let cachedFetch: FetchHandler | null = null;
 
 export type WorkerEnv = Env;
 
-const VPC_PLACEHOLDER_ORIGIN = "https://contextboard.internal";
+const VPC_PLACEHOLDER_ORIGIN = "http://localhost:8788";
 const JSON_BODY_LIMIT = 2 * 1024 * 1024;
 const BLOB_BODY_LIMIT = 512 * 1024 * 1024;
 const API_TIMEOUT_MS = 15_000;
