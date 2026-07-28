@@ -1,73 +1,356 @@
 export const SYNC_PROTOCOL_VERSION = 1 as const;
+export const SYNC_SCHEMA_VERSION = 2 as const;
 
 export type WorkspaceIdentity = {
-  workspaceId: string;
-  createdAt: number;
-  archiveFormatVersion: number;
+	workspaceId: string;
+	createdAt: number;
+	archiveFormatVersion: number;
 };
 
 export type DeviceIdentity = {
-  deviceId: string;
-  createdAt: number;
-  displayName: string;
+	deviceId: string;
+	createdAt: number;
+	displayName: string;
 };
 
 export type SyncEntityType =
-  | "whiteboard" | "card" | "boardItem" | "tldrawDocument"
-  | "file" | "fileReference" | "cardReference" | "todo";
+	| "whiteboard"
+	| "card"
+	| "boardItem"
+	| "tldrawDocument"
+	| "file"
+	| "fileReference"
+	| "cardReference"
+	| "cardRelation"
+	| "canvasRecord"
+	| "conflict"
+	| "todo";
 
 export type EntityChange = {
-  entityType: SyncEntityType;
-  entityId: string;
-  baseRevision: number | null;
-  revision: number;
-  operation: "upsert" | "delete";
-  changedFields: string[];
-  value: unknown;
+	entityType: SyncEntityType;
+	entityId: string;
+	baseRevision: number | null;
+	revision: number;
+	operation: "upsert" | "delete";
+	clock: string;
+	value: unknown;
 };
 
 export type ChangeBatch = {
-  protocolVersion: typeof SYNC_PROTOCOL_VERSION;
-  changeId: string;
-  workspaceId: string;
-  deviceId: string;
-  sequence: number;
-  clock: string;
-  command: string;
-  createdAt: number;
-  changes: EntityChange[];
+	protocolVersion: typeof SYNC_PROTOCOL_VERSION;
+	schemaVersion: typeof SYNC_SCHEMA_VERSION;
+	changeId: string;
+	workspaceId: string;
+	deviceId: string;
+	deviceSequence: number;
+	clock: string;
+	command: string;
+	createdAt: number;
+	changes: EntityChange[];
 };
 
 export type SyncCursor = string;
-export type BlobDescriptor = { sha256: string; contentType: string; size: number };
-export type PushChangesRequest = { workspaceId: string; batches: ChangeBatch[]; cursor: SyncCursor | null };
-export type PushChangesResponse = { cursor: SyncCursor; acknowledgedChangeIds: string[]; missingBlobs: string[] };
-export type PullChangesRequest = { workspaceId: string; cursor: SyncCursor | null; limit: number };
-export type PullChangesResponse = { cursor: SyncCursor; batches: ChangeBatch[]; hasMore: boolean };
-export type SyncResult = { pushed: number; pulled: number; conflicts: number; cursor: SyncCursor | null };
-export type SyncStatus = { state: "local-only" | "idle" | "syncing" | "error"; cursor: SyncCursor | null; error?: string };
-export type ConflictRecord = { conflictId: string; entityType: SyncEntityType; entityId: string; localValue: unknown; remoteValue: unknown; createdAt: number; resolvedAt: number | null };
+export type BlobDescriptor = {
+	hash: string;
+	contentType: string;
+	size: number;
+};
+export type SyncEnvelope<T> = {
+	protocolVersion: typeof SYNC_PROTOCOL_VERSION;
+	schemaVersion: typeof SYNC_SCHEMA_VERSION;
+	encryption: "none";
+	payload: T;
+};
+export type PushChangesRequest = {
+	workspaceId: string;
+	batches: ChangeBatch[];
+	cursor: SyncCursor | null;
+};
+export type PushChangesResponse = {
+	cursor: SyncCursor;
+	acknowledgedChangeIds: string[];
+	missingBlobHashes: string[];
+};
+export type PullChangesRequest = {
+	workspaceId: string;
+	cursor: SyncCursor | null;
+	limit: number;
+};
+export type PullChangesResponse = {
+	cursor: SyncCursor;
+	batches: ChangeBatch[];
+	hasMore: boolean;
+};
+export type SyncResult = {
+	pushed: number;
+	pulled: number;
+	conflicts: number;
+	cursor: SyncCursor | null;
+};
+export type SyncStatus = {
+	state: "local-only" | "idle" | "syncing" | "error";
+	cursor: SyncCursor | null;
+	error?: string;
+};
+export type ConflictRecord = {
+	conflictId: string;
+	entityType: SyncEntityType;
+	entityId: string;
+	localValue: unknown;
+	remoteValue: unknown;
+	createdAt: number;
+	resolvedAt: number | null;
+	resolution: "keep-local" | "keep-remote" | "keep-both" | null;
+	revision: number;
+	updatedAt: number;
+	updatedByDeviceId: string;
+};
+export type CheckpointDescriptor = {
+	checkpointId: string;
+	workspaceId: string;
+	coveredCursor: SyncCursor;
+	blob: BlobDescriptor;
+	createdAt: number;
+};
+
+export type WorkspaceMembership = {
+	workspaceId: string;
+	role: "owner" | "member";
+	createdAt: number;
+};
+
+export type ListWorkspacesResponse = {
+	workspaces: WorkspaceMembership[];
+};
+
+export type ClaimWorkspaceRequest = {
+	workspaceId: string;
+	deviceId: string;
+};
+
+export type ClaimWorkspaceResponse = WorkspaceMembership & {
+	claimed: boolean;
+};
+
+export type PersistedSyncState = {
+	peerId: string;
+	cursor: SyncCursor | null;
+	enabled: boolean;
+	updatedAt: number;
+	lastSyncedAt: number | null;
+};
+
+export type WorkspaceCheckpoint = {
+	workspaceId: string;
+	coveredCursor: SyncCursor;
+	createdAt: number;
+	entities: Record<string, unknown[]>;
+};
+
+export class SyncProtocolError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "SyncProtocolError";
+	}
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+const readId = (value: unknown, name: string) => {
+	if (
+		typeof value !== "string" ||
+		value.length < 1 ||
+		value.length > 256 ||
+		!/^[A-Za-z0-9:._-]+$/.test(value)
+	)
+		throw new SyncProtocolError(`${name} is invalid`);
+	return value;
+};
+
+const readVersion = (
+	value: unknown,
+	expected: number,
+	name: string,
+): number => {
+	if (value !== expected)
+		throw new SyncProtocolError(`Unsupported ${name}: ${String(value)}`);
+	return expected;
+};
+
+export function parseChangeBatch(value: unknown): ChangeBatch {
+	if (!isRecord(value)) throw new SyncProtocolError("Batch must be an object");
+	readVersion(value.protocolVersion, SYNC_PROTOCOL_VERSION, "protocol version");
+	readVersion(value.schemaVersion, SYNC_SCHEMA_VERSION, "schema version");
+	const changes = value.changes;
+	if (!Array.isArray(changes) || changes.length > 10_000)
+		throw new SyncProtocolError("Batch changes are invalid");
+	const parsedChanges = changes.map((change, index): EntityChange => {
+		if (!isRecord(change))
+			throw new SyncProtocolError(`Change ${index} must be an object`);
+		const entityType = change.entityType;
+		const allowedEntityTypes: SyncEntityType[] = [
+			"whiteboard",
+			"card",
+			"boardItem",
+			"tldrawDocument",
+			"file",
+			"fileReference",
+			"cardReference",
+			"cardRelation",
+			"canvasRecord",
+			"conflict",
+			"todo",
+		];
+		if (!allowedEntityTypes.includes(entityType as SyncEntityType))
+			throw new SyncProtocolError(`Change ${index} has an invalid entity type`);
+		if (change.operation !== "upsert" && change.operation !== "delete")
+			throw new SyncProtocolError(`Change ${index} has an invalid operation`);
+		if (
+			(change.baseRevision !== null &&
+				(!Number.isSafeInteger(change.baseRevision) ||
+					Number(change.baseRevision) < 0)) ||
+			!Number.isSafeInteger(change.revision) ||
+			Number(change.revision) < 1
+		)
+			throw new SyncProtocolError(`Change ${index} has an invalid revision`);
+		return {
+			entityType: entityType as SyncEntityType,
+			entityId: readId(change.entityId, `changes[${index}].entityId`),
+			baseRevision: change.baseRevision as number | null,
+			revision: Number(change.revision),
+			operation: change.operation,
+			clock: readId(change.clock, `changes[${index}].clock`),
+			value: change.value,
+		};
+	});
+	if (
+		!Number.isSafeInteger(value.deviceSequence) ||
+		Number(value.deviceSequence) < 1 ||
+		!Number.isFinite(value.createdAt)
+	)
+		throw new SyncProtocolError("Batch sequence or timestamp is invalid");
+	return {
+		protocolVersion: SYNC_PROTOCOL_VERSION,
+		schemaVersion: SYNC_SCHEMA_VERSION,
+		changeId: readId(value.changeId, "changeId"),
+		workspaceId: readId(value.workspaceId, "workspaceId"),
+		deviceId: readId(value.deviceId, "deviceId"),
+		deviceSequence: Number(value.deviceSequence),
+		clock: readId(value.clock, "clock"),
+		command: readId(value.command, "command"),
+		createdAt: Number(value.createdAt),
+		changes: parsedChanges,
+	};
+}
+
+export function parsePushChangesRequest(value: unknown): PushChangesRequest {
+	if (!isRecord(value))
+		throw new SyncProtocolError("Request must be an object");
+	const workspaceId = readId(value.workspaceId, "workspaceId");
+	if (!Array.isArray(value.batches) || value.batches.length > 500)
+		throw new SyncProtocolError("batches is invalid");
+	const batches = value.batches.map(parseChangeBatch);
+	if (batches.some((batch) => batch.workspaceId !== workspaceId))
+		throw new SyncProtocolError("Workspace mismatch");
+	if (value.cursor !== null && typeof value.cursor !== "string")
+		throw new SyncProtocolError("cursor is invalid");
+	return { workspaceId, batches, cursor: value.cursor as string | null };
+}
+
+export function parsePullChangesRequest(value: unknown): PullChangesRequest {
+	if (!isRecord(value))
+		throw new SyncProtocolError("Request must be an object");
+	if (
+		!Number.isSafeInteger(value.limit) ||
+		Number(value.limit) < 1 ||
+		Number(value.limit) > 1000
+	)
+		throw new SyncProtocolError("limit is invalid");
+	if (value.cursor !== null && typeof value.cursor !== "string")
+		throw new SyncProtocolError("cursor is invalid");
+	return {
+		workspaceId: readId(value.workspaceId, "workspaceId"),
+		cursor: value.cursor as string | null,
+		limit: Number(value.limit),
+	};
+}
+
+export function parseClaimWorkspaceRequest(
+	value: unknown,
+): ClaimWorkspaceRequest {
+	if (!isRecord(value))
+		throw new SyncProtocolError("Request must be an object");
+	return {
+		workspaceId: readId(value.workspaceId, "workspaceId"),
+		deviceId: readId(value.deviceId, "deviceId"),
+	};
+}
 
 export interface SyncTransport {
-  push(request: PushChangesRequest, signal?: AbortSignal): Promise<PushChangesResponse>;
-  pull(request: PullChangesRequest, signal?: AbortSignal): Promise<PullChangesResponse>;
-  uploadBlob?(workspaceId: string, descriptor: BlobDescriptor, blob: Blob, signal?: AbortSignal): Promise<void>;
-  downloadBlob?(workspaceId: string, descriptor: BlobDescriptor, signal?: AbortSignal): Promise<Blob>;
+	push(
+		request: PushChangesRequest,
+		signal?: AbortSignal,
+	): Promise<PushChangesResponse>;
+	pull(
+		request: PullChangesRequest,
+		signal?: AbortSignal,
+	): Promise<PullChangesResponse>;
+	uploadBlob?(
+		workspaceId: string,
+		descriptor: BlobDescriptor,
+		blob: Blob,
+		signal?: AbortSignal,
+	): Promise<void>;
+	downloadBlob?(
+		workspaceId: string,
+		descriptor: BlobDescriptor,
+		signal?: AbortSignal,
+	): Promise<Blob>;
 }
 
 export class LocalOnlyTransport implements SyncTransport {
-  async push(_request: PushChangesRequest, _signal?: AbortSignal): Promise<PushChangesResponse> { throw new Error("Synchronization is not configured"); }
-  async pull(_request: PullChangesRequest, _signal?: AbortSignal): Promise<PullChangesResponse> { throw new Error("Synchronization is not configured"); }
+	async push(
+		_request: PushChangesRequest,
+		_signal?: AbortSignal,
+	): Promise<PushChangesResponse> {
+		throw new Error("Synchronization is not configured");
+	}
+	async pull(
+		_request: PullChangesRequest,
+		_signal?: AbortSignal,
+	): Promise<PullChangesResponse> {
+		throw new Error("Synchronization is not configured");
+	}
 }
 
 export class HybridLogicalClock {
-  #millis = 0;
-  #counter = 0;
-  constructor(private readonly deviceId: string) {}
+	#millis = 0;
+	#counter = 0;
+	constructor(private readonly deviceId: string) {}
 
-  tick(now = Date.now()): string {
-    if (now > this.#millis) { this.#millis = now; this.#counter = 0; }
-    else this.#counter += 1;
-    return `${this.#millis.toString().padStart(13, "0")}:${this.#counter.toString().padStart(6, "0")}:${this.deviceId}`;
-  }
+	tick(now = Date.now()): string {
+		if (now > this.#millis) {
+			this.#millis = now;
+			this.#counter = 0;
+		} else this.#counter += 1;
+		return `${this.#millis.toString().padStart(13, "0")}:${this.#counter.toString().padStart(6, "0")}:${this.deviceId}`;
+	}
+
+	observe(remote: string, now = Date.now()): string {
+		const [millis = "0", counter = "0"] = remote.split(":");
+		const remoteMillis = Number(millis);
+		const remoteCounter = Number(counter);
+		const nextMillis = Math.max(now, this.#millis, remoteMillis);
+		this.#counter =
+			nextMillis === this.#millis && nextMillis === remoteMillis
+				? Math.max(this.#counter, remoteCounter) + 1
+				: nextMillis === this.#millis
+					? this.#counter + 1
+					: nextMillis === remoteMillis
+						? remoteCounter + 1
+						: 0;
+		this.#millis = nextMillis;
+		return `${this.#millis.toString().padStart(13, "0")}:${this.#counter.toString().padStart(6, "0")}:${this.deviceId}`;
+	}
 }

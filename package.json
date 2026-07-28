@@ -8,7 +8,9 @@
     "tools/*"
   ],
   "scripts": {
-    "dev": "turbo run dev --filter=@contextboard/web",
+    "dev": "turbo run dev --filter=@contextboard/web --filter=@contextboard/sync-server",
+    "dev:web": "turbo run dev --filter=@contextboard/web",
+    "dev:sync": "turbo run dev --filter=@contextboard/sync-server",
     "build": "turbo run build",
     "test": "turbo run test",
     "check": "turbo run check",

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useLiveQuery } from "dexie-react-hooks";
 import { useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
@@ -6,6 +7,8 @@ import {
 	importArchive,
 } from "#/integrations/local/archive";
 import { useLocalDatabase } from "#/integrations/local/provider";
+import { useMutation } from "#/integrations/local/react";
+import { useSyncRuntime } from "#/integrations/sync/provider";
 
 export const Route = createFileRoute("/data")({
 	ssr: false,
@@ -14,6 +17,18 @@ export const Route = createFileRoute("/data")({
 
 function DataManagementPage() {
 	const local = useLocalDatabase();
+	const sync = useSyncRuntime();
+	const resolveConflict = useMutation("conflicts.resolve");
+	const unresolvedConflicts =
+		useLiveQuery(
+			() =>
+				local.status === "ready"
+					? local.database.conflicts
+							.toArray()
+							.then((rows) => rows.filter((row) => row.resolvedAt === null))
+					: [],
+			[local.status, local.database],
+		) ?? [];
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [message, setMessage] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -102,10 +117,95 @@ function DataManagementPage() {
 					{message}
 				</p>
 			) : null}
-			<p className="mt-10 text-xs text-[var(--text-muted)]">
-				Synchronization is not configured. The reserved sync protocol performs
-				no network requests.
-			</p>
+			<section className="mt-10 rounded-lg border border-[var(--border)] p-4">
+				<h2 className="text-sm font-semibold">Synchronization</h2>
+				<dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
+					<dt className="text-[var(--text-muted)]">State</dt>
+					<dd>{sync.state.state}</dd>
+					<dt className="text-[var(--text-muted)]">Workspace</dt>
+					<dd className="truncate font-mono">
+						{sync.state.workspaceId ?? "opening"}
+					</dd>
+					<dt className="text-[var(--text-muted)]">Device</dt>
+					<dd className="truncate font-mono">
+						{local.status === "ready" ? local.deviceId : "opening"}
+					</dd>
+					<dt className="text-[var(--text-muted)]">Pull cursor</dt>
+					<dd>{sync.state.cursor ?? "none"}</dd>
+					<dt className="text-[var(--text-muted)]">Pending batches</dt>
+					<dd>{sync.state.pendingCount}</dd>
+					<dt className="text-[var(--text-muted)]">Conflicts</dt>
+					<dd>{sync.state.conflictCount}</dd>
+				</dl>
+				{sync.state.error ? (
+					<p className="mt-3 text-xs text-red-600" role="alert">
+						{sync.state.error}
+					</p>
+				) : null}
+				<Button
+					type="button"
+					variant="outline"
+					className="mt-4"
+					disabled={!sync.signedIn || sync.state.state === "syncing"}
+					onClick={() => void sync.syncNow()}
+				>
+					Sync now
+				</Button>
+			</section>
+			{unresolvedConflicts.length ? (
+				<section className="mt-6 rounded-lg border border-amber-500/40 p-4">
+					<h2 className="text-sm font-semibold">
+						Conflicts ({unresolvedConflicts.length})
+					</h2>
+					<div className="mt-3 space-y-3">
+						{unresolvedConflicts.map((conflict) => (
+							<article
+								key={conflict.conflictId}
+								className="rounded-md bg-[var(--muted)]/40 p-3 text-xs"
+							>
+								<p className="font-medium">
+									{conflict.entityType}: {conflict.entityId}
+								</p>
+								<details className="mt-2">
+									<summary className="cursor-pointer">Compare values</summary>
+									<div className="mt-2 grid gap-2 md:grid-cols-2">
+										<pre className="overflow-auto rounded bg-black/5 p-2">
+											{JSON.stringify(conflict.localValue, null, 2)}
+										</pre>
+										<pre className="overflow-auto rounded bg-black/5 p-2">
+											{JSON.stringify(conflict.remoteValue, null, 2)}
+										</pre>
+									</div>
+								</details>
+								<div className="mt-3 flex flex-wrap gap-2">
+									{(["keep-local", "keep-remote", "keep-both"] as const).map(
+										(resolution) => (
+											<Button
+												key={resolution}
+												type="button"
+												size="sm"
+												variant="outline"
+												onClick={() =>
+													void resolveConflict({
+														conflictId: conflict.conflictId,
+														resolution,
+													})
+												}
+											>
+												{resolution === "keep-local"
+													? "Keep local"
+													: resolution === "keep-remote"
+														? "Keep remote"
+														: "Keep both"}
+											</Button>
+										),
+									)}
+								</div>
+							</article>
+						))}
+					</div>
+				</section>
+			) : null}
 		</main>
 	);
 }

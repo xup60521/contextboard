@@ -1,4 +1,8 @@
-import { useMutation, usePaginatedQuery, useQuery } from "#/integrations/local/react";
+import {
+	useMutation,
+	usePaginatedQuery,
+	useQuery,
+} from "#/integrations/local/react";
 import { api } from "#/integrations/local/api";
 import type { Id } from "#/integrations/local/types";
 import type {
@@ -6,9 +10,7 @@ import type {
 	TldrawDocumentResult,
 } from "../whiteboard-canvas-helpers";
 
-export function useWhiteboardData(
-	whiteboardId: Id<"whiteboards"> | null,
-) {
+export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	const whiteboard = useQuery(
 		api.whiteboards.get,
 		whiteboardId ? { whiteboardId } : "skip",
@@ -34,6 +36,7 @@ export function useWhiteboardData(
 	const archiveItem = useMutation(api.canvas.archiveItem);
 	const archiveCardsGlobally = useMutation(api.cards.archiveCards);
 	const restoreOrAdoptCardItem = useMutation(api.canvas.restoreOrAdoptCardItem);
+	const applyCanvasRecordChanges = useMutation(api.canvas.applyRecordChanges);
 	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
 	const generateUploadUrl = useMutation(api.files.generateUploadUrl);
 	const finalizeUpload = useMutation(api.files.finalizeUpload);
@@ -52,6 +55,7 @@ export function useWhiteboardData(
 		archiveItem,
 		archiveCardsGlobally,
 		restoreOrAdoptCardItem,
+		applyCanvasRecordChanges,
 		saveTldrawDocument,
 		generateUploadUrl,
 		finalizeUpload,

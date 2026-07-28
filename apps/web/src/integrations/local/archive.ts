@@ -67,9 +67,10 @@ export async function exportLocalArchive(
 	for (const table of TABLES)
 		entries[`data/${table}.json`] = encodeJson(data[table]);
 	for (const file of files)
-		entries[`blobs/${file.sha256}`] = new Uint8Array(
-			await file.blob.arrayBuffer(),
-		);
+		if (file.blob)
+			entries[`blobs/${file.sha256}`] = new Uint8Array(
+				await file.blob.arrayBuffer(),
+			);
 	const checksums = Object.fromEntries(
 		await Promise.all(
 			Object.entries(entries).map(async ([name, bytes]) => [
@@ -254,7 +255,12 @@ export async function importArchive(
 						const reader = new FileReader();
 						reader.onload = () => resolve(String(reader.result));
 						reader.onerror = () => reject(reader.error);
-						reader.readAsDataURL(fileRows[index].blob);
+						const blob = fileRows[index].blob;
+						if (!blob) {
+							resolve("");
+							return;
+						}
+						reader.readAsDataURL(blob);
 					}),
 				);
 		}

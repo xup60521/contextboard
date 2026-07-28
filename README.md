@@ -7,10 +7,10 @@ Contextboard is a local-first canvas workspace for rich-text cards and nested wh
 This is a Bun/Turborepo monorepo:
 
 - `apps/web` — TanStack Start web application deployed to Cloudflare Workers.
-- `apps/sync-server` — reserved manifest-only workspace for a future optional self-hosted sync server.
+- `apps/sync-server` — private Bun sync/auth service backed by SQLite and filesystem blobs.
 - `packages/domain` — application-owned entities and integrity rules.
 - `packages/local-db` — Dexie schema, workspace/device identity, and atomic change log.
-- `packages/sync-protocol` — versioned transport-neutral sync contracts. Networking is disabled today.
+- `packages/sync-protocol` — versioned transport-neutral sync contracts.
 - `tools/convex-export` — transitional utility for exporting a previous Convex deployment.
 
 ## Development
@@ -19,10 +19,19 @@ Requirements: Bun 1.3.13 or newer.
 
 ```bash
 bun install
-bun run dev
 ```
 
-The app runs at `http://localhost:3000`. It does not require environment variables or a backend process.
+Copy `.env.example` to `.env.local` and fill in the GitHub OAuth and Better
+Auth secrets, then start both services:
+
+```powershell
+Copy-Item .env.example .env.local
+bun dev
+```
+
+The Web app listens on `http://localhost:3000`; the sync service listens on
+`http://127.0.0.1:8788`. To run only one side, use `bun dev:web` or
+`bun dev:sync`.
 
 Useful commands:
 
@@ -54,11 +63,12 @@ The Convex CLI dependency is isolated inside the transitional export tool and is
 bun run deploy
 ```
 
-The Cloudflare Worker serves the application only. Persistent workspace data remains in each browser.
+The Cloudflare Worker serves the application and proxies auth/sync requests to
+the private sync service through its configured VPC Service binding.
 
-## Future synchronization
+## Synchronization
 
 IndexedDB remains authoritative. Local commands reserve workspace/device IDs, revisions, tombstones, hybrid logical clocks, and change batches. `packages/sync-protocol` defines push, pull, cursor, conflict, and blob contracts, while the current `LocalOnlyTransport` never performs network requests.
 
-The intended future server is optional and self-hostable, using SQLite plus filesystem blobs by default. `apps/sync-server` intentionally contains no runtime implementation yet.
-
+The self-hosted sync server stores its ordered change log and authentication
+database in SQLite and content-addressed blobs on the filesystem.

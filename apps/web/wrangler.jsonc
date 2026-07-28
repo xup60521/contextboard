@@ -10,4 +10,20 @@
     "enabled": true
   },
   "upload_source_maps": true
+  ,
+  "env": {
+    "dev": {
+      "vars": {
+        // Local development has no VPC tunnel connector. Override this in
+        // .env.local when the Bun sync server uses another address.
+        "SYNC_VPS_URL": "http://127.0.0.1:8788"
+      }
+    }
+  }
+  // Production must add:
+  // "vpc_services": [{
+  //   "binding": "SYNC_VPS",
+  //   "service_id": "<Cloudflare Connectivity Directory service UUID>",
+  //   "remote": true
+  // }]
 }

@@ -1,7 +1,8 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useContext, useMemo } from "react";
-import { LocalDatabaseContext } from "./provider";
+import { useOptionalSyncActions } from "../sync/provider";
 import { localMutation, localQuery } from "./operations";
+import { LocalDatabaseContext } from "./provider";
 
 type Reference = string;
 type Arguments = Record<string, unknown> | "skip" | undefined;
@@ -29,17 +30,23 @@ export function useMutation(
 	reference: Reference,
 ): (args?: Record<string, unknown>) => Promise<any> {
 	const state = useLocalState();
+	const syncActions = useOptionalSyncActions();
 	return useCallback(
-		(args = {}) => {
+		async (args = {}) => {
 			if (state.status !== "ready")
-				return Promise.reject(
-					state.status === "error"
-						? state.error
-						: new Error("Local database is opening"),
-				);
-			return localMutation(state.database, state.deviceId, reference, args);
+				throw state.status === "error"
+					? state.error
+					: new Error("Local database is opening");
+			const result = await localMutation(
+				state.database,
+				state.deviceId,
+				reference,
+				args,
+			);
+			syncActions?.notifyLocalChange();
+			return result;
 		},
-		[reference, state],
+		[reference, state, syncActions],
 	);
 }
 

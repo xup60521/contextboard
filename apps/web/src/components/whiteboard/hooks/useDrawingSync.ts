@@ -1,32 +1,28 @@
-import { useCallback, useEffect, useRef } from "react";
-import type { TLStoreSnapshot } from "tldraw";
+import { useCallback, useRef } from "react";
 import type { Id } from "#/integrations/local/types";
-import type { TldrawDocumentResult } from "../whiteboard-canvas-helpers";
+
+export type CanvasRecordDelta = {
+	added: unknown[];
+	updated: unknown[];
+	removed: string[];
+};
 
 export function useDrawingSync({
 	whiteboardId,
-	tldrawDocument,
-	saveTldrawDocument,
+	applyCanvasRecordChanges,
 }: {
 	whiteboardId: Id<"whiteboards"> | null;
-	tldrawDocument: TldrawDocumentResult | undefined;
-	saveTldrawDocument: (args: {
-		whiteboardId: Id<"whiteboards"> | null;
-		snapshot: TLStoreSnapshot;
-		expectedRevision?: number;
-	}) => Promise<{ revision: number }>;
+	applyCanvasRecordChanges: (
+		args: CanvasRecordDelta & {
+			whiteboardId: Id<"whiteboards"> | null;
+		},
+	) => Promise<unknown>;
 }) {
 	const pendingDrawingSaveRef = useRef<{
 		whiteboardId: Id<"whiteboards"> | null;
-		snapshot: TLStoreSnapshot;
-		expectedRevision?: number;
+		delta: CanvasRecordDelta;
 	} | null>(null);
 	const saveDrawingTimerRef = useRef<number | null>(null);
-	const tldrawDocumentRevisionRef = useRef<number | null>(null);
-
-	useEffect(() => {
-		tldrawDocumentRevisionRef.current = tldrawDocument?.revision ?? null;
-	}, [tldrawDocument?.revision]);
 
 	const flushDrawingSave = useCallback(() => {
 		saveDrawingTimerRef.current = null;
@@ -34,34 +30,33 @@ export function useDrawingSync({
 		pendingDrawingSaveRef.current = null;
 		if (!pendingSave) return;
 
-		void saveTldrawDocument({
+		void applyCanvasRecordChanges({
 			whiteboardId: pendingSave.whiteboardId,
-			snapshot: pendingSave.snapshot,
-			expectedRevision: pendingSave.expectedRevision,
-		})
-			.then(({ revision }) => {
-				if (pendingSave.whiteboardId === whiteboardId) {
-					tldrawDocumentRevisionRef.current = revision;
-				}
-			})
-			.catch((error) => {
-				console.warn("Failed to save tldraw document", error);
-			});
-	}, [saveTldrawDocument, whiteboardId]);
+			...pendingSave.delta,
+		}).catch((error) => {
+			console.warn("Failed to save tldraw record changes", error);
+		});
+	}, [applyCanvasRecordChanges]);
 
 	const queueDrawingSave = useCallback(
-		(snapshot: TLStoreSnapshot) => {
+		(delta: CanvasRecordDelta) => {
+			const previous = pendingDrawingSaveRef.current?.delta;
 			pendingDrawingSaveRef.current = {
 				whiteboardId,
-				snapshot,
-				expectedRevision: tldrawDocumentRevisionRef.current ?? undefined,
+				delta: {
+					added: [...(previous?.added ?? []), ...delta.added],
+					updated: [...(previous?.updated ?? []), ...delta.updated],
+					removed: [
+						...new Set([...(previous?.removed ?? []), ...delta.removed]),
+					],
+				},
 			};
 
 			if (saveDrawingTimerRef.current !== null) {
 				window.clearTimeout(saveDrawingTimerRef.current);
 			}
 
-			saveDrawingTimerRef.current = window.setTimeout(flushDrawingSave, 750);
+			saveDrawingTimerRef.current = window.setTimeout(flushDrawingSave, 500);
 		},
 		[flushDrawingSave, whiteboardId],
 	);

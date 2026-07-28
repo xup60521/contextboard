@@ -1,8 +1,3 @@
-import {
-	runLocalCommand,
-	type ContextboardDatabase,
-	type Todo,
-} from "@contextboard/local-db";
 import type {
 	BoardItem,
 	Card,
@@ -11,6 +6,12 @@ import type {
 	WhiteboardId,
 } from "@contextboard/domain";
 import {
+	type ContextboardDatabase,
+	runLocalCommand,
+	type Todo,
+} from "@contextboard/local-db";
+import {
+	type EntityChange,
 	HybridLogicalClock,
 	type SyncEntityType,
 } from "@contextboard/sync-protocol";
@@ -465,6 +466,30 @@ export async function localQuery(
 							.where("whiteboardId")
 							.equals(String(target))
 							.first();
+			const records =
+				typeof target === "string"
+					? (
+							await db.canvasRecords
+								.where("whiteboardId")
+								.equals(target)
+								.toArray()
+						).filter(active)
+					: [];
+			if (records.length > 0) {
+				const legacy = row?.snapshot as
+					| { schema?: unknown; store?: Record<string, unknown> }
+					| undefined;
+				return {
+					...(row ? publicRow(row) : {}),
+					snapshot: {
+						schema: legacy?.schema ?? { schemaVersion: 2, sequences: {} },
+						store: Object.fromEntries(
+							records.map((record) => [record.recordId, record.payload]),
+						),
+					},
+					revision: Math.max(0, ...records.map((record) => record.revision)),
+				};
+			}
 			return row && active(row)
 				? { ...publicRow(row), snapshot: row.snapshot, revision: row.revision }
 				: null;
@@ -512,7 +537,7 @@ export async function localQuery(
 		}
 		case "files.getImageUrl": {
 			const row = await db.files.get(String(args.storageId));
-			return row ? URL.createObjectURL(row.blob) : null;
+			return row?.blob ? URL.createObjectURL(row.blob) : null;
 		}
 		case "todos.list":
 			return (await db.todos.toArray())
@@ -696,6 +721,95 @@ async function executeMutation(
 				revision: row.revision + 1,
 			});
 			return null;
+		}
+		case "canvas.applyRecordChanges": {
+			const whiteboardId = String(args.whiteboardId ?? "");
+			if (!whiteboardId) throw new Error("Canvas records require a whiteboard");
+			if (
+				(await db.canvasRecords
+					.where("whiteboardId")
+					.equals(whiteboardId)
+					.count()) === 0
+			) {
+				const legacy = await db.tldrawDocuments
+					.where("whiteboardId")
+					.equals(whiteboardId)
+					.first();
+				const legacyStore = (
+					legacy?.snapshot as { store?: unknown } | undefined
+				)?.store;
+				if (legacyStore && typeof legacyStore === "object") {
+					for (const payload of Object.values(
+						legacyStore as Record<string, unknown>,
+					)) {
+						if (!payload || typeof payload !== "object") continue;
+						const record = payload as {
+							id?: unknown;
+							type?: unknown;
+							typeName?: unknown;
+						};
+						if (
+							typeof record.id !== "string" ||
+							record.type === "markdown-card" ||
+							record.type === "subwhiteboard-link"
+						)
+							continue;
+						await db.canvasRecords.put({
+							id: `${whiteboardId}:${record.id}` as never,
+							...base(deviceId, now),
+							whiteboardId: whiteboardId as never,
+							recordId: record.id,
+							recordType: String(record.typeName ?? record.type ?? "unknown"),
+							payload,
+							clock: `${String(now).padStart(13, "0")}:000000:${deviceId}`,
+						});
+					}
+				}
+			}
+			const added = Array.isArray(args.added) ? args.added : [];
+			const updated = Array.isArray(args.updated) ? args.updated : [];
+			const removed = Array.isArray(args.removed) ? args.removed : [];
+			for (const payload of [...added, ...updated]) {
+				if (!payload || typeof payload !== "object") continue;
+				const record = payload as {
+					id?: unknown;
+					typeName?: unknown;
+					type?: unknown;
+				};
+				if (typeof record.id !== "string") continue;
+				const persisted = await db.canvasRecords
+					.where("[whiteboardId+recordId]")
+					.equals([whiteboardId, record.id])
+					.first();
+				const revision = (persisted?.revision ?? 0) + 1;
+				await db.canvasRecords.put({
+					id: (persisted?.id ?? `${whiteboardId}:${record.id}`) as never,
+					...base(deviceId, now),
+					createdAt: persisted?.createdAt ?? now,
+					whiteboardId: whiteboardId as never,
+					recordId: record.id,
+					recordType: String(record.typeName ?? record.type ?? "unknown"),
+					payload,
+					clock: `${String(now).padStart(13, "0")}:000000:${deviceId}`,
+					revision,
+				});
+			}
+			for (const recordId of removed.map(String)) {
+				const persisted = await db.canvasRecords
+					.where("[whiteboardId+recordId]")
+					.equals([whiteboardId, recordId])
+					.first();
+				if (!persisted) continue;
+				await db.canvasRecords.put({
+					...persisted,
+					deletedAt: now,
+					updatedAt: now,
+					updatedByDeviceId: deviceId,
+					revision: persisted.revision + 1,
+					clock: `${String(now).padStart(13, "0")}:000000:${deviceId}`,
+				});
+			}
+			return { applied: added.length + updated.length + removed.length };
 		}
 		case "canvas.archiveItem": {
 			const row = await db.boardItems.get(String(args.itemId));
@@ -892,10 +1006,10 @@ async function executeMutation(
 				deviceId,
 				"canvas.createCardItem",
 				{
-				...args,
-				whiteboardId,
-				shapeId,
-				content: parseClipboardCardContent(args.content),
+					...args,
+					whiteboardId,
+					shapeId,
+					content: parseClipboardCardContent(args.content),
 				},
 			);
 			return adopted.itemId;
@@ -970,6 +1084,52 @@ async function executeMutation(
 				});
 			return { fileId, storageId: fileId, url: await blobDataUrl(file) };
 		}
+		case "conflicts.resolve": {
+			const conflictId = String(args.conflictId);
+			const resolution = String(args.resolution) as
+				| "keep-local"
+				| "keep-remote"
+				| "keep-both";
+			if (!["keep-local", "keep-remote", "keep-both"].includes(resolution))
+				throw new Error("Invalid conflict resolution");
+			const conflict = await db.conflicts.get(conflictId);
+			if (!conflict || conflict.resolvedAt !== null) return null;
+			if (conflict.entityType === "card") {
+				const original = await db.cards.get(conflict.entityId);
+				if (
+					resolution === "keep-remote" &&
+					original &&
+					conflict.remoteValue &&
+					typeof conflict.remoteValue === "object"
+				) {
+					await db.cards.put({
+						...(conflict.remoteValue as Card),
+						id: original.id,
+						revision: original.revision + 1,
+						updatedAt: now,
+						updatedByDeviceId: deviceId,
+					});
+				}
+				if (resolution !== "keep-both") {
+					const copy = await db.cards.get(`card:${conflictId}`);
+					if (copy)
+						await db.cards.update(copy.id, {
+							archivedAt: now,
+							revision: copy.revision + 1,
+							updatedAt: now,
+							updatedByDeviceId: deviceId,
+						});
+				}
+			}
+			await db.conflicts.update(conflictId, {
+				resolvedAt: now,
+				resolution,
+				revision: conflict.revision + 1,
+				updatedAt: now,
+				updatedByDeviceId: deviceId,
+			});
+			return null;
+		}
 		case "todos.add": {
 			const row: Todo = {
 				id: id(),
@@ -1000,18 +1160,21 @@ async function executeMutation(
 }
 
 const clocks = new Map<string, HybridLogicalClock>();
-const entityTypeFor = (reference: string): SyncEntityType =>
-	reference.startsWith("whiteboards.")
-		? "whiteboard"
-		: reference.startsWith("canvas.")
-			? "boardItem"
-			: reference.startsWith("tldrawDocuments.")
-				? "tldrawDocument"
-				: reference.startsWith("files.")
-					? "file"
-					: reference.startsWith("todos.")
-						? "todo"
-						: "card";
+
+type TrackableRow = {
+	id: string;
+	revision?: number;
+	deletedAt?: number | null;
+	[key: string]: unknown;
+};
+
+function syncValue(entityType: SyncEntityType, row: TrackableRow) {
+	if (entityType === "file") {
+		const { blob: _blob, sha256, ...rest } = row;
+		return { ...rest, hash: sha256 };
+	}
+	return row;
+}
 
 export async function localMutation(
 	db: ContextboardDatabase,
@@ -1032,37 +1195,87 @@ export async function localMutation(
 		db.files,
 		db.fileReferences,
 		db.cardReferences,
+		db.cardRelations,
+		db.canvasRecords,
+		db.conflicts,
 		db.todos,
 	];
+	const tracked = [
+		["whiteboard", db.whiteboards],
+		["card", db.cards],
+		["boardItem", db.boardItems],
+		["file", db.files],
+		["fileReference", db.fileReferences],
+		["cardReference", db.cardReferences],
+		["cardRelation", db.cardRelations],
+		["canvasRecord", db.canvasRecords],
+		["conflict", db.conflicts],
+		["todo", db.todos],
+	] as const;
 	return runLocalCommand(
 		db,
 		{ workspaceId, deviceId, clock },
 		reference,
 		tables,
 		async () => {
+			const before = new Map<string, TrackableRow>();
+			for (const [entityType, table] of tracked) {
+				for (const row of (await table.toArray()) as TrackableRow[]) {
+					before.set(`${entityType}:${row.id}`, structuredClone(row));
+				}
+			}
 			const result = await executeMutation(db, deviceId, reference, args);
-			const entityId = String(
-				args.cardId ??
-					args.whiteboardId ??
-					args.itemId ??
-					args.id ??
-					(result && typeof result === "object" && "cardId" in result
-						? result.cardId
-						: crypto.randomUUID()),
-			);
+			const changes: EntityChange[] = [];
+			const seen = new Set<string>();
+			const now = Date.now();
+			for (const [entityType, table] of tracked) {
+				for (const row of (await table.toArray()) as TrackableRow[]) {
+					const key = `${entityType}:${row.id}`;
+					seen.add(key);
+					const previous = before.get(key);
+					const value = syncValue(entityType, row);
+					if (
+						previous &&
+						JSON.stringify(syncValue(entityType, previous)) ===
+							JSON.stringify(value)
+					)
+						continue;
+					changes.push({
+						entityType,
+						entityId: row.id,
+						baseRevision: previous?.revision ?? null,
+						revision: row.revision ?? (previous?.revision ?? 0) + 1,
+						operation: row.deletedAt
+							? ("delete" as const)
+							: ("upsert" as const),
+						clock: "",
+						value,
+					});
+				}
+			}
+			for (const [key, previous] of before) {
+				if (seen.has(key)) continue;
+				const separator = key.indexOf(":");
+				const entityType = key.slice(0, separator) as SyncEntityType;
+				changes.push({
+					entityType,
+					entityId: previous.id,
+					baseRevision: previous.revision ?? null,
+					revision: (previous.revision ?? 0) + 1,
+					operation: "delete" as const,
+					clock: "",
+					value: syncValue(entityType, {
+						...previous,
+						revision: (previous.revision ?? 0) + 1,
+						deletedAt: now,
+						updatedAt: now,
+						updatedByDeviceId: deviceId,
+					}),
+				});
+			}
 			return {
 				result,
-				changes: [
-					{
-						entityType: entityTypeFor(reference),
-						entityId,
-						baseRevision: null,
-						revision: 1,
-						operation: reference.endsWith("remove") ? "delete" : "upsert",
-						changedFields: Object.keys(args),
-						value: args,
-					},
-				],
+				changes,
 			};
 		},
 	);

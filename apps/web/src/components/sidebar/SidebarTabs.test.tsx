@@ -9,14 +9,7 @@ const useSidebarTabsMock = vi.fn();
 let currentPathname = "/whiteboard";
 
 vi.mock("@tanstack/react-router", () => ({
-	Link: ({
-		children,
-		to,
-		...props
-	}: {
-		children: ReactNode;
-		to: string;
-	}) => (
+	Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
 		<a href={to} {...props}>
 			{children}
 		</a>
@@ -86,6 +79,9 @@ describe("SidebarTabs", () => {
 
 		render(<SidebarTabs />);
 
+		expect(screen.getByText("Card Library").className).toContain(
+			"text-[var(--card-foreground)]",
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 
 		expect(screen.getByText("Clear open tabs")).toBeTruthy();
@@ -157,6 +153,8 @@ describe("SidebarTabs", () => {
 		render(<SidebarTabs />);
 
 		expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
-		expect(screen.getByText("Drop pinned tabs here to unpin them")).toBeTruthy();
+		expect(
+			screen.getByText("Drop pinned tabs here to unpin them"),
+		).toBeTruthy();
 	});
 });

@@ -1,10 +1,11 @@
 import "fake-indexeddb/auto";
-import { afterEach, describe, expect, test } from "vitest";
 import {
+	type ContextboardDatabase,
 	createContextboardDatabase,
 	ensureLocalIdentity,
-	type ContextboardDatabase,
 } from "@contextboard/local-db";
+import { parsePushChangesRequest } from "@contextboard/sync-protocol";
+import { afterEach, describe, expect, test } from "vitest";
 import { localMutation, localQuery } from "./operations";
 
 const databases: ContextboardDatabase[] = [];
@@ -286,5 +287,71 @@ describe("local operations", () => {
 		expect(
 			await localQuery(db, "tldrawDocuments.get", { whiteboardId: null }),
 		).toMatchObject({ revision: 1 });
+	});
+
+	test("migrates a legacy snapshot to record-level canvas persistence", async () => {
+		const { db, deviceId } = await setup();
+		const board = await localMutation(
+			db,
+			deviceId,
+			"canvas.createSubwhiteboardItem",
+			{ parentWhiteboardId: null, shapeId: "shape:board" },
+		);
+		await localMutation(db, deviceId, "tldrawDocuments.save", {
+			whiteboardId: board.childWhiteboardId,
+			snapshot: {
+				schema: { schemaVersion: 2, sequences: {} },
+				store: {
+					"shape:legacy": {
+						id: "shape:legacy",
+						typeName: "shape",
+						type: "geo",
+					},
+					"shape:managed": {
+						id: "shape:managed",
+						typeName: "shape",
+						type: "markdown-card",
+					},
+				},
+			},
+		});
+		await localMutation(db, deviceId, "canvas.applyRecordChanges", {
+			whiteboardId: board.childWhiteboardId,
+			added: [{ id: "shape:new", typeName: "shape", type: "arrow" }],
+			updated: [],
+			removed: [],
+		});
+		const records = await db.canvasRecords
+			.where("whiteboardId")
+			.equals(board.childWhiteboardId)
+			.toArray();
+		expect(records.map((record) => record.recordId).sort()).toEqual([
+			"shape:legacy",
+			"shape:new",
+		]);
+		const batches = await db.changeLog.toArray();
+		expect(JSON.stringify(batches)).not.toContain('"snapshot"');
+	});
+
+	test("produces transport-valid post-state batches for local operations", async () => {
+		const { db, deviceId, workspaceId } = await setup();
+		const board = await localMutation(
+			db,
+			deviceId,
+			"canvas.createSubwhiteboardItem",
+			{ parentWhiteboardId: null, shapeId: "shape:board" },
+		);
+		await localMutation(db, deviceId, "canvas.applyRecordChanges", {
+			whiteboardId: board.childWhiteboardId,
+			added: [{ id: "shape:arrow", typeName: "shape", type: "arrow" }],
+			updated: [],
+			removed: [],
+		});
+		const batches = await db.changeLog.toArray();
+		expect(() =>
+			parsePushChangesRequest({ workspaceId, batches, cursor: null }),
+		).not.toThrow();
+		expect(JSON.stringify(batches)).not.toContain('"blob"');
+		expect(JSON.stringify(batches)).not.toContain('"snapshot"');
 	});
 });

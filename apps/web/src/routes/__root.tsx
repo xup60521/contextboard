@@ -11,6 +11,7 @@ import { SidebarTabsProvider } from "../components/sidebar/SidebarTabsContext";
 import { AppSidebar } from "../components/whiteboard/AppSidebar";
 import { SidebarProvider } from "../components/whiteboard/SidebarContext";
 import { LocalDatabaseProvider } from "../integrations/local/provider";
+import { SyncProvider } from "../integrations/sync/provider";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import appCss from "../styles.css?url";
 
@@ -54,12 +55,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			</head>
 			<body className="font-sans antialiased h-screen [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">
 				<LocalDatabaseProvider>
-					<SidebarProvider>
-						<SidebarTabsProvider>
-							<AppShell>{children}</AppShell>
-						</SidebarTabsProvider>
-						<CommandPalette />
-						<TanStackDevtools
+					<SyncProvider>
+						<SidebarProvider>
+							<SidebarTabsProvider>
+								<AppShell>{children}</AppShell>
+							</SidebarTabsProvider>
+							<CommandPalette />
+							<TanStackDevtools
 							config={{
 								position: "bottom-right",
 							}}
@@ -70,8 +72,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 								},
 								TanStackQueryDevtools,
 							]}
-						/>
-					</SidebarProvider>
+							/>
+						</SidebarProvider>
+					</SyncProvider>
 				</LocalDatabaseProvider>
 				<Scripts />
 			</body>

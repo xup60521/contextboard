@@ -97,7 +97,7 @@ export function WhiteboardCanvas({
 		archiveItem,
 		archiveCardsGlobally,
 		restoreOrAdoptCardItem,
-		saveTldrawDocument,
+		applyCanvasRecordChanges,
 		generateUploadUrl,
 		finalizeUpload,
 	} = useWhiteboardData(whiteboardId);
@@ -143,7 +143,10 @@ export function WhiteboardCanvas({
 		queueDrawingSave,
 		pendingDrawingSaveRef,
 		saveDrawingTimerRef,
-	} = useDrawingSync({ whiteboardId, tldrawDocument, saveTldrawDocument });
+	} = useDrawingSync({
+		whiteboardId,
+		applyCanvasRecordChanges,
+	});
 
 	const { createCardAt, createSubwhiteboardAt } = useItemCreation({
 		whiteboardId,

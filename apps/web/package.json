@@ -7,7 +7,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "vite dev --port 3000",
+    "dev": "cross-env CLOUDFLARE_ENV=dev vite dev --port 3000",
     "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "vite preview",
@@ -19,6 +19,8 @@
     "deploy": "bun run build && wrangler deploy"
   },
   "dependencies": {
+    "@contextboard/auth-client": "workspace:*",
+    "@contextboard/client-core": "workspace:*",
     "@contextboard/domain": "workspace:*",
     "@contextboard/local-db": "workspace:*",
     "@contextboard/sync-protocol": "workspace:*",
@@ -29,7 +31,7 @@
     "@floating-ui/dom": "^1.7.6",
     "@floating-ui/react": "^0.27.19",
     "@tailwindcss/vite": "^4.1.18",
-    "@tanstack/query-core": "5.101.2",
+    "@tanstack/query-core": "5.101.4",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-pacer": "^0.22.1",
     "@tanstack/react-query": "latest",
@@ -81,6 +83,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "babel-plugin-react-compiler": "^1.0.0",
+    "cross-env": "^10.1.0",
     "fake-indexeddb": "^6.2.4",
     "jsdom": "^28.1.0",
     "vite": "^8.0.0",

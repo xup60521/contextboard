@@ -1,5 +1,24 @@
 {
   "name": "@contextboard/sync-server",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:auth:migrate": "bun --env-file=../../.env.local src/migrate-auth.ts",
+    "dev": "bun run db:auth:migrate && bun --env-file=../../.env.local --watch src/index.ts",
+    "start": "bun src/migrate-auth.ts && bun src/index.ts",
+    "build": "tsc --noEmit",
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@contextboard/auth": "workspace:*",
+    "@contextboard/sync-protocol": "workspace:*",
+    "hono": "4.12.32"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.9"
+  }
 }

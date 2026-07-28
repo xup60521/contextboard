@@ -4,10 +4,10 @@ import {
 	type SetStateAction,
 	useEffect,
 } from "react";
-import type { Editor, TLShapeId, TLStoreSnapshot } from "tldraw";
+import type { Editor, TLShapeId } from "tldraw";
 import type { Id } from "#/integrations/local/types";
 import type { WhiteboardFrame } from "../frame-sync";
-import { filterSnapshotForPersistence } from "../tldraw-persistence";
+import type { CanvasRecordDelta } from "./useDrawingSync";
 import {
 	hasManagedShapeFrameChanged,
 	hasPersistableDrawingChange,
@@ -52,7 +52,7 @@ export function useStoreListener({
 		} | null>
 	>;
 	queueFrameUpdate: (itemId: Id<"boardItems">, frame: WhiteboardFrame) => void;
-	queueDrawingSave: (snapshot: TLStoreSnapshot) => void;
+	queueDrawingSave: (delta: CanvasRecordDelta) => void;
 }) {
 	useEffect(() => {
 		if (!editor) return;
@@ -130,11 +130,17 @@ export function useStoreListener({
 				}
 
 				if (hasPersistableDrawingChange(changes)) {
-					queueDrawingSave(
-						filterSnapshotForPersistence(
-							editor.store.getStoreSnapshot("document"),
-						),
-					);
+					const persistable = (record: unknown) =>
+						!isManagedWhiteboardShape(record);
+					queueDrawingSave({
+						added: Object.values(changes.added).filter(persistable),
+						updated: Object.values(changes.updated)
+							.map(([, record]) => record)
+							.filter(persistable),
+						removed: Object.values(changes.removed)
+							.filter(persistable)
+							.map((record) => record.id),
+					});
 				}
 			},
 			{ source: "user", scope: "document" },
