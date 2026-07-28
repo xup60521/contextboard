@@ -42,6 +42,11 @@ export const api = {
 		finalizeUpload: ref("files.finalizeUpload"),
 		getImageUrl: ref("files.getImageUrl"),
 	},
+	relations: {
+		create: ref("relations.create"),
+		list: ref("relations.list"),
+		archive: ref("relations.archive"),
+	},
 	todos: {
 		list: ref("todos.list"),
 		add: ref("todos.add"),

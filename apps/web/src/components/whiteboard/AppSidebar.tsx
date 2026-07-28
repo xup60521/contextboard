@@ -3,6 +3,7 @@ import {
 	signOut,
 	useSession,
 } from "@contextboard/auth-client";
+import { Link } from "@tanstack/react-router";
 import {
 	Cloud,
 	CloudOff,
@@ -138,6 +139,15 @@ function SyncFooter() {
 								? ` · ${sync.state.conflictCount} conflicts`
 								: ""}
 						</p>
+						{sync.state.conflictCount ? (
+							<Link
+								to="/data"
+								hash="conflicts"
+								className="text-[10px] font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-300"
+							>
+								Open conflict inbox
+							</Link>
+						) : null}
 					</div>
 					<Button
 						type="button"

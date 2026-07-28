@@ -101,6 +101,7 @@ export type CardRelation = EntityBase<CardRelationId> & {
 	targetCardId: CardId;
 	relation: CardRelationKind;
 	ordinal: number | null;
+	clock: string;
 };
 
 /** A non-managed tldraw record. Cards and sub-whiteboards remain domain entities. */

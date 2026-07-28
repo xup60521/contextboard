@@ -497,7 +497,7 @@ export async function applyRemoteBatches(
 	await db.transaction("rw", tables, async () => {
 		let newlyAppliedBatches = 0;
 		let newlyAppliedBytes = 0;
-		let needsCountRebuild = false;
+		const affectedWhiteboardIds = new Set<string>();
 		for (const batch of batches) {
 			if (await db.appliedChangeBatches.get(batch.changeId)) continue;
 			newlyAppliedBatches++;
@@ -516,6 +516,9 @@ export async function applyRemoteBatches(
 								sha256: String(incoming.hash ?? incoming.sha256 ?? ""),
 								blob: null,
 							}
+						: change.entityType === "cardRelation" ||
+								change.entityType === "canvasRecord"
+							? { ...incoming, clock: change.clock }
 						: incoming;
 				const local = (await table.get(change.entityId)) as
 					| Record<string, unknown>
@@ -528,7 +531,7 @@ export async function applyRemoteBatches(
 						(parentId !== null && !byId.has(parentId)) ||
 						hasHierarchyCycle(change.entityId as never, parentId, byId);
 					if (invalid) {
-						const conflictId = `hierarchy:${change.entityId}:${batch.changeId}`;
+						const conflictId = `hierarchy:${change.entityId}:${String(parentId ?? "root")}:${change.clock}`;
 						if (!(await db.conflicts.get(conflictId))) {
 							await db.conflicts.add({
 								conflictId,
@@ -554,29 +557,59 @@ export async function applyRemoteBatches(
 					batch.command !== "conflicts.resolve" &&
 					change.baseRevision !== Number(local.revision)
 				) {
-					const conflictId = `conflict:${change.entityId}:${batch.changeId}`;
+					const participants = [
+						`${String(local.updatedByDeviceId ?? "")}:${String(local.revision ?? 0)}`,
+						`${batch.deviceId}:${change.revision}`,
+					].sort();
+					const conflictId = `conflict:${change.entityId}:${participants.join(":")}`;
 					if (!(await db.conflicts.get(conflictId))) {
 						const conflictCardId = `card:${conflictId}`;
+						const placements = (
+							await db.boardItems
+								.where("cardId")
+								.equals(change.entityId)
+								.toArray()
+						).filter(
+							(placement) =>
+								placement.deletedAt === null &&
+								placement.archivedAt === null,
+						);
 						await db.cards.put({
 							...materialized,
 							id: conflictCardId,
 							derivedTitle: `Conflict: ${String(incoming.derivedTitle ?? "Untitled card")}`,
+							activePlacementCount: placements.length,
 						} as never);
-						const placement = await db.boardItems
-							.where("cardId")
-							.equals(change.entityId)
-							.first();
-						if (placement) {
+						for (const [index, placement] of placements.entries()) {
 							await db.boardItems.put({
 								...placement,
-								id: `placement:${conflictId}`,
+								id: `placement:${conflictId}:${placement.id}`,
 								cardId: conflictCardId,
-								shapeId: `shape:${conflictId}`,
-								x: placement.x + 48,
-								y: placement.y + 48,
+								shapeId: `shape:${conflictId}:${placement.shapeId}`,
+								x: placement.x + 48 * (index + 1),
+								y: placement.y + 48 * (index + 1),
 							} as never);
-							needsCountRebuild = true;
+							if (placement.whiteboardId)
+								affectedWhiteboardIds.add(placement.whiteboardId);
 						}
+						for (const reference of await db.cardReferences
+							.where("sourceCardId")
+							.equals(change.entityId)
+							.toArray())
+							await db.cardReferences.put({
+								...reference,
+								id: `reference:${conflictId}:${reference.id}`,
+								sourceCardId: conflictCardId,
+							} as never);
+						for (const reference of await db.fileReferences
+							.where("targetKey")
+							.equals(`card:${change.entityId}`)
+							.toArray())
+							await db.fileReferences.put({
+								...reference,
+								id: `file-reference:${conflictId}:${reference.id}`,
+								targetKey: `card:${conflictCardId}`,
+							} as never);
 						await db.conflicts.add({
 							conflictId,
 							entityType: "card",
@@ -607,12 +640,24 @@ export async function applyRemoteBatches(
 					)
 						continue;
 				}
+				if (change.entityType === "whiteboard") {
+					affectedWhiteboardIds.add(change.entityId);
+					const previousParent = local?.parentWhiteboardId;
+					const nextParent = materialized.parentWhiteboardId;
+					if (typeof previousParent === "string")
+						affectedWhiteboardIds.add(previousParent);
+					if (typeof nextParent === "string")
+						affectedWhiteboardIds.add(nextParent);
+				}
+				if (change.entityType === "boardItem") {
+					const previousBoard = local?.whiteboardId;
+					const nextBoard = materialized.whiteboardId;
+					if (typeof previousBoard === "string")
+						affectedWhiteboardIds.add(previousBoard);
+					if (typeof nextBoard === "string")
+						affectedWhiteboardIds.add(nextBoard);
+				}
 				await table.put(materialized);
-				if (
-					change.entityType === "whiteboard" ||
-					change.entityType === "boardItem"
-				)
-					needsCountRebuild = true;
 				applied++;
 			}
 			await db.appliedChangeBatches.put({
@@ -650,9 +695,12 @@ export async function applyRemoteBatches(
 				},
 			]);
 		}
-		if (needsCountRebuild) {
-			const whiteboards = await db.whiteboards.toArray();
+		if (affectedWhiteboardIds.size) {
+			const whiteboards = await db.whiteboards.bulkGet(
+				[...affectedWhiteboardIds],
+			);
 			for (const whiteboard of whiteboards) {
+				if (!whiteboard) continue;
 				if (whiteboard.deletedAt !== null) continue;
 				const [cardCount, childWhiteboardCount] = await Promise.all([
 					db.boardItems

@@ -464,6 +464,130 @@ describe("local database", () => {
 		expect(await db.conflicts.count()).toBe(1);
 	});
 
+	test("creates one deterministic, metadata-preserving conflict copy on both peers", async () => {
+		const dbA = makeDb();
+		const dbB = makeDb();
+		const card = (deviceId: string, title: string, marker: string) => ({
+			id: "card-1",
+			content: {
+				type: "doc",
+				content: [
+					{
+						type: "paragraph",
+						content: [
+							{ type: "text", text: title },
+							{
+								type: "image",
+								attrs: { fileId: `file-${marker}`, hash: marker.repeat(64) },
+							},
+						],
+					},
+				],
+			},
+			derivedTitle: title,
+			plainText: title,
+			preview: title,
+			contentVersion: 2,
+			activePlacementCount: 1,
+			archivedAt: null,
+			revision: 2,
+			createdAt: 1,
+			updatedAt: 2,
+			updatedByDeviceId: deviceId,
+			deletedAt: null,
+			customMetadata: { marker },
+		});
+		const cardA = card("device-a", "Local A", "a");
+		const cardB = card("device-b", "Remote B", "b");
+		for (const [db, value] of [
+			[dbA, cardA],
+			[dbB, cardB],
+		] as const) {
+			await db.cards.put(value as never);
+			await db.boardItems.put({
+				id: "placement-1",
+				whiteboardId: "board-1",
+				kind: "card",
+				cardId: "card-1",
+				childWhiteboardId: null,
+				shapeId: "shape:card",
+				x: 10,
+				y: 20,
+				w: 300,
+				h: 200,
+				rotation: 0,
+				zIndex: 1,
+				archivedAt: null,
+				revision: 1,
+				createdAt: 1,
+				updatedAt: 1,
+				updatedByDeviceId: value.updatedByDeviceId,
+				deletedAt: null,
+			} as never);
+			await db.cardReferences.put({
+				id: "reference-1",
+				sourceCardId: "card-1",
+				targetCardId: "target-1",
+				revision: 1,
+				createdAt: 1,
+				updatedAt: 1,
+				updatedByDeviceId: value.updatedByDeviceId,
+				deletedAt: null,
+			} as never);
+		}
+		const remoteBatch = (
+			changeId: string,
+			deviceId: string,
+			value: ReturnType<typeof card>,
+		): ChangeBatch => ({
+			protocolVersion: SYNC_PROTOCOL_VERSION,
+			schemaVersion: SYNC_SCHEMA_VERSION,
+			changeId,
+			workspaceId: "workspace-1",
+			deviceId,
+			deviceSequence: 1,
+			clock: `0000000000002:000000:${deviceId}`,
+			command: "cards.updateContent",
+			createdAt: 2,
+			changes: [
+				{
+					entityType: "card",
+					entityId: "card-1",
+					baseRevision: 1,
+					revision: 2,
+					operation: "upsert",
+					clock: `0000000000002:000000:${deviceId}`,
+					value,
+				},
+			],
+		});
+		const fromB = remoteBatch("change-b", "device-b", cardB);
+		const fromA = remoteBatch("change-a", "device-a", cardA);
+
+		await applyRemoteBatches(dbA, [fromB], "cloud", "1");
+		await applyRemoteBatches(dbB, [fromA], "cloud", "1");
+		await applyRemoteBatches(dbA, [fromB], "cloud", "1");
+
+		const conflictsA = await dbA.conflicts.toArray();
+		const conflictsB = await dbB.conflicts.toArray();
+		expect(conflictsA).toHaveLength(1);
+		expect(conflictsB).toHaveLength(1);
+		expect(conflictsA[0]?.conflictId).toBe(conflictsB[0]?.conflictId);
+		const copyId = `card:${conflictsA[0]?.conflictId}`;
+		const copyA = await dbA.cards.get(copyId);
+		const copyB = await dbB.cards.get(copyId);
+		expect(copyA?.content).toEqual(cardB.content);
+		expect(copyB?.content).toEqual(cardA.content);
+		expect((copyA as unknown as { customMetadata: unknown }).customMetadata)
+			.toEqual(cardB.customMetadata);
+		expect(
+			(await dbA.boardItems.where("cardId").equals(copyId).first())?.x,
+		).toBe(58);
+		expect(
+			await dbA.cardReferences.where("sourceCardId").equals(copyId).count(),
+		).toBe(1);
+	});
+
 	test("bootstraps checkpoint state and its covered cursor into an empty database", async () => {
 		const db = makeDb();
 		await ensureLocalIdentity(db);

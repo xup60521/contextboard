@@ -153,7 +153,10 @@ function DataManagementPage() {
 				</Button>
 			</section>
 			{unresolvedConflicts.length ? (
-				<section className="mt-6 rounded-lg border border-amber-500/40 p-4">
+				<section
+					id="conflicts"
+					className="mt-6 scroll-mt-6 rounded-lg border border-amber-500/40 p-4"
+				>
 					<h2 className="text-sm font-semibold">
 						Conflicts ({unresolvedConflicts.length})
 					</h2>

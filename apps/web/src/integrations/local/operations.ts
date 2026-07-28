@@ -2,6 +2,7 @@ import type {
 	BoardItem,
 	Card,
 	CardId,
+	CardRelationKind,
 	Whiteboard,
 	WhiteboardId,
 } from "@contextboard/domain";
@@ -538,6 +539,29 @@ export async function localQuery(
 		case "files.getImageUrl": {
 			const row = await db.files.get(String(args.storageId));
 			return row?.blob ? URL.createObjectURL(row.blob) : null;
+		}
+		case "relations.list": {
+			const cardId =
+				typeof args.cardId === "string" ? args.cardId : null;
+			const whiteboardId =
+				typeof args.whiteboardId === "string" ? args.whiteboardId : null;
+			return (await db.cardRelations.toArray())
+				.filter(
+					(row) =>
+						active(row) &&
+						(!cardId ||
+							row.sourceCardId === cardId ||
+							row.targetCardId === cardId) &&
+						(!whiteboardId || row.whiteboardId === whiteboardId),
+				)
+				.sort(
+					(a, b) =>
+						(a.ordinal ?? Number.MAX_SAFE_INTEGER) -
+							(b.ordinal ?? Number.MAX_SAFE_INTEGER) ||
+						a.createdAt - b.createdAt ||
+						a.id.localeCompare(b.id),
+				)
+				.map(publicRow);
 		}
 		case "todos.list":
 			return (await db.todos.toArray())
@@ -1084,6 +1108,71 @@ async function executeMutation(
 				});
 			return { fileId, storageId: fileId, url: await blobDataUrl(file) };
 		}
+		case "relations.create": {
+			const whiteboardId = String(args.whiteboardId);
+			const sourceCardId = String(args.sourceCardId);
+			const targetCardId = String(args.targetCardId);
+			const relation = String(args.relation) as CardRelationKind;
+			const allowed: CardRelationKind[] = [
+				"next",
+				"explains",
+				"supports",
+				"cites",
+				"summarizes",
+			];
+			const ordinal =
+				args.ordinal === null || args.ordinal === undefined
+					? null
+					: Number(args.ordinal);
+			if (!allowed.includes(relation))
+				throw new Error("Invalid card relation");
+			if (
+				ordinal !== null &&
+				(!Number.isSafeInteger(ordinal) || ordinal < 0)
+			)
+				throw new Error("Invalid relation ordinal");
+			if (sourceCardId === targetCardId)
+				throw new Error("A card cannot relate to itself");
+			const [whiteboard, source, target] = await Promise.all([
+				db.whiteboards.get(whiteboardId),
+				db.cards.get(sourceCardId),
+				db.cards.get(targetCardId),
+			]);
+			if (!whiteboard || !active(whiteboard))
+				throw new Error("Whiteboard not found");
+			if (!source || !active(source) || !target || !active(target))
+				throw new Error("Card not found");
+			const relationId = id();
+			const relationClock = (
+				clocks.get(deviceId) ?? new HybridLogicalClock(deviceId)
+			).tick(now);
+			await db.cardRelations.add({
+				id: relationId as never,
+				...base(deviceId, now),
+				whiteboardId: whiteboardId as never,
+				sourceCardId: sourceCardId as never,
+				targetCardId: targetCardId as never,
+				relation,
+				ordinal,
+				clock: relationClock,
+			});
+			return relationId;
+		}
+		case "relations.archive": {
+			const relation = await db.cardRelations.get(String(args.relationId));
+			if (!relation || relation.deletedAt !== null) return null;
+			const relationClock = (
+				clocks.get(deviceId) ?? new HybridLogicalClock(deviceId)
+			).tick(now);
+			await db.cardRelations.update(relation.id, {
+				deletedAt: now,
+				revision: relation.revision + 1,
+				updatedAt: now,
+				updatedByDeviceId: deviceId,
+				clock: relationClock,
+			});
+			return null;
+		}
 		case "conflicts.resolve": {
 			const conflictId = String(args.conflictId);
 			const resolution = String(args.resolution) as
@@ -1097,28 +1186,58 @@ async function executeMutation(
 			if (conflict.entityType === "card") {
 				const original = await db.cards.get(conflict.entityId);
 				if (
-					resolution === "keep-remote" &&
 					original &&
-					conflict.remoteValue &&
-					typeof conflict.remoteValue === "object"
+					(resolution !== "keep-remote" ||
+						(conflict.remoteValue &&
+							typeof conflict.remoteValue === "object"))
 				) {
+					const selected =
+						resolution === "keep-remote"
+							? (conflict.remoteValue as Card)
+							: original;
 					await db.cards.put({
-						...(conflict.remoteValue as Card),
+						...selected,
 						id: original.id,
 						revision: original.revision + 1,
 						updatedAt: now,
 						updatedByDeviceId: deviceId,
 					});
+					await reconcileReferences(
+						db,
+						deviceId,
+						"card",
+						original.id,
+						selected.content,
+					);
 				}
-				if (resolution !== "keep-both") {
-					const copy = await db.cards.get(`card:${conflictId}`);
-					if (copy)
-						await db.cards.update(copy.id, {
-							archivedAt: now,
-							revision: copy.revision + 1,
-							updatedAt: now,
-							updatedByDeviceId: deviceId,
-						});
+				const copy = await db.cards.get(`card:${conflictId}`);
+				if (copy) {
+					await reconcileReferences(
+						db,
+						deviceId,
+						"card",
+						copy.id,
+						copy.content,
+					);
+					await db.cards.update(copy.id, {
+						archivedAt:
+							resolution === "keep-both" ? copy.archivedAt : now,
+						revision: copy.revision + 1,
+						updatedAt: now,
+						updatedByDeviceId: deviceId,
+					});
+					if (resolution !== "keep-both") {
+						for (const placement of await db.boardItems
+							.where("cardId")
+							.equals(copy.id)
+							.toArray())
+							await db.boardItems.update(placement.id, {
+								archivedAt: now,
+								revision: placement.revision + 1,
+								updatedAt: now,
+								updatedByDeviceId: deviceId,
+							});
+					}
 				}
 			}
 			await db.conflicts.update(conflictId, {
