@@ -50,14 +50,135 @@ describe("private API gateway", () => {
 		vi.stubGlobal("fetch", directFetch);
 		await proxyPrivateApi(
 			new Request("http://localhost/api/auth/get-session", {
-				headers: { "x-forwarded-for": "spoofed", host: "spoofed" },
+				headers: {
+					authorization: "Bearer secret",
+					cookie: "session=secret",
+					"x-forwarded-for": "spoofed",
+					"x-private-header": "nope",
+					host: "spoofed",
+				},
 			}),
 			{ SYNC_VPS_URL: "http://127.0.0.1:8788" },
 		);
 		const forwarded = directFetch.mock.calls[0]?.[0] as Request;
 		expect(forwarded.headers.has("x-forwarded-for")).toBe(false);
+		expect(forwarded.headers.has("x-private-header")).toBe(false);
+		expect(forwarded.headers.get("authorization")).toBe("Bearer secret");
+		expect(forwarded.headers.get("cookie")).toBe("session=secret");
 		expect(forwarded.headers.get("x-contextboard-gateway")).toBe(
 			"cloudflare-worker",
 		);
+	});
+
+	test("buffers bounded JSON but keeps blob uploads streaming", async () => {
+		const directFetch = vi.fn(async () => new Response(null, { status: 204 }));
+		vi.stubGlobal("fetch", directFetch);
+		await proxyPrivateApi(
+			new Request("http://localhost/api/sync/v1/push", {
+				method: "POST",
+				body: "{}",
+			}),
+			{ SYNC_VPS_URL: "http://127.0.0.1:8788" },
+		);
+		const jsonRequest = directFetch.mock.calls[0]?.[0] as Request;
+		expect(jsonRequest.headers.get("content-length")).toBe("2");
+		expect(await jsonRequest.text()).toBe("{}");
+
+		const source = new ReadableStream({
+			start(controller) {
+				controller.enqueue(new TextEncoder().encode("blob"));
+				controller.close();
+			},
+		});
+		await proxyPrivateApi(
+			new Request(`http://localhost/api/sync/v1/blobs/${"a".repeat(64)}`, {
+				method: "PUT",
+				body: source,
+				duplex: "half",
+				headers: {
+					"x-contextboard-blob-size": "4",
+					"x-contextboard-workspace": "workspace_1",
+				},
+			} as RequestInit & { duplex: "half" }),
+			{ SYNC_VPS_URL: "http://127.0.0.1:8788" },
+		);
+		const blobRequest = directFetch.mock.calls[1]?.[0] as Request;
+		expect(blobRequest.body).not.toBeNull();
+		expect(await blobRequest.text()).toBe("blob");
+	});
+
+	test("enforces both declared and actual body limits", async () => {
+		const directFetch = vi.fn(async () => new Response(null, { status: 204 }));
+		vi.stubGlobal("fetch", directFetch);
+		const declared = await proxyPrivateApi(
+			new Request("http://localhost/api/sync/v1/push", {
+				method: "POST",
+				headers: { "content-length": String(2 * 1024 * 1024 + 1) },
+				body: "{}",
+			}),
+			{ SYNC_VPS_URL: "http://127.0.0.1:8788" },
+		);
+		expect(declared.status).toBe(413);
+
+		const actual = await proxyPrivateApi(
+			new Request("http://localhost/api/auth/sign-in/email", {
+				method: "POST",
+				body: new Uint8Array(2 * 1024 * 1024 + 1),
+			}),
+			{ SYNC_VPS_URL: "http://127.0.0.1:8788" },
+		);
+		expect(actual.status).toBe(413);
+		expect(directFetch).not.toHaveBeenCalled();
+	});
+
+	test("uses separate rate limits without exposing credentials", async () => {
+		const directFetch = vi.fn(async () => new Response(null, { status: 204 }));
+		const syncLimit = vi.fn(async () => ({ success: false }));
+		vi.stubGlobal("fetch", directFetch);
+		const response = await proxyPrivateApi(
+			new Request("http://localhost/api/sync/v1/pull", {
+				method: "POST",
+				body: "{}",
+				headers: { authorization: "Bearer do-not-log" },
+			}),
+			{
+				SYNC_VPS_URL: "http://127.0.0.1:8788",
+				SYNC_RATE_LIMIT: { limit: syncLimit } as unknown as RateLimit,
+			},
+		);
+		expect(response.status).toBe(429);
+		expect(response.headers.get("retry-after")).toBe("60");
+		const key = syncLimit.mock.calls[0]?.[0].key;
+		expect(key).toMatch(/^credential:[a-f0-9]{64}$/);
+		expect(key).not.toContain("do-not-log");
+		expect(directFetch).not.toHaveBeenCalled();
+	});
+
+	test("passes an abortable timeout signal and redacts failure logs", async () => {
+		const directFetch = vi.fn(async (request: Request) => {
+			expect(request.signal).toBeInstanceOf(AbortSignal);
+			throw new Error(
+				"http://private-vps.internal cookie=session authorization=Bearer-secret",
+			);
+		});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		vi.stubGlobal("fetch", directFetch);
+		const response = await proxyPrivateApi(
+			new Request("http://localhost/api/auth/get-session", {
+				headers: {
+					authorization: "Bearer-secret",
+					cookie: "session=secret",
+				},
+			}),
+			{ SYNC_VPS_URL: "http://127.0.0.1:8788" },
+		);
+		expect(response.status).toBe(503);
+		const log = String(consoleError.mock.calls[0]?.[0]);
+		expect(log).toContain('"event":"private_service_unavailable"');
+		expect(log).not.toContain("private-vps");
+		expect(log).not.toContain("Bearer-secret");
+		expect(log).not.toContain("session=secret");
 	});
 });

@@ -2,22 +2,61 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "contextboard",
   "main": "./src/server.ts",
-  "compatibility_date": "2026-06-30",
+  "compatibility_date": "2026-07-28",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": true,
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
   },
-  "upload_source_maps": true
-  ,
+  "upload_source_maps": true,
+  "ratelimits": [
+    {
+      "name": "SYNC_RATE_LIMIT",
+      "namespace_id": "41001",
+      "simple": {
+        "limit": 600,
+        "period": 60
+      }
+    },
+    {
+      "name": "BLOB_RATE_LIMIT",
+      "namespace_id": "41002",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ],
   "env": {
     "dev": {
       "vars": {
         // Local development has no VPC tunnel connector. Override this in
         // .env.local when the Bun sync server uses another address.
         "SYNC_VPS_URL": "http://127.0.0.1:8788"
-      }
+      },
+      "ratelimits": [
+        {
+          "name": "SYNC_RATE_LIMIT",
+          "namespace_id": "41001",
+          "simple": {
+            "limit": 600,
+            "period": 60
+          }
+        },
+        {
+          "name": "BLOB_RATE_LIMIT",
+          "namespace_id": "41002",
+          "simple": {
+            "limit": 120,
+            "period": 60
+          }
+        }
+      ]
     }
   }
   // Production must add:
