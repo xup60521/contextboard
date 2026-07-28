@@ -101,4 +101,53 @@ describe("SyncCoordinator", () => {
 		).rejects.toThrow("interrupted");
 		expect(acknowledged).toBe(false);
 	});
+
+	test("stop aborts an in-flight request without reporting a sync error", async () => {
+		const repository: WorkspaceRepository = {
+			query: async () => undefined as never,
+			execute: async () => undefined as never,
+			subscribe: () => () => undefined,
+			getPendingBatches: async () => [],
+			acknowledge: async () => undefined,
+			getSyncState: async (peerId) => ({
+				peerId,
+				cursor: null,
+				enabled: true,
+				updatedAt: 1,
+				lastSyncedAt: null,
+			}),
+			applyRemote: async () => ({ applied: 0, conflicts: 0 }),
+		};
+		let requestStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			requestStarted = resolve;
+		});
+		const transport: SyncTransport = {
+			push: async () => ({
+				cursor: "0",
+				acknowledgedChangeIds: [],
+				missingBlobHashes: [],
+			}),
+			pull: async (_request, signal) => {
+				requestStarted();
+				return await new Promise<never>((_resolve, reject) => {
+					signal?.addEventListener(
+						"abort",
+						() => reject(signal.reason),
+						{ once: true },
+					);
+				});
+			},
+		};
+		const coordinator = new SyncCoordinator(
+			"workspace-1",
+			repository,
+			transport,
+		);
+		const syncing = coordinator.syncNow();
+		await started;
+		coordinator.stop();
+		await expect(syncing).resolves.toBeUndefined();
+		expect(coordinator.status.state).toBe("local-only");
+	});
 });

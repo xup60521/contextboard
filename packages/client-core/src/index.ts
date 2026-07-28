@@ -1,3 +1,4 @@
+import { syncVersionHeaders } from "@contextboard/sync-protocol";
 import type {
 	BlobDescriptor,
 	ChangeBatch,
@@ -66,6 +67,10 @@ export class HttpSyncTransport implements SyncTransport {
 		const response = await fetch(`${this.baseURL}${path}`, {
 			credentials: "include",
 			...init,
+			headers: {
+				...syncVersionHeaders(),
+				...Object.fromEntries(new Headers(init.headers).entries()),
+			},
 			signal,
 		});
 		if (!response.ok) {
@@ -132,8 +137,8 @@ export class HttpSyncTransport implements SyncTransport {
 				method: "PUT",
 				headers: {
 					"content-type": descriptor.contentType,
-					"content-length": String(descriptor.size),
 					"x-contextboard-workspace": workspaceId,
+					"x-contextboard-blob-size": String(descriptor.size),
 				},
 				body: blob,
 			},
@@ -149,7 +154,10 @@ export class HttpSyncTransport implements SyncTransport {
 			`${this.baseURL}/api/sync/v1/blobs/${descriptor.hash}`,
 			{
 				credentials: "include",
-				headers: { "x-contextboard-workspace": workspaceId },
+				headers: {
+					...syncVersionHeaders(),
+					"x-contextboard-workspace": workspaceId,
+				},
 				signal,
 			},
 		);
@@ -173,6 +181,8 @@ export class SyncCoordinator {
 	#cursor: string | null = null;
 	#initialized = false;
 	#running: Promise<void> | null = null;
+	#controller: AbortController | null = null;
+	#stopped = false;
 	#failures = 0;
 	#status: SyncStatus = { state: "idle", cursor: null };
 	#listeners = new Set<(status: SyncStatus) => void>();
@@ -197,14 +207,32 @@ export class SyncCoordinator {
 		for (const listener of this.#listeners) listener(status);
 	}
 	syncNow() {
-		this.#running ??= this.#sync().finally(() => {
+		if (this.#stopped) return Promise.resolve();
+		this.#running ??= this.#run().finally(() => {
 			this.#running = null;
+			this.#controller = null;
 		});
 		return this.#running;
 	}
-	async #sync() {
+	stop() {
+		this.#stopped = true;
+		this.#controller?.abort();
+		this.#set({ state: "local-only", cursor: this.#cursor });
+	}
+	async #run() {
+		const controller = new AbortController();
+		this.#controller = controller;
+		try {
+			await this.#sync(controller.signal);
+		} catch (error) {
+			if (controller.signal.aborted) return;
+			throw error;
+		}
+	}
+	async #sync(signal: AbortSignal) {
 		if (!this.#initialized) {
 			const persisted = await this.repository.getSyncState(this.peerId);
+			signal.throwIfAborted();
 			this.#cursor = persisted.cursor;
 			this.#initialized = true;
 		}
@@ -212,43 +240,54 @@ export class SyncCoordinator {
 		try {
 			const pending = await this.repository.getPendingBatches(100);
 			if (pending.length) {
-				const pushed = await this.transport.push({
-					workspaceId: this.workspaceId,
-					batches: pending,
-					cursor: this.#cursor,
-				});
+				const pushed = await this.transport.push(
+					{
+						workspaceId: this.workspaceId,
+						batches: pending,
+						cursor: this.#cursor,
+					},
+					signal,
+				);
 				if (this.transport.uploadBlob && this.repository.getLocalBlob) {
 					for (const hash of pushed.missingBlobHashes) {
+						signal.throwIfAborted();
 						const local = await this.repository.getLocalBlob(hash);
 						if (local)
 							await this.transport.uploadBlob(
 								this.workspaceId,
 								local.descriptor,
 								local.blob,
+								signal,
 							);
 					}
 				}
+				signal.throwIfAborted();
 				await this.repository.acknowledge(pushed.acknowledgedChangeIds);
 			}
 			let hasMore = true;
 			while (hasMore) {
-				const pulled = await this.transport.pull({
-					workspaceId: this.workspaceId,
-					cursor: this.#cursor,
-					limit: 500,
-				});
+				const pulled = await this.transport.pull(
+					{
+						workspaceId: this.workspaceId,
+						cursor: this.#cursor,
+						limit: 500,
+					},
+					signal,
+				);
+				signal.throwIfAborted();
 				await this.repository.applyRemote(
 					pulled.batches,
 					this.peerId,
 					pulled.cursor,
 				);
-				await this.#downloadMissingBlobs(pulled.batches);
+				await this.#downloadMissingBlobs(pulled.batches, signal);
 				this.#cursor = pulled.cursor;
 				hasMore = pulled.hasMore;
 			}
 			this.#failures = 0;
 			this.#set({ state: "idle", cursor: this.#cursor });
 		} catch (error) {
+			if (signal.aborted) throw error;
 			this.#failures++;
 			this.#set({
 				state: "error",
@@ -258,7 +297,10 @@ export class SyncCoordinator {
 			throw error;
 		}
 	}
-	async #downloadMissingBlobs(batches: ChangeBatch[]) {
+	async #downloadMissingBlobs(
+		batches: ChangeBatch[],
+		signal: AbortSignal,
+	) {
 		if (
 			!this.transport.downloadBlob ||
 			!this.repository.getLocalBlob ||
@@ -297,10 +339,12 @@ export class SyncCoordinator {
 				descriptors.set(descriptor.hash, descriptor);
 		}
 		for (const descriptor of descriptors.values()) {
+			signal.throwIfAborted();
 			if (await this.repository.getLocalBlob(descriptor.hash)) continue;
 			const blob = await this.transport.downloadBlob(
 				this.workspaceId,
 				descriptor,
+				signal,
 			);
 			if (blob.size !== descriptor.size)
 				throw new Error(

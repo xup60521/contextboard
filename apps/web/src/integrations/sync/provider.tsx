@@ -1,6 +1,7 @@
 import { useSession } from "@contextboard/auth-client";
 import {
 	HttpSyncTransport,
+	HttpSyncError,
 	SyncCoordinator,
 	type WorkspaceRepository,
 } from "@contextboard/client-core";
@@ -70,8 +71,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 		workspaceId: string;
 	} | null>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const refreshCountsRef = useRef<() => Promise<void>>(async () => undefined);
+	const syncNowRef = useRef<() => Promise<void>>(async () => undefined);
+	const refetchSessionRef = useRef(session.refetch);
+	refetchSessionRef.current = session.refetch;
 
-	const refreshCounts = useCallback(async () => {
+	refreshCountsRef.current = async () => {
 		if (local.status !== "ready") return;
 		const [pendingCount, conflictCount] = await Promise.all([
 			local.database.changeLog.count(),
@@ -80,11 +85,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 				.then((rows) => rows.filter((row) => row.resolvedAt === null).length),
 		]);
 		setState((current) => ({ ...current, pendingCount, conflictCount }));
-	}, [local]);
+	};
 
-	const syncNow = useCallback(async () => {
+	syncNowRef.current = async () => {
 		const coordinator = coordinatorRef.current;
-		if (!coordinator) return;
+		if (
+			!coordinator ||
+			(typeof navigator !== "undefined" && navigator.onLine === false)
+		)
+			return;
 		try {
 			await coordinator.syncNow();
 			const checkpoint = checkpointRef.current;
@@ -95,23 +104,50 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 					checkpoint.workspaceId,
 					coordinator.status.cursor,
 				);
+		} catch (error) {
+			if (error instanceof HttpSyncError && error.status === 401) {
+				coordinator.stop();
+				if (coordinatorRef.current === coordinator)
+					coordinatorRef.current = null;
+				checkpointRef.current = null;
+				if (debounceRef.current) {
+					clearTimeout(debounceRef.current);
+					debounceRef.current = null;
+				}
+				setState((current) => ({
+					...current,
+					state: "local-only",
+					error: undefined,
+				}));
+				await refetchSessionRef.current();
+				return;
+			}
+			throw error;
 		} finally {
-			await refreshCounts();
+			await refreshCountsRef.current();
 		}
-	}, [refreshCounts, local.database, local.status]);
+	};
+
+	const syncNow = useCallback(() => syncNowRef.current(), []);
 
 	const notifyLocalChange = useCallback(() => {
-		void refreshCounts();
+		void refreshCountsRef.current();
 		if (!coordinatorRef.current) return;
 		if (debounceRef.current) clearTimeout(debounceRef.current);
 		debounceRef.current = setTimeout(() => void syncNow(), 500);
-	}, [refreshCounts, syncNow]);
+	}, [syncNow]);
 
 	useEffect(() => {
 		if (local.status !== "ready") return;
-		void refreshCounts();
+		void refreshCountsRef.current();
 		if (!userId) {
+			coordinatorRef.current?.stop();
 			coordinatorRef.current = null;
+			checkpointRef.current = null;
+			if (debounceRef.current) {
+				clearTimeout(debounceRef.current);
+				debounceRef.current = null;
+			}
 			setState((current) => ({
 				...current,
 				state: "local-only",
@@ -122,6 +158,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
 		let active = true;
 		const timers = new Set<ReturnType<typeof setTimeout>>();
+		const bootstrapController = new AbortController();
 		const transport = new HttpSyncTransport();
 		const start = async () => {
 			setState((current) => ({
@@ -129,7 +166,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 				state: "syncing",
 				workspaceId: local.workspaceId,
 			}));
-			const listing = await transport.listWorkspaces();
+			const listing = await transport.listWorkspaces(
+				bootstrapController.signal,
+			);
 			const currentMembership = listing.workspaces.find(
 				(item) => item.workspaceId === local.workspaceId,
 			);
@@ -144,11 +183,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 						transport,
 						workspaceId,
 					);
+					if (!active) return;
+					local.updateWorkspaceIdentity(workspaceId);
 				} else {
-					await transport.claimWorkspace({
-						workspaceId,
-						deviceId: local.deviceId,
-					});
+					await transport.claimWorkspace(
+						{
+							workspaceId,
+							deviceId: local.deviceId,
+						},
+						bootstrapController.signal,
+					);
 				}
 			}
 			if (!active) return;
@@ -188,6 +232,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 				}));
 			});
 			await syncNow().catch(() => undefined);
+			if (!active || coordinatorRef.current !== coordinator) return;
 
 			const schedulePull = () => {
 				const delay =
@@ -199,22 +244,56 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 				const timer = setTimeout(async () => {
 					timers.delete(timer);
 					await syncNow().catch(() => undefined);
-					if (active) schedulePull();
+					if (active && coordinatorRef.current === coordinator)
+						schedulePull();
 				}, delay);
 				timers.add(timer);
 			};
 			schedulePull();
 		};
-		void start().catch((error) => {
-			if (!active) return;
-			setState((current) => ({
-				...current,
-				state: "error",
-				error: error instanceof Error ? error.message : String(error),
-			}));
-		});
+		let bootstrapFailures = 0;
+		let bootstrapping = false;
+		const attemptStart = async () => {
+			if (!active || bootstrapping || coordinatorRef.current) return;
+			if (typeof navigator !== "undefined" && navigator.onLine === false)
+				return;
+			bootstrapping = true;
+			try {
+				await start();
+				bootstrapFailures = 0;
+			} catch (error) {
+				if (!active || bootstrapController.signal.aborted) return;
+				if (error instanceof HttpSyncError && error.status === 401) {
+					setState((current) => ({
+						...current,
+						state: "local-only",
+						error: undefined,
+					}));
+					await refetchSessionRef.current();
+					return;
+				}
+				bootstrapFailures += 1;
+				if (typeof navigator === "undefined" || navigator.onLine !== false)
+					setState((current) => ({
+						...current,
+						state: "error",
+						error: error instanceof Error ? error.message : String(error),
+					}));
+				const timer = setTimeout(() => {
+					timers.delete(timer);
+					void attemptStart();
+				}, Math.min(60_000, 1_000 * 2 ** Math.min(bootstrapFailures, 6)));
+				timers.add(timer);
+			} finally {
+				bootstrapping = false;
+			}
+		};
+		void attemptStart();
 
-		const immediate = () => void syncNow().catch(() => undefined);
+		const immediate = () => {
+			if (coordinatorRef.current) void syncNow().catch(() => undefined);
+			else void attemptStart();
+		};
 		const flush = () =>
 			void coordinatorRef.current?.syncNow().catch(() => undefined);
 		window.addEventListener("focus", immediate);
@@ -222,14 +301,20 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 		window.addEventListener("pagehide", flush);
 		return () => {
 			active = false;
+			bootstrapController.abort();
+			coordinatorRef.current?.stop();
 			coordinatorRef.current = null;
 			checkpointRef.current = null;
+			if (debounceRef.current) {
+				clearTimeout(debounceRef.current);
+				debounceRef.current = null;
+			}
 			for (const timer of timers) clearTimeout(timer);
 			window.removeEventListener("focus", immediate);
 			window.removeEventListener("online", immediate);
 			window.removeEventListener("pagehide", flush);
 		};
-	}, [local, refreshCounts, syncNow, userId]);
+	}, [local, syncNow, userId]);
 
 	useEffect(
 		() => () => {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	SYNC_PROTOCOL_VERSION,
 	SYNC_SCHEMA_VERSION,
+	syncVersionHeaders,
 } from "@contextboard/sync-protocol";
 import { createSyncApp } from "./app";
 import { SyncStore } from "./store";
@@ -38,7 +39,10 @@ describe("Hono sync app", () => {
 		const { store, app } = createFixture();
 		const response = await app.request("/api/sync/v1/push", {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: {
+				"content-type": "application/json",
+				...syncVersionHeaders(),
+			},
 			body: JSON.stringify({
 				workspaceId: "workspace-1",
 				cursor: null,
@@ -70,7 +74,10 @@ describe("Hono sync app", () => {
 		const { store, app } = createFixture();
 		const response = await app.request("/api/sync/v1/push", {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: {
+				"content-type": "application/json",
+				...syncVersionHeaders(),
+			},
 			body: JSON.stringify({
 				workspaceId: "workspace-1",
 				cursor: null,
@@ -94,6 +101,93 @@ describe("Hono sync app", () => {
 		expect(await response.json()).toMatchObject({
 			acknowledgedChangeIds: ["change-1"],
 		});
+		store.close();
+	});
+
+	test("rejects missing or unknown transport versions", async () => {
+		const { store, app } = createFixture();
+		const missing = await app.request("/api/sync/v1/pull", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				workspaceId: "workspace-1",
+				cursor: null,
+				limit: 1,
+			}),
+		});
+		expect(missing.status).toBe(400);
+		expect(await missing.json()).toEqual({
+			error: "Unsupported protocol version: undefined",
+		});
+
+		const unknown = await app.request("/api/sync/v1/pull", {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				...syncVersionHeaders(),
+				"x-contextboard-schema-version": "999",
+			},
+			body: JSON.stringify({
+				workspaceId: "workspace-1",
+				cursor: null,
+				limit: 1,
+			}),
+		});
+		expect(unknown.status).toBe(400);
+		expect(await unknown.json()).toEqual({
+			error: "Unsupported schema version: 999",
+		});
+		store.close();
+	});
+
+	test("validates cursor, identifiers, blob headers, and checkpoint bodies", async () => {
+		const { store, app } = createFixture();
+		const headers = {
+			"content-type": "application/json",
+			...syncVersionHeaders(),
+		};
+		const invalidCursor = await app.request("/api/sync/v1/pull", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				workspaceId: "workspace-1",
+				cursor: "-1",
+				limit: 1,
+			}),
+		});
+		expect(invalidCursor.status).toBe(400);
+
+		const invalidBlob = await app.request("/api/sync/v1/blobs/not-a-hash", {
+			method: "PUT",
+			headers: {
+				...syncVersionHeaders(),
+				"content-type": "application/octet-stream",
+				"x-contextboard-workspace": "workspace-1",
+				"x-contextboard-blob-size": "1",
+			},
+			body: "x",
+		});
+		expect(invalidBlob.status).toBe(400);
+
+		const invalidCheckpoint = await app.request(
+			"/api/sync/v1/checkpoints",
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					checkpointId: "checkpoint-1",
+					workspaceId: "workspace-1",
+					coveredCursor: "1",
+					blob: {
+						hash: "bad",
+						contentType: "application/octet-stream",
+						size: 1,
+					},
+					createdAt: 1,
+				}),
+			},
+		);
+		expect(invalidCheckpoint.status).toBe(400);
 		store.close();
 	});
 });

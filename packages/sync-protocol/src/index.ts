@@ -168,6 +168,129 @@ const readId = (value: unknown, name: string) => {
 	return value;
 };
 
+export const SYNC_VERSION_HEADERS = {
+	protocol: "x-contextboard-protocol-version",
+	schema: "x-contextboard-schema-version",
+} as const;
+
+export function syncVersionHeaders(): Record<string, string> {
+	return {
+		[SYNC_VERSION_HEADERS.protocol]: String(SYNC_PROTOCOL_VERSION),
+		[SYNC_VERSION_HEADERS.schema]: String(SYNC_SCHEMA_VERSION),
+	};
+}
+
+export function parseSyncVersionHeaders(
+	value: Headers | Record<string, string | undefined>,
+) {
+	const read = (name: string) =>
+		value instanceof Headers ? value.get(name) : value[name];
+	const protocolVersion = read(SYNC_VERSION_HEADERS.protocol);
+	const schemaVersion = read(SYNC_VERSION_HEADERS.schema);
+	readVersion(
+		protocolVersion === null || protocolVersion === undefined
+			? undefined
+			: Number(protocolVersion),
+		SYNC_PROTOCOL_VERSION,
+		"protocol version",
+	);
+	readVersion(
+		schemaVersion === null || schemaVersion === undefined
+			? undefined
+			: Number(schemaVersion),
+		SYNC_SCHEMA_VERSION,
+		"schema version",
+	);
+	return {
+		protocolVersion: SYNC_PROTOCOL_VERSION,
+		schemaVersion: SYNC_SCHEMA_VERSION,
+	};
+}
+
+export function parseWorkspaceId(value: unknown) {
+	return readId(value, "workspaceId");
+}
+
+export function parseDeviceId(value: unknown) {
+	return readId(value, "deviceId");
+}
+
+export function parseBlobHash(value: unknown) {
+	if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value))
+		throw new SyncProtocolError("hash is invalid");
+	return value;
+}
+
+export function parseSyncCursor(value: unknown): SyncCursor | null {
+	if (value === null) return null;
+	if (
+		typeof value !== "string" ||
+		!/^(0|[1-9][0-9]*)$/.test(value) ||
+		!Number.isSafeInteger(Number(value))
+	)
+		throw new SyncProtocolError("cursor is invalid");
+	return value;
+}
+
+export function parsePaginationLimit(value: unknown) {
+	const parsed =
+		typeof value === "string" && value !== "" ? Number(value) : value;
+	if (
+		!Number.isSafeInteger(parsed) ||
+		Number(parsed) < 1 ||
+		Number(parsed) > 1000
+	)
+		throw new SyncProtocolError("limit is invalid");
+	return Number(parsed);
+}
+
+export function parseBlobDescriptor(value: unknown): BlobDescriptor {
+	if (!isRecord(value))
+		throw new SyncProtocolError("Blob descriptor must be an object");
+	if (
+		typeof value.contentType !== "string" ||
+		value.contentType.length < 1 ||
+		value.contentType.length > 255 ||
+		!Number.isSafeInteger(value.size) ||
+		Number(value.size) < 0
+	)
+		throw new SyncProtocolError("Blob descriptor is invalid");
+	return {
+		hash: parseBlobHash(value.hash),
+		contentType: value.contentType,
+		size: Number(value.size),
+	};
+}
+
+export function parseBlobRequestHeaders(
+	value: Headers | Record<string, string | undefined>,
+) {
+	const read = (name: string) =>
+		value instanceof Headers ? value.get(name) : value[name];
+	const contentLength = read("x-contextboard-blob-size");
+	const size = contentLength === null || contentLength === undefined
+		? Number.NaN
+		: Number(contentLength);
+	return {
+		workspaceId: parseWorkspaceId(read("x-contextboard-workspace")),
+		contentType: (() => {
+			const contentType = read("content-type");
+			if (
+				typeof contentType !== "string" ||
+				contentType.length < 1 ||
+				contentType.length > 255
+			)
+				throw new SyncProtocolError("content-type is invalid");
+			return contentType;
+		})(),
+		size: (() => {
+			if (!Number.isSafeInteger(size) || size < 0)
+				throw new SyncProtocolError("blob size is invalid");
+			return size;
+		})(),
+	};
+}
+
 const readVersion = (
 	value: unknown,
 	expected: number,
@@ -253,26 +376,16 @@ export function parsePushChangesRequest(value: unknown): PushChangesRequest {
 	const batches = value.batches.map(parseChangeBatch);
 	if (batches.some((batch) => batch.workspaceId !== workspaceId))
 		throw new SyncProtocolError("Workspace mismatch");
-	if (value.cursor !== null && typeof value.cursor !== "string")
-		throw new SyncProtocolError("cursor is invalid");
-	return { workspaceId, batches, cursor: value.cursor as string | null };
+	return { workspaceId, batches, cursor: parseSyncCursor(value.cursor) };
 }
 
 export function parsePullChangesRequest(value: unknown): PullChangesRequest {
 	if (!isRecord(value))
 		throw new SyncProtocolError("Request must be an object");
-	if (
-		!Number.isSafeInteger(value.limit) ||
-		Number(value.limit) < 1 ||
-		Number(value.limit) > 1000
-	)
-		throw new SyncProtocolError("limit is invalid");
-	if (value.cursor !== null && typeof value.cursor !== "string")
-		throw new SyncProtocolError("cursor is invalid");
 	return {
-		workspaceId: readId(value.workspaceId, "workspaceId"),
-		cursor: value.cursor as string | null,
-		limit: Number(value.limit),
+		workspaceId: parseWorkspaceId(value.workspaceId),
+		cursor: parseSyncCursor(value.cursor),
+		limit: parsePaginationLimit(value.limit),
 	};
 }
 
@@ -282,8 +395,30 @@ export function parseClaimWorkspaceRequest(
 	if (!isRecord(value))
 		throw new SyncProtocolError("Request must be an object");
 	return {
-		workspaceId: readId(value.workspaceId, "workspaceId"),
-		deviceId: readId(value.deviceId, "deviceId"),
+		workspaceId: parseWorkspaceId(value.workspaceId),
+		deviceId: parseDeviceId(value.deviceId),
+	};
+}
+
+export function parseCheckpointDescriptor(
+	value: unknown,
+): CheckpointDescriptor {
+	if (!isRecord(value))
+		throw new SyncProtocolError("Checkpoint descriptor must be an object");
+	if (
+		!Number.isFinite(value.createdAt) ||
+		Number(value.createdAt) < 0
+	)
+		throw new SyncProtocolError("Checkpoint timestamp is invalid");
+	const coveredCursor = parseSyncCursor(value.coveredCursor);
+	if (coveredCursor === null)
+		throw new SyncProtocolError("Checkpoint cursor is invalid");
+	return {
+		checkpointId: readId(value.checkpointId, "checkpointId"),
+		workspaceId: parseWorkspaceId(value.workspaceId),
+		coveredCursor,
+		blob: parseBlobDescriptor(value.blob),
+		createdAt: Number(value.createdAt),
 	};
 }
 

@@ -7,6 +7,7 @@ import {
 import {
 	createContext,
 	type ReactNode,
+	useCallback,
 	useContext,
 	useEffect,
 	useMemo,
@@ -20,6 +21,7 @@ type LocalDatabaseState =
 			workspaceId: null;
 			deviceId: null;
 			error: null;
+			updateWorkspaceIdentity: (workspaceId: string) => void;
 	  }
 	| {
 			status: "ready";
@@ -27,6 +29,7 @@ type LocalDatabaseState =
 			workspaceId: string;
 			deviceId: string;
 			error: null;
+			updateWorkspaceIdentity: (workspaceId: string) => void;
 	  }
 	| {
 			status: "error";
@@ -34,6 +37,7 @@ type LocalDatabaseState =
 			workspaceId: null;
 			deviceId: null;
 			error: Error;
+			updateWorkspaceIdentity: (workspaceId: string) => void;
 	  };
 
 export const LocalDatabaseContext = createContext<LocalDatabaseState | null>(
@@ -42,12 +46,20 @@ export const LocalDatabaseContext = createContext<LocalDatabaseState | null>(
 
 export function LocalDatabaseProvider({ children }: { children: ReactNode }) {
 	const database = useMemo(() => createContextboardDatabase(), []);
+	const updateWorkspaceIdentity = useCallback((workspaceId: string) => {
+		setState((current) =>
+			current.status === "ready"
+				? { ...current, workspaceId }
+				: current,
+		);
+	}, []);
 	const [state, setState] = useState<LocalDatabaseState>({
 		status: "opening",
 		database,
 		workspaceId: null,
 		deviceId: null,
 		error: null,
+		updateWorkspaceIdentity,
 	});
 
 	useEffect(() => {
@@ -61,6 +73,7 @@ export function LocalDatabaseProvider({ children }: { children: ReactNode }) {
 					workspaceId,
 					deviceId,
 					error: null,
+					updateWorkspaceIdentity,
 				});
 				void cleanupOrphanedFiles(database);
 				void navigator.storage?.persist?.();
@@ -73,12 +86,13 @@ export function LocalDatabaseProvider({ children }: { children: ReactNode }) {
 					workspaceId: null,
 					deviceId: null,
 					error: reason instanceof Error ? reason : new Error(String(reason)),
+					updateWorkspaceIdentity,
 				}),
 		);
 		return () => {
 			active = false;
 		};
-	}, [database]);
+	}, [database, updateWorkspaceIdentity]);
 
 	return (
 		<LocalDatabaseContext.Provider value={state}>

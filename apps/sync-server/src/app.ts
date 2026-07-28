@@ -1,10 +1,14 @@
 import type { ContextboardAuth } from "@contextboard/auth";
 import {
 	type BlobDescriptor,
-	type CheckpointDescriptor,
+	parseBlobHash,
+	parseBlobRequestHeaders,
+	parseCheckpointDescriptor,
 	parseClaimWorkspaceRequest,
 	parsePullChangesRequest,
 	parsePushChangesRequest,
+	parseSyncVersionHeaders,
+	parseWorkspaceId,
 	SyncProtocolError,
 } from "@contextboard/sync-protocol";
 import { Hono } from "hono";
@@ -65,6 +69,11 @@ export function createSyncApp(store: SyncStore, auth?: ContextboardAuth) {
 
 	app.get("/api/sync/v1/health", (context) => context.json({ ok: true }));
 
+	app.use("/api/sync/v1/*", async (context, next) => {
+		parseSyncVersionHeaders(context.req.raw.headers);
+		await next();
+	});
+
 	app.get("/api/sync/v1/workspaces", async (context) => {
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
 		const session = await requireSession(auth, context.req.raw);
@@ -106,30 +115,38 @@ export function createSyncApp(store: SyncStore, auth?: ContextboardAuth) {
 		);
 	});
 
-	app.put("/api/sync/v1/blobs/:hash{[a-f0-9]{64}}", async (context) => {
-		const workspaceId = context.req.header("x-contextboard-workspace");
-		const size = Number(context.req.header("content-length"));
-		if (!workspaceId || !context.req.raw.body || !Number.isSafeInteger(size))
+	app.put("/api/sync/v1/blobs/:hash", async (context) => {
+		const headers = parseBlobRequestHeaders(context.req.raw.headers);
+		const hash = parseBlobHash(context.req.param("hash"));
+		if (!context.req.raw.body)
 			return context.json({ error: "Invalid blob request" }, 400);
 		if (auth)
-			await requireWorkspaceSession(auth, store, context.req.raw, workspaceId);
+			await requireWorkspaceSession(
+				auth,
+				store,
+				context.req.raw,
+				headers.workspaceId,
+			);
 		const descriptor: BlobDescriptor = {
-			hash: context.req.param("hash"),
-			contentType:
-				context.req.header("content-type") ?? "application/octet-stream",
-			size,
+			hash,
+			contentType: headers.contentType,
+			size: headers.size,
 		};
-		await store.putBlob(workspaceId, descriptor, context.req.raw.body);
+		await store.putBlob(
+			headers.workspaceId,
+			descriptor,
+			context.req.raw.body,
+		);
 		return context.body(null, 204);
 	});
 
-	app.get("/api/sync/v1/blobs/:hash{[a-f0-9]{64}}", async (context) => {
-		const workspaceId = context.req.header("x-contextboard-workspace");
-		if (!workspaceId)
-			return context.json({ error: "Workspace is required" }, 400);
+	app.get("/api/sync/v1/blobs/:hash", async (context) => {
+		const workspaceId = parseWorkspaceId(
+			context.req.header("x-contextboard-workspace"),
+		);
 		if (auth)
 			await requireWorkspaceSession(auth, store, context.req.raw, workspaceId);
-		const hash = context.req.param("hash");
+		const hash = parseBlobHash(context.req.param("hash"));
 		const descriptor = store.getBlobDescriptor(workspaceId, hash);
 		if (!descriptor) return context.json({ error: "Not found" }, 404);
 		const file = Bun.file(store.blobPath(workspaceId, hash));
@@ -143,7 +160,7 @@ export function createSyncApp(store: SyncStore, auth?: ContextboardAuth) {
 	});
 
 	app.post("/api/sync/v1/checkpoints", async (context) => {
-		const input = (await context.req.json()) as CheckpointDescriptor;
+		const input = parseCheckpointDescriptor(await context.req.json());
 		if (auth)
 			await requireWorkspaceSession(
 				auth,
@@ -156,9 +173,7 @@ export function createSyncApp(store: SyncStore, auth?: ContextboardAuth) {
 	});
 
 	app.get("/api/sync/v1/checkpoints/latest", async (context) => {
-		const workspaceId = context.req.query("workspaceId");
-		if (!workspaceId)
-			return context.json({ error: "Workspace is required" }, 400);
+		const workspaceId = parseWorkspaceId(context.req.query("workspaceId"));
 		if (auth)
 			await requireWorkspaceSession(auth, store, context.req.raw, workspaceId);
 		const checkpoint = store.latestCheckpoint(workspaceId);
