@@ -8,6 +8,7 @@ apps/*/.output
 apps/*/.wrangler
 apps/*/.tanstack
 *.local
+.env.production
 .env
 .nitro
 .tanstack
