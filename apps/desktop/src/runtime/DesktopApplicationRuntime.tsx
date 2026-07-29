@@ -35,7 +35,15 @@ export function DesktopApplicationRuntime({
 			navigation: {
 				cardsHref: () => "/cards",
 				cardHref: (cardId) => `/cards/${encodeURIComponent(cardId)}`,
+				rootWhiteboardHref: () => "/whiteboard",
+				whiteboardHref: (id, whiteboardOptions) =>
+					`/whiteboard/${encodeURIComponent(id)}${
+						whiteboardOptions?.focus
+							? `?focus=${encodeURIComponent(whiteboardOptions.focus)}`
+							: ""
+					}`,
 				navigate: (href) => router.history.push(href),
+				replace: (href) => router.history.replace(href),
 			},
 			sync,
 		};

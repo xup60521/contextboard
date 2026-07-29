@@ -48,7 +48,9 @@ describe("IndexedDB card conformance", () => {
 		});
 	});
 
-	test("emits a delete change for a tombstoned card", async () => {
+	// Deleting a card archives it — matching the Web product behaviour, where a
+	// delete also archives every placement in the same atomic command.
+	test("emits an archiving change for a deleted card", async () => {
 		const { cards, repository } = makeCards();
 		const cardId = await cards.create();
 		await cards.delete(cardId);
@@ -62,7 +64,7 @@ describe("IndexedDB card conformance", () => {
 			entityId: cardId,
 			baseRevision: 1,
 			revision: 2,
-			operation: "delete",
+			operation: "upsert",
 		});
 	});
 

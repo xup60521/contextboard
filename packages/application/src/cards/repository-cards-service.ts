@@ -1,10 +1,26 @@
 import type { WorkspaceRepository } from "@contextboard/client-core";
+import { planAppendCard } from "../canvas/plan/append-card";
+import {
+	type ArchiveCardSnapshot,
+	planArchiveCards,
+} from "../canvas/plan/archive-card";
+import { planReferences } from "../canvas/plan/references";
+import {
+	applyWrites,
+	type EntityRow,
+	isActiveRow,
+	listRows,
+} from "../repository/entities";
 import type {
+	AppendCardPlacement,
 	CardDetail,
+	CardPlacement,
+	CardSearchResult,
 	CardSortOrder,
 	CardSummary,
 	CardsService,
 	ListCardsOptions,
+	UpdateCardContentInput,
 } from "../runtime";
 import {
 	DEFAULT_CARD_CONTENT,
@@ -32,6 +48,11 @@ export type CardEntity = {
 	deletedAt: number | null;
 	archivedAt: number | null;
 };
+
+/** Matches the Web whiteboard card width so both platforms lay out equally. */
+const DEFAULT_CARD_WIDTH = 576;
+const DEFAULT_CARD_HEIGHT = 180;
+const DEFAULT_SEARCH_LIMIT = 8;
 
 const isActive = (card: CardEntity) =>
 	card.deletedAt === null && card.archivedAt === null;
@@ -89,19 +110,47 @@ function normalize(value: unknown): CardEntity | null {
 	};
 }
 
+function toPlacement(item: EntityRow): CardPlacement {
+	return {
+		itemId: item.id,
+		whiteboardId:
+			typeof item.whiteboardId === "string" ? item.whiteboardId : null,
+		shapeId: String(item.shapeId ?? ""),
+		updatedAt: item.updatedAt,
+	};
+}
+
+/**
+ * Picks the placement the card detail UI should navigate to: the one on the
+ * preferred whiteboard when given, otherwise the most recently touched one.
+ */
+function preferPlacement(placements: EntityRow[], preferred?: string | null) {
+	return (
+		placements.find(
+			(row) => preferred && row.whiteboardId === preferred,
+		) ??
+		[...placements].sort((a, b) => b.updatedAt - a.updatedAt)[0] ??
+		null
+	);
+}
+
 /**
  * Card capability implemented purely through the semantic
  * {@link WorkspaceRepository} boundary. The renderer never learns about SQL,
  * IndexedDB object stores or filesystem layout — only allow-listed domain
- * operations (`cards.list`, `cards.get`, `cards.create`, `cards.update`,
- * `cards.delete`).
+ * operations over the generic entity store.
  */
 export function createRepositoryCardsService(
 	repository: WorkspaceRepository,
-	options: { now?: () => number; createId?: () => string } = {},
+	options: {
+		now?: () => number;
+		createId?: () => string;
+		deviceId?: string;
+	} = {},
 ): CardsService {
 	const now = options.now ?? (() => Date.now());
 	const createId = options.createId ?? (() => crypto.randomUUID());
+	const deviceId = options.deviceId ?? "";
 
 	async function read(cardId: string): Promise<CardEntity | null> {
 		const row = normalize(
@@ -110,23 +159,117 @@ export function createRepositoryCardsService(
 		return row && isActive(row) ? row : null;
 	}
 
+	async function listCards(): Promise<CardEntity[]> {
+		const raw = await repository.query<unknown>({
+			type: "cards.list",
+			input: {},
+		});
+		return (Array.isArray(raw) ? raw : [])
+			.map(normalize)
+			.filter((row): row is CardEntity => row !== null && isActive(row));
+	}
+
+	/**
+	 * Keeps `cardReference`/`fileReference` rows in step with the content, so
+	 * backlinks and blob refcounts behave identically on both platforms.
+	 */
+	async function reconcileReferences(cardId: string, content: unknown) {
+		const [fileReferences, cardReferences, files] = await Promise.all([
+			listRows(repository, "fileReferences"),
+			listRows(repository, "cardReferences"),
+			listRows(repository, "files"),
+		]);
+		const targetKey = `card:${cardId}`;
+		const plan = planReferences(
+			{
+				targetFileReferences: fileReferences.filter(
+					(row) => row.targetKey === targetKey,
+				) as never[],
+				allFileReferences: fileReferences as never[],
+				cardReferences: cardReferences.filter(
+					(row) => row.sourceCardId === cardId,
+				) as never[],
+				files: files as never[],
+			},
+			{ targetType: "card", targetId: cardId, content },
+			{ now: now(), deviceId },
+		);
+		await applyWrites(repository, "cardReferences.update", plan.writes);
+	}
+
+	async function archive(cardIds: string[], commandType: string) {
+		if (cardIds.length === 0) return;
+		const [cards, items] = await Promise.all([
+			listCards(),
+			listRows(repository, "items"),
+		]);
+		const cardById = new Map(cards.map((card) => [card.id, card]));
+		const snapshots: ArchiveCardSnapshot[] = [];
+		for (const cardId of cardIds) {
+			const card = cardById.get(cardId);
+			if (!card) continue;
+			snapshots.push({
+				card: card as never,
+				placements: items.filter(
+					(item) => isActiveRow(item) && item.cardId === cardId,
+				) as never[],
+			});
+		}
+		const plan = planArchiveCards(snapshots, { now: now() });
+		await applyWrites(repository, commandType, plan.writes);
+	}
+
+	async function append(cardIds: string[], whiteboardId: string) {
+		const results: AppendCardPlacement[] = [];
+		for (const cardId of cardIds) {
+			const [card, items] = await Promise.all([
+				read(cardId),
+				listRows(repository, "items"),
+			]);
+			const existing = items.find(
+				(item) =>
+					isActiveRow(item) &&
+					item.cardId === cardId &&
+					item.whiteboardId === whiteboardId,
+			);
+			const timestamp = now();
+			const plan = planAppendCard(
+				{
+					card: existing ? null : (card as never),
+					existingPlacement: (existing as never) ?? null,
+				},
+				{
+					whiteboardId,
+					itemId: createId(),
+					shapeId: `shape:card-${cardId}-${timestamp}-${results.length}`,
+					x: 0,
+					y: 0,
+					w: DEFAULT_CARD_WIDTH,
+					h: DEFAULT_CARD_HEIGHT,
+					rotation: 0,
+					zIndex: timestamp + results.length,
+				},
+				{ now: timestamp, deviceId },
+			);
+			await applyWrites(repository, "items.create", plan.writes);
+			if (plan.result) results.push({ ...plan.result, cardId, whiteboardId });
+		}
+		return results;
+	}
+
 	return {
 		async list(listOptions: ListCardsOptions = {}) {
-			const raw = await repository.query<unknown>({
-				type: "cards.list",
-				input: {},
-			});
-			const rows = (Array.isArray(raw) ? raw : [])
-				.map(normalize)
-				.filter((row): row is CardEntity => row !== null && isActive(row));
+			const rows = await listCards();
 			const term = listOptions.searchTerm?.trim().toLocaleLowerCase() ?? "";
-			const filtered = term
+			let filtered = term
 				? rows.filter((row) =>
 						`${row.derivedTitle} ${row.plainText}`
 							.toLocaleLowerCase()
 							.includes(term),
 					)
 				: rows;
+			if (listOptions.orphanOnly === true)
+				filtered = filtered.filter((row) => row.activePlacementCount === 0);
 			return filtered
 				.sort(comparator(listOptions.sortBy ?? "updated_desc"))
 				.map(toSummary);
@@ -135,47 +278,50 @@ export function createRepositoryCardsService(
 		async get(cardId: string): Promise<CardDetail | null> {
 			const row = await read(cardId);
 			if (!row) return null;
-			const [rawItems, rawReferences, rawCards] = await Promise.all([
-				repository.query<unknown>({ type: "items.list", input: {} }),
-				repository.query<unknown>({ type: "cardReferences.list", input: {} }),
-				repository.query<unknown>({ type: "cards.list", input: {} }),
+			const [items, references, cards, boards] = await Promise.all([
+				listRows(repository, "items"),
+				listRows(repository, "cardReferences"),
+				listCards(),
+				listRows(repository, "whiteboards"),
 			]);
-			const items = Array.isArray(rawItems) ? rawItems : [];
-			const references = Array.isArray(rawReferences) ? rawReferences : [];
-			const cards = (Array.isArray(rawCards) ? rawCards : [])
-				.map(normalize)
-				.filter((card): card is CardEntity => card !== null && isActive(card));
+			const activeItems = items.filter(isActiveRow);
+			const activeBoards = boards.filter(isActiveRow);
 			const cardById = new Map(cards.map((card) => [card.id, card]));
+			const boardById = new Map(activeBoards.map((board) => [board.id, board]));
+			const placements = activeItems.filter((item) => item.cardId === cardId);
+			const preferred = preferPlacement(placements);
+			const board =
+				preferred && typeof preferred.whiteboardId === "string"
+					? (boardById.get(preferred.whiteboardId) ?? null)
+					: null;
+			const breadcrumbs = board
+				? [
+						...(Array.isArray(board.ancestorIds)
+							? board.ancestorIds.map(String)
+							: []),
+						board.id,
+					]
+						.map((entry) => boardById.get(entry))
+						.filter((entry): entry is EntityRow => !!entry)
+						.map((entry) => ({
+							id: entry.id,
+							title: typeof entry.title === "string" ? entry.title : "",
+						}))
+				: [];
 			return {
 				...toSummary(row),
 				content: row.content,
 				activePlacementCount: row.activePlacementCount,
-				placements: items
-					.filter(
-						(item): item is Record<string, unknown> =>
-							!!item &&
-							typeof item === "object" &&
-							(item as Record<string, unknown>).cardId === cardId &&
-							(item as Record<string, unknown>).deletedAt === null &&
-							(item as Record<string, unknown>).archivedAt === null,
-					)
-					.map((item) => ({
-						itemId: String(item.id),
-						whiteboardId:
-							typeof item.whiteboardId === "string"
-								? item.whiteboardId
-								: null,
-						shapeId: String(item.shapeId ?? ""),
-						updatedAt:
-							typeof item.updatedAt === "number" ? item.updatedAt : 0,
-					})),
+				placements: placements.map(toPlacement),
+				preferredPlacement: preferred ? toPlacement(preferred) : null,
+				boardWhiteboardId:
+					preferred && typeof preferred.whiteboardId === "string"
+						? preferred.whiteboardId
+						: null,
+				shapeId: preferred ? String(preferred.shapeId ?? "") : null,
+				breadcrumbs,
 				backlinks: references
-					.filter(
-						(reference): reference is Record<string, unknown> =>
-							!!reference &&
-							typeof reference === "object" &&
-							(reference as Record<string, unknown>).targetCardId === cardId,
-					)
+					.filter((reference) => reference.targetCardId === cardId)
 					.flatMap((reference) => {
 						const source = cardById.get(String(reference.sourceCardId));
 						return source
@@ -204,15 +350,20 @@ export function createRepositoryCardsService(
 				updatedAt: timestamp,
 				revision: 1,
 				activePlacementCount: 0,
-				updatedByDeviceId: "",
+				updatedByDeviceId: deviceId,
 				deletedAt: null,
 				archivedAt: null,
 			};
 			await repository.execute({ type: "cards.create", input: { value } });
+			await reconcileReferences(value.id, content);
 			return value.id;
 		},
 
-		async updateContent({ cardId, content, expectedVersion }) {
+		async updateContent({
+			cardId,
+			content,
+			expectedVersion,
+		}: UpdateCardContentInput) {
 			const row = await read(cardId);
 			if (!row) throw new Error("Card not found");
 			if (
@@ -231,16 +382,59 @@ export function createRepositoryCardsService(
 				updatedAt: now(),
 			};
 			await repository.execute({ type: "cards.update", input: { value } });
+			await reconcileReferences(cardId, content);
 			return contentVersion;
 		},
 
 		async delete(cardId: string) {
-			const row = await read(cardId);
-			if (!row) return;
-			await repository.execute({
-				type: "cards.delete",
-				input: { value: { ...row, archivedAt: now() } },
-			});
+			await archive([cardId], "cards.delete");
+		},
+
+		async deleteMany(cardIds: string[]) {
+			await archive(cardIds, "cards.deleteMany");
+		},
+
+		async appendToWhiteboard({ cardId, whiteboardId }) {
+			return (await append([cardId], whiteboardId))[0] ?? null;
+		},
+
+		async appendManyToWhiteboard({ cardIds, whiteboardId }) {
+			return append(cardIds, whiteboardId);
+		},
+
+		async search({ query, limit = DEFAULT_SEARCH_LIMIT, excludeCardId }) {
+			const term = query.trim().toLocaleLowerCase();
+			const [cards, items] = await Promise.all([
+				listCards(),
+				listRows(repository, "items"),
+			]);
+			const activeItems = items.filter(isActiveRow);
+			return cards
+				.filter(
+					(card) =>
+						card.id !== excludeCardId &&
+						(!term ||
+							`${card.derivedTitle} ${card.plainText}`
+								.toLocaleLowerCase()
+								.includes(term)),
+				)
+				.sort((a, b) => b.updatedAt - a.updatedAt)
+				.slice(0, limit)
+				.map<CardSearchResult>((card) => {
+					const placement = preferPlacement(
+						activeItems.filter((item) => item.cardId === card.id),
+					);
+					return {
+						id: card.id,
+						title: card.derivedTitle || DEFAULT_CARD_TITLE,
+						preview: card.preview,
+						boardWhiteboardId:
+							placement && typeof placement.whiteboardId === "string"
+								? placement.whiteboardId
+								: null,
+						shapeId: placement ? String(placement.shapeId ?? "") : null,
+					};
+				});
 		},
 
 		subscribe(listener: () => void) {

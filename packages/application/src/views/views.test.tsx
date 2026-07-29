@@ -55,7 +55,10 @@ function setup(children: ReactNode) {
 		navigation: {
 			cardsHref: () => "/cards",
 			cardHref: (cardId) => `/cards/${cardId}`,
+			rootWhiteboardHref: () => "/whiteboard",
+			whiteboardHref: (id) => `/whiteboard/${id}`,
 			navigate,
+			replace: navigate,
 		},
 		sync: { state: "local-only" },
 	};

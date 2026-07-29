@@ -1,0 +1,91 @@
+import type { WorkspaceRepository } from "@contextboard/client-core";
+import type { EntityWrite } from "../workspace";
+
+/**
+ * A row as materialized by every backend's generic entity store. Backends own
+ * persistence, revisions and the pending batch; every derived field is owned by
+ * this package so both platforms agree.
+ */
+export type EntityRow = Record<string, unknown> & {
+	id: string;
+	revision: number;
+	createdAt: number;
+	updatedAt: number;
+	deletedAt: number | null;
+	archivedAt?: number | null;
+};
+
+/** Rows that are neither tombstoned nor archived. */
+export function isActiveRow(row: {
+	deletedAt: number | null;
+	archivedAt?: number | null;
+}) {
+	return (
+		row.deletedAt === null &&
+		(row.archivedAt === undefined || row.archivedAt === null)
+	);
+}
+
+function normalizeRow(value: unknown): EntityRow | null {
+	if (!value || typeof value !== "object") return null;
+	const row = value as Partial<EntityRow>;
+	if (typeof row.id !== "string") return null;
+	return {
+		...(value as Record<string, unknown>),
+		id: row.id,
+		revision: typeof row.revision === "number" ? row.revision : 1,
+		createdAt: typeof row.createdAt === "number" ? row.createdAt : 0,
+		updatedAt: typeof row.updatedAt === "number" ? row.updatedAt : 0,
+		deletedAt: typeof row.deletedAt === "number" ? row.deletedAt : null,
+		archivedAt: typeof row.archivedAt === "number" ? row.archivedAt : null,
+	};
+}
+
+/** Reads every row of one domain collection (e.g. `"items"`). */
+export async function listRows(
+	repository: WorkspaceRepository,
+	collection: string,
+): Promise<EntityRow[]> {
+	const raw = await repository.query<unknown>({
+		type: `${collection}.list`,
+		input: {},
+	});
+	return (Array.isArray(raw) ? raw : [])
+		.map(normalizeRow)
+		.filter((row): row is EntityRow => row !== null);
+}
+
+/** Reads every *active* row of one domain collection. */
+export async function listActiveRows(
+	repository: WorkspaceRepository,
+	collection: string,
+): Promise<EntityRow[]> {
+	return (await listRows(repository, collection)).filter(isActiveRow);
+}
+
+export async function getRow(
+	repository: WorkspaceRepository,
+	collection: string,
+	id: string,
+): Promise<EntityRow | null> {
+	return normalizeRow(
+		await repository.query<unknown>({
+			type: `${collection}.get`,
+			input: { id },
+		}),
+	);
+}
+
+/**
+ * Submits a planner's writes as a single atomic multi-entity command. Empty
+ * plans never reach the backend, because the multi-write contract rejects a
+ * command with zero writes.
+ */
+export async function applyWrites(
+	repository: WorkspaceRepository,
+	type: string,
+	writes: EntityWrite[],
+): Promise<void> {
+	if (writes.length === 0) return;
+	await repository.execute({ type, input: { writes } });
+}

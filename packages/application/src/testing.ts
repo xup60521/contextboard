@@ -4,6 +4,7 @@ import type {
 	DomainQuery,
 	WorkspaceRepository,
 } from "@contextboard/client-core";
+import { type EntityWrite, WorkspaceConflictError } from "./workspace";
 
 type Entity = Record<string, unknown> & {
 	id: string;
@@ -72,11 +73,46 @@ export function createMemoryWorkspaceRepository(
 		},
 		async execute<T>(command: DomainCommand<T>): Promise<T> {
 			const { entityType, action } = split(command.type);
-			if (!["create", "put", "update", "delete"].includes(action ?? ""))
-				throw new Error("The requested domain operation is not supported");
 			const input = (command.input ?? {}) as {
 				value?: Record<string, unknown>;
+				writes?: EntityWrite[];
 			};
+
+			// Multi-entity atomic form: the command type is only a label, every
+			// write names its own entity and may assert an expected revision.
+			if (input.writes) {
+				if (!input.writes.length || input.writes.length > 200)
+					throw new Error("writes must contain 1 to 200 entries");
+				const materialized: Record<string, unknown>[] = [];
+				for (const write of input.writes) {
+					const rows = table(write.entity);
+					const existing = rows.get(write.id);
+					if (
+						write.expectedRevision !== undefined &&
+						write.expectedRevision !== (existing?.revision ?? 0)
+					)
+						throw new WorkspaceConflictError(
+							`CONFLICT: revision mismatch for ${write.entity}:${write.id}`,
+						);
+					const timestamp = now();
+					const deleted = write.operation === "delete";
+					const next = {
+						...(deleted ? existing : (write.value as Record<string, unknown>)),
+						id: write.id,
+						revision: (existing?.revision ?? 0) + 1,
+						updatedAt: timestamp,
+						deletedAt: deleted ? timestamp : null,
+					} as Entity;
+					rows.set(write.id, next);
+					materialized.push(next);
+				}
+				pendingCommands.push(command.type);
+				for (const listener of listeners) listener();
+				return materialized as T;
+			}
+
+			if (!["create", "put", "update", "delete"].includes(action ?? ""))
+				throw new Error("The requested domain operation is not supported");
 			const value = input.value;
 			if (!value || typeof value.id !== "string")
 				throw new Error("A valid entity ID is required");

@@ -107,9 +107,54 @@ function createNativeStub() {
 		if (command === "workspace_execute") {
 			const request = args.command as {
 				type: string;
-				input?: { value?: Record<string, unknown> };
+				input?: {
+					value?: Record<string, unknown>;
+					writes?: Array<{
+						entity: string;
+						operation: "upsert" | "delete";
+						id: string;
+						value?: Record<string, unknown>;
+						expectedRevision?: number;
+					}>;
+				};
 			};
 			const { entityType, action } = resolve(request.type);
+
+			// Multi-entity atomic form: the command type is only a label and each
+			// write names its own entity, mirroring the SQLite command contract.
+			if (request.input?.writes) {
+				const writes = request.input.writes;
+				if (!writes.length || writes.length > 200)
+					throw {
+						code: "INVALID_ARGUMENT",
+						message: "writes must contain 1 to 200 entries",
+					};
+				return writes.map((write) => {
+					const rows = table(write.entity);
+					const existing = rows.get(write.id);
+					const revision = ((existing?.revision as number) ?? 0) + 1;
+					if (
+						write.expectedRevision !== undefined &&
+						write.expectedRevision !== revision - 1
+					)
+						throw {
+							code: "INVALID_ARGUMENT",
+							message: `CONFLICT: revision mismatch for ${write.entity}:${write.id}`,
+						};
+					const now = ++clock;
+					const deleted = write.operation === "delete";
+					const materialized = {
+						...(deleted ? existing : write.value),
+						id: write.id,
+						revision,
+						updatedAt: now,
+						deletedAt: deleted ? now : null,
+					} as Entity;
+					rows.set(write.id, materialized);
+					return materialized;
+				});
+			}
+
 			if (!["create", "put", "update", "delete"].includes(action ?? ""))
 				throw {
 					code: "UNKNOWN_DOMAIN_OPERATION",

@@ -26,7 +26,10 @@ export function isWorkspaceConflict(error: unknown): boolean {
 		error instanceof WorkspaceConflictError ||
 		(error instanceof Error &&
 			(error.name === "CONFLICT" ||
-				(error as Error & { code?: string }).code === "CONFLICT"))
+				(error as Error & { code?: string }).code === "CONFLICT" ||
+				// The SQLite backend reports a revision mismatch as an invalid
+				// argument whose message carries the CONFLICT marker.
+				error.message.startsWith("CONFLICT")))
 	);
 }
 
