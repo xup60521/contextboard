@@ -201,3 +201,70 @@ describe("repository canvas capability", () => {
 		});
 	});
 });
+
+describe("repository canvas record changes", () => {
+	test("persists a drawing delta, echoes revisions and rebuilds the store", async () => {
+		const { whiteboards, canvas } = setup();
+		const rootId = await whiteboards.createRoot();
+
+		const first = await canvas.applyRecordChanges({
+			whiteboardId: rootId,
+			added: [
+				{ id: "shape:a", typeName: "shape", x: 1 },
+				{ id: "shape:b", typeName: "shape", x: 2 },
+			],
+			updated: [],
+			removed: [],
+		});
+		expect(first.versions).toEqual({ "shape:a": 1, "shape:b": 1 });
+
+		const second = await canvas.applyRecordChanges({
+			whiteboardId: rootId,
+			added: [],
+			updated: [{ id: "shape:a", typeName: "shape", x: 9 }],
+			removed: ["shape:b"],
+		});
+		// Removals carry no echo expectation; tombstones are invisible to `list`.
+		expect(second.versions).toEqual({ "shape:a": 2 });
+
+		const document = await canvas.getDocument(rootId);
+		expect(document?.snapshot).toEqual({
+			schema: null,
+			store: { "shape:a": { id: "shape:a", typeName: "shape", x: 9 } },
+		});
+		expect(document?.canvasRecordVersions).toEqual({ "shape:a": 2 });
+	});
+
+	test("keeps the legacy snapshot schema once records take over the store", async () => {
+		const { whiteboards, canvas } = setup();
+		const rootId = await whiteboards.createRoot();
+		await canvas.saveDocument({
+			whiteboardId: rootId,
+			snapshot: { schema: { schemaVersion: 2 }, store: { "shape:old": {} } },
+		});
+		await canvas.applyRecordChanges({
+			whiteboardId: rootId,
+			added: [{ id: "shape:new", typeName: "shape" }],
+			updated: [],
+			removed: [],
+		});
+
+		const document = await canvas.getDocument(rootId);
+		expect(document?.snapshot).toEqual({
+			schema: { schemaVersion: 2 },
+			store: { "shape:new": { id: "shape:new", typeName: "shape" } },
+		});
+	});
+
+	test("rejects record changes without a whiteboard", async () => {
+		const { canvas } = setup();
+		await expect(
+			canvas.applyRecordChanges({
+				whiteboardId: null,
+				added: [],
+				updated: [],
+				removed: [],
+			}),
+		).rejects.toThrow("Canvas records require a whiteboard");
+	});
+});

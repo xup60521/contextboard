@@ -9,6 +9,8 @@ import {
 } from "../repository/entities";
 import type {
 	CanvasItem,
+	CanvasRecordDelta,
+	CanvasRecordSaveResult,
 	CanvasService,
 	CreateCardItemResult,
 	CreateSubwhiteboardResult,
@@ -283,6 +285,22 @@ export function createRepositoryCanvasService(
 		);
 	}
 
+	/** Active and tombstoned records for a board, keyed by tldraw record id. */
+	async function readRecordRows(whiteboardId: string | null) {
+		if (whiteboardId === null) return [];
+		const rows = await listRows(repository, "records");
+		return rows.filter((row) => (row.whiteboardId ?? null) === whiteboardId);
+	}
+
+	function recordIdOf(payload: unknown) {
+		return payload &&
+			typeof payload === "object" &&
+			"id" in payload &&
+			typeof (payload as { id: unknown }).id === "string"
+			? (payload as { id: string }).id
+			: null;
+	}
+
 	return {
 		async listItems(whiteboardId: string | null): Promise<CanvasItem[]> {
 			const [items, boards, cards] = await Promise.all([
@@ -528,7 +546,38 @@ export function createRepositoryCanvasService(
 		async getDocument(
 			whiteboardId: string | null,
 		): Promise<TldrawDocument | null> {
-			const row = await readDocumentRow(whiteboardId);
+			const [row, recordRows] = await Promise.all([
+				readDocumentRow(whiteboardId),
+				readRecordRows(whiteboardId),
+			]);
+
+			// Once a board has per-record rows they are the source of truth; the
+			// legacy whole-snapshot row only still supplies the store schema.
+			if (recordRows.length > 0) {
+				const active = recordRows.filter(isActiveRow);
+				const legacy = row?.snapshot as
+					| { schema?: unknown; store?: Record<string, unknown> }
+					| undefined;
+				return {
+					id: row?.id ?? null,
+					whiteboardId,
+					snapshot: {
+						schema: legacy?.schema ?? null,
+						store: Object.fromEntries(
+							active.map((record) => [record.recordId, record.payload]),
+						),
+					},
+					revision: Math.max(
+						0,
+						...active.map((record) => record.revision as number),
+					),
+					updatedAt: row?.updatedAt ?? 0,
+					canvasRecordVersions: Object.fromEntries(
+						recordRows.map((record) => [record.recordId, record.revision]),
+					),
+				};
+			}
+
 			if (!row) return null;
 			return {
 				id: row.id,
@@ -537,6 +586,80 @@ export function createRepositoryCanvasService(
 				revision: row.revision,
 				updatedAt: row.updatedAt,
 			};
+		},
+
+		async applyRecordChanges({
+			whiteboardId,
+			added,
+			updated,
+			removed,
+		}: CanvasRecordDelta & {
+			whiteboardId: string | null;
+		}): Promise<CanvasRecordSaveResult> {
+			if (!whiteboardId) throw new Error("Canvas records require a whiteboard");
+
+			return withRetry(async () => {
+				const timestamp = now();
+				const existing = new Map(
+					(await readRecordRows(whiteboardId)).map((row) => [
+						row.recordId as string,
+						row,
+					]),
+				);
+				const writes: Parameters<typeof applyWrites>[2] = [];
+				const versions: Record<string, number> = {};
+
+				for (const payload of [...added, ...updated]) {
+					const id = recordIdOf(payload);
+					if (!id) continue;
+					const prior = existing.get(id);
+					const rowId = prior?.id ?? `${whiteboardId}:${id}`;
+					const shape = payload as { typeName?: unknown; type?: unknown };
+					writes.push({
+						entity: "canvasRecord",
+						operation: "upsert",
+						id: rowId,
+						value: {
+							...(prior ?? { createdAt: timestamp }),
+							id: rowId,
+							whiteboardId,
+							recordId: id,
+							recordType: String(shape.typeName ?? shape.type ?? "unknown"),
+							payload,
+							updatedAt: timestamp,
+							updatedByDeviceId: deviceId,
+							deletedAt: null,
+						},
+						...(prior ? { expectedRevision: prior.revision } : {}),
+					});
+					versions[id] = (prior?.revision ?? 0) + 1;
+				}
+
+				for (const id of removed) {
+					const prior = existing.get(id);
+					if (!prior) continue;
+					writes.push({
+						entity: "canvasRecord",
+						operation: "delete",
+						id: prior.id,
+						expectedRevision: prior.revision,
+					});
+					// No echo expectation for removals: this backend's `list` hides
+					// tombstones, so a deleted record can never report its new
+					// revision back and the canvas would wait forever.
+				}
+
+				// Backends cap a single command at 200 writes. Drawing deltas are
+				// per-record independent, so chunking costs no consistency here.
+				for (let index = 0; index < writes.length; index += 200) {
+					await applyWrites(
+						repository,
+						"records.update",
+						writes.slice(index, index + 200),
+					);
+				}
+				return { versions };
+			});
 		},
 
 		subscribe(listener: () => void) {

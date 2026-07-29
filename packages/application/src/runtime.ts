@@ -193,9 +193,24 @@ export type TldrawDocument = {
 	snapshot: unknown;
 	revision: number;
 	updatedAt: number;
+	/**
+	 * Per-record revisions, present once a board has migrated off the legacy
+	 * whole-snapshot row. The canvas uses them to recognise the echo of its own
+	 * writes instead of re-hydrating over live edits.
+	 */
+	canvasRecordVersions?: Record<string, number>;
 };
 
 export type TldrawSaveResult = { revision: number; updatedAt: number };
+
+/** An incremental tldraw store change, as the canvas emits it. */
+export type CanvasRecordDelta = {
+	added: unknown[];
+	updated: unknown[];
+	removed: string[];
+};
+
+export type CanvasRecordSaveResult = { versions: Record<string, number> };
 
 export interface CanvasService {
 	listItems(whiteboardId: string | null): Promise<CanvasItem[]>;
@@ -245,6 +260,13 @@ export interface CanvasService {
 		expectedRevision?: number;
 	}): Promise<TldrawSaveResult>;
 	getDocument(whiteboardId: string | null): Promise<TldrawDocument | null>;
+	/**
+	 * Persists an incremental drawing change and returns the new revision of
+	 * every touched record, so the caller can wait for its own echo.
+	 */
+	applyRecordChanges(
+		input: CanvasRecordDelta & { whiteboardId: string | null },
+	): Promise<CanvasRecordSaveResult>;
 	subscribe(listener: () => void): () => void;
 }
 
