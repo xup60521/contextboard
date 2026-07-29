@@ -1,7 +1,7 @@
 import { cleanup, render } from "@testing-library/react";
 import type { JSONContent } from "@tiptap/core";
-import type { ImageUploadHandler } from "#/components/editor/ImageUploadExtension";
-import type { CardReferenceSupport } from "#/components/editor/card-reference/types";
+import type { ImageUploadHandler } from "@contextboard/editor";
+import type { CardReferenceSupport } from "@contextboard/editor";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Id } from "#/integrations/local/types";
 import { CardDocumentEditor } from "./CardDocumentEditor";
@@ -10,7 +10,7 @@ let richTextEditorProps: Record<string, unknown> | null = null;
 const useCardReferenceSupportMock = vi.fn();
 const imageUploadHandlerMock = vi.fn();
 
-vi.mock("#/components/editor/RichTextEditor", () => ({
+vi.mock("@contextboard/editor", () => ({
 	RichTextEditor: (props: Record<string, unknown>) => {
 		richTextEditorProps = props;
 		return <div data-testid="rich-text-editor" />;

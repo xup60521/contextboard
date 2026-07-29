@@ -1,7 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
-import type { ImageUploadHandler } from "#/components/editor/ImageUploadExtension";
-import { RichTextEditor } from "#/components/editor/RichTextEditor";
-import type { CardReferenceSupport } from "#/components/editor/card-reference/types";
+import type { ImageUploadHandler } from "@contextboard/editor";
+import { RichTextEditor } from "@contextboard/editor";
+import type { CardReferenceSupport } from "@contextboard/editor";
 import { useCardReferenceSupport } from "#/components/editor/useCardReferenceSupport";
 import { useImageUpload } from "#/components/editor/useImageUpload";
 import type { Id } from "#/integrations/local/types";

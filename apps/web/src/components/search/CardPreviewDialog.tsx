@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CardInfoSection } from "#/components/cards/CardInfoSection";
 import { DeleteCardDialog } from "#/components/cards/DeleteCardDialog";
 import { CardEditorPane } from "#/components/editor/CardEditorPane";
-import { useDeferredEditorMount } from "#/components/editor/useDeferredEditorMount";
+import { useDeferredEditorMount } from "@contextboard/editor";
 import {
 	Dialog,
 	DialogContent,

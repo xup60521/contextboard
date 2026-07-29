@@ -1,7 +1,7 @@
 import { useMutation } from "#/integrations/local/react";
 import { useCallback } from "react";
 import { api } from "#/integrations/local/api";
-import { uploadImageLocally, type UploadedImage } from "./ImageUpload";
+import { uploadImageLocally, type UploadedImage } from "@contextboard/editor";
 
 /**
  * Returns a stable `(file) => Promise<url>` callback that uploads an image to

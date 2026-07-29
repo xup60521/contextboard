@@ -5,7 +5,7 @@ import { useCardReferenceSupport } from "#/components/editor/useCardReferenceSup
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
 import type { Id } from "#/integrations/local/types";
 
-type CardEditorPaneProps = {
+export type CardEditorPaneProps = {
 	cardId: Id<"cards">;
 	content: JSONContent;
 	/** The current board context for empty-`@` recent-card suggestions. */

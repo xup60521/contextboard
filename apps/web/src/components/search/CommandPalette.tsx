@@ -4,7 +4,7 @@ import type { JSONContent } from "@tiptap/core";
 import { useQuery } from "#/integrations/local/react";
 import { FileText, Layers } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ReadonlyRichTextPreview } from "#/components/editor/ReadonlyRichTextPreview";
+import { ReadonlyRichTextPreview } from "@contextboard/editor";
 import {
 	Command,
 	CommandEmpty,

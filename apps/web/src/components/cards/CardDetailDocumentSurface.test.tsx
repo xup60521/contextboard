@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Id } from "#/integrations/local/types";
 import { CardDetailDocumentSurface } from "./CardDetailDocumentSurface";
-import { DEFERRED_EDITOR_MOUNT_DELAY_MS } from "../editor/useDeferredEditorMount";
+import { DEFERRED_EDITOR_MOUNT_DELAY_MS } from "@contextboard/editor";
 
 vi.mock("#/components/editor/useCardReferenceSupport", () => ({
 	useCardReferenceSupport: () => ({
@@ -13,7 +13,8 @@ vi.mock("#/components/editor/useCardReferenceSupport", () => ({
 	}),
 }));
 
-vi.mock("#/components/editor/ReadonlyRichTextPreview", () => ({
+vi.mock("@contextboard/editor", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@contextboard/editor")>()),
 	ReadonlyRichTextPreview: ({
 		children,
 	}: {

@@ -2,8 +2,8 @@ import type { JSONContent } from "@tiptap/core";
 import { useCardReferenceSupport } from "#/components/editor/useCardReferenceSupport";
 import {
 	useDeferredEditorMount,
-} from "#/components/editor/useDeferredEditorMount";
-import { ReadonlyRichTextPreview } from "#/components/editor/ReadonlyRichTextPreview";
+} from "@contextboard/editor";
+import { ReadonlyRichTextPreview } from "@contextboard/editor";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
 import type { Id } from "#/integrations/local/types";
 import { CardEditorPane } from "../editor/CardEditorPane";

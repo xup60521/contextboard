@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { stopEventPropagation, useEditor, useIsEditing } from "tldraw";
-import { StaticRichTextRenderer } from "#/components/editor/static-renderer";
-import { RichTextEditor } from "../editor/RichTextEditor";
+import { StaticRichTextRenderer } from "@contextboard/editor";
+import { RichTextEditor } from "@contextboard/editor";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import {
 	isEmptyCardContent,

@@ -58,14 +58,11 @@ vi.mock("#/components/cards/useDebouncedCardSave", () => ({
 		useDebouncedCardSaveMock(...args),
 }));
 
-vi.mock("#/components/editor/RichTextEditor", () => ({
+vi.mock("@contextboard/editor", () => ({
 	RichTextEditor: (props: Record<string, unknown>) => {
 		richTextEditorProps = props;
 		return <div data-testid="rich-text-editor" />;
 	},
-}));
-
-vi.mock("#/components/editor/static-renderer", () => ({
 	StaticRichTextRenderer: (props: Record<string, unknown>) => {
 		staticRendererProps = props;
 		return <div data-testid="static-rich-text-renderer" />;

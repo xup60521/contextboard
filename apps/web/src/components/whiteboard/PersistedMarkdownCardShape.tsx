@@ -4,7 +4,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import { useEditor, useIsEditing } from "tldraw";
 import { CardDocumentEditor } from "#/components/cards/CardDocumentEditor";
 import { useDebouncedCardSave } from "#/components/cards/useDebouncedCardSave";
-import { StaticRichTextRenderer } from "#/components/editor/static-renderer";
+import { StaticRichTextRenderer } from "@contextboard/editor";
 import type { Id } from "#/integrations/local/types";
 import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";

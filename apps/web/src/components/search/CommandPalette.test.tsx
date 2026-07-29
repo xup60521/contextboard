@@ -33,7 +33,7 @@ vi.mock("#/integrations/local/react", () => ({
 	useQuery: (...args: unknown[]) => useQueryMock(...args),
 }));
 
-vi.mock("#/components/editor/ReadonlyRichTextPreview", () => ({
+vi.mock("@contextboard/editor", () => ({
 	ReadonlyRichTextPreview: () => <div data-testid="readonly-preview" />,
 }));
 

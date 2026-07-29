@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { TLAssetStore } from "tldraw";
 import type { Id } from "#/integrations/local/types";
-import { uploadImageLocally } from "../../editor/ImageUpload";
+import { uploadImageLocally } from "@contextboard/editor";
 
 export function useWhiteboardAssetStore({
 	generateUploadUrl,
@@ -17,9 +17,13 @@ export function useWhiteboardAssetStore({
 	return useMemo<TLAssetStore>(
 		() => ({
 			async upload(_asset, file) {
+				// The shared editor brands ids optionally; Web brands them strictly.
+				// The runtime shape is identical, so bridge the two here.
 				const uploaded = await uploadImageLocally(
 					generateUploadUrl,
-					finalizeUpload,
+					finalizeUpload as unknown as Parameters<
+						typeof uploadImageLocally
+					>[1],
 					file,
 				);
 				return {

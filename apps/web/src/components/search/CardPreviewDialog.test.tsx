@@ -7,7 +7,7 @@ import {
 	isInsidePreviewAllowedPortal,
 	shouldPreventPreviewOutsideDismiss,
 } from "./CardPreviewDialog";
-import { DEFERRED_EDITOR_MOUNT_DELAY_MS } from "../editor/useDeferredEditorMount";
+import { DEFERRED_EDITOR_MOUNT_DELAY_MS } from "@contextboard/editor";
 
 const navigateMock = vi.fn();
 const useQueryMock = vi.fn();

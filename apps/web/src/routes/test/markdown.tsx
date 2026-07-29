@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import { useState } from "react";
-import { RichTextEditor } from "#/components/editor/RichTextEditor";
+import { RichTextEditor } from "@contextboard/editor";
 
 export const Route = createFileRoute("/test/markdown")({
 	component: RouteComponent,

@@ -2,7 +2,7 @@ import { useLocalClient } from "#/integrations/local/react";
 import { useCallback, useMemo, useState } from "react";
 import { api } from "#/integrations/local/api";
 import type { Id } from "#/integrations/local/types";
-import type { CardReferenceSupport } from "./card-reference/types";
+import type { CardReferenceSupport } from "@contextboard/editor";
 
 type CardReferenceSupportOptions = {
 	onOpenPreview?: (cardId: Id<"cards">) => void;

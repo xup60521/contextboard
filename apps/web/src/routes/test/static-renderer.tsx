@@ -2,9 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { RichTextEditor } from "#/components/editor/RichTextEditor";
-import { StaticRichTextRenderer } from "#/components/editor/static-renderer";
-import { STATIC_RENDERER_FULL_FIXTURE } from "#/components/editor/static-renderer/staticRendererFixtures";
+import { RichTextEditor } from "@contextboard/editor";
+import { StaticRichTextRenderer } from "@contextboard/editor";
+import { STATIC_RENDERER_FULL_FIXTURE } from "@contextboard/editor";
 
 export const Route = createFileRoute("/test/static-renderer")({
 	component: RouteComponent,
