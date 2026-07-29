@@ -1,5 +1,5 @@
 import type { SyncRuntimeState } from "@contextboard/application";
-import { Cloud, CloudOff, LogIn, LogOut, RefreshCw } from "lucide-react";
+import { Cloud, CloudOff, Github, LogOut, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { AppSidebarFrame } from "../whiteboard/AppSidebarFrame";
 import { Button } from "../ui/button";
@@ -14,21 +14,22 @@ export type SidebarFooterRuntime = {
 	state: SyncRuntimeState;
 	message?: string;
 	account?: AccountSummary;
+	pendingCount?: number;
+	conflictCount?: number;
+	conflictHref?: string;
 	signIn?: () => Promise<void>;
 	signOut?: () => Promise<void>;
 	syncNow?: () => Promise<void>;
 };
 
 export function AppSidebar({
-	pathname,
 	footer,
 }: {
-	pathname: string;
 	footer: SidebarFooterRuntime;
 }) {
 	return (
 		<AppSidebarFrame footer={<SidebarFooter runtime={footer} />}>
-			<SidebarTabs pathname={pathname} />
+			<SidebarTabs />
 		</AppSidebarFrame>
 	);
 }
@@ -42,6 +43,10 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 		runtime.state === "error" ||
 		runtime.state === "unavailable";
 	const StatusIcon = isDisconnected ? CloudOff : Cloud;
+	const account =
+		runtime.account ??
+		(!runtime.signIn ? { name: "Desktop", email: null } : undefined);
+	const isBusy = pending === "sync" || runtime.state === "syncing";
 	const label =
 		runtime.message ??
 		({
@@ -69,36 +74,44 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 
 	return (
 		<footer className="mt-auto border-t border-[var(--border)] p-2">
-			{runtime.account ? (
+			{account ? (
 				<div className="flex items-center gap-2 rounded-md px-2 py-1.5">
 					<StatusIcon className="size-3.5 text-[var(--muted-foreground)]" />
 					<div className="min-w-0 flex-1">
 						<p className="truncate text-xs font-medium">
-							{runtime.account.name || runtime.account.email || "Account"}
+							{account.name || account.email || "Account"}
 						</p>
 						<p
 							className="truncate text-[10px] text-[var(--muted-foreground)]"
-							title={error ?? undefined}
+							title={error ?? runtime.message}
 						>
 							{error ?? label}
+							{runtime.pendingCount
+								? ` · ${runtime.pendingCount} pending`
+								: ""}
+							{runtime.conflictCount
+								? ` · ${runtime.conflictCount} conflicts`
+								: ""}
 						</p>
+						{runtime.conflictCount && runtime.conflictHref ? (
+							<a
+								href={runtime.conflictHref}
+								className="text-[10px] font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-300"
+							>
+								Open conflict inbox
+							</a>
+						) : null}
 					</div>
 					{runtime.syncNow ? (
 						<Button
 							type="button"
 							variant="ghost"
 							size="icon-xs"
-							disabled={pending !== null || runtime.state === "syncing"}
+							disabled={pending !== null || isBusy}
 							onClick={() => run("sync", runtime.syncNow)}
 							aria-label="Sync now"
 						>
-							<RefreshCw
-								className={
-									pending === "sync" || runtime.state === "syncing"
-										? "animate-spin"
-										: undefined
-								}
-							/>
+							<RefreshCw className={isBusy ? "animate-spin" : undefined} />
 						</Button>
 					) : null}
 					{runtime.signOut ? (
@@ -123,8 +136,8 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 						disabled={pending !== null}
 						onClick={() => run("in", runtime.signIn)}
 					>
-						<LogIn />
-						{pending === "in" ? "Signing in…" : "Sign in"}
+						<Github />
+						{pending === "in" ? "Signing in…" : "Sign in with GitHub"}
 					</Button>
 					{error ? (
 						<p className="px-1 text-[10px] text-destructive" title={error}>
@@ -132,17 +145,7 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 						</p>
 					) : null}
 				</div>
-			) : (
-				<div className="flex items-center gap-2 rounded-md px-2 py-1.5">
-					<StatusIcon className="size-3.5 text-[var(--muted-foreground)]" />
-					<div className="min-w-0 flex-1">
-						<p className="truncate text-xs font-medium">Desktop</p>
-						<p className="truncate text-[10px] text-[var(--muted-foreground)]">
-							{label}
-						</p>
-					</div>
-				</div>
-			)}
+			) : null}
 		</footer>
 	);
 }

@@ -34,19 +34,6 @@ button {
 	font: inherit;
 }
 
-.cb-sidebar {
-	backdrop-filter: blur(18px);
-}
-
-.cb-nav__item:focus-visible,
-.cb-button:focus-visible,
-.cb-card:focus-visible,
-.cb-input:focus-visible,
-.cb-editor:focus-visible {
-	outline: 2px solid var(--violet);
-	outline-offset: 2px;
-}
-
 /* Boot screen: shown only until the local workspace is open. */
 .desktop-boot {
 	position: relative;
@@ -177,20 +164,6 @@ button {
 }
 
 @media (max-width: 720px) {
-	.cb-sidebar {
-		width: 76px;
-		flex-basis: 76px;
-	}
-
-	.cb-brand__text,
-	.cb-sidebar__foot {
-		display: none;
-	}
-
-	.cb-page {
-		padding: 20px;
-	}
-
 	.desktop-boot {
 		padding: 100px 20px 50px;
 	}

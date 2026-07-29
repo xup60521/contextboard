@@ -62,14 +62,3 @@ export {
 } from "./repository/entities";
 export * from "./workspace";
 export * from "./canvas";
-export {
-	ApplicationShell,
-	type ApplicationShellProps,
-	ApplicationSidebar,
-	type ApplicationSidebarProps,
-} from "./views/ApplicationShell";
-export {
-	CardDetailView,
-	type CardDetailViewProps,
-} from "./views/CardDetailView";
-export { CardListView } from "./views/CardListView";

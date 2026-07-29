@@ -3,7 +3,7 @@ import { Outlet } from "@tanstack/react-router";
 import { SidebarProvider } from "@contextboard/web-ui";
 import { DesktopApplicationRuntime } from "../runtime/DesktopApplicationRuntime";
 import { useDesktopRuntime } from "../runtime/DesktopRuntimeProvider";
-import { DesktopWebSidebar } from "./DesktopWebSidebar";
+import { DesktopSidebar, DesktopSidebarTabsProvider } from "./DesktopSidebar";
 
 function DesktopBootScreen() {
 	const runtime = useDesktopRuntime();
@@ -53,9 +53,11 @@ export function DesktopRootLayout() {
 	return (
 		<DesktopApplicationRuntime>
 			<SidebarProvider defaultOpen>
-				<AppShell sidebar={<DesktopWebSidebar />}>
-					<Outlet />
-				</AppShell>
+				<DesktopSidebarTabsProvider>
+					<AppShell sidebar={<DesktopSidebar />}>
+						<Outlet />
+					</AppShell>
+				</DesktopSidebarTabsProvider>
 			</SidebarProvider>
 		</DesktopApplicationRuntime>
 	);

@@ -29,6 +29,7 @@ import {
 } from "./sidebar-tabs";
 
 export type SidebarTabsContextValue = {
+	pathname: string;
 	tabs: SidebarTab[];
 	activeTabKey: string | null;
 	openTab: (input: OpenTabInput) => void;
@@ -342,6 +343,7 @@ export function SidebarTabsProvider({
 
 	const value = useMemo<SidebarTabsContextValue>(
 		() => ({
+			pathname: route.pathname,
 			tabs,
 			activeTabKey,
 			openTab,
@@ -354,6 +356,7 @@ export function SidebarTabsProvider({
 			navigateToTab,
 		}),
 		[
+			route.pathname,
 			activeTabKey,
 			closeTab,
 			navigateToTab,

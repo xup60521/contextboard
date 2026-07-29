@@ -73,9 +73,10 @@ function SidebarSectionDropZone({
 	);
 }
 
-export function SidebarTabs({ pathname }: { pathname: string }) {
+export function SidebarTabs() {
 	const runtime = useApplicationRuntime();
 	const {
+		pathname,
 		tabs,
 		activeTabKey,
 		navigateToTab,
@@ -178,13 +179,14 @@ export function SidebarTabs({ pathname }: { pathname: string }) {
 						<span className="truncate">{rootTab.title}</span>
 					</button>
 
-					<button
-						type="button"
-						onClick={() =>
-							runtime.navigation.navigate(runtime.navigation.cardsHref())
-						}
+					<a
+						href={runtime.navigation.cardsHref()}
+						onClick={(event) => {
+							event.preventDefault();
+							runtime.navigation.navigate(runtime.navigation.cardsHref());
+						}}
 						className={[
-							"flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] font-medium outline-none transition-colors",
+							"flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] font-medium outline-none transition-colors",
 							isCardLib
 								? "bg-[var(--accent)] text-[var(--card-foreground)]"
 								: "text-[var(--card-foreground)] hover:bg-[var(--accent)]",
@@ -195,7 +197,7 @@ export function SidebarTabs({ pathname }: { pathname: string }) {
 						<span className="truncate text-[var(--card-foreground)]">
 							Card Library
 						</span>
-					</button>
+					</a>
 				</div>
 
 				{secondaryTabs.length > 0 && (

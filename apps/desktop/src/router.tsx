@@ -1,4 +1,5 @@
-import { CardDetailView, CardListView } from "@contextboard/application";
+import type { CardSortOrder } from "@contextboard/application";
+import { CardDetailPage } from "@contextboard/web-ui";
 import {
 	createHashHistory,
 	createRootRoute,
@@ -7,7 +8,38 @@ import {
 	type RouterHistory,
 	redirect,
 } from "@tanstack/react-router";
+import { DesktopCardLibraryRoute } from "./routes/DesktopCardLibraryRoute";
 import { DesktopRootLayout } from "./routes/DesktopRootLayout";
+
+const sortOrders: CardSortOrder[] = [
+	"title",
+	"title_desc",
+	"updated_desc",
+	"updated_asc",
+];
+
+type CardLibrarySearch = {
+	q?: string;
+	orphanOnly?: boolean;
+	sort?: CardSortOrder;
+};
+
+/**
+ * Mirrors the Web card-library search shape so the shared page behaves
+ * identically on both platforms.
+ */
+function validateCardLibrarySearch(
+	search: Record<string, unknown>,
+): CardLibrarySearch {
+	const sort = search.sort;
+	return {
+		q: typeof search.q === "string" && search.q ? search.q : undefined,
+		orphanOnly: search.orphanOnly === true || search.orphanOnly === "true",
+		sort: sortOrders.includes(sort as CardSortOrder)
+			? (sort as CardSortOrder)
+			: undefined,
+	};
+}
 
 const rootRoute = createRootRoute({ component: DesktopRootLayout });
 
@@ -22,7 +54,8 @@ const indexRoute = createRoute({
 const cardsRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/cards",
-	component: CardListView,
+	validateSearch: validateCardLibrarySearch,
+	component: DesktopCardLibraryRoute,
 });
 
 const cardDetailRoute = createRoute({
@@ -30,7 +63,7 @@ const cardDetailRoute = createRoute({
 	path: "/cards/$cardId",
 	component: function DesktopCardDetailRoute() {
 		const { cardId } = cardDetailRoute.useParams();
-		return <CardDetailView cardId={cardId} />;
+		return <CardDetailPage cardId={cardId} />;
 	},
 });
 

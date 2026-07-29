@@ -17,7 +17,8 @@ import { DesktopApp } from "./DesktopApp";
 import { createDesktopRouter } from "./router";
 import { createDesktopRepository, type Invoke } from "./runtime/repository";
 
-vi.mock("@contextboard/editor", () => ({
+vi.mock("@contextboard/editor", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@contextboard/editor")>()),
 	RichTextEditor: ({
 		onChange,
 	}: {
@@ -245,11 +246,12 @@ describe("Desktop application shell", () => {
 			inputType: "insertText",
 			data: "Desktop research",
 		});
+		// The shared editor debounces, so wait for the write to reach SQLite.
 		await waitFor(
 			() =>
-				expect(screen.getByTestId("cb-save-state").textContent).toBe(
-					"All changes saved",
-				),
+				expect(
+					[...(native.store.get("card")?.values() ?? [])][0]?.derivedTitle,
+				).toBe("Desktop research"),
 			{ timeout: 3_000 },
 		);
 
@@ -260,9 +262,13 @@ describe("Desktop application shell", () => {
 			await screen.findByRole("heading", { name: "Desktop research" }),
 		).toBeTruthy();
 
-		fireEvent.click(screen.getByRole("button", { name: /Desktop research/ }));
-		fireEvent.click(await screen.findByRole("button", { name: "Delete card" }));
-		fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+		// Select in the shared library grid, then bulk-delete from the toolbar.
+		const card = screen.getByRole("button", { name: /Desktop research/ });
+		fireEvent.click(card, { detail: 1, shiftKey: true });
+		fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Delete card" }),
+		);
 		await waitFor(() => expect(screen.getByText("No cards yet")).toBeTruthy());
 
 		// The tombstone is durable, not just hidden by the view.
