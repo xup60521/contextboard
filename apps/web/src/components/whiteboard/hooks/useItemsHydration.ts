@@ -1,13 +1,17 @@
-import { useEffect, type MutableRefObject } from "react";
+import { type MutableRefObject, useEffect } from "react";
 import type { Editor, TLRecord, TLShapeId } from "tldraw";
 import type { Id } from "#/integrations/local/types";
-import { frameFromItem, resolveFrameForHydration, type SequencedFrame } from "../frame-sync";
 import {
-	bothBindingEndpointsExist,
-	isMarkdownCardShape,
-	isManagedWhiteboardShape,
-	rehydrateItemShape,
+	frameFromItem,
+	resolveFrameForHydration,
+	type SequencedFrame,
+} from "../frame-sync";
+import {
 	type BoardItemResult,
+	bothBindingEndpointsExist,
+	isManagedWhiteboardShape,
+	isMarkdownCardShape,
+	rehydrateItemShape,
 } from "../whiteboard-canvas-helpers";
 
 export function useItemsHydration({
@@ -24,6 +28,7 @@ export function useItemsHydration({
 	prioritizeCardContent,
 	scheduleVisibleCardHydration,
 	hydratingRef,
+	reconciliationGeneration,
 }: {
 	editor: Editor | null;
 	items: BoardItemResult[];
@@ -31,13 +36,16 @@ export function useItemsHydration({
 	whiteboardKey: string;
 	deferredBindingsRef: MutableRefObject<unknown[]>;
 	optimisticFramesRef: MutableRefObject<Map<Id<"boardItems">, SequencedFrame>>;
-	queuedFrameUpdatesRef: MutableRefObject<Map<Id<"boardItems">, SequencedFrame>>;
+	queuedFrameUpdatesRef: MutableRefObject<
+		Map<Id<"boardItems">, SequencedFrame>
+	>;
 	itemIdByShapeIdRef: MutableRefObject<Map<string, Id<"boardItems">>>;
 	latestItemsRef: MutableRefObject<Map<Id<"boardItems">, BoardItemResult>>;
 	pendingEditShapeIdRef: MutableRefObject<TLShapeId | null>;
 	prioritizeCardContent: (shapeId: TLShapeId, cardId: Id<"cards">) => void;
 	scheduleVisibleCardHydration: () => void;
 	hydratingRef: MutableRefObject<boolean>;
+	reconciliationGeneration: number;
 }) {
 	// Sync persisted board items → tldraw shapes
 	// biome-ignore lint/correctness/useExhaustiveDependencies: items drives this; all refs are stable
@@ -164,5 +172,11 @@ export function useItemsHydration({
 		window.setTimeout(() => {
 			hydratingRef.current = false;
 		}, 0);
-	}, [editor, items, loadedDrawingKey, whiteboardKey]);
+	}, [
+		editor,
+		items,
+		loadedDrawingKey,
+		reconciliationGeneration,
+		whiteboardKey,
+	]);
 }

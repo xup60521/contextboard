@@ -471,16 +471,15 @@ export async function localQuery(
 							.where("whiteboardId")
 							.equals(String(target))
 							.first();
-			const records =
+			const allRecords =
 				typeof target === "string"
-					? (
-							await db.canvasRecords
-								.where("whiteboardId")
-								.equals(target)
-								.toArray()
-						).filter(active)
+					? await db.canvasRecords
+							.where("whiteboardId")
+							.equals(target)
+							.toArray()
 					: [];
-			if (records.length > 0) {
+			const records = allRecords.filter(active);
+			if (allRecords.length > 0) {
 				const legacy = row?.snapshot as
 					| { schema?: unknown; store?: Record<string, unknown> }
 					| undefined;
@@ -493,6 +492,9 @@ export async function localQuery(
 						),
 					},
 					revision: Math.max(0, ...records.map((record) => record.revision)),
+					canvasRecordVersions: Object.fromEntries(
+						allRecords.map((record) => [record.recordId, record.revision]),
+					),
 				};
 			}
 			return row && active(row)
@@ -545,8 +547,7 @@ export async function localQuery(
 			return row?.blob ? URL.createObjectURL(row.blob) : null;
 		}
 		case "relations.list": {
-			const cardId =
-				typeof args.cardId === "string" ? args.cardId : null;
+			const cardId = typeof args.cardId === "string" ? args.cardId : null;
 			const whiteboardId =
 				typeof args.whiteboardId === "string" ? args.whiteboardId : null;
 			return (await db.cardRelations.toArray())
@@ -797,6 +798,7 @@ async function executeMutation(
 			const added = Array.isArray(args.added) ? args.added : [];
 			const updated = Array.isArray(args.updated) ? args.updated : [];
 			const removed = Array.isArray(args.removed) ? args.removed : [];
+			const versions: Record<string, number> = {};
 			for (const payload of [...added, ...updated]) {
 				if (!payload || typeof payload !== "object") continue;
 				const record = payload as {
@@ -821,6 +823,7 @@ async function executeMutation(
 					clock: `${String(now).padStart(13, "0")}:000000:${deviceId}`,
 					revision,
 				});
+				versions[record.id] = revision;
 			}
 			for (const recordId of removed.map(String)) {
 				const persisted = await db.canvasRecords
@@ -836,8 +839,12 @@ async function executeMutation(
 					revision: persisted.revision + 1,
 					clock: `${String(now).padStart(13, "0")}:000000:${deviceId}`,
 				});
+				versions[recordId] = persisted.revision + 1;
 			}
-			return { applied: added.length + updated.length + removed.length };
+			return {
+				applied: added.length + updated.length + removed.length,
+				versions,
+			};
 		}
 		case "canvas.archiveItem": {
 			const row = await db.boardItems.get(String(args.itemId));
@@ -1130,12 +1137,8 @@ async function executeMutation(
 				args.ordinal === null || args.ordinal === undefined
 					? null
 					: Number(args.ordinal);
-			if (!allowed.includes(relation))
-				throw new Error("Invalid card relation");
-			if (
-				ordinal !== null &&
-				(!Number.isSafeInteger(ordinal) || ordinal < 0)
-			)
+			if (!allowed.includes(relation)) throw new Error("Invalid card relation");
+			if (ordinal !== null && (!Number.isSafeInteger(ordinal) || ordinal < 0))
 				throw new Error("Invalid relation ordinal");
 			if (sourceCardId === targetCardId)
 				throw new Error("A card cannot relate to itself");
@@ -1194,8 +1197,7 @@ async function executeMutation(
 				if (
 					original &&
 					(resolution !== "keep-remote" ||
-						(conflict.remoteValue &&
-							typeof conflict.remoteValue === "object"))
+						(conflict.remoteValue && typeof conflict.remoteValue === "object"))
 				) {
 					const selected =
 						resolution === "keep-remote"
@@ -1226,8 +1228,7 @@ async function executeMutation(
 						copy.content,
 					);
 					await db.cards.update(copy.id, {
-						archivedAt:
-							resolution === "keep-both" ? copy.archivedAt : now,
+						archivedAt: resolution === "keep-both" ? copy.archivedAt : now,
 						revision: copy.revision + 1,
 						updatedAt: now,
 						updatedByDeviceId: deviceId,
@@ -1353,10 +1354,7 @@ export async function localMutation(
 			const before = new Map<string, TrackableRow>();
 			for (const [entityType, table] of tracked) {
 				for (const row of (await table.toArray()) as TrackableRow[]) {
-					before.set(
-						`${entityType}:${syncRowId(row)}`,
-						structuredClone(row),
-					);
+					before.set(`${entityType}:${syncRowId(row)}`, structuredClone(row));
 				}
 			}
 			const result = await executeMutation(db, deviceId, reference, args);

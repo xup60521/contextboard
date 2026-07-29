@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import {
-	type ContextboardDatabase,
 	applyRemoteBatches,
+	type ContextboardDatabase,
 	createContextboardDatabase,
 	ensureLocalIdentity,
 } from "@contextboard/local-db";
@@ -340,6 +340,56 @@ describe("local operations", () => {
 		expect(JSON.stringify(batches)).not.toContain('"snapshot"');
 	});
 
+	test("exposes canvas write revisions through the materialized query", async () => {
+		const { db, deviceId } = await setup();
+		const board = await localMutation(
+			db,
+			deviceId,
+			"canvas.createSubwhiteboardItem",
+			{ parentWhiteboardId: null, shapeId: "shape:board" },
+		);
+		const created = await localMutation(
+			db,
+			deviceId,
+			"canvas.applyRecordChanges",
+			{
+				whiteboardId: board.childWhiteboardId,
+				added: [{ id: "shape:text", typeName: "shape", type: "text" }],
+				updated: [],
+				removed: [],
+			},
+		);
+		expect(created.versions).toEqual({ "shape:text": 1 });
+		expect(
+			await localQuery(db, "tldrawDocuments.get", {
+				whiteboardId: board.childWhiteboardId,
+			}),
+		).toMatchObject({
+			canvasRecordVersions: { "shape:text": 1 },
+		});
+
+		const removed = await localMutation(
+			db,
+			deviceId,
+			"canvas.applyRecordChanges",
+			{
+				whiteboardId: board.childWhiteboardId,
+				added: [],
+				updated: [],
+				removed: ["shape:text"],
+			},
+		);
+		expect(removed.versions).toEqual({ "shape:text": 2 });
+		expect(
+			await localQuery(db, "tldrawDocuments.get", {
+				whiteboardId: board.childWhiteboardId,
+			}),
+		).toMatchObject({
+			snapshot: { store: {} },
+			canvasRecordVersions: { "shape:text": 2 },
+		});
+	});
+
 	test("creates, lists, orders, archives, and audits card relations separately from references", async () => {
 		const { db, deviceId } = await setup();
 		const board = await localMutation(
@@ -348,36 +398,21 @@ describe("local operations", () => {
 			"canvas.createSubwhiteboardItem",
 			{ parentWhiteboardId: null, shapeId: "shape:board" },
 		);
-		const first = await localMutation(
-			db,
-			deviceId,
-			"canvas.createCardItem",
-			{
-				whiteboardId: board.childWhiteboardId,
-				shapeId: "shape:first",
-			},
-		);
-		const second = await localMutation(
-			db,
-			deviceId,
-			"canvas.createCardItem",
-			{
-				whiteboardId: board.childWhiteboardId,
-				shapeId: "shape:second",
-			},
-		);
-		const relationId = await localMutation(
-			db,
-			deviceId,
-			"relations.create",
-			{
-				whiteboardId: board.childWhiteboardId,
-				sourceCardId: first.cardId,
-				targetCardId: second.cardId,
-				relation: "supports",
-				ordinal: 2,
-			},
-		);
+		const first = await localMutation(db, deviceId, "canvas.createCardItem", {
+			whiteboardId: board.childWhiteboardId,
+			shapeId: "shape:first",
+		});
+		const second = await localMutation(db, deviceId, "canvas.createCardItem", {
+			whiteboardId: board.childWhiteboardId,
+			shapeId: "shape:second",
+		});
+		const relationId = await localMutation(db, deviceId, "relations.create", {
+			whiteboardId: board.childWhiteboardId,
+			sourceCardId: first.cardId,
+			targetCardId: second.cardId,
+			relation: "supports",
+			ordinal: 2,
+		});
 		const relations = await localQuery(db, "relations.list", {
 			cardId: first.cardId,
 			whiteboardId: board.childWhiteboardId,
@@ -409,105 +444,99 @@ describe("local operations", () => {
 		expect((await db.cardRelations.get(relationId))?.deletedAt).not.toBeNull();
 	});
 
-	test.each(["keep-local", "keep-remote", "keep-both"] as const)(
-		"resolves a Markdown conflict with a syncable %s domain batch",
-		async (resolution) => {
-			const { db, deviceId, workspaceId } = await setup();
-			const board = await localMutation(
-				db,
-				deviceId,
-				"canvas.createSubwhiteboardItem",
-				{ parentWhiteboardId: null, shapeId: "shape:board" },
-			);
-			const created = await localMutation(
-				db,
-				deviceId,
-				"canvas.createCardItem",
+	test.each([
+		"keep-local",
+		"keep-remote",
+		"keep-both",
+	] as const)("resolves a Markdown conflict with a syncable %s domain batch", async (resolution) => {
+		const { db, deviceId, workspaceId } = await setup();
+		const board = await localMutation(
+			db,
+			deviceId,
+			"canvas.createSubwhiteboardItem",
+			{ parentWhiteboardId: null, shapeId: "shape:board" },
+		);
+		const created = await localMutation(db, deviceId, "canvas.createCardItem", {
+			whiteboardId: board.childWhiteboardId,
+			shapeId: "shape:card",
+		});
+		const localCard = await db.cards.get(created.cardId);
+		if (!localCard) throw new Error("Expected local card");
+		await db.changeLog.clear();
+		const remoteContent = {
+			type: "doc",
+			content: [
 				{
-					whiteboardId: board.childWhiteboardId,
-					shapeId: "shape:card",
+					type: "paragraph",
+					content: [{ type: "text", text: "Remote content" }],
 				},
-			);
-			const localCard = await db.cards.get(created.cardId);
-			if (!localCard) throw new Error("Expected local card");
-			await db.changeLog.clear();
-			const remoteContent = {
-				type: "doc",
-				content: [
-					{
-						type: "paragraph",
-						content: [{ type: "text", text: "Remote content" }],
-					},
-				],
-			};
-			const remoteCard = {
-				...localCard,
-				content: remoteContent,
-				derivedTitle: "Remote content",
-				plainText: "Remote content",
-				preview: "Remote content",
-				contentVersion: localCard.contentVersion + 1,
-				revision: localCard.revision + 1,
-				updatedAt: localCard.updatedAt + 1,
-				updatedByDeviceId: "device-remote",
-			};
-			const remote: ChangeBatch = {
-				protocolVersion: SYNC_PROTOCOL_VERSION,
-				schemaVersion: SYNC_SCHEMA_VERSION,
-				changeId: `remote-${resolution}`,
-				workspaceId,
-				deviceId: "device-remote",
-				deviceSequence: 1,
-				clock: "0000000000002:000000:device-remote",
-				command: "cards.updateContent",
-				createdAt: 2,
-				changes: [
-					{
-						entityType: "card",
-						entityId: localCard.id,
-						baseRevision: Math.max(0, localCard.revision - 1),
-						revision: remoteCard.revision,
-						operation: "upsert",
-						clock: "0000000000002:000000:device-remote",
-						value: remoteCard,
-					},
-				],
-			};
-			await applyRemoteBatches(db, [remote], "cloud", "1");
-			const conflict = (await db.conflicts.toArray())[0];
-			if (!conflict) throw new Error("Expected conflict");
-			const copyId = conflictCopyCardId(conflict.conflictId);
+			],
+		};
+		const remoteCard = {
+			...localCard,
+			content: remoteContent,
+			derivedTitle: "Remote content",
+			plainText: "Remote content",
+			preview: "Remote content",
+			contentVersion: localCard.contentVersion + 1,
+			revision: localCard.revision + 1,
+			updatedAt: localCard.updatedAt + 1,
+			updatedByDeviceId: "device-remote",
+		};
+		const remote: ChangeBatch = {
+			protocolVersion: SYNC_PROTOCOL_VERSION,
+			schemaVersion: SYNC_SCHEMA_VERSION,
+			changeId: `remote-${resolution}`,
+			workspaceId,
+			deviceId: "device-remote",
+			deviceSequence: 1,
+			clock: "0000000000002:000000:device-remote",
+			command: "cards.updateContent",
+			createdAt: 2,
+			changes: [
+				{
+					entityType: "card",
+					entityId: localCard.id,
+					baseRevision: Math.max(0, localCard.revision - 1),
+					revision: remoteCard.revision,
+					operation: "upsert",
+					clock: "0000000000002:000000:device-remote",
+					value: remoteCard,
+				},
+			],
+		};
+		await applyRemoteBatches(db, [remote], "cloud", "1");
+		const conflict = (await db.conflicts.toArray())[0];
+		if (!conflict) throw new Error("Expected conflict");
+		const copyId = conflictCopyCardId(conflict.conflictId);
 
-			await localMutation(db, deviceId, "conflicts.resolve", {
-				conflictId: conflict.conflictId,
-				resolution,
-			});
-			const resolutionBatch = (await db.changeLog.toArray()).find(
-				(batch) => batch.command === "conflicts.resolve",
-			);
-			expect(resolutionBatch).toBeDefined();
-			const changedTypes = new Set(
-				resolutionBatch?.changes.map((change) => change.entityType),
-			);
-			expect(changedTypes.has("card")).toBe(true);
-			expect(changedTypes.has("conflict")).toBe(true);
-			expect(
-				resolutionBatch?.changes.some(
-					(change) => change.entityId === copyId,
-				),
-			).toBe(true);
-			expect((await db.conflicts.get(conflict.conflictId))?.resolution).toBe(
-				resolution,
-			);
-			const original = await db.cards.get(localCard.id);
-			expect(original?.content).toEqual(
-				resolution === "keep-remote" ? remoteContent : localCard.content,
-			);
-			expect((await db.cards.get(copyId))?.archivedAt === null).toBe(
-				resolution === "keep-both",
-			);
-		},
-	);
+		await localMutation(db, deviceId, "conflicts.resolve", {
+			conflictId: conflict.conflictId,
+			resolution,
+		});
+		const resolutionBatch = (await db.changeLog.toArray()).find(
+			(batch) => batch.command === "conflicts.resolve",
+		);
+		expect(resolutionBatch).toBeDefined();
+		const changedTypes = new Set(
+			resolutionBatch?.changes.map((change) => change.entityType),
+		);
+		expect(changedTypes.has("card")).toBe(true);
+		expect(changedTypes.has("conflict")).toBe(true);
+		expect(
+			resolutionBatch?.changes.some((change) => change.entityId === copyId),
+		).toBe(true);
+		expect((await db.conflicts.get(conflict.conflictId))?.resolution).toBe(
+			resolution,
+		);
+		const original = await db.cards.get(localCard.id);
+		expect(original?.content).toEqual(
+			resolution === "keep-remote" ? remoteContent : localCard.content,
+		);
+		expect((await db.cards.get(copyId))?.archivedAt === null).toBe(
+			resolution === "keep-both",
+		);
+	});
 
 	test("produces transport-valid post-state batches for local operations", async () => {
 		const { db, deviceId, workspaceId } = await setup();

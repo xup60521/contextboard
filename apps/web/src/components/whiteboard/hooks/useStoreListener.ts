@@ -7,13 +7,13 @@ import {
 import type { Editor, TLShapeId } from "tldraw";
 import type { Id } from "#/integrations/local/types";
 import type { WhiteboardFrame } from "../frame-sync";
-import type { CanvasRecordDelta } from "./useDrawingSync";
 import {
 	hasManagedShapeFrameChanged,
 	hasPersistableDrawingChange,
 	isManagedWhiteboardShape,
 	type ManagedWhiteboardShape,
 } from "../whiteboard-canvas-helpers";
+import type { CanvasRecordDelta } from "./useDrawingSync";
 
 export function useStoreListener({
 	editor,
@@ -132,6 +132,26 @@ export function useStoreListener({
 				if (hasPersistableDrawingChange(changes)) {
 					const persistable = (record: unknown) =>
 						!isManagedWhiteboardShape(record);
+					if (!whiteboardId) {
+						const rootRecordIds = Object.values(changes.added)
+							.filter(persistable)
+							.flatMap((record) =>
+								record &&
+								typeof record === "object" &&
+								"id" in record &&
+								typeof record.id === "string"
+									? [record.id]
+									: [],
+							);
+						if (rootRecordIds.length) {
+							hydratingRef.current = true;
+							editor.store.remove(rootRecordIds as never[]);
+							window.setTimeout(() => {
+								hydratingRef.current = false;
+							}, 0);
+						}
+						return;
+					}
 					queueDrawingSave({
 						added: Object.values(changes.added).filter(persistable),
 						updated: Object.values(changes.updated)

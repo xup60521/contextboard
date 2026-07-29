@@ -53,6 +53,7 @@ export type BoardItemResult = {
 export type TldrawDocumentResult = {
 	snapshot: TLStoreSnapshot;
 	revision: number;
+	canvasRecordVersions?: Record<string, number>;
 } | null;
 
 export type PendingDrawingSave = {

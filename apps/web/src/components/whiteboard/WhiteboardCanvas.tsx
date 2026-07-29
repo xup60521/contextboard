@@ -143,6 +143,8 @@ export function WhiteboardCanvas({
 		queueDrawingSave,
 		pendingDrawingSaveRef,
 		saveDrawingTimerRef,
+		drawingSaveState,
+		acknowledgeDrawingEcho,
 	} = useDrawingSync({
 		whiteboardId,
 		applyCanvasRecordChanges,
@@ -155,13 +157,19 @@ export function WhiteboardCanvas({
 		pendingEditShapeIdRef,
 	});
 
-	const { loadedDrawingKey, emptyDrawingSnapshotRef, deferredBindingsRef } =
-		useDrawingHydration({
-			editor,
-			whiteboardKey,
-			tldrawDocument,
-			hydratingRef,
-		});
+	const {
+		loadedDrawingKey,
+		emptyDrawingSnapshotRef,
+		deferredBindingsRef,
+		reconciliationGeneration,
+	} = useDrawingHydration({
+		editor,
+		whiteboardKey,
+		tldrawDocument,
+		hydratingRef,
+		drawingSaveState,
+		acknowledgeDrawingEcho,
+	});
 
 	const { prioritizeCardContent, scheduleVisibleCardHydration } =
 		useVisibleCardContentHydration({
@@ -186,6 +194,7 @@ export function WhiteboardCanvas({
 		prioritizeCardContent,
 		scheduleVisibleCardHydration,
 		hydratingRef,
+		reconciliationGeneration,
 	});
 
 	const { pendingCameraResetRef } = useCameraReset({
@@ -244,7 +253,7 @@ export function WhiteboardCanvas({
 		}
 		if (saveDrawingTimerRef.current !== null) {
 			window.clearTimeout(saveDrawingTimerRef.current);
-			flushDrawingSave();
+			void flushDrawingSave().catch(() => undefined);
 		}
 
 		itemIdByShapeIdRef.current = new Map();
@@ -267,7 +276,7 @@ export function WhiteboardCanvas({
 			}
 			if (saveDrawingTimerRef.current !== null) {
 				window.clearTimeout(saveDrawingTimerRef.current);
-				flushDrawingSave();
+				void flushDrawingSave().catch(() => undefined);
 			}
 		};
 	}, [flushDrawingSave, flushFrameUpdates]);

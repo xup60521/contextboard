@@ -1,4 +1,4 @@
-import type { TLStoreSnapshot } from "tldraw";
+import type { TLRecord, TLStoreSnapshot } from "tldraw";
 
 type UnknownRecord = {
 	id?: unknown;
@@ -8,6 +8,97 @@ type UnknownRecord = {
 	toId?: unknown;
 	props?: unknown;
 };
+
+export type CanvasReconciliation = {
+	upserts: TLRecord[];
+	removals: string[];
+	deferredBindings: TLRecord[];
+	nextAppliedRecordIds: Set<string>;
+};
+
+export function planCanvasReconciliation({
+	persistedStore,
+	editorStore,
+	previouslyAppliedRecordIds,
+	availableShapeIds,
+}: {
+	persistedStore: Record<string, unknown>;
+	editorStore: Record<string, unknown>;
+	previouslyAppliedRecordIds: ReadonlySet<string>;
+	availableShapeIds: ReadonlySet<string>;
+}): CanvasReconciliation {
+	const nextRecords = new Map<string, TLRecord>();
+	for (const id of Object.keys(persistedStore).sort()) {
+		const record = persistedStore[id];
+		if (
+			!isRecordObject(record) ||
+			typeof record.id !== "string" ||
+			isManagedWhiteboardShapeRecord(record)
+		)
+			continue;
+		nextRecords.set(id, record as TLRecord);
+	}
+
+	const nextAppliedRecordIds = new Set(nextRecords.keys());
+	const removals = [...previouslyAppliedRecordIds]
+		.filter((id) => !nextAppliedRecordIds.has(id))
+		.sort((a, b) => {
+			const aBinding = isBindingRecord(editorStore[a]);
+			const bBinding = isBindingRecord(editorStore[b]);
+			return Number(bBinding) - Number(aBinding) || a.localeCompare(b);
+		});
+	const deferredBindings: TLRecord[] = [];
+	const upserts: TLRecord[] = [];
+	const nextAvailableShapeIds = new Set(availableShapeIds);
+
+	for (const record of nextRecords.values()) {
+		if (record.typeName === "shape") nextAvailableShapeIds.add(record.id);
+	}
+	for (const record of nextRecords.values()) {
+		if (
+			isBindingRecord(record) &&
+			(!nextAvailableShapeIds.has(record.fromId) ||
+				!nextAvailableShapeIds.has(record.toId))
+		) {
+			deferredBindings.push(record);
+			continue;
+		}
+		if (!recordsEqual(editorStore[record.id], record)) upserts.push(record);
+	}
+	upserts.sort(
+		(a, b) =>
+			recordApplyRank(a) - recordApplyRank(b) || a.id.localeCompare(b.id),
+	);
+
+	return {
+		upserts,
+		removals,
+		deferredBindings,
+		nextAppliedRecordIds,
+	};
+}
+
+function recordsEqual(left: unknown, right: unknown) {
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isBindingRecord(
+	record: unknown,
+): record is TLRecord & { fromId: string; toId: string } {
+	return (
+		isRecordObject(record) &&
+		record.typeName === "binding" &&
+		typeof record.fromId === "string" &&
+		typeof record.toId === "string"
+	);
+}
+
+function recordApplyRank(record: TLRecord) {
+	if (record.typeName === "asset") return 0;
+	if (record.typeName === "shape") return 1;
+	if (record.typeName === "binding") return 2;
+	return 0;
+}
 
 export function isManagedWhiteboardShapeRecord(record: unknown): boolean {
 	return (

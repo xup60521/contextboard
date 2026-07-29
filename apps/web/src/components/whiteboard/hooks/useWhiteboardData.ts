@@ -1,9 +1,9 @@
+import { api } from "#/integrations/local/api";
 import {
 	useMutation,
 	usePaginatedQuery,
 	useQuery,
 } from "#/integrations/local/react";
-import { api } from "#/integrations/local/api";
 import type { Id } from "#/integrations/local/types";
 import type {
 	BoardItemResult,
@@ -37,7 +37,6 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	const archiveCardsGlobally = useMutation(api.cards.archiveCards);
 	const restoreOrAdoptCardItem = useMutation(api.canvas.restoreOrAdoptCardItem);
 	const applyCanvasRecordChanges = useMutation(api.canvas.applyRecordChanges);
-	const saveTldrawDocument = useMutation(api.tldrawDocuments.save);
 	const generateUploadUrl = useMutation(api.files.generateUploadUrl);
 	const finalizeUpload = useMutation(api.files.finalizeUpload);
 
@@ -56,7 +55,6 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		archiveCardsGlobally,
 		restoreOrAdoptCardItem,
 		applyCanvasRecordChanges,
-		saveTldrawDocument,
 		generateUploadUrl,
 		finalizeUpload,
 	};

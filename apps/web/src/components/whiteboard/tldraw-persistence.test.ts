@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	filterSnapshotForPersistence,
 	isManagedWhiteboardShapeRecord,
+	planCanvasReconciliation,
 	splitDeferredBindings,
 } from "./tldraw-persistence";
 
@@ -220,5 +221,119 @@ describe("tldraw persistence", () => {
 		const store = records(filtered);
 		expect(store["document:document"]).toBeDefined();
 		expect(store["page:page"]).toBeDefined();
+	});
+
+	test("plans native record additions, updates, and prior-record removals", () => {
+		const result = planCanvasReconciliation({
+			persistedStore: {
+				"shape:new": {
+					id: "shape:new",
+					typeName: "shape",
+					type: "arrow",
+					x: 10,
+				},
+				"shape:update": {
+					id: "shape:update",
+					typeName: "shape",
+					type: "geo",
+					x: 20,
+				},
+			},
+			editorStore: {
+				"shape:update": {
+					id: "shape:update",
+					typeName: "shape",
+					type: "geo",
+					x: 1,
+				},
+				"shape:remove": {
+					id: "shape:remove",
+					typeName: "shape",
+					type: "draw",
+				},
+				"shape:unsaved": {
+					id: "shape:unsaved",
+					typeName: "shape",
+					type: "text",
+				},
+				"page:page": { id: "page:page", typeName: "page" },
+			},
+			previouslyAppliedRecordIds: new Set(["shape:update", "shape:remove"]),
+			availableShapeIds: new Set(),
+		});
+
+		expect(result.upserts.map((record) => record.id)).toEqual([
+			"shape:new",
+			"shape:update",
+		]);
+		expect(result.removals).toEqual(["shape:remove"]);
+		expect(result.removals).not.toContain("shape:unsaved");
+		expect(result.removals).not.toContain("page:page");
+	});
+
+	test("defers bindings until endpoints exist and applies shapes first", () => {
+		const binding = {
+			id: "binding:arrow",
+			typeName: "binding",
+			type: "arrow",
+			fromId: "shape:arrow",
+			toId: "shape:card",
+			props: {},
+		};
+		const persistedStore = {
+			"binding:arrow": binding,
+			"shape:arrow": {
+				id: "shape:arrow",
+				typeName: "shape",
+				type: "arrow",
+			},
+			"shape:managed": {
+				id: "shape:managed",
+				typeName: "shape",
+				type: "markdown-card",
+			},
+		};
+		const deferred = planCanvasReconciliation({
+			persistedStore,
+			editorStore: {},
+			previouslyAppliedRecordIds: new Set(),
+			availableShapeIds: new Set(),
+		});
+		expect(deferred.upserts.map((record) => record.id)).toEqual([
+			"shape:arrow",
+		]);
+		expect(deferred.deferredBindings.map((record) => record.id)).toEqual([
+			"binding:arrow",
+		]);
+		expect(deferred.nextAppliedRecordIds.has("shape:managed")).toBe(false);
+
+		const ready = planCanvasReconciliation({
+			persistedStore,
+			editorStore: {},
+			previouslyAppliedRecordIds: new Set(),
+			availableShapeIds: new Set(["shape:card"]),
+		});
+		expect(ready.upserts.map((record) => record.id)).toEqual([
+			"shape:arrow",
+			"binding:arrow",
+		]);
+	});
+
+	test("is idempotent when editor and persistence match", () => {
+		const record = {
+			id: "shape:same",
+			typeName: "shape",
+			type: "geo",
+			x: 1,
+		};
+		const result = planCanvasReconciliation({
+			persistedStore: { [record.id]: record },
+			editorStore: { [record.id]: structuredClone(record) },
+			previouslyAppliedRecordIds: new Set([record.id]),
+			availableShapeIds: new Set([record.id]),
+		});
+		expect(result.upserts).toEqual([]);
+		expect(result.removals).toEqual([]);
+		expect(result.deferredBindings).toEqual([]);
 	});
 });
