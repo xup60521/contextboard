@@ -14,7 +14,7 @@ import { SidebarProvider } from "../components/whiteboard/SidebarContext";
 import { LocalDatabaseProvider } from "../integrations/local/provider";
 import { SyncProvider } from "../integrations/sync/provider";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
-import appCss from "../styles.css?url";
+import appCss from "@contextboard/web-ui/styles.css?url";
 
 interface MyRouterContext {
 	queryClient: QueryClient;

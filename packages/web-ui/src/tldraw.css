@@ -1,0 +1,7 @@
+/**
+ * Single tldraw stylesheet entrypoint for every platform.
+ *
+ * Web and Desktop import `@contextboard/web-ui/tldraw.css` exactly once so the
+ * shared canvas chrome looks identical on both.
+ */
+@import "tldraw/tldraw.css";

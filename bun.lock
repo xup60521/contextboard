@@ -17,6 +17,7 @@
         "@contextboard/application": "workspace:*",
         "@contextboard/storage-desktop": "workspace:*",
         "@contextboard/ui": "workspace:*",
+        "@contextboard/web-ui": "workspace:*",
         "@tanstack/react-router": "1.170.18",
         "@tauri-apps/api": "2.11.1",
         "lucide-react": "^0.577.0",
@@ -64,6 +65,7 @@
         "@contextboard/storage-indexeddb": "workspace:*",
         "@contextboard/sync-protocol": "workspace:*",
         "@contextboard/ui": "workspace:*",
+        "@contextboard/web-ui": "workspace:*",
         "@dnd-kit/core": "^6.3.1",
         "@dnd-kit/sortable": "^10.0.0",
         "@dnd-kit/utilities": "^3.2.2",
@@ -293,6 +295,35 @@
         "vitest": "^4.1.5",
       },
     },
+    "packages/web-ui": {
+      "name": "@contextboard/web-ui",
+      "version": "0.0.0",
+      "dependencies": {
+        "@contextboard/application": "workspace:*",
+        "@contextboard/editor": "workspace:*",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "cmdk": "^1.1.1",
+        "lucide-react": "^0.577.0",
+        "radix-ui": "^1.6.0",
+        "react": "^19.2.0",
+        "tailwind-merge": "^3.4.0",
+        "tldraw": "3.15.6",
+      },
+      "devDependencies": {
+        "@tailwindcss/typography": "^0.5.16",
+        "@testing-library/react": "^16.3.0",
+        "@types/node": "^22.10.2",
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
+        "jsdom": "^28.1.0",
+        "react-dom": "^19.2.0",
+        "tailwindcss": "^4.1.18",
+        "tw-animate-css": "^1.3.6",
+        "typescript": "^6.0.2",
+        "vitest": "^4.1.5",
+      },
+    },
     "tools/convex-export": {
       "name": "@contextboard/convex-export",
       "version": "0.0.0",
@@ -447,6 +478,8 @@
     "@contextboard/web": ["@contextboard/web@workspace:apps/web"],
 
     "@contextboard/web-sync-e2e": ["@contextboard/web-sync-e2e@workspace:tools/web-sync-e2e"],
+
+    "@contextboard/web-ui": ["@contextboard/web-ui@workspace:packages/web-ui"],
 
     "@cspotcode/source-map-support": ["@cspotcode/source-map-support@0.8.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.9" } }, "sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw=="],
 

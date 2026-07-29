@@ -28,6 +28,7 @@
     "@contextboard/storage-indexeddb": "workspace:*",
     "@contextboard/sync-protocol": "workspace:*",
     "@contextboard/ui": "workspace:*",
+    "@contextboard/web-ui": "workspace:*",
     "@cloudflare/vite-plugin": "^1.26.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",

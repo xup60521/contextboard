@@ -1,4 +1,4 @@
-import { AppSidebarFrame } from "../../../web/src/components/whiteboard/AppSidebarFrame";
+import { AppSidebarFrame } from "@contextboard/web-ui";
 import { Library, Layers } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 

@@ -1,6 +1,6 @@
 import { RuntimeNotice, SyncStatusIndicator, AppShell } from "@contextboard/ui";
 import { Outlet } from "@tanstack/react-router";
-import { SidebarProvider } from "../../../web/src/components/whiteboard/SidebarContext";
+import { SidebarProvider } from "@contextboard/web-ui";
 import { DesktopApplicationRuntime } from "../runtime/DesktopApplicationRuntime";
 import { useDesktopRuntime } from "../runtime/DesktopRuntimeProvider";
 import { DesktopWebSidebar } from "./DesktopWebSidebar";

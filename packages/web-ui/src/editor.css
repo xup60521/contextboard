@@ -1,0 +1,7 @@
+/**
+ * Single editor stylesheet entrypoint for every platform.
+ *
+ * Web and Desktop import `@contextboard/web-ui/editor.css` exactly once so the
+ * shared TipTap surface looks identical on both.
+ */
+@import "@contextboard/editor/editor.css";

@@ -18,6 +18,7 @@
     "@contextboard/application": "workspace:*",
     "@contextboard/storage-desktop": "workspace:*",
     "@contextboard/ui": "workspace:*",
+    "@contextboard/web-ui": "workspace:*",
     "lucide-react": "^0.577.0",
     "@tanstack/react-router": "1.170.18",
     "@tauri-apps/api": "2.11.1",

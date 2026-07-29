@@ -2,6 +2,18 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 
+/*
+ * This stylesheet now lives in the shared UI package instead of `apps/web`, so
+ * Tailwind's automatic source detection no longer reaches either app. Every
+ * directory that renders these components is declared explicitly.
+ */
+@source '.';
+@source '../../ui/src';
+@source '../../editor/src';
+@source '../../application/src';
+@source '../../../apps/web/src';
+@source '../../../apps/desktop/src';
+
 @import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
