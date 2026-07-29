@@ -229,6 +229,8 @@ export function WhiteboardCanvas({
 		editor,
 		items,
 		itemQueryStatus: itemQuery.status,
+		loadedDrawingKey,
+		whiteboardKey,
 	});
 
 	useFocusShape({
@@ -275,7 +277,6 @@ export function WhiteboardCanvas({
 	useEffect(() => {
 		if (!editor) return;
 
-		pendingCameraResetRef.current = true;
 		setWhiteboardCardDeletePending(null);
 	}, [editor, whiteboardId]);
 
