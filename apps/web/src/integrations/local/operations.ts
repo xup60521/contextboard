@@ -485,8 +485,9 @@ export async function localQuery(
 					| undefined;
 				return {
 					...(row ? publicRow(row) : {}),
+					whiteboardId: target,
 					snapshot: {
-						schema: legacy?.schema ?? { schemaVersion: 2, sequences: {} },
+						schema: legacy?.schema ?? null,
 						store: Object.fromEntries(
 							records.map((record) => [record.recordId, record.payload]),
 						),
@@ -498,7 +499,12 @@ export async function localQuery(
 				};
 			}
 			return row && active(row)
-				? { ...publicRow(row), snapshot: row.snapshot, revision: row.revision }
+				? {
+						...publicRow(row),
+						whiteboardId: target,
+						snapshot: row.snapshot,
+						revision: row.revision,
+					}
 				: null;
 		}
 		case "search.searchGlobal":

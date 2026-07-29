@@ -157,15 +157,43 @@ export function WhiteboardCanvas({
 		pendingEditShapeIdRef,
 	});
 
+	// Reset per-board persistence state before the drawing hydration effect is
+	// registered. This prevents a route change from hydrating into stale refs.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on whiteboardId; flush fns stable
+	useEffect(() => {
+		if (!editor) return;
+
+		if (flushTimerRef.current !== null) {
+			window.clearTimeout(flushTimerRef.current);
+			flushFrameUpdates();
+		}
+		if (saveDrawingTimerRef.current !== null) {
+			window.clearTimeout(saveDrawingTimerRef.current);
+			void flushDrawingSave().catch(() => undefined);
+		}
+
+		hydratingRef.current = false;
+		itemIdByShapeIdRef.current = new Map();
+		optimisticFramesRef.current = new Map();
+		pendingEditShapeIdRef.current = null;
+		queuedFrameUpdatesRef.current = new Map();
+		pendingDrawingSaveRef.current = null;
+		setWhiteboardDeletePending(null);
+	}, [editor, whiteboardId]);
+
 	const {
 		loadedDrawingKey,
 		emptyDrawingSnapshotRef,
 		deferredBindingsRef,
 		reconciliationGeneration,
+		hydrationError,
+		retryDrawingHydration,
 	} = useDrawingHydration({
 		editor,
+		whiteboardId,
 		whiteboardKey,
 		tldrawDocument,
+		itemsReady: itemQuery.status !== "LoadingFirstPage",
 		hydratingRef,
 		drawingSaveState,
 		acknowledgeDrawingEcho,
@@ -247,23 +275,8 @@ export function WhiteboardCanvas({
 	useEffect(() => {
 		if (!editor) return;
 
-		if (flushTimerRef.current !== null) {
-			window.clearTimeout(flushTimerRef.current);
-			flushFrameUpdates();
-		}
-		if (saveDrawingTimerRef.current !== null) {
-			window.clearTimeout(saveDrawingTimerRef.current);
-			void flushDrawingSave().catch(() => undefined);
-		}
-
-		itemIdByShapeIdRef.current = new Map();
-		optimisticFramesRef.current = new Map();
-		pendingEditShapeIdRef.current = null;
-		queuedFrameUpdatesRef.current = new Map();
-		pendingDrawingSaveRef.current = null;
 		pendingCameraResetRef.current = true;
 		setWhiteboardCardDeletePending(null);
-		setWhiteboardDeletePending(null);
 	}, [editor, whiteboardId]);
 
 	// ── Unmount: flush any pending writes ──────────────────────────────────────
@@ -363,7 +376,11 @@ export function WhiteboardCanvas({
 						</WhiteboardCardContext.Provider>
 					</WhiteboardContextMenuContext.Provider>
 				</div>
-				{overlayLabel && <WhiteboardLoadingOverlay label={overlayLabel} />}
+				{hydrationError?.whiteboardKey === whiteboardKey ? (
+					<WhiteboardHydrationErrorOverlay onRetry={retryDrawingHydration} />
+				) : overlayLabel ? (
+					<WhiteboardLoadingOverlay label={overlayLabel} />
+				) : null}
 			</div>
 			<DeleteWhiteboardDialog
 				open={whiteboardDeletePending !== null}
@@ -426,6 +443,33 @@ function WhiteboardLoadingOverlay({ label }: { label: string }) {
 		<div className="absolute inset-0 z-20 grid place-items-center bg-[var(--background)] p-3">
 			<div className="rounded-md border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm font-semibold text-[var(--card-foreground)]">
 				{label}
+			</div>
+		</div>
+	);
+}
+
+function WhiteboardHydrationErrorOverlay({
+	onRetry,
+}: {
+	onRetry: () => void;
+}) {
+	return (
+		<div
+			className="absolute inset-0 z-20 grid place-items-center bg-[color-mix(in_oklab,var(--background)_92%,transparent)] p-4"
+			role="alert"
+		>
+			<div className="max-w-md rounded-lg border border-amber-500/35 bg-[var(--card)] p-4 text-[var(--card-foreground)] shadow-lg">
+				<p className="text-sm font-semibold">無法載入這個白板的部分畫布資料</p>
+				<p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
+					原始資料仍然保留。你可以重試，或先從側邊欄前往其他白板。
+				</p>
+				<button
+					type="button"
+					onClick={onRetry}
+					className="mt-3 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-sm font-semibold outline-none transition-colors hover:bg-[var(--accent)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+				>
+					重試
+				</button>
 			</div>
 		</div>
 	);

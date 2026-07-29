@@ -336,6 +336,16 @@ describe("local operations", () => {
 			"shape:legacy",
 			"shape:new",
 		]);
+		expect(
+			await localQuery(db, "tldrawDocuments.get", {
+				whiteboardId: board.childWhiteboardId,
+			}),
+		).toMatchObject({
+			whiteboardId: board.childWhiteboardId,
+			snapshot: {
+				schema: { schemaVersion: 2, sequences: {} },
+			},
+		});
 		const batches = await db.changeLog.toArray();
 		expect(JSON.stringify(batches)).not.toContain('"snapshot"');
 	});
@@ -365,6 +375,8 @@ describe("local operations", () => {
 				whiteboardId: board.childWhiteboardId,
 			}),
 		).toMatchObject({
+			whiteboardId: board.childWhiteboardId,
+			snapshot: { schema: null },
 			canvasRecordVersions: { "shape:text": 1 },
 		});
 

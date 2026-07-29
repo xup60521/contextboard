@@ -1,72 +1,189 @@
-import { type MutableRefObject, useEffect, useRef, useState } from "react";
-import type { Editor, TLRecord, TLStoreSnapshot } from "tldraw";
 import {
+	type MutableRefObject,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import type { Editor, TLRecord, TLStoreSnapshot } from "tldraw";
+import type { Id } from "#/integrations/local/types";
+import {
+	DrawingSnapshotValidationError,
 	isManagedWhiteboardShapeRecord,
 	planCanvasReconciliation,
+	resolveHydrationSnapshot,
 	splitDeferredBindings,
 } from "../tldraw-persistence";
 import type { TldrawDocumentResult } from "../whiteboard-canvas-helpers";
 import type { DrawingSaveState } from "./useDrawingSync";
 
+export type DrawingHydrationError = {
+	whiteboardKey: string;
+	stage: "identity" | "normalize" | "migrate" | "load";
+	message: string;
+};
+
 export function useDrawingHydration({
 	editor,
+	whiteboardId,
 	whiteboardKey,
 	tldrawDocument,
+	itemsReady,
 	hydratingRef,
 	drawingSaveState,
 	acknowledgeDrawingEcho,
 }: {
 	editor: Editor | null;
+	whiteboardId: Id<"whiteboards"> | null;
 	whiteboardKey: string;
 	tldrawDocument: TldrawDocumentResult | undefined;
+	itemsReady: boolean;
 	hydratingRef: MutableRefObject<boolean>;
 	drawingSaveState: DrawingSaveState;
 	acknowledgeDrawingEcho: (observedVersions: Record<string, number>) => boolean;
 }) {
 	const [loadedDrawingKey, setLoadedDrawingKey] = useState<string | null>(null);
 	const [reconciliationGeneration, setReconciliationGeneration] = useState(0);
+	const [hydrationError, setHydrationError] =
+		useState<DrawingHydrationError | null>(null);
+	const [retryGeneration, setRetryGeneration] = useState(0);
 	const loadedDrawingKeyRef = useRef<string | null>(null);
 	const emptyDrawingSnapshotRef = useRef<TLStoreSnapshot | null>(null);
 	const deferredBindingsRef = useRef<unknown[]>([]);
 	const appliedCanvasRecordIdsRef = useRef(new Set<string>());
 	const latestDrawingSnapshotRef = useRef<TLStoreSnapshot | null>(null);
+	const activeWhiteboardKeyRef = useRef(whiteboardKey);
+	const hydrationGenerationRef = useRef(0);
+
+	if (activeWhiteboardKeyRef.current !== whiteboardKey) {
+		activeWhiteboardKeyRef.current = whiteboardKey;
+		hydrationGenerationRef.current += 1;
+	}
 
 	useEffect(() => {
 		loadedDrawingKeyRef.current = loadedDrawingKey;
 	}, [loadedDrawingKey]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: whiteboardKey intentionally resets per-board state
 	useEffect(() => {
-		if (!editor || tldrawDocument === undefined) return;
+		loadedDrawingKeyRef.current = null;
+		setLoadedDrawingKey(null);
+		setHydrationError(null);
+	}, [whiteboardKey]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: retryGeneration intentionally retriggers hydration
+	useEffect(() => {
+		if (!editor || tldrawDocument === undefined || !itemsReady) return;
 		if (loadedDrawingKeyRef.current === whiteboardKey) return;
 
-		const snapshot =
-			tldrawDocument?.snapshot ?? emptyDrawingSnapshotRef.current;
-		hydratingRef.current = true;
+		const generation = hydrationGenerationRef.current;
+		if (
+			tldrawDocument &&
+			tldrawDocument.whiteboardId !== whiteboardId
+		) {
+			setHydrationError({
+				whiteboardKey,
+				stage: "identity",
+				message: "Drawing data belongs to a different whiteboard.",
+			});
+			return;
+		}
+
+		const currentEmptySnapshot = emptyDrawingSnapshotRef.current;
+		if (!currentEmptySnapshot) return;
+
 		deferredBindingsRef.current = [];
 		appliedCanvasRecordIdsRef.current = new Set();
 		latestDrawingSnapshotRef.current = null;
-		if (snapshot) {
+		setHydrationError(null);
+
+		try {
+			const snapshot = resolveHydrationSnapshot({
+				persistedSnapshot:
+					tldrawDocument?.snapshot ?? currentEmptySnapshot,
+				currentEmptySnapshot,
+			});
 			// Bindings to managed cards reference shapes that are hydrated
 			// separately (after this effect), so they're absent from the snapshot.
 			// loadSnapshot would prune them; defer and re-attach once cards exist.
 			const { snapshot: loadableSnapshot, deferredBindings } =
 				splitDeferredBindings(snapshot);
-			deferredBindingsRef.current = deferredBindings;
+			hydratingRef.current = true;
 			editor.loadSnapshot(loadableSnapshot);
-			appliedCanvasRecordIdsRef.current = persistedRecordIds(snapshot);
-		}
+			if (hydrationGenerationRef.current !== generation) return;
 
-		setLoadedDrawingKey(whiteboardKey);
-		window.setTimeout(() => {
+			deferredBindingsRef.current = deferredBindings;
+			appliedCanvasRecordIdsRef.current = persistedRecordIds(snapshot);
+			latestDrawingSnapshotRef.current = snapshot;
+			loadedDrawingKeyRef.current = whiteboardKey;
+			setLoadedDrawingKey(whiteboardKey);
+			window.setTimeout(() => {
+				if (hydrationGenerationRef.current === generation)
+					hydratingRef.current = false;
+			}, 0);
+		} catch (error) {
+			if (hydrationGenerationRef.current !== generation) return;
 			hydratingRef.current = false;
-		}, 0);
-	}, [editor, hydratingRef, tldrawDocument, whiteboardKey]);
+			const hydrationFailure = toDrawingHydrationError(error, whiteboardKey);
+			setHydrationError(hydrationFailure);
+			console.error("Failed to hydrate whiteboard drawing", {
+				whiteboardKey,
+				stage: hydrationFailure.stage,
+				recordId:
+					error instanceof DrawingSnapshotValidationError
+						? error.recordId
+						: null,
+				recordType:
+					error instanceof DrawingSnapshotValidationError
+						? error.recordType
+						: null,
+				error,
+			});
+		}
+	}, [
+		editor,
+		hydratingRef,
+		itemsReady,
+		retryGeneration,
+		tldrawDocument,
+		whiteboardId,
+		whiteboardKey,
+	]);
 
 	useEffect(() => {
 		if (!editor || loadedDrawingKey !== whiteboardKey) return;
-		const snapshot =
-			tldrawDocument?.snapshot ?? emptyDrawingSnapshotRef.current;
-		if (!snapshot) return;
+		if (
+			tldrawDocument &&
+			tldrawDocument.whiteboardId !== whiteboardId
+		)
+			return;
+		const currentEmptySnapshot = emptyDrawingSnapshotRef.current;
+		if (!currentEmptySnapshot) return;
+		let snapshot: TLStoreSnapshot;
+		try {
+			snapshot = resolveHydrationSnapshot({
+				persistedSnapshot:
+					tldrawDocument?.snapshot ?? currentEmptySnapshot,
+				currentEmptySnapshot,
+			});
+		} catch (error) {
+			const hydrationFailure = toDrawingHydrationError(error, whiteboardKey);
+			setHydrationError(hydrationFailure);
+			console.error("Failed to normalize whiteboard drawing update", {
+				whiteboardKey,
+				stage: hydrationFailure.stage,
+				recordId:
+					error instanceof DrawingSnapshotValidationError
+						? error.recordId
+						: null,
+				recordType:
+					error instanceof DrawingSnapshotValidationError
+						? error.recordType
+						: null,
+				error,
+			});
+			return;
+		}
 		latestDrawingSnapshotRef.current = snapshot;
 		const localEchoCaughtUp = acknowledgeDrawingEcho(
 			tldrawDocument?.canvasRecordVersions ?? {},
@@ -122,18 +239,34 @@ export function useDrawingHydration({
 		}
 
 		hydratingRef.current = true;
-		editor.run(
-			() => {
-				if (reconciliation.removals.length)
-					editor.store.remove(reconciliation.removals as Array<TLRecord["id"]>);
-				if (reconciliation.upserts.length)
-					editor.store.put(reconciliation.upserts);
-			},
-			{ history: "ignore" },
-		);
-		setReconciliationGeneration((value) => value + 1);
-		window.setTimeout(() => {
+		try {
+			editor.run(
+				() => {
+					if (reconciliation.removals.length)
+						editor.store.remove(
+							reconciliation.removals as Array<TLRecord["id"]>,
+						);
+					if (reconciliation.upserts.length)
+						editor.store.put(reconciliation.upserts);
+				},
+				{ history: "ignore" },
+			);
+		} catch (error) {
 			hydratingRef.current = false;
+			const hydrationFailure = toDrawingHydrationError(error, whiteboardKey);
+			setHydrationError(hydrationFailure);
+			console.error("Failed to reconcile whiteboard drawing", {
+				whiteboardKey,
+				stage: hydrationFailure.stage,
+				error,
+			});
+			return;
+		}
+		setReconciliationGeneration((value) => value + 1);
+		const generation = hydrationGenerationRef.current;
+		window.setTimeout(() => {
+			if (hydrationGenerationRef.current === generation)
+				hydratingRef.current = false;
 		}, 0);
 	}, [
 		acknowledgeDrawingEcho,
@@ -142,8 +275,17 @@ export function useDrawingHydration({
 		hydratingRef,
 		loadedDrawingKey,
 		tldrawDocument,
+		whiteboardId,
 		whiteboardKey,
 	]);
+
+	const retryDrawingHydration = useCallback(() => {
+		hydrationGenerationRef.current += 1;
+		loadedDrawingKeyRef.current = null;
+		setLoadedDrawingKey(null);
+		setHydrationError(null);
+		setRetryGeneration((value) => value + 1);
+	}, []);
 
 	return {
 		loadedDrawingKey,
@@ -154,6 +296,8 @@ export function useDrawingHydration({
 		appliedCanvasRecordIdsRef,
 		latestDrawingSnapshotRef,
 		reconciliationGeneration,
+		hydrationError,
+		retryDrawingHydration,
 	};
 }
 
@@ -165,4 +309,21 @@ function persistedRecordIds(snapshot: TLStoreSnapshot) {
 		if (!isManagedWhiteboardShapeRecord(record)) ids.add(id);
 	}
 	return ids;
+}
+
+function toDrawingHydrationError(
+	error: unknown,
+	whiteboardKey: string,
+): DrawingHydrationError {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		whiteboardKey,
+		stage:
+			error instanceof DrawingSnapshotValidationError
+				? "normalize"
+				: /migrat/i.test(message)
+					? "migrate"
+					: "load",
+		message,
+	};
 }

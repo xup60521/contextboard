@@ -1,9 +1,11 @@
 import type { TLStoreSnapshot } from "tldraw";
 import { describe, expect, test } from "vitest";
 import {
+	DrawingSnapshotValidationError,
 	filterSnapshotForPersistence,
 	isManagedWhiteboardShapeRecord,
 	planCanvasReconciliation,
+	resolveHydrationSnapshot,
 	splitDeferredBindings,
 } from "./tldraw-persistence";
 
@@ -16,6 +18,80 @@ function snapshot(store: Record<string, unknown>): TLStoreSnapshot {
 function records(snapshot: TLStoreSnapshot): Record<string, unknown> {
 	return snapshot.store as unknown as Record<string, unknown>;
 }
+
+describe("resolveHydrationSnapshot", () => {
+	test("uses the current editor schema when record persistence has no schema", () => {
+		const currentSchema = {
+			schemaVersion: 2,
+			sequences: { "com.tldraw.shape": 7 },
+		} as TLStoreSnapshot["schema"];
+		const result = resolveHydrationSnapshot({
+			persistedSnapshot: {
+				schema: null,
+				store: {
+					"shape:current": {
+						id: "shape:current",
+						typeName: "shape",
+						type: "geo",
+					},
+				},
+			},
+			currentEmptySnapshot: {
+				schema: currentSchema,
+				store: {},
+			} as TLStoreSnapshot,
+		});
+
+		expect(result.schema).toBe(currentSchema);
+		expect(records(result)).toHaveProperty("shape:current");
+	});
+
+	test("preserves a legacy schema when one is available", () => {
+		const legacySchema = {
+			schemaVersion: 2,
+			sequences: { "com.tldraw.shape": 1 },
+		} as TLStoreSnapshot["schema"];
+		const result = resolveHydrationSnapshot({
+			persistedSnapshot: { schema: legacySchema, store: {} },
+			currentEmptySnapshot: {
+				schema: {
+					schemaVersion: 2,
+					sequences: { "com.tldraw.shape": 7 },
+				},
+				store: {},
+			} as TLStoreSnapshot,
+		});
+
+		expect(result.schema).toBe(legacySchema);
+	});
+
+	test.each([
+		[
+			"mismatched ids",
+			{
+				"shape:store-key": {
+					id: "shape:different",
+					typeName: "shape",
+				},
+			},
+		],
+		[
+			"missing record types",
+			{
+				"shape:missing-type": {
+					id: "shape:missing-type",
+				},
+			},
+		],
+	])("rejects %s without mutating persisted data", (_label, store) => {
+		expect(() =>
+			resolveHydrationSnapshot({
+				persistedSnapshot: { schema: null, store },
+				currentEmptySnapshot: snapshot({}),
+			}),
+		).toThrow(DrawingSnapshotValidationError);
+	});
+});
 
 describe("tldraw persistence", () => {
 	test("identifies managed whiteboard shape records", () => {

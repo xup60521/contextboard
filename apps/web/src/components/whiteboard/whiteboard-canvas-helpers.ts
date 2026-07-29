@@ -50,8 +50,14 @@ export type BoardItemResult = {
 	} | null;
 };
 
+export type PersistedDrawingSnapshot = {
+	schema: TLStoreSnapshot["schema"] | null;
+	store: Record<string, unknown>;
+};
+
 export type TldrawDocumentResult = {
-	snapshot: TLStoreSnapshot;
+	whiteboardId: Id<"whiteboards"> | null;
+	snapshot: PersistedDrawingSnapshot;
 	revision: number;
 	canvasRecordVersions?: Record<string, number>;
 } | null;

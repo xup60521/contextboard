@@ -1,4 +1,5 @@
 import type { TLRecord, TLStoreSnapshot } from "tldraw";
+import type { PersistedDrawingSnapshot } from "./whiteboard-canvas-helpers";
 
 type UnknownRecord = {
 	id?: unknown;
@@ -15,6 +16,92 @@ export type CanvasReconciliation = {
 	deferredBindings: TLRecord[];
 	nextAppliedRecordIds: Set<string>;
 };
+
+const SUPPORTED_TLDRAW_RECORD_TYPES = new Set([
+	"asset",
+	"binding",
+	"camera",
+	"document",
+	"instance",
+	"instance_page_state",
+	"instance_presence",
+	"page",
+	"pointer",
+	"shape",
+]);
+
+export class DrawingSnapshotValidationError extends Error {
+	readonly recordId: string | null;
+	readonly recordType: string | null;
+
+	constructor(
+		message: string,
+		{
+			recordId = null,
+			recordType = null,
+		}: { recordId?: string | null; recordType?: string | null } = {},
+	) {
+		super(message);
+		this.name = "DrawingSnapshotValidationError";
+		this.recordId = recordId;
+		this.recordType = recordType;
+	}
+}
+
+export function resolveHydrationSnapshot({
+	persistedSnapshot,
+	currentEmptySnapshot,
+}: {
+	persistedSnapshot: PersistedDrawingSnapshot | TLStoreSnapshot;
+	currentEmptySnapshot: TLStoreSnapshot;
+}): TLStoreSnapshot {
+	if (
+		!persistedSnapshot ||
+		typeof persistedSnapshot !== "object" ||
+		!("store" in persistedSnapshot) ||
+		!persistedSnapshot.store ||
+		typeof persistedSnapshot.store !== "object" ||
+		Array.isArray(persistedSnapshot.store)
+	) {
+		throw new DrawingSnapshotValidationError(
+			"Drawing snapshot is missing a valid store.",
+		);
+	}
+
+	const store = persistedSnapshot.store as unknown as Record<string, unknown>;
+	for (const [storeId, value] of Object.entries(store)) {
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
+			throw new DrawingSnapshotValidationError(
+				`Drawing record "${storeId}" is not an object.`,
+				{ recordId: storeId },
+			);
+		}
+		const record = value as { id?: unknown; typeName?: unknown };
+		const recordId = typeof record.id === "string" ? record.id : null;
+		const recordType =
+			typeof record.typeName === "string" ? record.typeName : null;
+		if (!recordId || recordId !== storeId) {
+			throw new DrawingSnapshotValidationError(
+				`Drawing record "${storeId}" has an invalid id.`,
+				{ recordId, recordType },
+			);
+		}
+		if (
+			!recordType ||
+			!SUPPORTED_TLDRAW_RECORD_TYPES.has(recordType)
+		) {
+			throw new DrawingSnapshotValidationError(
+				`Drawing record "${storeId}" has an unsupported type.`,
+				{ recordId, recordType },
+			);
+		}
+	}
+
+	return {
+		schema: persistedSnapshot.schema ?? currentEmptySnapshot.schema,
+		store: store as TLStoreSnapshot["store"],
+	};
+}
 
 export function planCanvasReconciliation({
 	persistedStore,

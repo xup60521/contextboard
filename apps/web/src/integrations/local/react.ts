@@ -6,6 +6,10 @@ import { LocalDatabaseContext } from "./provider";
 
 type Reference = string;
 type Arguments = Record<string, unknown> | "skip" | undefined;
+type KeyedQueryResult<T> = {
+	key: string;
+	value: T;
+};
 
 function useLocalState() {
 	const state = useContext(LocalDatabaseContext);
@@ -16,14 +20,18 @@ function useLocalState() {
 export function useQuery(reference: Reference, args?: Arguments): any {
 	const state = useLocalState();
 	const { database } = state;
-	const key = JSON.stringify(args);
-	return useLiveQuery(
-		() =>
+	const key = JSON.stringify([reference, args]);
+	const result = useLiveQuery<KeyedQueryResult<unknown> | undefined>(
+		async () =>
 			args === "skip" || state.status !== "ready"
 				? undefined
-				: localQuery(database, reference, args ?? {}),
+				: {
+						key,
+						value: await localQuery(database, reference, args ?? {}),
+					},
 		[database, reference, key, state.status],
 	);
+	return result?.key === key ? result.value : undefined;
 }
 
 export function useMutation(
