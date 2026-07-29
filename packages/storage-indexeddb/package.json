@@ -3,16 +3,23 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "build": "tsc --noEmit",
     "check": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@contextboard/local-db": "workspace:*"
+    "@contextboard/client-core": "workspace:*",
+    "@contextboard/local-db": "workspace:*",
+    "@contextboard/sync-protocol": "workspace:*",
+    "dexie": "^4.2.1"
   },
   "devDependencies": {
+    "@contextboard/application": "workspace:*",
+    "fake-indexeddb": "^6.2.4",
     "typescript": "^6.0.2",
     "vitest": "^4.1.5"
   }

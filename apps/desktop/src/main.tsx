@@ -1,3 +1,5 @@
+import "@contextboard/application/application.css";
+import "../../web/src/styles.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { DesktopApp } from "./DesktopApp";

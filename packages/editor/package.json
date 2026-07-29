@@ -1,0 +1,47 @@
+{
+  "name": "@contextboard/editor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./editor.css": "./src/editor.css"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@floating-ui/react": "^0.27.19",
+    "@floating-ui/dom": "^1.7.6",
+    "@tiptap/core": "^3.27.1",
+    "@tiptap/extension-details": "3.27.1",
+    "@tiptap/extension-file-handler": "^3.27.1",
+    "@tiptap/extension-image": "^3.27.1",
+    "@tiptap/extension-mathematics": "^3.27.1",
+    "@tiptap/extension-placeholder": "^3.27.1",
+    "@tiptap/extension-table": "3.27.1",
+    "@tiptap/pm": "^3.27.1",
+    "@tiptap/react": "^3.27.1",
+    "@tiptap/starter-kit": "^3.27.1",
+    "@tiptap/static-renderer": "^3.27.1",
+    "@tiptap/suggestion": "^3.27.1",
+    "katex": "^0.16.22",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.577.0",
+    "markdown-it": "^14.1.0",
+    "react": "^19.2.0",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "jsdom": "^28.1.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.5"
+  }
+}

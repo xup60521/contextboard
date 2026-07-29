@@ -12,18 +12,18 @@ function StateProbe() {
 }
 
 describe("DesktopRuntimeProvider", () => {
-	test("reports storage unavailable from the native bootstrap", async () => {
+	test("reports ready when native SQLite storage is available", async () => {
 		const invoke = vi.fn(async () => ({
 			version: "0.0.0",
 			platform: "windows",
-			storageAvailable: false,
+			storageAvailable: true,
 		}));
 		render(
 			<DesktopRuntimeProvider invoke={invoke}>
 				<StateProbe />
 			</DesktopRuntimeProvider>,
 		);
-		expect(await screen.findByText("storage-unavailable")).toBeTruthy();
+		expect(await screen.findByText("ready")).toBeTruthy();
 	});
 
 	test("reports malformed bootstrap failures", async () => {

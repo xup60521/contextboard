@@ -1,4 +1,4 @@
-import { ArrowUpDown, Check, Filter, Search, X } from "lucide-react";
+import { ArrowUpDown, Check, Filter, Plus, Search, X } from "lucide-react";
 import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
 import {
 	DropdownMenu,
@@ -28,6 +28,8 @@ export function CardLibraryToolbar({
 	onAppendSelected,
 	onDeleteSelected,
 	onClearSelection,
+	onCreateCard,
+	isCreatingCard,
 }: {
 	query: string;
 	onQueryChange: (query: string) => void;
@@ -41,11 +43,22 @@ export function CardLibraryToolbar({
 	onAppendSelected: () => void;
 	onDeleteSelected: () => void;
 	onClearSelection: () => void;
+	onCreateCard: () => void;
+	isCreatingCard: boolean;
 }) {
 	return (
 		<header className="mb-4 flex flex-col gap-1.5">
 			<div className="flex items-center gap-2">
 				<SidebarOpenButton />
+				<button
+					type="button"
+					onClick={onCreateCard}
+					disabled={isCreatingCard}
+					className="flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-[var(--sea-ink)] px-3 text-xs font-semibold text-[var(--surface)] transition hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+				>
+					<Plus size={12} />
+					{isCreatingCard ? "Creating..." : "New card"}
+				</button>
 				<div className="relative flex items-center">
 					<Search
 						size={12}

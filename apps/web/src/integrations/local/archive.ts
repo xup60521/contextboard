@@ -126,8 +126,6 @@ function normalizeConvex(
 			depth: Number(row.depth ?? 0),
 			sortKey: String(row.sortKey ?? id),
 			pathKey: String(row.pathKey ?? id),
-			cardCount: Number(row.cardCount ?? 0),
-			childWhiteboardCount: Number(row.childWhiteboardCount ?? 0),
 			archivedAt: row.archivedAt == null ? null : Number(row.archivedAt),
 		};
 	if (table === "boardItems")

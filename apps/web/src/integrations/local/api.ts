@@ -1,6 +1,7 @@
 const ref = <Name extends string>(name: Name) => name;
 export const api = {
 	cards: {
+		create: ref("cards.create"),
 		get: ref("cards.get"),
 		getContentsForWhiteboardItems: ref("cards.getContentsForWhiteboardItems"),
 		updateContent: ref("cards.updateContent"),

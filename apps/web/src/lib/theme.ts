@@ -22,7 +22,9 @@ export function getResolvedTheme(): ResolvedTheme {
 export function applyThemeMode(mode: ThemeMode) {
 	if (typeof window === "undefined") return;
 
-	const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+	const prefersDark =
+		typeof window.matchMedia === "function" &&
+		window.matchMedia("(prefers-color-scheme: dark)").matches;
 	const resolved = mode === "auto" ? (prefersDark ? "dark" : "light") : mode;
 	const root = document.documentElement;
 
@@ -52,7 +54,12 @@ export function setThemeMode(mode: ThemeMode) {
 }
 
 function ensureSystemListener() {
-	if (systemListenerStarted || typeof window === "undefined") return;
+	if (
+		systemListenerStarted ||
+		typeof window === "undefined" ||
+		typeof window.matchMedia !== "function"
+	)
+		return;
 	systemListenerStarted = true;
 
 	const media = window.matchMedia("(prefers-color-scheme: dark)");

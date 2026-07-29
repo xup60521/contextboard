@@ -15,8 +15,14 @@ type SidebarContextValue = {
 
 export const SidebarContext = createContext<SidebarContextValue | null>(null);
 
-export function SidebarProvider({ children }: { children: ReactNode }) {
-	const [isOpen, setIsOpen] = useState(false);
+export function SidebarProvider({
+	children,
+	defaultOpen = false,
+}: {
+	children: ReactNode;
+	defaultOpen?: boolean;
+}) {
+	const [isOpen, setIsOpen] = useState(defaultOpen);
 
 	const open = useCallback(() => {
 		setIsOpen(true);

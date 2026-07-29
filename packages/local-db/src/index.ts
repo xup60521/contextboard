@@ -718,42 +718,7 @@ export async function applyRemoteBatches(
 				},
 			]);
 		}
-		if (affectedWhiteboardIds.size) {
-			const whiteboards = await db.whiteboards.bulkGet(
-				[...affectedWhiteboardIds],
-			);
-			for (const whiteboard of whiteboards) {
-				if (!whiteboard) continue;
-				if (whiteboard.deletedAt !== null) continue;
-				const [cardCount, childWhiteboardCount] = await Promise.all([
-					db.boardItems
-						.filter(
-							(item) =>
-								item.whiteboardId === whiteboard.id &&
-								item.kind === "card" &&
-								item.deletedAt === null &&
-								item.archivedAt === null,
-						)
-						.count(),
-					db.whiteboards
-						.filter(
-							(child) =>
-								child.parentWhiteboardId === whiteboard.id &&
-								child.deletedAt === null &&
-								child.archivedAt === null,
-						)
-						.count(),
-				]);
-				if (
-					whiteboard.cardCount !== cardCount ||
-					whiteboard.childWhiteboardCount !== childWhiteboardCount
-				)
-					await db.whiteboards.update(whiteboard.id, {
-						cardCount,
-						childWhiteboardCount,
-					});
-			}
-		}
+		// Counts are derived from active items and child whiteboards at read time.
 	});
 	return { applied, conflicts };
 }

@@ -1,5 +1,7 @@
+use crate::storage::{BlobDescriptor, Storage, StorageError};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
+use tauri::State;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -12,42 +14,34 @@ pub struct DesktopBootstrap {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct CommandError {
     pub code: &'static str,
-    pub message: &'static str,
+    pub message: String,
 }
 
-impl CommandError {
-    fn invalid_argument() -> Self {
-        Self {
-            code: "INVALID_ARGUMENT",
-            message: "A valid workspace ID is required",
+impl From<StorageError> for CommandError {
+    fn from(value: StorageError) -> Self {
+        match value {
+            StorageError::Invalid(message) => Self {
+                code: "INVALID_ARGUMENT",
+                message,
+            },
+            StorageError::UnknownOperation => Self {
+                code: "UNKNOWN_DOMAIN_OPERATION",
+                message: "The requested domain operation is not supported".into(),
+            },
+            StorageError::Sql(error) => Self {
+                code: "INTERNAL_ERROR",
+                message: format!("Desktop storage failed: {error}"),
+            },
+            StorageError::Io(error) => Self {
+                code: "INTERNAL_ERROR",
+                message: format!("Desktop blob storage failed: {error}"),
+            },
+            StorageError::Json(error) => Self {
+                code: "INVALID_ARGUMENT",
+                message: format!("Invalid JSON payload: {error}"),
+            },
         }
     }
-
-    fn storage_not_initialized() -> Self {
-        Self {
-            code: "STORAGE_NOT_INITIALIZED",
-            message: "Desktop storage is not initialized",
-        }
-    }
-
-    fn unknown_domain_operation() -> Self {
-        Self {
-            code: "UNKNOWN_DOMAIN_OPERATION",
-            message: "The requested domain operation is not supported",
-        }
-    }
-}
-
-fn validate_workspace(workspace_id: &str) -> Result<(), CommandError> {
-    if workspace_id.trim().is_empty() {
-        return Err(CommandError::invalid_argument());
-    }
-    Ok(())
-}
-
-fn storage_stub(workspace_id: &str) -> Result<Value, CommandError> {
-    validate_workspace(workspace_id)?;
-    Err(CommandError::storage_not_initialized())
 }
 
 #[tauri::command]
@@ -55,141 +49,135 @@ pub fn desktop_bootstrap() -> DesktopBootstrap {
     DesktopBootstrap {
         version: env!("CARGO_PKG_VERSION"),
         platform: "windows",
-        storage_available: false,
+        storage_available: true,
     }
 }
 
 #[tauri::command]
-pub fn workspace_query(workspace_id: String, query: Value) -> Result<Value, CommandError> {
-    let operation = query.get("type").and_then(Value::as_str);
-    if !matches!(
-        operation,
-        Some(
-            "cards.list"
-                | "cards.get"
-                | "whiteboards.list"
-                | "whiteboards.get"
-                | "items.list"
-                | "records.list"
-        )
-    ) {
-        validate_workspace(&workspace_id)?;
-        return Err(CommandError::unknown_domain_operation());
-    }
-    storage_stub(&workspace_id)
+pub fn workspace_query(
+    storage: State<'_, Storage>,
+    workspace_id: String,
+    query: Value,
+) -> Result<Value, CommandError> {
+    storage.query(&workspace_id, &query).map_err(Into::into)
 }
 
 #[tauri::command]
-pub fn workspace_execute(workspace_id: String, command: Value) -> Result<Value, CommandError> {
-    let operation = command.get("type").and_then(Value::as_str);
-    if !matches!(
-        operation,
-        Some(
-            "cards.create"
-                | "cards.update"
-                | "cards.delete"
-                | "whiteboards.create"
-                | "whiteboards.update"
-                | "whiteboards.delete"
-                | "items.create"
-                | "items.update"
-                | "items.delete"
-                | "records.put"
-                | "records.delete"
-        )
-    ) {
-        validate_workspace(&workspace_id)?;
-        return Err(CommandError::unknown_domain_operation());
-    }
-    storage_stub(&workspace_id)
+pub fn workspace_execute(
+    storage: State<'_, Storage>,
+    workspace_id: String,
+    command: Value,
+) -> Result<Value, CommandError> {
+    storage.execute(&workspace_id, &command).map_err(Into::into)
 }
 
 #[tauri::command]
-pub fn workspace_pending_batches(workspace_id: String, limit: u32) -> Result<Value, CommandError> {
-    let _ = limit;
-    storage_stub(&workspace_id)
+pub fn workspace_pending_batches(
+    storage: State<'_, Storage>,
+    workspace_id: String,
+    limit: u32,
+) -> Result<Value, CommandError> {
+    storage.pending(&workspace_id, limit).map_err(Into::into)
 }
 
 #[tauri::command]
 pub fn workspace_acknowledge(
+    storage: State<'_, Storage>,
     workspace_id: String,
     change_ids: Vec<String>,
 ) -> Result<Value, CommandError> {
-    let _ = change_ids;
-    storage_stub(&workspace_id)
+    storage
+        .acknowledge(&workspace_id, &change_ids)
+        .map(|_| Value::Null)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub fn workspace_apply_remote(
+    storage: State<'_, Storage>,
     workspace_id: String,
     batches: Value,
     peer_id: String,
     next_cursor: String,
 ) -> Result<Value, CommandError> {
-    let _ = (batches, peer_id, next_cursor);
-    storage_stub(&workspace_id)
+    storage
+        .apply_remote(&workspace_id, &batches, &peer_id, &next_cursor)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub fn workspace_sync_state(workspace_id: String, peer_id: String) -> Result<Value, CommandError> {
-    let _ = peer_id;
-    storage_stub(&workspace_id)
+pub fn workspace_sync_state(
+    storage: State<'_, Storage>,
+    workspace_id: String,
+    peer_id: String,
+) -> Result<Value, CommandError> {
+    storage
+        .sync_state(&workspace_id, &peer_id)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub fn workspace_read_blob(workspace_id: String, hash: String) -> Result<Value, CommandError> {
-    let _ = hash;
-    storage_stub(&workspace_id)
+pub fn workspace_read_blob(
+    storage: State<'_, Storage>,
+    workspace_id: String,
+    hash: String,
+) -> Result<Value, CommandError> {
+    storage
+        .read_blob(&workspace_id, &hash)
+        .map(|blob| {
+            blob.map_or(
+                Value::Null,
+                |(descriptor, bytes)| json!({"descriptor":descriptor,"bytes":bytes}),
+            )
+        })
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub fn workspace_missing_blobs(workspace_id: String) -> Result<Value, CommandError> {
-    storage_stub(&workspace_id)
+pub fn workspace_missing_blobs(
+    storage: State<'_, Storage>,
+    workspace_id: String,
+) -> Result<Value, CommandError> {
+    storage
+        .missing_blobs(&workspace_id)
+        .map(|v| json!(v))
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub fn workspace_store_blob(
+    storage: State<'_, Storage>,
     workspace_id: String,
-    descriptor: Value,
+    descriptor: BlobDescriptor,
     bytes: Vec<u8>,
 ) -> Result<Value, CommandError> {
-    let _ = (descriptor, bytes);
-    storage_stub(&workspace_id)
+    storage
+        .store_blob(&workspace_id, &descriptor, &bytes)
+        .map(|_| Value::Null)
+        .map_err(Into::into)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
-    fn bootstrap_reports_storage_unavailable() {
+    fn bootstrap_reports_storage_available() {
         assert_eq!(
             desktop_bootstrap(),
             DesktopBootstrap {
                 version: "0.0.0",
                 platform: "windows",
-                storage_available: false,
+                storage_available: true,
             }
         );
     }
 
     #[test]
-    fn rejects_empty_workspace_ids() {
-        let error = workspace_pending_batches("".into(), 25).unwrap_err();
+    fn storage_errors_are_typed_without_leaking_paths_or_sql() {
+        let error = CommandError::from(StorageError::Invalid("workspaceId is invalid".into()));
         assert_eq!(error.code, "INVALID_ARGUMENT");
-    }
-
-    #[test]
-    fn known_commands_return_the_storage_stub() {
-        let error =
-            workspace_query("workspace-1".into(), json!({ "type": "cards.list" })).unwrap_err();
-        assert_eq!(error.code, "STORAGE_NOT_INITIALIZED");
-    }
-
-    #[test]
-    fn rejects_unknown_domain_operations_before_storage() {
-        let error = workspace_execute("workspace-1".into(), json!({})).unwrap_err();
-        assert_eq!(error.code, "UNKNOWN_DOMAIN_OPERATION");
+        let unknown = CommandError::from(StorageError::UnknownOperation);
+        assert_eq!(unknown.code, "UNKNOWN_DOMAIN_OPERATION");
     }
 }

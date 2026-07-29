@@ -19,10 +19,13 @@
     "deploy": "bun run build && wrangler deploy"
   },
   "dependencies": {
+    "@contextboard/application": "workspace:*",
     "@contextboard/auth-client": "workspace:*",
     "@contextboard/client-core": "workspace:*",
     "@contextboard/domain": "workspace:*",
+    "@contextboard/editor": "workspace:*",
     "@contextboard/local-db": "workspace:*",
+    "@contextboard/storage-indexeddb": "workspace:*",
     "@contextboard/sync-protocol": "workspace:*",
     "@contextboard/ui": "workspace:*",
     "@cloudflare/vite-plugin": "^1.26.0",

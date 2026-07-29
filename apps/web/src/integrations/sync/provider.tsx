@@ -6,16 +6,10 @@ import {
 	type WorkspaceRepository,
 } from "@contextboard/client-core";
 import {
-	acknowledgeBatches,
 	adoptWorkspaceId,
-	applyRemoteBatches,
-	getLocalBlob,
-	getMissingBlobs,
-	getPendingBatches,
-	getSyncState,
 	hasWorkspaceData,
-	storeRemoteBlob,
 } from "@contextboard/local-db";
+import { IndexedDbWorkspaceRepository } from "@contextboard/storage-indexeddb";
 import type { SyncStatus } from "@contextboard/sync-protocol";
 import {
 	createContext,
@@ -196,24 +190,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 				}
 			}
 			if (!active) return;
-			const repository: WorkspaceRepository = {
-				query: async () => {
-					throw new Error("Domain queries are provided by the Web adapter");
-				},
-				execute: async () => {
-					throw new Error("Domain commands are provided by the Web adapter");
-				},
-				subscribe: () => () => undefined,
-				getPendingBatches: (limit) => getPendingBatches(local.database, limit),
-				acknowledge: (ids) => acknowledgeBatches(local.database, ids),
-				applyRemote: (batches, peerId, cursor) =>
-					applyRemoteBatches(local.database, batches, peerId, cursor),
-				getSyncState: (peerId) => getSyncState(local.database, peerId),
-				getLocalBlob: (hash) => getLocalBlob(local.database, hash),
-				getMissingBlobs: () => getMissingBlobs(local.database),
-				storeRemoteBlob: (descriptor, blob) =>
-					storeRemoteBlob(local.database, descriptor, blob),
-			};
+			const repository: WorkspaceRepository =
+				new IndexedDbWorkspaceRepository(local.database);
 			const coordinator = new SyncCoordinator(
 				workspaceId,
 				repository,

@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/CardEditorPane.tsx",
+    "src/useImageUpload.ts",
+    "src/useCardReferenceSupport.ts"
+  ],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "paths": {
+      "#/lib/utils": ["./src/platform/utils.ts"],
+      "#/integrations/local/types": ["./src/platform/types.ts"]
+    }
+  }
+}

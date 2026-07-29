@@ -9,6 +9,13 @@
 	--line: rgba(50, 53, 76, 0.14);
 	--violet: #6f63c7;
 	--violet-soft: #d9d5ff;
+	--surface: rgba(244, 245, 250, 0.88);
+	--surface-raised: #fbfbfe;
+	--sea-ink: #1f2024;
+	--sea-ink-soft: #6b7280;
+	--lagoon: #6366f1;
+	--surface-strong: #ffffff;
+	--card: #ffffff;
 }
 
 * {
@@ -27,73 +34,32 @@ button {
 	font: inherit;
 }
 
-.desktop-sidebar {
-	display: flex;
-	width: 226px;
-	flex: 0 0 226px;
-	flex-direction: column;
-	padding: 18px 14px;
-	border-right: 1px solid var(--line);
-	background: rgba(244, 245, 250, 0.88);
+.cb-sidebar {
 	backdrop-filter: blur(18px);
 }
 
-.desktop-brand {
-	display: flex;
-	align-items: center;
-	gap: 11px;
-	padding: 3px 5px 22px;
+.cb-nav__item:focus-visible,
+.cb-button:focus-visible,
+.cb-card:focus-visible,
+.cb-input:focus-visible,
+.cb-editor:focus-visible {
+	outline: 2px solid var(--violet);
+	outline-offset: 2px;
 }
 
-.desktop-brand__mark {
+/* Boot screen: shown only until the local workspace is open. */
+.desktop-boot {
+	position: relative;
 	display: grid;
-	width: 32px;
-	height: 32px;
+	min-height: 100dvh;
 	place-items: center;
-	border-radius: 9px 9px 9px 3px;
-	background: var(--ink);
-	color: white;
-	font-weight: 700;
-}
-
-.desktop-brand div {
-	display: grid;
-	gap: 1px;
-}
-
-.desktop-brand strong {
-	font-size: 14px;
-	letter-spacing: -0.01em;
-}
-
-.desktop-brand span:last-child {
-	color: var(--muted);
-	font-size: 11px;
-}
-
-.desktop-nav-item {
-	display: flex;
-	width: 100%;
-	align-items: center;
-	gap: 10px;
-	padding: 9px 10px;
-	border: 0;
-	border-radius: 8px;
-	background: transparent;
-	color: var(--muted);
-	text-align: left;
-}
-
-.desktop-nav-item--active {
-	background: var(--violet-soft);
-	color: #40377e;
-	font-weight: 600;
-}
-
-.desktop-sidebar__foot {
-	margin: auto 5px 0;
-	color: var(--muted);
-	font-size: 11px;
+	overflow: hidden;
+	padding: 100px 48px;
+	background-image: radial-gradient(
+		rgba(75, 78, 103, 0.18) 0.85px,
+		transparent 0.85px
+	);
+	background-size: 22px 22px;
 }
 
 .desktop-status-rail {
@@ -147,30 +113,9 @@ button {
 	opacity: 0.46;
 }
 
-.contextboard-sync-status button:focus-visible,
-.desktop-nav-item:focus-visible {
+.contextboard-sync-status button:focus-visible {
 	outline: 2px solid var(--violet);
 	outline-offset: 2px;
-}
-
-.desktop-canvas {
-	position: relative;
-	display: grid;
-	min-height: 100%;
-	place-items: center;
-	overflow: hidden;
-	padding: 100px 48px;
-}
-
-.desktop-grid {
-	position: absolute;
-	inset: 0;
-	background-image: radial-gradient(
-		rgba(75, 78, 103, 0.18) 0.85px,
-		transparent 0.85px
-	);
-	background-size: 22px 22px;
-	mask-image: radial-gradient(circle at 52% 50%, black, transparent 76%);
 }
 
 .contextboard-runtime-notice {
@@ -231,39 +176,22 @@ button {
 	line-height: 1.65;
 }
 
-.desktop-build {
-	position: absolute;
-	right: 20px;
-	bottom: 14px;
-	margin: 0;
-	color: var(--muted);
-	font:
-		10px / 1 "Cascadia Mono",
-		Consolas,
-		monospace;
-}
-
 @media (max-width: 720px) {
-	.desktop-sidebar {
+	.cb-sidebar {
 		width: 76px;
 		flex-basis: 76px;
 	}
 
-	.desktop-brand div,
-	.desktop-nav-item:not(.desktop-nav-item--active),
-	.desktop-nav-item--active {
-		font-size: 0;
-	}
-
-	.desktop-nav-item--active span {
-		font-size: 16px;
-	}
-
-	.desktop-sidebar__foot {
+	.cb-brand__text,
+	.cb-sidebar__foot {
 		display: none;
 	}
 
-	.desktop-canvas {
+	.cb-page {
+		padding: 20px;
+	}
+
+	.desktop-boot {
 		padding: 100px 20px 50px;
 	}
 }

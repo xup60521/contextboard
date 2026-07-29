@@ -305,15 +305,15 @@ describe("cards library", () => {
 		previewDialogMock.mockReset();
 		deleteDialogMock.mockReset();
 		whiteboardPickerDialogMock.mockReset();
-		useMutationMock.mockImplementation(() => {
-			const mutationIndex = (useMutationMock.mock.calls.length - 1) % 3;
-			if (mutationIndex === 0) {
-				return archiveCardsMock;
-			}
-			if (mutationIndex === 1) {
+		useMutationMock.mockImplementation((reference: string) => {
+			if (reference === "cards.archiveCards") return archiveCardsMock;
+			if (reference === "cards.appendToWhiteboard")
 				return appendToWhiteboardMock;
-			}
-			return appendCardsToWhiteboardMock;
+			if (reference === "cards.appendCardsToWhiteboard")
+				return appendCardsToWhiteboardMock;
+			if (reference === "cards.create")
+				return vi.fn().mockResolvedValue("new-card");
+			throw new Error(`Unexpected mutation: ${reference}`);
 		});
 		currentSearch = {
 			orphan: "",

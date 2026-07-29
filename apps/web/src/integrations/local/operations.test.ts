@@ -57,6 +57,12 @@ describe("local operations", () => {
 		expect(board).toMatchObject({
 			parentWhiteboardId: root.childWhiteboardId,
 			depth: 1,
+		});
+		const parentItems = await localQuery(db, "canvas.listItems", {
+			whiteboardId: root.childWhiteboardId,
+		});
+		expect(parentItems[0]?.childWhiteboard).toMatchObject({
+			_id: child.childWhiteboardId,
 			cardCount: 1,
 		});
 		expect(createdPlacement?.w).toBe(576);
@@ -173,7 +179,11 @@ describe("local operations", () => {
 		expect(await db.cards.get(card.cardId)).toMatchObject({
 			activePlacementCount: 2,
 		});
-		expect(await db.whiteboards.get(board.childWhiteboardId)).toMatchObject({
+		const rootItems = await localQuery(db, "canvas.listItems", {
+			whiteboardId: null,
+		});
+		expect(rootItems[0]?.childWhiteboard).toMatchObject({
+			_id: board.childWhiteboardId,
 			cardCount: 2,
 		});
 	});

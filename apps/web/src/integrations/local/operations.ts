@@ -2,10 +2,27 @@ import type {
 	BoardItem,
 	Card,
 	CardId,
+	CardReference,
 	CardRelationKind,
+	FileReference,
+	LocalFile,
 	Whiteboard,
 	WhiteboardId,
 } from "@contextboard/domain";
+import {
+	DEFAULT_CARD_CONTENT,
+	deriveCardMetadata,
+} from "@contextboard/application/cards";
+import {
+	type ArchiveCardSnapshot,
+	planAppendCard,
+	planArchiveCards,
+	planArchiveItem,
+	planCreateCardItem,
+	planCreateSubwhiteboard,
+	planReferences,
+	planRestoreOrAdoptCardItem,
+} from "@contextboard/application/canvas";
 import {
 	type ContextboardDatabase,
 	runLocalCommand,
@@ -21,16 +38,6 @@ import {
 
 type Args = Record<string, unknown>;
 const DEFAULT_CARD_WIDTH = 576;
-const DEFAULT_CARD_CONTENT = {
-	type: "doc",
-	content: [
-		{
-			type: "heading",
-			attrs: { level: 1 },
-			content: [{ type: "text", text: "New card" }],
-		},
-	],
-};
 const active = <
 	T extends { archivedAt?: number | null; deletedAt: number | null },
 >(
@@ -48,20 +55,6 @@ const publicRow = <T extends { id: string; createdAt: number }>(row: T) => ({
 });
 const id = () => crypto.randomUUID();
 
-function metadata(content: unknown) {
-	const rows: string[] = [];
-	collectTextRows(content, rows);
-	const normalizedRows = rows
-		.map((row) => row.replace(/\s+/g, " ").trim())
-		.filter(Boolean);
-	const plainText = normalizedRows.join("\n").slice(0, 10_000).trim();
-	return {
-		plainText,
-		derivedTitle: normalizedRows[0]?.slice(0, 120) || "Untitled card",
-		preview: plainText.slice(0, 400),
-	};
-}
-
 function parseClipboardCardContent(content: unknown) {
 	if (typeof content !== "string" || !content) return DEFAULT_CARD_CONTENT;
 	try {
@@ -72,57 +65,6 @@ function parseClipboardCardContent(content: unknown) {
 	} catch {
 		return DEFAULT_CARD_CONTENT;
 	}
-}
-
-function collectTextRows(value: unknown, rows: string[]) {
-	if (!value || typeof value !== "object") return;
-	const node = value as {
-		type?: unknown;
-		text?: unknown;
-		attrs?: Record<string, unknown>;
-		content?: unknown;
-	};
-	if (node.type === "text" && typeof node.text === "string") {
-		rows.push(node.text);
-		return;
-	}
-	if (node.type === "inlineMath" || node.type === "blockMath") {
-		if (typeof node.attrs?.latex === "string") rows.push(node.attrs.latex);
-		return;
-	}
-	if (!Array.isArray(node.content)) return;
-	const children: string[] = [];
-	for (const child of node.content) collectTextRows(child, children);
-	if (
-		node.type === "heading" ||
-		node.type === "paragraph" ||
-		node.type === "listItem" ||
-		node.type === "blockquote" ||
-		node.type === "codeBlock" ||
-		node.type === "tableCell" ||
-		node.type === "tableHeader"
-	) {
-		rows.push(children.join(" "));
-	} else {
-		rows.push(...children);
-	}
-}
-
-function collectStringFields(
-	value: unknown,
-	field: "fileId" | "cardId",
-	result = new Set<string>(),
-): Set<string> {
-	if (Array.isArray(value)) {
-		for (const child of value) collectStringFields(child, field, result);
-		return result;
-	}
-	if (!value || typeof value !== "object") return result;
-	for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-		if (key === field && typeof child === "string" && child) result.add(child);
-		else collectStringFields(child, field, result);
-	}
-	return result;
 }
 
 async function reconcileReferences(
@@ -137,57 +79,49 @@ async function reconcileReferences(
 		.where("targetKey")
 		.equals(targetKey)
 		.toArray();
-	const nextFileIds = collectStringFields(content, "fileId");
-	for (const ref of current)
-		if (!nextFileIds.has(ref.fileId)) await db.fileReferences.delete(ref.id);
-	for (const fileId of nextFileIds)
-		if (!current.some((ref) => ref.fileId === fileId)) {
-			const now = Date.now();
-			await db.fileReferences.add({
-				id: `${targetKey}:${fileId}` as never,
-				...base(deviceId, now),
-				fileId: fileId as never,
-				targetKey,
-				targetType,
-			});
-		}
-	const affected = new Set([
-		...current.map((ref) => ref.fileId),
-		...nextFileIds,
-	]);
-	for (const fileId of affected) {
-		const file = await db.files.get(fileId);
-		if (!file) continue;
-		const refCount = await db.fileReferences
-			.where("fileId")
-			.equals(fileId)
-			.count();
-		await db.files.update(file.id, {
-			refCount,
-			status: refCount > 0 ? "active" : "pending_delete",
-			pendingDeleteAt: refCount > 0 ? null : Date.now(),
-		});
-	}
-	if (targetType === "card") {
-		const currentCards = await db.cardReferences
+	const allFileReferences = await db.fileReferences.toArray();
+	const currentCards =
+		targetType === "card"
+			? await db.cardReferences
 			.where("sourceCardId")
 			.equals(targetId)
-			.toArray();
-		const nextCardIds = collectStringFields(content, "cardId");
-		nextCardIds.delete(targetId);
-		for (const ref of currentCards)
-			if (!nextCardIds.has(ref.targetCardId))
-				await db.cardReferences.delete(ref.id);
-		for (const targetCardId of nextCardIds)
-			if (!currentCards.some((ref) => ref.targetCardId === targetCardId)) {
-				const now = Date.now();
-				await db.cardReferences.add({
-					id: `${targetId}:${targetCardId}` as never,
-					...base(deviceId, now),
-					sourceCardId: targetId as never,
-					targetCardId: targetCardId as never,
+			.toArray()
+			: [];
+	const plan = planReferences(
+		{
+			targetFileReferences: current,
+			allFileReferences,
+			cardReferences: currentCards,
+			files: await db.files.toArray(),
+		},
+		{ targetType, targetId, content },
+		{ now: Date.now(), deviceId },
+	);
+	for (const write of plan.writes) {
+		if (write.entity === "fileReference") {
+			if (write.operation === "delete")
+				await db.fileReferences.delete(write.id);
+			else
+				await db.fileReferences.add({
+					...(write.value as FileReference),
+					revision: 1,
 				});
-			}
+		} else if (write.entity === "cardReference") {
+			if (write.operation === "delete")
+				await db.cardReferences.delete(write.id);
+			else
+				await db.cardReferences.add({
+					...(write.value as CardReference),
+					revision: 1,
+				});
+		} else if (write.entity === "file") {
+			await db.files.update(write.id, {
+				...(write.value as Partial<LocalFile>),
+				revision: (write.expectedRevision ?? 0) + 1,
+				updatedAt: Date.now(),
+				updatedByDeviceId: deviceId,
+			});
+		}
 	}
 }
 
@@ -423,22 +357,30 @@ export async function localQuery(
 			return rows.map(publicRow);
 		}
 		case "canvas.listItems": {
-			const rows = (await db.boardItems.toArray())
+			const [allItems, allCards, allWhiteboards] = await Promise.all([
+				db.boardItems.toArray(),
+				db.cards.toArray(),
+				db.whiteboards.toArray(),
+			]);
+			const rows = allItems
 				.filter(
 					(row) =>
 						active(row) && row.whiteboardId === (args.whiteboardId ?? null),
 				)
 				.sort((a, b) => a.zIndex - b.zIndex);
-			return Promise.all(
-				rows.map(async (row) => {
-					const card = row.cardId ? await db.cards.get(row.cardId) : null;
+			const cardById = new Map(
+				allCards.filter(active).map((card) => [card.id, card]),
+			);
+			const activeBoards = allWhiteboards.filter(active);
+			const boardById = new Map(activeBoards.map((board) => [board.id, board]));
+			return rows.map((row) => {
+					const card = row.cardId ? cardById.get(row.cardId) : null;
 					const child = row.childWhiteboardId
-						? await db.whiteboards.get(row.childWhiteboardId)
+						? boardById.get(row.childWhiteboardId)
 						: null;
 					return {
 						...publicRow(row),
-						card:
-							card && active(card)
+						card: card
 								? {
 										_id: card.id,
 										derivedTitle: card.derivedTitle,
@@ -446,19 +388,24 @@ export async function localQuery(
 										version: card.contentVersion,
 									}
 								: null,
-						childWhiteboard:
-							child && active(child)
+						childWhiteboard: child
 								? {
 										_id: child.id,
 										title: child.title,
 										depth: child.depth,
-										cardCount: child.cardCount,
-										childWhiteboardCount: child.childWhiteboardCount,
+										cardCount: allItems.filter(
+											(item) =>
+												active(item) &&
+												item.whiteboardId === child.id &&
+												item.kind === "card",
+										).length,
+										childWhiteboardCount: activeBoards.filter(
+											(board) => board.parentWhiteboardId === child.id,
+										).length,
 									}
 								: null,
 					};
-				}),
-			);
+				});
 		}
 		case "tldrawDocuments.get": {
 			const target = args.whiteboardId ?? null;
@@ -593,26 +540,6 @@ function base(deviceId: string, now: number) {
 		deletedAt: null,
 	};
 }
-async function adjustCounts(
-	db: ContextboardDatabase,
-	whiteboardId: string | null,
-	cardDelta: number,
-	childDelta = 0,
-) {
-	if (!whiteboardId) return;
-	const board = await db.whiteboards.get(whiteboardId);
-	if (board)
-		await db.whiteboards.update(board.id, {
-			cardCount: Math.max(0, board.cardCount + cardDelta),
-			childWhiteboardCount: Math.max(
-				0,
-				board.childWhiteboardCount + childDelta,
-			),
-			updatedAt: Date.now(),
-			revision: board.revision + 1,
-		});
-}
-
 async function executeMutation(
 	db: ContextboardDatabase,
 	deviceId: string,
@@ -653,7 +580,7 @@ async function executeMutation(
 			const nextVersion = row.contentVersion + 1;
 			await db.cards.update(row.id, {
 				content,
-				...metadata(content),
+				...deriveCardMetadata(content),
 				contentVersion: nextVersion,
 				updatedAt: now,
 				revision: row.revision + 1,
@@ -662,85 +589,99 @@ async function executeMutation(
 			await reconcileReferences(db, deviceId, "card", row.id, content);
 			return nextVersion;
 		}
+		case "cards.create": {
+			const cardId = id() as CardId;
+			const content = args.content ?? DEFAULT_CARD_CONTENT;
+			const card: Card = {
+				id: cardId,
+				...base(deviceId, now),
+				...deriveCardMetadata(content),
+				content,
+				contentVersion: 1,
+				activePlacementCount: 0,
+				archivedAt: null,
+			};
+			await db.cards.add(card);
+			await reconcileReferences(db, deviceId, "card", cardId, content);
+			return cardId;
+		}
 		case "canvas.createCardItem": {
 			const whiteboardId = String(args.whiteboardId) as WhiteboardId;
 			const board = await db.whiteboards.get(whiteboardId);
 			if (!board || !active(board)) throw new Error("Whiteboard not found");
 			const cardId = id() as CardId;
 			const content = args.content ?? DEFAULT_CARD_CONTENT;
-			const card: Card = {
-				id: cardId,
-				...base(deviceId, now),
-				...metadata(content),
-				content,
-				contentVersion: 1,
-				activePlacementCount: 1,
-				archivedAt: null,
-			};
 			const itemId = id();
-			const item: BoardItem = {
-				id: itemId as BoardItem["id"],
-				...base(deviceId, now),
-				whiteboardId,
-				kind: "card",
-				cardId,
-				childWhiteboardId: null,
-				shapeId: String(args.shapeId),
-				x: Number(args.x ?? 0),
-				y: Number(args.y ?? 0),
-				w: Number(args.w ?? DEFAULT_CARD_WIDTH),
-				h: Number(args.h ?? 180),
-				rotation: Number(args.rotation ?? 0),
-				zIndex: now,
-				archivedAt: null,
-			};
-			await db.cards.add(card);
-			await db.boardItems.add(item);
-			await adjustCounts(db, whiteboardId, 1);
+			const plan = planCreateCardItem(
+				{
+					whiteboardId,
+					cardId,
+					itemId,
+					shapeId: String(args.shapeId),
+					content,
+					x: Number(args.x ?? 0),
+					y: Number(args.y ?? 0),
+					w: Number(args.w ?? DEFAULT_CARD_WIDTH),
+					h: Number(args.h ?? 180),
+					rotation: Number(args.rotation ?? 0),
+				},
+				{ now, deviceId },
+			);
+			for (const write of plan.writes) {
+				if (write.entity === "card")
+					await db.cards.add({
+						...(write.value as Card),
+						revision: 1,
+					});
+				else if (write.entity === "boardItem")
+					await db.boardItems.add({
+						...(write.value as BoardItem),
+						revision: 1,
+					});
+			}
 			await reconcileReferences(db, deviceId, "card", cardId, content);
-			return { itemId, cardId };
+			return plan.result;
 		}
 		case "canvas.createSubwhiteboardItem": {
 			const parentId = (args.parentWhiteboardId ?? null) as WhiteboardId | null;
 			const parent = parentId ? await db.whiteboards.get(parentId) : null;
 			const boardId = id() as WhiteboardId;
-			const sortKey = `${String(parent?.childWhiteboardCount ?? 0).padStart(10, "0")}-${now.toString(36)}`;
-			const board: Whiteboard = {
-				id: boardId,
-				...base(deviceId, now),
-				title: "Untitled whiteboard",
-				parentWhiteboardId: parentId,
-				ancestorIds: parent ? [...parent.ancestorIds, parent.id] : [],
-				depth: (parent?.depth ?? -1) + 1,
-				sortKey,
-				pathKey: parent ? `${parent.pathKey}/${sortKey}` : sortKey,
-				cardCount: 0,
-				childWhiteboardCount: 0,
-				archivedAt: null,
-			};
+			const activeChildCount = parentId
+				? (await db.whiteboards.toArray()).filter(
+						(board) =>
+							active(board) && board.parentWhiteboardId === parentId,
+					).length
+				: 0;
 			const itemId = id();
-			const item: BoardItem = {
-				id: itemId as BoardItem["id"],
-				...base(deviceId, now),
-				whiteboardId: parentId,
-				kind: "subwhiteboard",
-				cardId: null,
-				childWhiteboardId: boardId,
-				shapeId: String(args.shapeId),
-				x: Number(args.x ?? 0),
-				y: Number(args.y ?? 0),
-				w: Number(args.w ?? 320),
-				h: Number(args.h ?? 180),
-				rotation: Number(args.rotation ?? 0),
-				zIndex: now,
-				archivedAt: null,
-			};
+			const plan = planCreateSubwhiteboard(
+				{ parent: parent ?? null, activeChildCount },
+				{
+					boardId,
+					itemId,
+					shapeId: String(args.shapeId),
+					x: Number(args.x ?? 0),
+					y: Number(args.y ?? 0),
+					w: Number(args.w ?? 320),
+					h: Number(args.h ?? 180),
+					rotation: Number(args.rotation ?? 0),
+				},
+				{ now, deviceId },
+			);
 			await db.transaction("rw", db.whiteboards, db.boardItems, async () => {
-				await db.whiteboards.add(board);
-				await db.boardItems.add(item);
-				await adjustCounts(db, parentId, 0, 1);
+				for (const write of plan.writes) {
+					if (write.entity === "whiteboard")
+						await db.whiteboards.add({
+							...(write.value as Whiteboard),
+							revision: 1,
+						});
+					else if (write.entity === "boardItem")
+						await db.boardItems.add({
+							...(write.value as BoardItem),
+							revision: 1,
+						});
+				}
 			});
-			return { itemId, childWhiteboardId: boardId };
+			return plan.result;
 		}
 		case "canvas.updateItemFrame": {
 			const row = await db.boardItems.get(String(args.itemId));
@@ -855,24 +796,28 @@ async function executeMutation(
 		case "canvas.archiveItem": {
 			const row = await db.boardItems.get(String(args.itemId));
 			if (!row || !active(row)) return null;
-			await db.boardItems.update(row.id, {
-				archivedAt: now,
-				updatedAt: now,
-				revision: row.revision + 1,
-			});
-			if (row.cardId) {
-				const card = await db.cards.get(row.cardId);
-				if (card) {
-					const count = Math.max(0, card.activePlacementCount - 1);
-					await db.cards.update(card.id, {
-						activePlacementCount: count,
-						archivedAt: args.deleteCards && count === 0 ? now : card.archivedAt,
+			const card = row.cardId ? await db.cards.get(row.cardId) : null;
+			const plan = planArchiveItem(
+				{ item: row, card: card ?? null },
+				{ deleteCards: Boolean(args.deleteCards) },
+				{ now },
+			);
+			for (const write of plan.writes) {
+				if (write.entity === "boardItem")
+					await db.boardItems.update(write.id, {
+						...(write.value as Partial<BoardItem>),
 						updatedAt: now,
-						revision: card.revision + 1,
+						revision: (write.expectedRevision ?? 0) + 1,
+						updatedByDeviceId: deviceId,
 					});
-				}
-				await adjustCounts(db, row.whiteboardId, -1);
-			} else await adjustCounts(db, row.whiteboardId, 0, -1);
+				else if (write.entity === "card")
+					await db.cards.update(write.id, {
+						...(write.value as Partial<Card>),
+						updatedAt: now,
+						revision: (write.expectedRevision ?? 0) + 1,
+						updatedByDeviceId: deviceId,
+					});
+			}
 			return null;
 		}
 		case "cards.archiveCard":
@@ -886,27 +831,32 @@ async function executeMutation(
 				"rw",
 				db.cards,
 				db.boardItems,
-				db.whiteboards,
 				async () => {
+					const snapshots: ArchiveCardSnapshot[] = [];
 					for (const cardId of ids) {
 						const card = await db.cards.get(cardId);
 						if (!card) continue;
 						const placements = (
 							await db.boardItems.where("cardId").equals(cardId).toArray()
 						).filter(active);
-						for (const placement of placements) {
-							await db.boardItems.update(placement.id, {
-								archivedAt: now,
+						snapshots.push({ card, placements });
+					}
+					const plan = planArchiveCards(snapshots, { now });
+					for (const write of plan.writes) {
+						if (write.entity === "boardItem")
+							await db.boardItems.update(write.id, {
+								...(write.value as Partial<BoardItem>),
 								updatedAt: now,
+								revision: (write.expectedRevision ?? 0) + 1,
+								updatedByDeviceId: deviceId,
 							});
-							await adjustCounts(db, placement.whiteboardId, -1);
-						}
-						await db.cards.update(card.id, {
-							archivedAt: now,
-							activePlacementCount: 0,
-							updatedAt: now,
-							revision: card.revision + 1,
-						});
+						else if (write.entity === "card")
+							await db.cards.update(write.id, {
+								...(write.value as Partial<Card>),
+								updatedAt: now,
+								revision: (write.expectedRevision ?? 0) + 1,
+								updatedByDeviceId: deviceId,
+							});
 					}
 				},
 			);
@@ -932,45 +882,48 @@ async function executeMutation(
 				const existing = (
 					await db.boardItems.where("cardId").equals(cardId).toArray()
 				).find((row) => active(row) && row.whiteboardId === whiteboardId);
-				if (existing) {
-					results.push({
-						cardId,
-						itemId: existing.id,
-						shapeId: existing.shapeId,
-						whiteboardId,
-						created: false,
-					});
-					continue;
-				}
-				const card = await db.cards.get(cardId);
-				if (!card) continue;
 				const itemId = id();
 				const shapeId =
 					typeof args.shapeId === "string"
 						? args.shapeId
 						: `shape:card-${cardId}-${now}-${results.length}`;
-				await db.boardItems.add({
-					id: itemId as BoardItem["id"],
-					...base(deviceId, now),
+				const plan = planAppendCard(
+					{
+						card: existing ? null : ((await db.cards.get(cardId)) ?? null),
+						existingPlacement: existing ?? null,
+					},
+					{
+						whiteboardId,
+						itemId,
+						shapeId,
+						x: Number(args.x ?? 0),
+						y: Number(args.y ?? 0),
+						w: Number(args.w ?? DEFAULT_CARD_WIDTH),
+						h: Number(args.h ?? 180),
+						rotation: Number(args.rotation ?? 0),
+						zIndex: now + results.length,
+					},
+					{ now, deviceId },
+				);
+				for (const write of plan.writes) {
+					if (write.entity === "boardItem")
+						await db.boardItems.add({
+							...(write.value as BoardItem),
+							revision: 1,
+						});
+					else if (write.entity === "card")
+						await db.cards.update(write.id, {
+							...(write.value as Partial<Card>),
+							updatedAt: now,
+							revision: (write.expectedRevision ?? 0) + 1,
+							updatedByDeviceId: deviceId,
+						});
+				}
+				if (plan.result) results.push({
+					...plan.result,
+					cardId,
 					whiteboardId,
-					kind: "card",
-					cardId: card.id,
-					childWhiteboardId: null,
-					shapeId,
-					x: Number(args.x ?? 0),
-					y: Number(args.y ?? 0),
-					w: Number(args.w ?? DEFAULT_CARD_WIDTH),
-					h: Number(args.h ?? 180),
-					rotation: Number(args.rotation ?? 0),
-					zIndex: now + results.length,
-					archivedAt: null,
 				});
-				await db.cards.update(card.id, {
-					activePlacementCount: card.activePlacementCount + 1,
-					updatedAt: now,
-				});
-				await adjustCounts(db, whiteboardId, 1);
-				results.push({ cardId, itemId, shapeId, whiteboardId, created: true });
 			}
 			return single ? results[0] : { whiteboardId, placements: results };
 		}
@@ -988,72 +941,74 @@ async function executeMutation(
 				.where("[whiteboardId+shapeId]")
 				.equals([whiteboardId, shapeId])
 				.first();
-			if (existing) {
-				if (active(existing)) return existing.id;
-				if (existing.kind !== "card" || !existing.cardId) return null;
-				const card = await db.cards.get(existing.cardId);
-				if (!card) throw new Error("Card not found");
-				await db.boardItems.update(existing.id, {
-					archivedAt: null,
-					updatedAt: now,
-					revision: existing.revision + 1,
-					updatedByDeviceId: deviceId,
-				});
-				await db.cards.update(card.id, {
-					archivedAt: null,
-					activePlacementCount: card.activePlacementCount + 1,
-					updatedAt: now,
-					revision: card.revision + 1,
-					updatedByDeviceId: deviceId,
-				});
-				await adjustCounts(db, whiteboardId, 1);
-				return existing.id;
-			}
-
 			const source =
 				typeof args.sourceCardId === "string"
 					? await db.cards.get(args.sourceCardId)
 					: null;
-			if (source && active(source)) {
-				const itemId = id();
-				await db.boardItems.add({
-					id: itemId as BoardItem["id"],
-					...base(deviceId, now),
+			const itemId = id();
+			const cardId = id();
+			const content = parseClipboardCardContent(args.content);
+			const plan = planRestoreOrAdoptCardItem(
+				{
+					existingPlacement: existing ?? null,
+					existingCard:
+						existing?.cardId
+							? ((await db.cards.get(existing.cardId)) ?? null)
+							: null,
+					sourceCard: source ?? null,
+				},
+				{
 					whiteboardId,
-					kind: "card",
-					cardId: source.id,
-					childWhiteboardId: null,
+					cardId,
+					itemId,
 					shapeId,
+					content,
 					x: Number(args.x ?? 0),
 					y: Number(args.y ?? 0),
 					w: Number(args.w ?? DEFAULT_CARD_WIDTH),
 					h: Number(args.h ?? 180),
 					rotation: Number(args.rotation ?? 0),
-					zIndex: now,
-					archivedAt: null,
-				});
-				await db.cards.update(source.id, {
-					activePlacementCount: source.activePlacementCount + 1,
-					updatedAt: now,
-					revision: source.revision + 1,
-					updatedByDeviceId: deviceId,
-				});
-				await adjustCounts(db, whiteboardId, 1);
-				return itemId;
-			}
-
-			const adopted = await executeMutation(
-				db,
-				deviceId,
-				"canvas.createCardItem",
-				{
-					...args,
-					whiteboardId,
-					shapeId,
-					content: parseClipboardCardContent(args.content),
 				},
+				{ now, deviceId },
 			);
-			return adopted.itemId;
+			for (const write of plan.writes) {
+				if (write.entity === "boardItem") {
+					if (write.expectedRevision === undefined)
+						await db.boardItems.add({
+							...(write.value as BoardItem),
+							revision: 1,
+						});
+					else
+						await db.boardItems.update(write.id, {
+							...(write.value as Partial<BoardItem>),
+							updatedAt: now,
+							revision: write.expectedRevision + 1,
+							updatedByDeviceId: deviceId,
+						});
+				} else if (write.entity === "card") {
+					if (write.expectedRevision === undefined)
+						await db.cards.add({
+							...(write.value as Card),
+							revision: 1,
+						});
+					else
+						await db.cards.update(write.id, {
+							...(write.value as Partial<Card>),
+							updatedAt: now,
+							revision: write.expectedRevision + 1,
+							updatedByDeviceId: deviceId,
+						});
+				}
+			}
+			if (plan.result.adoptedCardId)
+				await reconcileReferences(
+					db,
+					deviceId,
+					"card",
+					plan.result.adoptedCardId,
+					content,
+				);
+			return plan.result.itemId;
 		}
 		case "tldrawDocuments.save": {
 			const whiteboardId = (args.whiteboardId ?? null) as WhiteboardId | null;
@@ -1311,6 +1266,14 @@ function syncValue(entityType: SyncEntityType, row: TrackableRow) {
 	if (entityType === "file") {
 		const { blob: _blob, sha256, ...rest } = row;
 		return { ...rest, hash: sha256 };
+	}
+	if (entityType === "whiteboard") {
+		const {
+			cardCount: _cardCount,
+			childWhiteboardCount: _childWhiteboardCount,
+			...rest
+		} = row;
+		return rest;
 	}
 	return row;
 }

@@ -1,6 +1,9 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
-import { usePaginatedQuery } from "#/integrations/local/react";
+import {
+	useMutation,
+	usePaginatedQuery,
+} from "#/integrations/local/react";
 import { useMemo, useRef, useState } from "react";
 import { DeleteCardDialog } from "#/components/cards/DeleteCardDialog";
 import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
@@ -46,6 +49,7 @@ export function RouteComponent() {
 	const [debouncedQuery] = useDebouncedValue(query, { wait: 150 });
 	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
 	const [orphanOnly, setOrphanOnly] = useState(initialOrphan);
+	const [isCreatingCard, setIsCreatingCard] = useState(false);
 	const deleteDialogOpenRef = useRef(false);
 	const trimmedQuery = debouncedQuery.trim();
 	const hasSearchQuery = trimmedQuery.length > 0;
@@ -88,6 +92,7 @@ export function RouteComponent() {
 		setPreviewCardId,
 		navigate,
 	});
+	const createCardMutation = useMutation(api.cards.create);
 	deleteDialogOpenRef.current = actions.deleteTargetIds.length > 0;
 
 	const toggleOrphanOnly = () => {
@@ -132,6 +137,17 @@ export function RouteComponent() {
 		}
 	};
 
+	const createCard = async () => {
+		if (isCreatingCard) return;
+		setIsCreatingCard(true);
+		try {
+			const cardId = await createCardMutation();
+			await navigate({ to: "/cards/$cardId", params: { cardId } });
+		} finally {
+			setIsCreatingCard(false);
+		}
+	};
+
 	return (
 		<div
 			ref={selection.selectionSurfaceRef}
@@ -167,6 +183,8 @@ export function RouteComponent() {
 						actions.openDeleteDialog([...selection.selectedCardIds])
 					}
 					onClearSelection={selection.clearSelection}
+					onCreateCard={() => void createCard()}
+					isCreatingCard={isCreatingCard}
 				/>
 
 				{actions.appendError ? (

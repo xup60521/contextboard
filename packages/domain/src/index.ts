@@ -29,8 +29,6 @@ export type Whiteboard = EntityBase<WhiteboardId> & {
 	depth: number;
 	sortKey: string;
 	pathKey: string;
-	cardCount: number;
-	childWhiteboardCount: number;
 	archivedAt: number | null;
 };
 
@@ -121,14 +119,6 @@ export type BlobDescriptor = {
 
 export function createId<T extends string>(): T {
 	return crypto.randomUUID() as T;
-}
-
-export function assertNonNegativeCounts(
-	value: Pick<Whiteboard, "cardCount" | "childWhiteboardCount">,
-): void {
-	if (value.cardCount < 0 || value.childWhiteboardCount < 0) {
-		throw new Error("Whiteboard counters cannot be negative");
-	}
 }
 
 export function hasHierarchyCycle(

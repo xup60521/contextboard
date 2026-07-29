@@ -3,6 +3,7 @@ import { useCallback, useContext, useMemo } from "react";
 import { useOptionalSyncActions } from "../sync/provider";
 import { localMutation, localQuery } from "./operations";
 import { LocalDatabaseContext } from "./provider";
+import { notifyLocalDatabaseChange } from "./subscriptions";
 
 type Reference = string;
 type Arguments = Record<string, unknown> | "skip" | undefined;
@@ -52,6 +53,7 @@ export function useMutation(
 				args,
 			);
 			syncActions?.notifyLocalChange();
+			notifyLocalDatabaseChange(state.database);
 			return result;
 		},
 		[reference, state, syncActions],
