@@ -1,3 +1,4 @@
+import { AppShell as SharedAppShell } from "@contextboard/ui";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import type { QueryClient } from "@tanstack/react-query";
 import {
@@ -62,16 +63,16 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 							</SidebarTabsProvider>
 							<CommandPalette />
 							<TanStackDevtools
-							config={{
-								position: "bottom-right",
-							}}
-							plugins={[
-								{
-									name: "Tanstack Router",
-									render: <TanStackRouterDevtoolsPanel />,
-								},
-								TanStackQueryDevtools,
-							]}
+								config={{
+									position: "bottom-right",
+								}}
+								plugins={[
+									{
+										name: "Tanstack Router",
+										render: <TanStackRouterDevtoolsPanel />,
+									},
+									TanStackQueryDevtools,
+								]}
 							/>
 						</SidebarProvider>
 					</SyncProvider>
@@ -83,15 +84,5 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 }
 
 function AppShell({ children }: { children: React.ReactNode }) {
-	return (
-		<div className="flex h-dvh overflow-hidden bg-[var(--background)]">
-			<AppSidebar />
-			<div
-				className="min-w-0 flex-1 overflow-y-auto"
-				data-app-scroll-host="true"
-			>
-				{children}
-			</div>
-		</div>
-	);
+	return <SharedAppShell sidebar={<AppSidebar />}>{children}</SharedAppShell>;
 }

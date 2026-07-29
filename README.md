@@ -26,12 +26,20 @@ Auth secrets, then start both services:
 
 ```powershell
 Copy-Item .env.example .env.local
-bun dev
+bun run dev
 ```
 
-The Web app listens on `http://localhost:3000`; the sync service listens on
-`http://127.0.0.1:8788`. To run only one side, use `bun dev:web` or
-`bun dev:sync`.
+`bun run dev` starts the complete local stack: the Web app on
+`http://localhost:3000`, the Windows desktop app, and the sync service on
+`http://127.0.0.1:8789`.
+
+Use a narrower stack when needed:
+
+```powershell
+bun run dev:web      # Web + sync service
+bun run dev:desktop  # Desktop + sync service
+bun run dev:sync     # Sync service only
+```
 
 Useful commands:
 
@@ -40,6 +48,32 @@ bun run build
 bun run test
 bun run generate-routes
 bun run --filter @contextboard/web preview
+```
+
+## Windows desktop shell
+
+The Phase 7 desktop shell uses Tauri 2, React, and the shared
+`packages/ui` application chrome. Install the Windows Tauri prerequisites
+(Rust stable MSVC, Visual C++ Build Tools, a current Windows SDK, and
+WebView2), then start the full local stack with:
+
+```powershell
+bun run dev
+```
+
+Turbo starts the Web app, sync service, and Tauri in parallel. Tauri then
+starts and owns the desktop Vite server on `http://localhost:1420`; it also
+stops that server when the native app exits. Use `bun run dev:desktop` when
+you only need Desktop + sync.
+
+The shell currently exposes only semantic Tauri commands and reports desktop
+storage as unavailable. SQLite persistence, desktop authentication, and
+background synchronization are intentionally reserved for later Phase 7
+slices. Build and test the current native boundary with:
+
+```powershell
+bun run test:desktop
+bun run build:desktop
 ```
 
 ## Local data and backups
