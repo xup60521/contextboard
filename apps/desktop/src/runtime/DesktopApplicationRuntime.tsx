@@ -9,6 +9,7 @@ import {
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";
 import { useDesktopRuntime } from "./DesktopRuntimeProvider";
+import { createDesktopFileRuntime } from "./desktopFileRuntime";
 
 /**
  * Desktop composition root. It injects the SQLite-backed repository and a
@@ -32,6 +33,7 @@ export function DesktopApplicationRuntime({
 			cards: createRepositoryCardsService(desktop.repository),
 			whiteboards: createRepositoryWhiteboardsService(desktop.repository),
 			canvas: createRepositoryCanvasService(desktop.repository),
+			files: createDesktopFileRuntime(desktop.repository),
 			navigation: {
 				cardsHref: () => "/cards",
 				cardHref: (cardId) => `/cards/${encodeURIComponent(cardId)}`,

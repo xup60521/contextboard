@@ -32,3 +32,50 @@ export {
 	useSidebarContext,
 } from "./components/whiteboard/SidebarContext.tsx";
 export { SidebarOpenButton } from "./components/navigation/SidebarOpenButton.tsx";
+export { AppSidebar } from "./components/sidebar/AppSidebar.tsx";
+export type {
+	AccountSummary,
+	SidebarFooterRuntime,
+} from "./components/sidebar/AppSidebar.tsx";
+export {
+	SidebarTabsContext,
+	SidebarTabsProvider,
+	useSidebarTabs,
+} from "./components/sidebar/SidebarTabsContext.tsx";
+export type {
+	SidebarRouteState,
+	SidebarTabsContextValue,
+} from "./components/sidebar/SidebarTabsContext.tsx";
+export { SidebarTabs } from "./components/sidebar/SidebarTabs.tsx";
+export { SidebarTabRow } from "./components/sidebar/SidebarTabRow.tsx";
+export { ClearOpenTabsDialog } from "./components/sidebar/ClearOpenTabsDialog.tsx";
+export * from "./components/sidebar/sidebar-tabs.ts";
+export {
+	useCardLibrarySelection,
+} from "./components/cards/useCardLibrarySelection.ts";
+export type { SelectionRect } from "./components/cards/useCardLibrarySelection.ts";
+export { DeleteCardDialog } from "./components/cards/DeleteCardDialog.tsx";
+export { CardGrid } from "./components/cards/CardGrid.tsx";
+export { CardLibraryToolbar } from "./components/cards/CardLibraryToolbar.tsx";
+export { useCardLibraryActions } from "./components/cards/useCardLibraryActions.ts";
+export { CardPreviewDialog } from "./components/cards/CardPreviewDialog.tsx";
+export { CardLibraryPage } from "./components/cards/CardLibraryPage.tsx";
+export type {
+	CardLibrarySearchAdapter,
+	CardLibrarySearchState,
+} from "./components/cards/CardLibraryPage.tsx";
+export {
+	CardInfoSection,
+	groupPlacementsByWhiteboard,
+} from "./components/cards/CardInfoSection.tsx";
+export { useDebouncedCardSave } from "./components/cards/useDebouncedCardSave.ts";
+export { useResolvedCardContent } from "./components/cards/useResolvedCardContent.ts";
+export { CardDocumentEditor } from "./components/cards/CardDocumentEditor.tsx";
+export type { CardDocumentEditorProps } from "./components/cards/CardDocumentEditor.tsx";
+export { CardDetailDocumentSurface } from "./components/cards/CardDetailDocumentSurface.tsx";
+export { CardDetailPage } from "./components/cards/CardDetailPage.tsx";
+export type {
+	Placement,
+	PlacementGroup,
+} from "./components/cards/CardInfoSection.tsx";
+export { WhiteboardPickerDialog } from "./components/whiteboard/WhiteboardPickerDialog.tsx";

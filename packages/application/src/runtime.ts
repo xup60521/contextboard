@@ -301,4 +301,8 @@ export interface ApplicationRuntime {
 	files?: FileRuntime;
 	navigation: NavigationRuntime;
 	sync?: SyncRuntime;
+	ui?: {
+		onCardContentDirtyChange?: (cardId: string, dirty: boolean) => void;
+		resolveScrollHost?: () => HTMLElement | null;
+	};
 }
