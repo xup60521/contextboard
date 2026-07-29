@@ -10,6 +10,10 @@ import {
 } from "@tanstack/react-router";
 import { DesktopCardLibraryRoute } from "./routes/DesktopCardLibraryRoute";
 import { DesktopRootLayout } from "./routes/DesktopRootLayout";
+import {
+	DesktopRootWhiteboardRoute,
+	DesktopWhiteboardRoute,
+} from "./routes/DesktopWhiteboardRoute";
 
 const sortOrders: CardSortOrder[] = [
 	"title",
@@ -67,10 +71,33 @@ const cardDetailRoute = createRoute({
 	},
 });
 
+const whiteboardSearch = (search: Record<string, unknown>) => ({
+	focus: typeof search.focus === "string" ? search.focus : undefined,
+});
+
+const rootWhiteboardRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/whiteboard",
+	validateSearch: whiteboardSearch,
+	component: DesktopRootWhiteboardRoute,
+});
+
+const whiteboardRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/whiteboard/$whiteboardId",
+	validateSearch: whiteboardSearch,
+	component: function DesktopWhiteboardIdRoute() {
+		const { whiteboardId } = whiteboardRoute.useParams();
+		return <DesktopWhiteboardRoute whiteboardId={whiteboardId} />;
+	},
+});
+
 const routeTree = rootRoute.addChildren([
 	indexRoute,
 	cardsRoute,
 	cardDetailRoute,
+	rootWhiteboardRoute,
+	whiteboardRoute,
 ]);
 
 /**
