@@ -18,6 +18,7 @@ import {
 	type ImageUploadHandler,
 } from "./ImageUploadExtension";
 import { MarkdownPaste } from "./MarkdownPasteExtension";
+import { ProgressiveSelectAll } from "./ProgressiveSelectAllExtension";
 import type {
 	MathSelection,
 	RichTextRuntimeRefs,
@@ -235,6 +236,7 @@ export function createRichTextExtensions(options: RichTextExtensionOptions) {
 		}),
 		MarkdownPaste,
 		ImageInput,
+		ProgressiveSelectAll,
 		Placeholder.configure({
 			placeholder: placeholder ?? "Type '/' for commands",
 			showOnlyWhenEditable: true,
