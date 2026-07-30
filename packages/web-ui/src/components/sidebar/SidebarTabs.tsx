@@ -180,7 +180,11 @@ export function SidebarTabs() {
 					</button>
 
 					<a
-						href={runtime.navigation.cardsHref()}
+						href={
+							runtime.navigation.hrefAttribute?.(
+								runtime.navigation.cardsHref(),
+							) ?? runtime.navigation.cardsHref()
+						}
 						onClick={(event) => {
 							event.preventDefault();
 							runtime.navigation.navigate(runtime.navigation.cardsHref());

@@ -17,6 +17,16 @@ import { DesktopApp } from "./DesktopApp";
 import { createDesktopRouter } from "./router";
 import { createDesktopRepository, type Invoke } from "./runtime/repository";
 
+vi.mock("@contextboard/web-ui", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@contextboard/web-ui")>()),
+	WhiteboardCanvas: ({ whiteboardId }: { whiteboardId: string | null }) => (
+		<div
+			data-testid="whiteboard-canvas"
+			data-whiteboard-id={whiteboardId === null ? "root" : whiteboardId}
+		/>
+	),
+}));
+
 vi.mock("@contextboard/editor", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@contextboard/editor")>()),
 	RichTextEditor: ({
@@ -289,6 +299,24 @@ describe("Desktop application shell", () => {
 		cleanup();
 		mount(native.invoke, `/cards/${cardId}`);
 		expect(await screen.findByLabelText("Card content")).toBeTruthy();
+	});
+
+	test("opens the root board as the null whiteboard, not a board entity", async () => {
+		// The root board holds only subwhiteboard links; the shared canvas gates
+		// card creation on a non-null whiteboardId. Materialising a real root
+		// board here would silently let cards be added to it.
+		const native = createNativeStub();
+		mount(native.invoke, "/whiteboard");
+		const canvas = await screen.findByTestId("whiteboard-canvas");
+		expect(canvas.getAttribute("data-whiteboard-id")).toBe("root");
+		expect(native.store.get("whiteboard")?.size ?? 0).toBe(0);
+	});
+
+	test("opens a specific board by id", async () => {
+		const native = createNativeStub();
+		mount(native.invoke, "/whiteboard/board-7");
+		const canvas = await screen.findByTestId("whiteboard-canvas");
+		expect(canvas.getAttribute("data-whiteboard-id")).toBe("board-7");
 	});
 
 	test("rejects domain operations outside the native allowlist", async () => {

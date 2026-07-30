@@ -46,6 +46,10 @@ export function DesktopApplicationRuntime({
 					}`,
 				navigate: (href) => router.history.push(href),
 				replace: (href) => router.history.replace(href),
+				// Desktop runs on hash history: a bare `/whiteboard` href would
+				// leave the SPA and reload at `/`, which redirects to the card
+				// library.
+				hrefAttribute: (href) => `#${href}`,
 			},
 			sync,
 		};

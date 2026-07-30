@@ -1,12 +1,11 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/core";
-import { useMutation, useQuery } from "#/integrations/local/react";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "#/integrations/local/api";
+import { useMutation, useQuery } from "#/integrations/local/react";
 import type { Id } from "#/integrations/local/types";
-import { CardInfoSection } from "./CardInfoSection";
-import { CardDetailDocumentSurface } from "./CardDetailDocumentSurface";
+import { CARD_EDITOR_MAX_WIDTH } from "#/lib/constants";
 import { SidebarOpenButton } from "../navigation/SidebarOpenButton";
 import { Button } from "../ui/button";
 import {
@@ -24,7 +23,8 @@ import {
 	DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { WhiteboardPickerDialog } from "../whiteboard/WhiteboardPickerDialog";
-import { CARD_EDITOR_MAX_WIDTH } from "#/lib/constants";
+import { CardDetailDocumentSurface } from "./CardDetailDocumentSurface";
+import { CardInfoSection } from "./CardInfoSection";
 
 type CardDetailPageProps = {
 	cardId: Id<"cards">;

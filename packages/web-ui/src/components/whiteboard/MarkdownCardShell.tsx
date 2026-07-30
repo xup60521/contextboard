@@ -36,9 +36,11 @@ export function MarkdownCardOpenLink({
 	ariaLabel?: string;
 	className?: string;
 }) {
+	const link = useWhiteboardNavigation().linkProps(href);
+
 	return (
 		<a
-			href={href}
+			href={link.href}
 			draggable={false}
 			onPointerDown={(e) => {
 				stopEventPropagation(e);
@@ -51,6 +53,7 @@ export function MarkdownCardOpenLink({
 			onClick={(e) => {
 				stopEventPropagation(e);
 				e.stopPropagation();
+				link.onClick(e);
 			}}
 			className={className}
 			style={{ pointerEvents: "auto" }}

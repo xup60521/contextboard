@@ -25,7 +25,7 @@ export function CardEditorPane({
 	content,
 	whiteboardId,
 	className = "notion-editor seamless",
-	contentClassName = "min-h-[60vh] bg-[var(--bg-base)]",
+	contentClassName = "min-h-[60vh]",
 	onEditorReady,
 }: CardEditorPaneProps) {
 	const { support, previewCardId, closePreview } =

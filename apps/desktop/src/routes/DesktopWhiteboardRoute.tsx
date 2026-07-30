@@ -1,7 +1,5 @@
-import { useApplicationRuntime } from "@contextboard/application";
 import { WhiteboardCanvas } from "@contextboard/web-ui";
 import { useSearch } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 
 function useFocusShapeId() {
 	const search = useSearch({ strict: false }) as { focus?: string };
@@ -24,33 +22,14 @@ export function DesktopWhiteboardRoute({
 }
 
 /**
- * `/whiteboard` — the root board. Desktop has no server-side bootstrap, so the
- * first visit creates the root board before handing over to the shared canvas.
+ * `/whiteboard` — the root board.
+ *
+ * The root board is the `null` whiteboard, not a whiteboard entity: it holds
+ * only the top-level subwhiteboard links, and the canvas refuses to create
+ * cards on it. Materialising a real board here would silently turn the root
+ * into an ordinary whiteboard that accepts cards.
  */
 export function DesktopRootWhiteboardRoute() {
-	const { whiteboards } = useApplicationRuntime();
 	const focusShapeId = useFocusShapeId();
-	const [rootId, setRootId] = useState<string | null | undefined>();
-
-	useEffect(() => {
-		if (!whiteboards) return;
-		let active = true;
-		const load = async () => {
-			const boards = await whiteboards.list();
-			const existing = boards
-				.filter((board) => board.parentWhiteboardId === null)
-				.sort((a, b) => a.createdAt - b.createdAt)[0];
-			if (!active) return;
-			setRootId(existing ? existing.id : await whiteboards.createRoot());
-		};
-		void load();
-		return () => {
-			active = false;
-		};
-	}, [whiteboards]);
-
-	if (rootId === undefined) return null;
-	return (
-		<WhiteboardCanvas whiteboardId={rootId} focusShapeId={focusShapeId} />
-	);
+	return <WhiteboardCanvas whiteboardId={null} focusShapeId={focusShapeId} />;
 }

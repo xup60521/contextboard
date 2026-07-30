@@ -297,6 +297,13 @@ export interface NavigationRuntime {
 
 	navigate(href: string): void;
 	replace(href: string): void;
+
+	/**
+	 * Maps a router href onto the value an `<a href>` needs. Platforms on hash
+	 * history must prefix `#`, otherwise a real click leaves the SPA and the
+	 * router reloads at `/`. Defaults to the href unchanged.
+	 */
+	hrefAttribute?(href: string): string;
 }
 
 export type SyncRuntimeState =
