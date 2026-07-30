@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { createSyncApp } from "./app";
-import { createServerAuth, dataRoot } from "./configuration";
+import { createServerAuth, dataRoot, desktopOrigins } from "./configuration";
 import { SyncStore } from "./store";
 
 const store = new SyncStore(
@@ -9,7 +9,9 @@ const store = new SyncStore(
 );
 const auth = createServerAuth();
 const port = Number(process.env.PORT ?? 8788);
-const app = createSyncApp(store, auth);
+const app = createSyncApp(store, auth, {
+	crossOriginAllowlist: desktopOrigins(),
+});
 
 Bun.serve({
 	hostname: process.env.HOST ?? "127.0.0.1",

@@ -5,6 +5,7 @@ import {
 	DesktopRuntimeProvider,
 	type DesktopRuntimeProviderProps,
 } from "./runtime/DesktopRuntimeProvider";
+import { DesktopSyncProvider } from "./runtime/DesktopSyncProvider";
 
 export type DesktopAppProps = {
 	invoke?: DesktopRuntimeProviderProps["invoke"];
@@ -15,7 +16,9 @@ export function DesktopApp({ invoke, router }: DesktopAppProps = {}) {
 	const [instance] = useState(() => router ?? createDesktopRouter());
 	return (
 		<DesktopRuntimeProvider invoke={invoke}>
-			<RouterProvider router={instance} />
+			<DesktopSyncProvider invoke={invoke}>
+				<RouterProvider router={instance} />
+			</DesktopSyncProvider>
 		</DesktopRuntimeProvider>
 	);
 }

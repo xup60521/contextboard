@@ -1,4 +1,3 @@
-import { syncVersionHeaders } from "@contextboard/sync-protocol";
 import type {
 	BlobDescriptor,
 	ChangeBatch,
@@ -14,6 +13,7 @@ import type {
 	SyncStatus,
 	SyncTransport,
 } from "@contextboard/sync-protocol";
+import { syncVersionHeaders } from "@contextboard/sync-protocol";
 
 export type DomainQuery<T> = {
 	type: string;
@@ -57,20 +57,58 @@ export class HttpSyncError extends Error {
 	}
 }
 
+export type HttpSyncTransportOptions = {
+	/** Absolute origin of the sync server. Same-origin clients omit it. */
+	baseURL?: string;
+	/**
+	 * Extra headers resolved per request. Clients without a cookie jar (the
+	 * desktop shell) return an `authorization` header here.
+	 */
+	getAuthHeaders?: () =>
+		| Promise<HeadersInit | undefined>
+		| HeadersInit
+		| undefined;
+	/**
+	 * Cookie mode. Same-origin clients keep the default `include` to send the
+	 * session cookie. Cross-origin bearer clients must pass `omit`: the server
+	 * does not send `Access-Control-Allow-Credentials`, so a credentialed
+	 * request would have its response blocked by the browser before any code
+	 * sees it, which surfaces only as an opaque network failure.
+	 */
+	credentials?: RequestCredentials;
+};
+
 export class HttpSyncTransport implements SyncTransport {
-	constructor(private readonly baseURL = "") {}
+	readonly #baseURL: string;
+	readonly #getAuthHeaders: HttpSyncTransportOptions["getAuthHeaders"];
+	readonly #credentials: RequestCredentials;
+
+	constructor(options: string | HttpSyncTransportOptions = "") {
+		const resolved =
+			typeof options === "string" ? { baseURL: options } : options;
+		this.#baseURL = resolved.baseURL ?? "";
+		this.#getAuthHeaders = resolved.getAuthHeaders;
+		this.#credentials = resolved.credentials ?? "include";
+	}
+
+	async #headers(extra?: HeadersInit): Promise<Record<string, string>> {
+		const auth = (await this.#getAuthHeaders?.()) ?? {};
+		return {
+			...syncVersionHeaders(),
+			...Object.fromEntries(new Headers(auth).entries()),
+			...Object.fromEntries(new Headers(extra).entries()),
+		};
+	}
+
 	private async request<T>(
 		path: string,
 		init: RequestInit,
 		signal?: AbortSignal,
 	): Promise<T> {
-		const response = await fetch(`${this.baseURL}${path}`, {
-			credentials: "include",
+		const response = await fetch(`${this.#baseURL}${path}`, {
+			credentials: this.#credentials,
 			...init,
-			headers: {
-				...syncVersionHeaders(),
-				...Object.fromEntries(new Headers(init.headers).entries()),
-			},
+			headers: await this.#headers(init.headers),
 			signal,
 		});
 		if (!response.ok) {
@@ -151,13 +189,12 @@ export class HttpSyncTransport implements SyncTransport {
 		signal?: AbortSignal,
 	) {
 		const response = await fetch(
-			`${this.baseURL}/api/sync/v1/blobs/${descriptor.hash}`,
+			`${this.#baseURL}/api/sync/v1/blobs/${descriptor.hash}`,
 			{
-				credentials: "include",
-				headers: {
-					...syncVersionHeaders(),
+				credentials: this.#credentials,
+				headers: await this.#headers({
 					"x-contextboard-workspace": workspaceId,
-				},
+				}),
 				signal,
 			},
 		);
@@ -297,10 +334,7 @@ export class SyncCoordinator {
 			throw error;
 		}
 	}
-	async #downloadMissingBlobs(
-		batches: ChangeBatch[],
-		signal: AbortSignal,
-	) {
+	async #downloadMissingBlobs(batches: ChangeBatch[], signal: AbortSignal) {
 		if (
 			!this.transport.downloadBlob ||
 			!this.repository.getLocalBlob ||

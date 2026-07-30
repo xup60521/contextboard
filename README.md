@@ -66,10 +66,42 @@ starts and owns the desktop Vite server on `http://localhost:1420`; it also
 stops that server when the native app exits. Use `bun run dev:desktop` when
 you only need Desktop + sync.
 
-The shell currently exposes only semantic Tauri commands and reports desktop
-storage as unavailable. SQLite persistence, desktop authentication, and
-background synchronization are intentionally reserved for later Phase 7
-slices. Build and test the current native boundary with:
+The shell exposes only semantic Tauri commands: the renderer can issue domain
+operations, never SQL or filesystem paths. Workspace data lives in SQLite plus
+content-addressed blobs under the Tauri app data directory.
+
+### Desktop sync
+
+Desktop signs in through the browser rather than an embedded webview. Choosing
+"Sign in with GitHub" opens the system browser at the Web app's `/desktop-auth`
+page; after sign-in that page hands a one-time token back to a temporary
+`127.0.0.1` listener, and the app exchanges it for a Better Auth bearer token
+stored in Windows Credential Manager. Sync then runs the same push/pull/blob
+coordinator the Web client uses, against the SQLite repository.
+
+Both `/api/auth` and `/api/sync` are served by the sync service, not the Web
+app; the Web origin is the public edge that proxies to it (`SYNC_VPS_URL` or the
+VPC binding in `apps/web/wrangler.jsonc`). The desktop therefore points at the
+Web origin, and CORS and trusted origins are configured on the sync service.
+Because GitHub's OAuth callback resolves against `BETTER_AUTH_URL`, the Web app
+must be running for desktop sign-in: use `bun run dev`, not `bun run dev:desktop`.
+
+A device with no local data joins the workspace already on the account; a device
+that already holds data claims its own. Desktop does not use checkpoints: it
+replays the change log from its persisted cursor.
+
+Three settings must line up for this to work:
+
+- `VITE_CONTEXTBOARD_SYNC_URL` — public origin the desktop signs in and syncs
+  against (the Cloudflare Worker origin in production, not the private VPS).
+- `CONTEXTBOARD_DESKTOP_ORIGINS` and `BETTER_AUTH_TRUSTED_ORIGINS` — must include
+  the Tauri origins (`tauri://localhost`, `http://tauri.localhost`, and
+  `http://localhost:1420` in development).
+- `app.security.csp` in `apps/desktop/src-tauri/tauri.conf.json` — `connect-src`
+  lists the sync origin explicitly. Add the production origin there before
+  shipping a build.
+
+Build and test the native boundary with:
 
 ```powershell
 bun run test:desktop

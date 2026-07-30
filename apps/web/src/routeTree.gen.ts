@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as CardsRouteRouteImport } from './routes/cards/route'
 import { Route as DataRouteImport } from './routes/data'
+import { Route as DesktopAuthRouteImport } from './routes/desktop-auth'
 import { Route as WhiteboardRouteRouteImport } from './routes/whiteboard/route'
 import { Route as CardsIndexRouteImport } from './routes/cards/index'
 import { Route as CardsCardIdRouteImport } from './routes/cards/$cardId'
@@ -39,6 +40,11 @@ const CardsRouteRoute = CardsRouteRouteImport.update({
 const DataRoute = DataRouteImport.update({
   id: '/data',
   path: '/data',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DesktopAuthRoute = DesktopAuthRouteImport.update({
+  id: '/desktop-auth',
+  path: '/desktop-auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WhiteboardRouteRoute = WhiteboardRouteRouteImport.update({
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/data': typeof DataRoute
+  '/desktop-auth': typeof DesktopAuthRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/data': typeof DataRoute
+  '/desktop-auth': typeof DesktopAuthRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/data': typeof DataRoute
+  '/desktop-auth': typeof DesktopAuthRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
@@ -123,6 +132,7 @@ export interface FileRouteTypes {
     | '/whiteboard'
     | '/about'
     | '/data'
+    | '/desktop-auth'
     | '/cards/$cardId'
     | '/cards/orphans'
     | '/demo/tanstack-query'
@@ -134,6 +144,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/data'
+    | '/desktop-auth'
     | '/cards/$cardId'
     | '/cards/orphans'
     | '/demo/tanstack-query'
@@ -147,6 +158,7 @@ export interface FileRouteTypes {
     | '/whiteboard'
     | '/about'
     | '/data'
+    | '/desktop-auth'
     | '/cards/$cardId'
     | '/cards/orphans'
     | '/demo/tanstack-query'
@@ -161,6 +173,7 @@ export interface RootRouteChildren {
   WhiteboardRouteRoute: typeof WhiteboardRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   DataRoute: typeof DataRoute
+  DesktopAuthRoute: typeof DesktopAuthRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
 }
 
@@ -192,6 +205,13 @@ declare module '@tanstack/react-router' {
       path: '/data'
       fullPath: '/data'
       preLoaderRoute: typeof DataRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/desktop-auth': {
+      id: '/desktop-auth'
+      path: '/desktop-auth'
+      fullPath: '/desktop-auth'
+      preLoaderRoute: typeof DesktopAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/whiteboard': {
@@ -282,6 +302,7 @@ const rootRouteChildren: RootRouteChildren = {
   WhiteboardRouteRoute: WhiteboardRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   DataRoute: DataRoute,
+  DesktopAuthRoute: DesktopAuthRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
 }
 export const routeTree = rootRouteImport

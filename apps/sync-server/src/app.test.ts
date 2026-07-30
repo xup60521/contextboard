@@ -35,6 +35,57 @@ describe("Hono sync app", () => {
 		store.close();
 	});
 
+	test("allows only allowlisted desktop origins across origins", async () => {
+		const root = mkdtempSync(join(tmpdir(), "contextboard-cors-"));
+		roots.push(root);
+		const store = new SyncStore(":memory:", join(root, "blobs"));
+		const app = createSyncApp(store, undefined, {
+			crossOriginAllowlist: ["tauri://localhost"],
+		});
+
+		// Preflight is answered before the sync version headers are demanded.
+		const preflight = await app.request("/api/sync/v1/pull", {
+			method: "OPTIONS",
+			headers: {
+				origin: "tauri://localhost",
+				"access-control-request-method": "POST",
+			},
+		});
+		expect(preflight.status).toBe(204);
+		expect(preflight.headers.get("access-control-allow-origin")).toBe(
+			"tauri://localhost",
+		);
+		expect(preflight.headers.get("access-control-allow-headers")).toContain(
+			"authorization",
+		);
+		// The desktop reads its bearer token off the one-time-token response.
+		const authPreflight = await app.request("/api/auth/one-time-token/verify", {
+			method: "OPTIONS",
+			headers: {
+				origin: "tauri://localhost",
+				"access-control-request-method": "POST",
+			},
+		});
+		expect(
+			authPreflight.headers.get("access-control-expose-headers"),
+		).toContain("set-auth-token");
+
+		const foreign = await app.request("/api/sync/v1/health", {
+			headers: { origin: "https://evil.example" },
+		});
+		expect(foreign.headers.get("access-control-allow-origin")).toBeNull();
+		store.close();
+	});
+
+	test("stays same-origin only when no desktop allowlist is configured", async () => {
+		const { store, app } = createFixture();
+		const response = await app.request("/api/sync/v1/health", {
+			headers: { origin: "tauri://localhost" },
+		});
+		expect(response.headers.get("access-control-allow-origin")).toBeNull();
+		store.close();
+	});
+
 	test("returns the precise protocol validation error for a legacy batch", async () => {
 		const { store, app } = createFixture();
 		const response = await app.request("/api/sync/v1/push", {
@@ -169,24 +220,21 @@ describe("Hono sync app", () => {
 		});
 		expect(invalidBlob.status).toBe(400);
 
-		const invalidCheckpoint = await app.request(
-			"/api/sync/v1/checkpoints",
-			{
-				method: "POST",
-				headers,
-				body: JSON.stringify({
-					checkpointId: "checkpoint-1",
-					workspaceId: "workspace-1",
-					coveredCursor: "1",
-					blob: {
-						hash: "bad",
-						contentType: "application/octet-stream",
-						size: 1,
-					},
-					createdAt: 1,
-				}),
-			},
-		);
+		const invalidCheckpoint = await app.request("/api/sync/v1/checkpoints", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				checkpointId: "checkpoint-1",
+				workspaceId: "workspace-1",
+				coveredCursor: "1",
+				blob: {
+					hash: "bad",
+					contentType: "application/octet-stream",
+					size: 1,
+				},
+				createdAt: 1,
+			}),
+		});
 		expect(invalidCheckpoint.status).toBe(400);
 		store.close();
 	});

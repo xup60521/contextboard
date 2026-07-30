@@ -16,6 +16,8 @@ const BLOB_TIMEOUT_MS = 5 * 60_000;
 
 const FORWARDED_REQUEST_HEADERS = [
 	"accept",
+	"access-control-request-headers",
+	"access-control-request-method",
 	"authorization",
 	"content-length",
 	"content-type",

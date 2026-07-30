@@ -27,6 +27,7 @@ type DesktopBlob = {
  */
 export class DesktopWorkspaceRepository implements WorkspaceRepository {
 	#listeners = new Set<WorkspaceChangeListener>();
+	#localListeners = new Set<WorkspaceChangeListener>();
 
 	constructor(
 		private readonly workspaceId: string,
@@ -59,12 +60,44 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 			command,
 		});
 		for (const listener of this.#listeners) listener();
+		for (const listener of this.#localListeners) listener();
 		return result;
 	}
 
 	subscribe(listener: WorkspaceChangeListener): () => void {
 		this.#listeners.add(listener);
 		return () => this.#listeners.delete(listener);
+	}
+
+	/**
+	 * Local writes only. Sync uses this to schedule a push without re-arming
+	 * itself every time it applies a remote batch.
+	 */
+	subscribeLocal(listener: WorkspaceChangeListener): () => void {
+		this.#localListeners.add(listener);
+		return () => this.#localListeners.delete(listener);
+	}
+
+	/** Stable device identity used when claiming this workspace on the server. */
+	deviceId(): Promise<string> {
+		return this.invoke("workspace_device_id", {
+			workspaceId: this.workspaceId,
+		});
+	}
+
+	/** True when this device holds workspace data that must not be discarded. */
+	hasData(): Promise<boolean> {
+		return this.invoke("workspace_has_data", {
+			workspaceId: this.workspaceId,
+		});
+	}
+
+	/** Moves this device's workspace onto a server-issued workspace id. */
+	async adopt(targetWorkspaceId: string): Promise<void> {
+		await this.invoke("workspace_adopt", {
+			workspaceId: this.workspaceId,
+			targetWorkspaceId,
+		});
 	}
 
 	getPendingBatches(limit: number): Promise<ChangeBatch[]> {
@@ -81,17 +114,23 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 		});
 	}
 
-	applyRemote(
+	async applyRemote(
 		batches: ChangeBatch[],
 		peerId: string,
 		nextCursor: string,
 	): Promise<ApplyResult> {
-		return this.invoke("workspace_apply_remote", {
+		if (batches.some((batch) => batch.workspaceId !== this.workspaceId))
+			throw new Error("Remote batch workspace does not match this device");
+		const result = await this.invoke<ApplyResult>("workspace_apply_remote", {
 			workspaceId: this.workspaceId,
 			batches,
 			peerId,
 			nextCursor,
 		});
+		// Remote writes must repaint the UI too, otherwise a pulled change sits
+		// in SQLite until the next local edit.
+		for (const listener of this.#listeners) listener();
+		return result;
 	}
 
 	getSyncState(peerId: string): Promise<PersistedSyncState> {
@@ -121,10 +160,7 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 		});
 	}
 
-	async storeRemoteBlob(
-		descriptor: BlobDescriptor,
-		blob: Blob,
-	): Promise<void> {
+	async storeRemoteBlob(descriptor: BlobDescriptor, blob: Blob): Promise<void> {
 		await this.invoke("workspace_store_blob", {
 			workspaceId: this.workspaceId,
 			descriptor,

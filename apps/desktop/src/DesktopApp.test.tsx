@@ -29,11 +29,7 @@ vi.mock("@contextboard/web-ui", async (importOriginal) => ({
 
 vi.mock("@contextboard/editor", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@contextboard/editor")>()),
-	RichTextEditor: ({
-		onChange,
-	}: {
-		onChange?: (content: unknown) => void;
-	}) => (
+	RichTextEditor: ({ onChange }: { onChange?: (content: unknown) => void }) => (
 		<textarea
 			aria-label="Card content"
 			onChange={(event) =>
@@ -93,11 +89,28 @@ function createNativeStub() {
 		return { entityType, action };
 	};
 
+	const settings = new Map<string, string>();
+
 	const invoke: Invoke = async (command, args = {}) => {
 		if (command === "desktop_bootstrap")
 			return { version: "0.0.0", platform: "windows", storageAvailable: true };
+		// Device-wide commands are not workspace scoped.
+		if (command === "desktop_setting")
+			return settings.get(String(args.key)) ?? null;
+		if (command === "desktop_set_setting") {
+			settings.set(String(args.key), String(args.value));
+			return null;
+		}
+		// Signed out: sync stays local-only for these tests.
+		if (command === "desktop_auth_token") return null;
+		if (command === "desktop_auth_clear" || command === "desktop_auth_cancel")
+			return null;
 		if (args.workspaceId !== "contextboard-desktop")
 			throw { code: "INVALID_ARGUMENT", message: "workspaceId is invalid" };
+
+		if (command === "workspace_pending_batches") return [];
+		if (command === "workspace_has_data") return store.size > 0;
+		if (command === "workspace_device_id") return "device-1";
 
 		if (command === "workspace_query") {
 			const query = args.query as { type: string; input?: { id?: string } };
@@ -228,8 +241,11 @@ describe("Desktop application shell", () => {
 		expect(
 			await screen.findByRole("main", { name: "Card Library" }),
 		).toBeTruthy();
-		expect(screen.getByText("Desktop")).toBeTruthy();
-		expect(screen.getByText("Local only")).toBeTruthy();
+		// Signed out, the footer offers the browser handoff rather than a dead
+		// local-only chip.
+		expect(
+			await screen.findByRole("button", { name: /sign in with github/i }),
+		).toBeTruthy();
 	});
 
 	test("keeps the boot screen visible until the native runtime answers", async () => {
@@ -276,9 +292,7 @@ describe("Desktop application shell", () => {
 		const card = screen.getByRole("button", { name: /Desktop research/ });
 		fireEvent.click(card, { detail: 1, shiftKey: true });
 		fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Delete card" }),
-		);
+		fireEvent.click(await screen.findByRole("button", { name: "Delete card" }));
 		await waitFor(() => expect(screen.getByText("No cards yet")).toBeTruthy());
 
 		// The tombstone is durable, not just hidden by the view.

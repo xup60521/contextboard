@@ -5,7 +5,11 @@ import {
 	type SyncTransport,
 } from "@contextboard/sync-protocol";
 import { describe, expect, test } from "vitest";
-import { SyncCoordinator, type WorkspaceRepository } from "./index";
+import {
+	HttpSyncTransport,
+	SyncCoordinator,
+	type WorkspaceRepository,
+} from "./index";
 
 const batch: ChangeBatch = {
 	protocolVersion: SYNC_PROTOCOL_VERSION,
@@ -131,11 +135,9 @@ describe("SyncCoordinator", () => {
 			pull: async (_request, signal) => {
 				requestStarted();
 				return await new Promise<never>((_resolve, reject) => {
-					signal?.addEventListener(
-						"abort",
-						() => reject(signal.reason),
-						{ once: true },
-					);
+					signal?.addEventListener("abort", () => reject(signal.reason), {
+						once: true,
+					});
 				});
 			},
 		};
@@ -149,5 +151,70 @@ describe("SyncCoordinator", () => {
 		coordinator.stop();
 		await expect(syncing).resolves.toBeUndefined();
 		expect(coordinator.status.state).toBe("local-only");
+	});
+});
+
+describe("HttpSyncTransport", () => {
+	function captureFetch() {
+		const calls: Array<{ url: string; init: RequestInit }> = [];
+		const original = globalThis.fetch;
+		globalThis.fetch = (async (
+			input: RequestInfo | URL,
+			init?: RequestInit,
+		) => {
+			calls.push({ url: String(input), init: init ?? {} });
+			return new Response(JSON.stringify({ workspaces: [] }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}) as typeof globalThis.fetch;
+		return { calls, restore: () => (globalThis.fetch = original) };
+	}
+
+	test("sends cookies same-origin but omits them for a bearer client", async () => {
+		const { calls, restore } = captureFetch();
+		try {
+			await new HttpSyncTransport().listWorkspaces();
+			// A cross-origin credentialed request needs
+			// Access-Control-Allow-Credentials, which a bearer-only server does not
+			// send, so the browser would block the response outright.
+			await new HttpSyncTransport({
+				baseURL: "http://localhost:3000",
+				credentials: "omit",
+				getAuthHeaders: () => ({ authorization: "Bearer token-1" }),
+			}).listWorkspaces();
+
+			expect(calls[0]?.init.credentials).toBe("include");
+			expect(calls[1]?.init.credentials).toBe("omit");
+			expect(calls[1]?.url).toBe(
+				"http://localhost:3000/api/sync/v1/workspaces",
+			);
+			expect(new Headers(calls[1]?.init.headers).get("authorization")).toBe(
+				"Bearer token-1",
+			);
+		} finally {
+			restore();
+		}
+	});
+
+	test("applies the credentials mode to blob downloads too", async () => {
+		const { calls, restore } = captureFetch();
+		try {
+			await new HttpSyncTransport({
+				baseURL: "http://localhost:3000",
+				credentials: "omit",
+				getAuthHeaders: () => ({ authorization: "Bearer token-1" }),
+			}).downloadBlob("workspace-1", {
+				hash: "a".repeat(64),
+				contentType: "image/png",
+				size: 1,
+			});
+			expect(calls[0]?.init.credentials).toBe("omit");
+			expect(new Headers(calls[0]?.init.headers).get("authorization")).toBe(
+				"Bearer token-1",
+			);
+		} finally {
+			restore();
+		}
 	});
 });

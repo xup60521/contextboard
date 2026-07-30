@@ -9,6 +9,17 @@ export function required(name: string) {
 	return value;
 }
 
+/**
+ * Origins the desktop shell calls the API from. Empty by default so a server
+ * that never serves desktop clients stays same-origin only.
+ */
+export function desktopOrigins() {
+	return (process.env.CONTEXTBOARD_DESKTOP_ORIGINS ?? "")
+		.split(",")
+		.map((origin) => origin.trim())
+		.filter(Boolean);
+}
+
 export function createServerAuth() {
 	return createContextboardAuth({
 		databasePath: join(dataRoot, "auth.sqlite"),

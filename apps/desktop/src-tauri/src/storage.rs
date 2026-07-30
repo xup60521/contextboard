@@ -527,6 +527,115 @@ impl Storage {
         Ok(descriptors)
     }
 
+    /// Durable renderer-facing preferences. The key is checked against a fixed
+    /// allowlist so the renderer cannot use this as a general key/value store.
+    pub fn setting(&self, key: &str) -> Result<Option<String>, StorageError> {
+        validate_setting_key(key)?;
+        let connection = self.connection.lock().expect("storage mutex poisoned");
+        Ok(connection
+            .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
+                row.get(0)
+            })
+            .optional()?)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<(), StorageError> {
+        validate_setting_key(key)?;
+        if value.is_empty() || value.len() > 256 {
+            return Err(StorageError::Invalid("Setting value is invalid".into()));
+        }
+        let connection = self.connection.lock().expect("storage mutex poisoned");
+        connection.execute(
+            "INSERT INTO settings(key,value) VALUES(?1,?2)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Stable per-workspace device identity, created on first use. Sync claims a
+    /// workspace with it so the server can tell this device from the browser.
+    pub fn device(&self, workspace: &str) -> Result<String, StorageError> {
+        validate_id(workspace, "workspaceId")?;
+        let mut connection = self.connection.lock().expect("storage mutex poisoned");
+        let transaction = connection.transaction()?;
+        ensure_workspace(&transaction, workspace)?;
+        let id = device_id(&transaction, workspace)?;
+        transaction.commit()?;
+        Ok(id)
+    }
+
+    /// True when this workspace holds anything worth keeping. Sync uses it to
+    /// decide whether the device may adopt a remote workspace id instead.
+    pub fn has_data(&self, workspace: &str) -> Result<bool, StorageError> {
+        validate_id(workspace, "workspaceId")?;
+        let connection = self.connection.lock().expect("storage mutex poisoned");
+        Ok(connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM entities WHERE workspace_id=?1 AND deleted=0)
+                 OR EXISTS(SELECT 1 FROM pending_batches WHERE workspace_id=?1)",
+            [workspace],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// Renames a workspace in place, keeping its device identity, HLC and blob
+    /// ownership. Foreign keys are deferred so the parent row can move before
+    /// its children.
+    pub fn adopt_workspace(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        validate_id(from, "workspaceId")?;
+        validate_id(to, "workspaceId")?;
+        if from == to {
+            return Ok(());
+        }
+        let mut connection = self.connection.lock().expect("storage mutex poisoned");
+        let transaction = connection.transaction()?;
+        transaction.pragma_update(None, "defer_foreign_keys", true)?;
+        let taken: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM workspaces WHERE id=?1)",
+            [to],
+            |row| row.get(0),
+        )?;
+        if taken {
+            return Err(StorageError::Invalid(
+                "The target workspace already exists on this device".into(),
+            ));
+        }
+        ensure_workspace(&transaction, from)?;
+        transaction.execute("UPDATE workspaces SET id=?2 WHERE id=?1", params![from, to])?;
+        for table in [
+            "entities",
+            "pending_batches",
+            "applied_batches",
+            "sync_peers",
+            "workspace_blobs",
+        ] {
+            transaction.execute(
+                &format!("UPDATE {table} SET workspace_id=?2 WHERE workspace_id=?1"),
+                params![from, to],
+            )?;
+        }
+        // Pending batches carry the workspace id in their serialized payload, so
+        // they would fail validation on push if they kept pointing at the old id.
+        let stale: Vec<(String, String)> = {
+            let mut statement = transaction
+                .prepare("SELECT change_id,batch_json FROM pending_batches WHERE workspace_id=?1")?;
+            let rows = statement
+                .query_map([to], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<(String, String)>, _>>()?;
+            rows
+        };
+        for (change_id, batch_json) in stale {
+            let mut batch: Value = serde_json::from_str(&batch_json)?;
+            batch["workspaceId"] = json!(to);
+            transaction.execute(
+                "UPDATE pending_batches SET batch_json=?3 WHERE workspace_id=?1 AND change_id=?2",
+                params![to, change_id, serde_json::to_string(&batch)?],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn recover(&self) -> Result<RecoveryReport, StorageError> {
         let mut report = RecoveryReport {
             stale_temps_removed: 0,
@@ -621,6 +730,7 @@ fn migrate(connection: &Connection) -> Result<(), StorageError> {
       CREATE TABLE IF NOT EXISTS sync_peers(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, peer_id TEXT NOT NULL, cursor TEXT NOT NULL, updated_at INTEGER NOT NULL, last_synced_at INTEGER, PRIMARY KEY(workspace_id,peer_id));
       CREATE TABLE IF NOT EXISTS blobs(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,content_type TEXT NOT NULL,present INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS workspace_blobs(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,hash TEXT NOT NULL REFERENCES blobs(hash) ON DELETE CASCADE,PRIMARY KEY(workspace_id,hash));
+      CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
       COMMIT;")?;
     let version: Option<i64> = connection
         .query_row("SELECT version FROM schema_meta LIMIT 1", [], |r| r.get(0))
@@ -791,6 +901,12 @@ fn validate_id(value: &str, name: &str) -> Result<(), StorageError> {
             .all(|c| c.is_ascii_alphanumeric() || ":._-".contains(c))
     {
         return Err(StorageError::Invalid(format!("{name} is invalid")));
+    }
+    Ok(())
+}
+fn validate_setting_key(value: &str) -> Result<(), StorageError> {
+    if value != "workspaceId" {
+        return Err(StorageError::Invalid("Unknown setting".into()));
     }
     Ok(())
 }
@@ -967,6 +1083,81 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn settings_are_allowlisted_and_survive_reopen() {
+        let (dir, store) = storage();
+        assert!(store.setting("workspaceId").unwrap().is_none());
+        store.set_setting("workspaceId", "cloud-one").unwrap();
+        assert!(store.set_setting("anything", "x").is_err());
+        assert!(store.setting("anything").is_err());
+        drop(store);
+        let reopened = Storage::open(dir.path()).unwrap();
+        assert_eq!(
+            reopened.setting("workspaceId").unwrap().as_deref(),
+            Some("cloud-one")
+        );
+    }
+
+    #[test]
+    fn adopt_moves_a_workspace_and_rewrites_pending_batches() {
+        let (_dir, store) = storage();
+        // The shared application services always emit the multi-write form, so
+        // the adopted batches must stay valid for that shape.
+        store
+            .execute(
+                "local",
+                &json!({"type":"cards.put","input":{"writes":[
+                    {"entity":"card","operation":"upsert","id":"card-1","value":{"title":"Saved"}}
+                ]}}),
+            )
+            .unwrap();
+        let bytes = b"hello";
+        let hash = hex::encode(Sha256::digest(bytes));
+        store
+            .store_blob(
+                "local",
+                &BlobDescriptor {
+                    hash: hash.clone(),
+                    content_type: "text/plain".into(),
+                    size: bytes.len() as u64,
+                },
+                bytes,
+            )
+            .unwrap();
+        assert!(store.has_data("local").unwrap());
+        assert!(!store.has_data("cloud").unwrap());
+
+        store.adopt_workspace("local", "cloud").unwrap();
+
+        assert_eq!(
+            store
+                .query("cloud", &json!({"type":"cards.get","input":{"id":"card-1"}}))
+                .unwrap()["title"],
+            "Saved"
+        );
+        assert_eq!(
+            store.query("local", &json!({"type":"cards.list","input":{}})).unwrap(),
+            json!([])
+        );
+        assert!(store.read_blob("cloud", &hash).unwrap().is_some());
+        let pending = store.pending("cloud", 10).unwrap();
+        assert_eq!(pending.as_array().unwrap().len(), 1);
+        assert_eq!(pending[0]["workspaceId"], "cloud");
+        // A batch whose payload still named the old workspace would be rejected.
+        assert!(validate_batch(&pending[0], "cloud").is_ok());
+        // Adopting onto an occupied id must not merge two devices' histories.
+        store
+            .execute(
+                "other",
+                &json!({"type":"cards.put","input":{"writes":[
+                    {"entity":"card","operation":"upsert","id":"card-2","value":{"title":"Other"}}
+                ]}}),
+            )
+            .unwrap();
+        assert!(store.adopt_workspace("other", "cloud").is_err());
+        assert!(store.adopt_workspace("cloud", "cloud").is_ok());
     }
 
     #[test]

@@ -10,7 +10,10 @@ export type DesktopCommandErrorCode =
 	| "INVALID_ARGUMENT"
 	| "UNKNOWN_DOMAIN_OPERATION"
 	| "STORAGE_NOT_INITIALIZED"
-	| "INTERNAL_ERROR";
+	| "INTERNAL_ERROR"
+	| "AUTH_TIMED_OUT"
+	| "AUTH_CANCELLED"
+	| "AUTH_FAILED";
 
 export type DesktopCommandError = {
 	code: DesktopCommandErrorCode;
@@ -30,5 +33,7 @@ export type DesktopRuntimeState =
 			repository: DesktopWorkspaceRepository;
 			workspaceId: string;
 			bootstrap: DesktopBootstrap;
+			/** Rebinds this device to a server-issued workspace id. */
+			adoptWorkspaceId: (workspaceId: string) => Promise<void>;
 	  }
 	| { status: "error"; error: Error };

@@ -1,3 +1,4 @@
+mod auth;
 mod commands;
 mod storage;
 
@@ -6,6 +7,8 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .manage(auth::AuthHandoffState::default())
         .setup(|app| {
             let root = app
                 .path()
@@ -32,6 +35,17 @@ pub fn run() {
             commands::workspace_read_blob,
             commands::workspace_missing_blobs,
             commands::workspace_store_blob,
+            commands::workspace_device_id,
+            commands::workspace_has_data,
+            commands::workspace_adopt,
+            commands::desktop_setting,
+            commands::desktop_set_setting,
+            commands::desktop_auth_start,
+            commands::desktop_auth_wait,
+            commands::desktop_auth_cancel,
+            commands::desktop_auth_store_token,
+            commands::desktop_auth_token,
+            commands::desktop_auth_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Contextboard");

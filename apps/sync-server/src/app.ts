@@ -12,6 +12,7 @@ import {
 	SyncProtocolError,
 } from "@contextboard/sync-protocol";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import {
 	requireSession,
 	requireWorkspaceSession,
@@ -42,8 +43,43 @@ function popupCompleteDocument() {
 </html>`;
 }
 
-export function createSyncApp(store: SyncStore, auth?: ContextboardAuth) {
+export type SyncAppOptions = {
+	/**
+	 * Origins allowed to call the API cross-origin. Only the desktop shell needs
+	 * this: the Web client is same-origin behind the Cloudflare Worker.
+	 */
+	crossOriginAllowlist?: string[];
+};
+
+export function createSyncApp(
+	store: SyncStore,
+	auth?: ContextboardAuth,
+	options?: SyncAppOptions,
+) {
 	const app = new Hono();
+
+	const allowedOrigins = new Set(options?.crossOriginAllowlist ?? []);
+	if (allowedOrigins.size) {
+		// Desktop authenticates with a bearer token, never a cookie, so
+		// credentials stay off and no CSRF surface is opened here.
+		const crossOrigin = cors({
+			origin: (origin) => (allowedOrigins.has(origin) ? origin : null),
+			allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+			allowHeaders: [
+				"authorization",
+				"content-type",
+				"x-contextboard-blob-size",
+				"x-contextboard-protocol-version",
+				"x-contextboard-schema-version",
+				"x-contextboard-workspace",
+			],
+			exposeHeaders: ["set-auth-token"],
+			credentials: false,
+			maxAge: 600,
+		});
+		app.use("/api/auth/*", crossOrigin);
+		app.use("/api/sync/v1/*", crossOrigin);
+	}
 
 	app.use("*", async (context, next) => {
 		await next();
@@ -132,11 +168,7 @@ export function createSyncApp(store: SyncStore, auth?: ContextboardAuth) {
 			contentType: headers.contentType,
 			size: headers.size,
 		};
-		await store.putBlob(
-			headers.workspaceId,
-			descriptor,
-			context.req.raw.body,
-		);
+		await store.putBlob(headers.workspaceId, descriptor, context.req.raw.body);
 		return context.body(null, 204);
 	});
 

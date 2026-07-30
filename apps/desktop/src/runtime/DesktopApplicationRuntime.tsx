@@ -9,6 +9,7 @@ import {
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";
 import { useDesktopRuntime } from "./DesktopRuntimeProvider";
+import { useDesktopSync } from "./DesktopSyncProvider";
 import { createDesktopFileRuntime } from "./desktopFileRuntime";
 
 /**
@@ -22,18 +23,24 @@ export function DesktopApplicationRuntime({
 	children: ReactNode;
 }) {
 	const desktop = useDesktopRuntime();
+	const desktopSync = useDesktopSync();
 	const router = useRouter();
 
-	const runtime = useMemo<ApplicationRuntime | null>(() => {
-		if (desktop.status !== "ready") return null;
-		const sync: SyncRuntime = { state: "local-only", message: "Local only" };
+	const repository = desktop.status === "ready" ? desktop.repository : null;
+	const workspaceId = desktop.status === "ready" ? desktop.workspaceId : null;
+
+	// Services are memoized on the repository alone. Shared views key their reads
+	// on `runtime.cards` and friends, so rebuilding these on every sync status
+	// change would refetch the whole page a few times a second.
+	const capabilities = useMemo(() => {
+		if (!repository || workspaceId === null) return null;
 		return {
 			platform: "desktop",
-			workspaceId: desktop.workspaceId,
-			cards: createRepositoryCardsService(desktop.repository),
-			whiteboards: createRepositoryWhiteboardsService(desktop.repository),
-			canvas: createRepositoryCanvasService(desktop.repository),
-			files: createDesktopFileRuntime(desktop.repository),
+			workspaceId,
+			cards: createRepositoryCardsService(repository),
+			whiteboards: createRepositoryWhiteboardsService(repository),
+			canvas: createRepositoryCanvasService(repository),
+			files: createDesktopFileRuntime(repository),
 			navigation: {
 				cardsHref: () => "/cards",
 				cardHref: (cardId) => `/cards/${encodeURIComponent(cardId)}`,
@@ -51,9 +58,18 @@ export function DesktopApplicationRuntime({
 				// library.
 				hrefAttribute: (href) => `#${href}`,
 			},
-			sync,
+		} satisfies Omit<ApplicationRuntime, "sync">;
+	}, [repository, router, workspaceId]);
+
+	// Only the sync status rides on the runtime object identity.
+	const runtime = useMemo<ApplicationRuntime | null>(() => {
+		if (!capabilities) return null;
+		const sync: SyncRuntime = {
+			state: desktopSync.state,
+			message: desktopSync.message,
 		};
-	}, [desktop, router]);
+		return { ...capabilities, sync };
+	}, [capabilities, desktopSync.message, desktopSync.state]);
 
 	if (!runtime) return null;
 

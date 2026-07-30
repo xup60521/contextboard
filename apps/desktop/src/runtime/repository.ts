@@ -18,6 +18,9 @@ const ERROR_CODES = new Set<DesktopCommandErrorCode>([
 	"UNKNOWN_DOMAIN_OPERATION",
 	"STORAGE_NOT_INITIALIZED",
 	"INTERNAL_ERROR",
+	"AUTH_TIMED_OUT",
+	"AUTH_CANCELLED",
+	"AUTH_FAILED",
 ]);
 
 export function toDesktopError(value: unknown): Error {
@@ -74,4 +77,51 @@ export function createDesktopRepository(workspaceId: string, invoke?: Invoke) {
 	return new DesktopWorkspaceRepository(workspaceId, (command, args) =>
 		invokeDesktop(command, args, invoke),
 	);
+}
+
+export function readDesktopSetting(key: "workspaceId", invoke?: Invoke) {
+	return invokeDesktop<string | null>("desktop_setting", { key }, invoke);
+}
+
+export async function writeDesktopSetting(
+	key: "workspaceId",
+	value: string,
+	invoke?: Invoke,
+) {
+	await invokeDesktop("desktop_set_setting", { key, value }, invoke);
+}
+
+export type DesktopAuthHandoff = {
+	redirectUri: string;
+	authorizeUrl: string;
+};
+
+/** Opens the browser at the sign-in page and arms the loopback listener. */
+export function startDesktopAuth(baseUrl: string, invoke?: Invoke) {
+	return invokeDesktop<DesktopAuthHandoff>(
+		"desktop_auth_start",
+		{ baseUrl },
+		invoke,
+	);
+}
+
+/** Resolves with the one-time token the browser redirect carried back. */
+export function awaitDesktopAuthToken(invoke?: Invoke) {
+	return invokeDesktop<string>("desktop_auth_wait", undefined, invoke);
+}
+
+export async function cancelDesktopAuth(invoke?: Invoke) {
+	await invokeDesktop("desktop_auth_cancel", undefined, invoke);
+}
+
+export async function storeDesktopSessionToken(token: string, invoke?: Invoke) {
+	await invokeDesktop("desktop_auth_store_token", { token }, invoke);
+}
+
+export function readDesktopSessionToken(invoke?: Invoke) {
+	return invokeDesktop<string | null>("desktop_auth_token", undefined, invoke);
+}
+
+export async function clearDesktopSessionToken(invoke?: Invoke) {
+	await invokeDesktop("desktop_auth_clear", undefined, invoke);
 }
