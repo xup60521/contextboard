@@ -21,13 +21,24 @@ Requirements: Bun 1.3.13 or newer.
 bun install
 ```
 
-Copy `.env.example` to `.env.local` and fill in the GitHub OAuth and Better
-Auth secrets, then start both services:
+Each app owns its own configuration. Copy the two examples to `.env.local`,
+fill in the GitHub OAuth and Better Auth secrets, then start the stack:
 
 ```powershell
-Copy-Item .env.example .env.local
+Copy-Item apps/sync-server/.env.example apps/sync-server/.env.local
+Copy-Item apps/desktop/.env.example apps/desktop/.env.local
 bun run dev
 ```
+
+| Target | Configured by | Holds secrets |
+| --- | --- | --- |
+| Sync service | `apps/sync-server/.env.local`, `.env.production` | Yes — all of them |
+| Cloudflare Worker | `apps/web/wrangler.jsonc` (`vars`, VPC and rate-limit bindings) | No |
+| Desktop shell | `apps/desktop/.env.local` | No — inlined at build time |
+
+The sync service owns Better Auth and the change log, so every secret lives
+there. The Worker only proxies `/api/auth` and `/api/sync` to it and needs no
+env file. The desktop shell needs one public URL.
 
 `bun run dev` starts the complete local stack: the Web app on
 `http://localhost:3000`, the Windows desktop app, and the sync service on
@@ -92,14 +103,21 @@ replays the change log from its persisted cursor.
 
 Three settings must line up for this to work:
 
-- `VITE_CONTEXTBOARD_SYNC_URL` — public origin the desktop signs in and syncs
-  against (the Cloudflare Worker origin in production, not the private VPS).
-- `CONTEXTBOARD_DESKTOP_ORIGINS` and `BETTER_AUTH_TRUSTED_ORIGINS` — must include
-  the Tauri origins (`tauri://localhost`, `http://tauri.localhost`, and
-  `http://localhost:1420` in development).
+- `VITE_CONTEXTBOARD_SYNC_URL` in `apps/desktop/.env.local` — public origin the
+  desktop signs in and syncs against (the Worker origin in production, not the
+  private VPS).
+- `CONTEXTBOARD_DESKTOP_ORIGINS` and `BETTER_AUTH_TRUSTED_ORIGINS` in
+  `apps/sync-server/.env.*` — must include the desktop origin. That is
+  `http://localhost:1420` in development and `http://tauri.localhost` for a
+  packaged Windows build (`useHttpsScheme` defaults to false; the
+  `tauri://localhost` form is macOS and Linux only).
 - `app.security.csp` in `apps/desktop/src-tauri/tauri.conf.json` — `connect-src`
   lists the sync origin explicitly. Add the production origin there before
-  shipping a build.
+  shipping a build, since CSP is enforced in a packaged build but not in dev.
+
+Desktop authenticates by bearer token, so the service does not send
+`Access-Control-Allow-Credentials` and the client omits cookies. Adding
+credentials on one side without the other makes every response fail opaquely.
 
 Build and test the native boundary with:
 

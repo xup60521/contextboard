@@ -6,9 +6,6 @@ import { defineConfig } from "vite";
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
-	// Sync configuration lives in the repository-root .env files alongside the
-	// server's own settings.
-	envDir: path.resolve(__dirname, "../.."),
 	resolve: {
 		alias: {
 			"#": path.resolve(__dirname, "../web/src"),

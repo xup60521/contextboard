@@ -8,7 +8,9 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".output/**"]
+      "outputs": ["dist/**", ".output/**"],
+      "env": ["VITE_CONTEXTBOARD_SYNC_URL"],
+      "inputs": ["$TURBO_DEFAULT$", ".env.local", ".env.production"]
     },
     "test": {
       "dependsOn": ["^build"],
