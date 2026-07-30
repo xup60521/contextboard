@@ -26,6 +26,7 @@ import {
 	DEFAULT_CARD_CONTENT,
 	DEFAULT_CARD_TITLE,
 	deriveCardMetadata,
+	normalizeCardContent,
 } from "./card-content";
 
 /**
@@ -90,7 +91,13 @@ function normalize(value: unknown): CardEntity | null {
 	if (typeof row.id !== "string") return null;
 	return {
 		id: row.id,
-		content: row.content ?? null,
+		// Rows written before restore/adopt learned to parse the canvas's
+		// serialized props hold the document as a string. Repair on read so an
+		// affected card still renders; the next edit rewrites it properly.
+		content:
+			typeof row.content === "string"
+				? normalizeCardContent(row.content)
+				: (row.content ?? null),
 		derivedTitle: row.derivedTitle ?? DEFAULT_CARD_TITLE,
 		plainText: row.plainText ?? "",
 		preview: row.preview ?? "",

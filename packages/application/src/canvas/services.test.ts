@@ -268,3 +268,75 @@ describe("repository canvas record changes", () => {
 		).rejects.toThrow("Canvas records require a whiteboard");
 	});
 });
+
+describe("pasted card content", () => {
+	test("parses the canvas's serialized props instead of storing the string", async () => {
+		// A pasted or duplicated shape hands over `shape.props.content`, which is
+		// a JSON string. Storing it verbatim double-encodes the document: the
+		// card then renders blank and its editor shows the raw config as text.
+		const { whiteboards, canvas, cards } = setup();
+		const boardId = await whiteboards.createRoot();
+		const document = {
+			type: "doc",
+			content: [
+				{
+					type: "heading",
+					attrs: { level: 1 },
+					content: [{ type: "text", text: "皮克斯規劃" }],
+				},
+			],
+		};
+
+		await canvas.restoreOrAdoptCardItem({
+			whiteboardId: boardId,
+			shapeId: "shape:pasted",
+			content: JSON.stringify(document),
+		});
+
+		const [item] = await canvas.listItems(boardId);
+		const detail = await cards.get(item!.cardId!);
+		expect(detail?.content).toEqual(document);
+		expect(typeof detail?.content).not.toBe("string");
+		// The derived metadata proves the document was understood, not stored raw.
+		expect(detail?.title).toBe("皮克斯規劃");
+	});
+
+	test("falls back to a new card when the serialized props are unusable", async () => {
+		const { whiteboards, canvas, cards } = setup();
+		const boardId = await whiteboards.createRoot();
+
+		await canvas.restoreOrAdoptCardItem({
+			whiteboardId: boardId,
+			shapeId: "shape:broken",
+			content: "not json at all",
+		});
+
+		const [item] = await canvas.listItems(boardId);
+		const detail = await cards.get(item!.cardId!);
+		expect(detail?.title).toBe("New card");
+	});
+
+	test("still accepts an already-parsed document", async () => {
+		const { whiteboards, canvas, cards } = setup();
+		const boardId = await whiteboards.createRoot();
+		const document = {
+			type: "doc",
+			content: [
+				{
+					type: "heading",
+					attrs: { level: 1 },
+					content: [{ type: "text", text: "Direct" }],
+				},
+			],
+		};
+
+		await canvas.restoreOrAdoptCardItem({
+			whiteboardId: boardId,
+			shapeId: "shape:direct",
+			content: document,
+		});
+
+		const [item] = await canvas.listItems(boardId);
+		expect((await cards.get(item!.cardId!))?.content).toEqual(document);
+	});
+});

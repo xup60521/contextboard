@@ -269,3 +269,57 @@ describe("card placement and reference capabilities", () => {
 		expect(await cards.get(target).then((row) => row?.backlinks)).toEqual([]);
 	});
 });
+
+describe("recovering cards stored with a serialized document", () => {
+	test("reads a double-encoded row back as a document", async () => {
+		// Rows written before restore/adopt learned to parse the canvas's
+		// serialized props hold the document as a string, which renders blank.
+		const { repository, cards } = service();
+		const document = {
+			type: "doc",
+			content: [
+				{
+					type: "heading",
+					attrs: { level: 1 },
+					content: [{ type: "text", text: "體驗式學習" }],
+				},
+			],
+		};
+		const cardId = await cards.create({ content: document });
+		const row = await repository.query<Record<string, unknown>>({
+			type: "cards.get",
+			input: { id: cardId },
+		});
+		await repository.execute({
+			type: "cards.update",
+			input: { value: { ...row, content: JSON.stringify(document) } },
+		});
+
+		expect((await cards.get(cardId))?.content).toEqual(document);
+	});
+
+	test("keeps an unparseable row usable instead of rendering nothing", async () => {
+		const { repository, cards } = service();
+		const cardId = await cards.create();
+		const row = await repository.query<Record<string, unknown>>({
+			type: "cards.get",
+			input: { id: cardId },
+		});
+		await repository.execute({
+			type: "cards.update",
+			input: { value: { ...row, content: "<<corrupt>>" } },
+		});
+
+		const detail = await cards.get(cardId);
+		expect(detail?.content).toEqual({
+			type: "doc",
+			content: [
+				{
+					type: "heading",
+					attrs: { level: 1 },
+					content: [{ type: "text", text: "New card" }],
+				},
+			],
+		});
+	});
+});

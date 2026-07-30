@@ -1,5 +1,8 @@
 import type { WorkspaceRepository } from "@contextboard/client-core";
-import { DEFAULT_CARD_CONTENT } from "../cards/card-content";
+import {
+	DEFAULT_CARD_CONTENT,
+	normalizeCardContent,
+} from "../cards/card-content";
 import {
 	applyWrites,
 	type EntityRow,
@@ -415,7 +418,10 @@ export function createRepositoryCanvasService(
 			const board = await getRow(repository, "whiteboards", whiteboardId);
 			if (!board || !isActiveRow(board))
 				throw new Error("Whiteboard not found");
-			const content = input.content ?? DEFAULT_CARD_CONTENT;
+			// A pasted or duplicated shape hands over its serialized props, so the
+			// document arrives as a JSON string and must be parsed before it is
+			// stored.
+			const content = normalizeCardContent(input.content);
 			const result = await withRetry(async () => {
 				const [items, cards] = await Promise.all([
 					listRows(repository, "items"),

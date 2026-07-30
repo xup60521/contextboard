@@ -97,3 +97,25 @@ export function textToCardContent(text: string): unknown {
 	});
 	return { type: "doc", content: nodes };
 }
+
+/**
+ * Normalizes a card document that may have been serialized on the way in.
+ *
+ * The canvas keeps a card's document as a JSON *string* in its tldraw shape
+ * props, and hands that string over when a shape is pasted or duplicated. A
+ * card row must hold the parsed document: storing the string instead makes the
+ * card render blank, because the editor then receives a string where a
+ * ProseMirror document is expected and treats it as HTML.
+ */
+export function normalizeCardContent(value: unknown): unknown {
+	if (typeof value !== "string") return value ?? DEFAULT_CARD_CONTENT;
+	if (!value) return DEFAULT_CARD_CONTENT;
+	try {
+		const parsed = JSON.parse(value) as { type?: unknown };
+		return parsed && typeof parsed === "object" && parsed.type === "doc"
+			? parsed
+			: DEFAULT_CARD_CONTENT;
+	} catch {
+		return DEFAULT_CARD_CONTENT;
+	}
+}
