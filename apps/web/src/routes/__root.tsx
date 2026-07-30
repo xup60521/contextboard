@@ -1,20 +1,28 @@
 import { AppShell as SharedAppShell } from "@contextboard/ui";
+import applicationCss from "@contextboard/application/application.css?url";
+import {
+	SidebarProvider,
+	SidebarTabsProvider,
+} from "@contextboard/web-ui";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import type { QueryClient } from "@tanstack/react-query";
 import {
 	createRootRouteWithContext,
 	HeadContent,
 	Scripts,
+	useParams,
+	useRouterState,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { CommandPalette } from "../components/search/CommandPalette";
-import { SidebarTabsProvider } from "../components/sidebar/SidebarTabsContext";
 import { AppSidebar } from "../components/whiteboard/AppSidebar";
-import { SidebarProvider } from "../components/whiteboard/SidebarContext";
 import { LocalDatabaseProvider } from "../integrations/local/provider";
 import { SyncProvider } from "../integrations/sync/provider";
+import { WebApplicationRuntime } from "../integrations/application/WebApplicationRuntime";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import appCss from "@contextboard/web-ui/styles.css?url";
+import editorCss from "@contextboard/web-ui/editor.css?url";
+import tldrawCss from "@contextboard/web-ui/tldraw.css?url";
 
 interface MyRouterContext {
 	queryClient: QueryClient;
@@ -39,7 +47,19 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 		links: [
 			{
 				rel: "stylesheet",
+				href: applicationCss,
+			},
+			{
+				rel: "stylesheet",
 				href: appCss,
+			},
+			{
+				rel: "stylesheet",
+				href: editorCss,
+			},
+			{
+				rel: "stylesheet",
+				href: tldrawCss,
 			},
 		],
 	}),
@@ -47,6 +67,10 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+	const pathname = useRouterState({
+		select: (state) => state.location.pathname,
+	});
+	const params = useParams({ strict: false });
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
@@ -57,8 +81,21 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			<body className="font-sans antialiased h-screen [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">
 				<LocalDatabaseProvider>
 					<SyncProvider>
+						<WebApplicationRuntime>
 						<SidebarProvider>
-							<SidebarTabsProvider>
+							<SidebarTabsProvider
+								route={{
+									pathname,
+									whiteboardId:
+										typeof params.whiteboardId === "string"
+											? params.whiteboardId
+											: undefined,
+									cardId:
+										typeof params.cardId === "string"
+											? params.cardId
+											: undefined,
+								}}
+							>
 								<AppShell>{children}</AppShell>
 							</SidebarTabsProvider>
 							<CommandPalette />
@@ -75,6 +112,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 								]}
 							/>
 						</SidebarProvider>
+						</WebApplicationRuntime>
 					</SyncProvider>
 				</LocalDatabaseProvider>
 				<Scripts />

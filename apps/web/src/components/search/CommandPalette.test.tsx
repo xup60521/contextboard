@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CommandPalette } from "./CommandPalette";
 
 const navigateMock = vi.fn();
-const useQueryMock = vi.fn();
 
 class MockResizeObserver {
 	observe() {}
@@ -29,15 +28,22 @@ vi.mock("@tanstack/react-router", () => ({
 	useParams: () => ({}),
 }));
 
-vi.mock("#/integrations/local/react", () => ({
-	useQuery: (...args: unknown[]) => useQueryMock(...args),
+vi.mock("@contextboard/application", () => ({
+	useApplicationRuntime: () => ({
+		search: { search: async () => ({ cards: [], whiteboards: [] }) },
+	}),
+	useApplicationValue: () => ({
+		status: "ready",
+		data: { cards: [], whiteboards: [] },
+		refresh: () => undefined,
+	}),
 }));
 
 vi.mock("@contextboard/editor", () => ({
 	ReadonlyRichTextPreview: () => <div data-testid="readonly-preview" />,
 }));
 
-vi.mock("./CardPreviewDialog", () => ({
+vi.mock("@contextboard/web-ui", () => ({
 	CardPreviewDialog: ({ cardId }: { cardId: string | null }) =>
 		cardId ? <div data-testid="card-preview-dialog" /> : null,
 }));
@@ -88,14 +94,6 @@ vi.mock("#/components/ui/dialog", async () => {
 describe("CommandPalette", () => {
 	beforeEach(() => {
 		navigateMock.mockReset();
-		useQueryMock.mockReset();
-		useQueryMock.mockImplementation((_: unknown, args: unknown) => {
-			if (args === "skip") {
-				return undefined;
-			}
-
-			return { cards: [], whiteboards: [] };
-		});
 	});
 
 	afterEach(() => {

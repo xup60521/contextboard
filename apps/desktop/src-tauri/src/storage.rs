@@ -140,9 +140,9 @@ impl Storage {
                 let values = values.as_array().ok_or_else(|| {
                     StorageError::Invalid("writes must be an array".into())
                 })?;
-                if !(1..=200).contains(&values.len()) {
+                if values.is_empty() {
                     return Err(StorageError::Invalid(
-                        "writes must contain 1 to 200 entries".into(),
+                        "writes must contain at least 1 entry".into(),
                     ));
                 }
                 values

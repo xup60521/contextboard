@@ -15,7 +15,7 @@ vi.mock("@tanstack/react-router", () => ({
 	useParams: () => currentParams,
 }));
 
-vi.mock("./CardDetailPage", () => ({
+vi.mock("@contextboard/web-ui", () => ({
 	CardDetailPage: ({ cardId }: { cardId: string }) => (
 		<div data-testid="card-detail-page-route">{cardId}</div>
 	),

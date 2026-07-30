@@ -1,21 +1,19 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { HttpSyncTransport, SyncCoordinator } from "@contextboard/client-core";
 import {
-	HttpSyncTransport,
-	SyncCoordinator,
-	type WorkspaceRepository,
-} from "@contextboard/client-core";
+	createRepositoryCanvasService,
+	createRepositoryCardsService,
+	createRepositoryWhiteboardsService,
+	fileSrc,
+} from "@contextboard/application";
 import {
-	acknowledgeBatches,
 	adoptWorkspaceId,
-	applyRemoteBatches,
 	ContextboardDatabase,
 	ensureLocalIdentity,
 	getLocalBlob,
-	getMissingBlobs,
 	getPendingBatches,
-	getSyncState,
-	storeRemoteBlob,
 } from "@contextboard/local-db";
+import { IndexedDbWorkspaceRepository } from "@contextboard/storage-indexeddb";
 import { conflictCopyCardId } from "@contextboard/sync-protocol";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,25 +41,15 @@ function makeDatabase(label: string) {
 	return db;
 }
 
-function repository(db: ContextboardDatabase): WorkspaceRepository {
-	return {
-		query: async () => {
-			throw new Error("Queries are not used by the sync E2E");
-		},
-		execute: async () => {
-			throw new Error("Commands are issued through the Web adapter");
-		},
-		subscribe: () => () => undefined,
-		getPendingBatches: (limit) => getPendingBatches(db, limit),
-		acknowledge: (ids) => acknowledgeBatches(db, ids),
-		applyRemote: (batches, remotePeerId, cursor) =>
-			applyRemoteBatches(db, batches, remotePeerId, cursor),
-		getSyncState: (remotePeerId) => getSyncState(db, remotePeerId),
-		getLocalBlob: (hash) => getLocalBlob(db, hash),
-		getMissingBlobs: () => getMissingBlobs(db),
-		storeRemoteBlob: (descriptor, blob) =>
-			storeRemoteBlob(db, descriptor, blob),
-	};
+function repository(db: ContextboardDatabase) {
+	return new IndexedDbWorkspaceRepository(db);
+}
+
+async function sha256(blob: Blob) {
+	const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+	return Array.from(new Uint8Array(digest))
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
 }
 
 function transport() {
@@ -123,31 +111,32 @@ describe("Web to Web vertical sync", () => {
 	test(
 		"converges offline entities, records, conflicts, blobs, checkpoints, and restart recovery",
 		async () => {
-		const browserA = makeDatabase("a");
-		const identityA = await ensureLocalIdentity(browserA);
-		const syncA = new SyncCoordinator(
-			identityA.workspaceId,
-			repository(browserA),
-			transport(),
-		);
+			const browserA = makeDatabase("a");
+			const identityA = await ensureLocalIdentity(browserA);
+			const repositoryA = repository(browserA);
+			const whiteboardsA = createRepositoryWhiteboardsService(repositoryA, {
+				deviceId: identityA.deviceId,
+			});
+			const canvasA = createRepositoryCanvasService(repositoryA, {
+				deviceId: identityA.deviceId,
+			});
+			const cardsA = createRepositoryCardsService(repositoryA, {
+				deviceId: identityA.deviceId,
+			});
+			const syncA = new SyncCoordinator(
+				identityA.workspaceId,
+				repositoryA,
+				transport(),
+			);
 
-		const board = await localMutation(
-			browserA,
-			identityA.deviceId,
-			"canvas.createSubwhiteboardItem",
-			{
-				parentWhiteboardId: null,
-				shapeId: "shape:board",
-				x: 0,
-				y: 0,
-			},
-		);
-		const linkedCard = await localMutation(
-			browserA,
-			identityA.deviceId,
-			"canvas.createCardItem",
-			{
-				whiteboardId: board.childWhiteboardId,
+			const board = await whiteboardsA.createSubwhiteboard({
+					parentWhiteboardId: null,
+					shapeId: "shape:board",
+					x: 0,
+					y: 0,
+				});
+			const linkedCard = await canvasA.createCardItem({
+					whiteboardId: board.childWhiteboardId,
 				shapeId: "shape:linked",
 				x: 40,
 				y: 40,
@@ -155,26 +144,41 @@ describe("Web to Web vertical sync", () => {
 					type: "doc",
 					content: [{ type: "paragraph", content: [{ type: "text", text: "Source" }] }],
 				},
-			},
-		);
-		const mainCard = await localMutation(
-			browserA,
-			identityA.deviceId,
-			"canvas.createCardItem",
-			{
+				});
+			const mainCard = await canvasA.createCardItem({
 				whiteboardId: board.childWhiteboardId,
 				shapeId: "shape:main",
 				x: 120,
 				y: 160,
-			},
-		);
-		const image = new Blob(["verified-image"], { type: "image/png" });
-		const uploaded = await localMutation(
-			browserA,
-			identityA.deviceId,
-			"files.finalizeUpload",
-			{ file: image },
-		);
+				});
+			const image = new Blob(["verified-image"], { type: "image/png" });
+			const uploaded = { fileId: await sha256(image) };
+			await repositoryA.execute({
+				type: "files.upsert",
+				input: {
+					writes: [{
+						entity: "file",
+						operation: "upsert",
+						id: uploaded.fileId,
+						expectedRevision: 0,
+						value: {
+							id: uploaded.fileId,
+							sha256: uploaded.fileId,
+							hash: uploaded.fileId,
+							contentType: image.type,
+							size: image.size,
+							refCount: 0,
+							status: "active",
+							pendingDeleteAt: null,
+							deletedAt: null,
+						},
+					}],
+				},
+			});
+			await repositoryA.storeRemoteBlob(
+				{ hash: uploaded.fileId, contentType: image.type, size: image.size },
+				image,
+			);
 		const initialContent = {
 			type: "doc",
 			content: [
@@ -194,7 +198,7 @@ describe("Web to Web vertical sync", () => {
 							type: "image",
 							attrs: {
 								fileId: uploaded.fileId,
-								src: uploaded.url,
+								src: fileSrc(uploaded.fileId),
 								alt: "verified",
 							},
 						},
@@ -202,21 +206,12 @@ describe("Web to Web vertical sync", () => {
 				},
 			],
 		};
-		await localMutation(
-			browserA,
-			identityA.deviceId,
-			"cards.updateContent",
-			{
-				cardId: mainCard.cardId,
-				expectedVersion: 1,
-				content: initialContent,
-			},
-		);
-		await localMutation(
-			browserA,
-			identityA.deviceId,
-			"canvas.applyRecordChanges",
-			{
+			await cardsA.updateContent({
+					cardId: mainCard.cardId,
+					expectedVersion: 1,
+					content: initialContent,
+				});
+			await canvasA.applyRecordChanges({
 				whiteboardId: board.childWhiteboardId,
 				added: [
 					{
@@ -230,8 +225,7 @@ describe("Web to Web vertical sync", () => {
 				],
 				updated: [],
 				removed: [],
-			},
-		);
+				});
 
 		expect(await browserA.changeLog.count()).toBeGreaterThan(0);
 		expect(await browserA.cardReferences.count()).toBe(1);
@@ -252,8 +246,8 @@ describe("Web to Web vertical sync", () => {
 		);
 		expect(checkpoint).not.toBeNull();
 
-		const browserB = makeDatabase("b");
-		const identityB = await ensureLocalIdentity(browserB);
+			const browserB = makeDatabase("b");
+			const identityB = await ensureLocalIdentity(browserB);
 		await adoptWorkspaceId(browserB, identityA.workspaceId);
 		expect(
 			await bootstrapLatestCheckpoint(
@@ -262,9 +256,16 @@ describe("Web to Web vertical sync", () => {
 				identityA.workspaceId,
 			),
 		).toBe(true);
-		const syncB = new SyncCoordinator(
-			identityA.workspaceId,
-			repository(browserB),
+			const repositoryB = repository(browserB);
+			const canvasB = createRepositoryCanvasService(repositoryB, {
+				deviceId: identityB.deviceId,
+			});
+			const cardsB = createRepositoryCardsService(repositoryB, {
+				deviceId: identityB.deviceId,
+			});
+			const syncB = new SyncCoordinator(
+				identityA.workspaceId,
+				repositoryB,
 			transport(),
 		);
 		await syncB.syncNow();
@@ -288,11 +289,7 @@ describe("Web to Web vertical sync", () => {
 		expect(contentImage?.blob).not.toBeNull();
 		expect(await contentImage?.blob?.text()).toBe("verified-image");
 
-		await localMutation(
-			browserB,
-			identityB.deviceId,
-			"canvas.updateItemFrame",
-			{
+			await canvasB.updateItemFrame({
 				itemId: mainCard.itemId,
 				x: 420,
 				y: 360,
@@ -300,8 +297,7 @@ describe("Web to Web vertical sync", () => {
 				h: 220,
 				rotation: 0,
 				zIndex: 10,
-			},
-		);
+				});
 		await syncB.syncNow();
 		await syncA.syncNow();
 		expect(await browserA.boardItems.get(mainCard.itemId)).toMatchObject({
@@ -311,32 +307,22 @@ describe("Web to Web vertical sync", () => {
 
 		const versionA = (await browserA.cards.get(mainCard.cardId))?.contentVersion;
 		const versionB = (await browserB.cards.get(mainCard.cardId))?.contentVersion;
-		await localMutation(
-			browserA,
-			identityA.deviceId,
-			"cards.updateContent",
-			{
+			await cardsA.updateContent({
 				cardId: mainCard.cardId,
 				expectedVersion: versionA,
 				content: {
 					type: "doc",
 					content: [{ type: "paragraph", content: [{ type: "text", text: "Edit A" }] }],
 				},
-			},
-		);
-		await localMutation(
-			browserB,
-			identityB.deviceId,
-			"cards.updateContent",
-			{
+				});
+			await cardsB.updateContent({
 				cardId: mainCard.cardId,
 				expectedVersion: versionB,
 				content: {
 					type: "doc",
 					content: [{ type: "paragraph", content: [{ type: "text", text: "Edit B" }] }],
 				},
-			},
-		);
+				});
 		await syncA.syncNow();
 		await syncB.syncNow();
 		await syncA.syncNow();
@@ -386,12 +372,10 @@ describe("Web to Web vertical sync", () => {
 		expect(syncA.status.cursor).toBe(syncB.status.cursor);
 
 		serverOnline = false;
-		await localMutation(
-			browserA,
-			identityA.deviceId,
-			"whiteboards.updateTitle",
-			{ whiteboardId: board.childWhiteboardId, title: "Offline title" },
-		);
+			await whiteboardsA.rename({
+				whiteboardId: board.childWhiteboardId,
+				title: "Offline title",
+			});
 		await expect(syncA.syncNow()).rejects.toThrow();
 		expect(await browserA.changeLog.count()).toBe(1);
 		serverOnline = true;

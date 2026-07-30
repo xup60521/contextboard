@@ -8,9 +8,11 @@
     "test:e2e": "bun test --preload ./src/preload.ts ./src/web-sync.e2e.test.ts"
   },
   "dependencies": {
+    "@contextboard/application": "workspace:*",
     "@contextboard/client-core": "workspace:*",
     "@contextboard/local-db": "workspace:*",
     "@contextboard/sync-protocol": "workspace:*",
+    "@contextboard/storage-indexeddb": "workspace:*",
     "fake-indexeddb": "^6.2.4",
     "fflate": "^0.8.2"
   },

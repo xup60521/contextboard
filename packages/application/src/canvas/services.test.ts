@@ -235,12 +235,26 @@ describe("repository canvas record changes", () => {
 		expect(document?.canvasRecordVersions).toEqual({ "shape:a": 2 });
 	});
 
-	test("keeps the legacy snapshot schema once records take over the store", async () => {
+	test("atomically migrates the legacy snapshot before applying a record delta", async () => {
 		const { whiteboards, canvas } = setup();
 		const rootId = await whiteboards.createRoot();
 		await canvas.saveDocument({
 			whiteboardId: rootId,
-			snapshot: { schema: { schemaVersion: 2 }, store: { "shape:old": {} } },
+			snapshot: {
+				schema: { schemaVersion: 2 },
+				store: {
+					"shape:old": {
+						id: "shape:old",
+						typeName: "shape",
+						type: "geo",
+					},
+					"shape:card": {
+						id: "shape:card",
+						typeName: "shape",
+						type: "markdown-card",
+					},
+				},
+			},
 		});
 		await canvas.applyRecordChanges({
 			whiteboardId: rootId,
@@ -252,8 +266,42 @@ describe("repository canvas record changes", () => {
 		const document = await canvas.getDocument(rootId);
 		expect(document?.snapshot).toEqual({
 			schema: { schemaVersion: 2 },
-			store: { "shape:new": { id: "shape:new", typeName: "shape" } },
+			store: {
+				"shape:old": {
+					id: "shape:old",
+					typeName: "shape",
+					type: "geo",
+				},
+				"shape:new": { id: "shape:new", typeName: "shape" },
+			},
 		});
+	});
+
+	test("migrates legacy boards larger than the former command cap", async () => {
+		const { whiteboards, canvas } = setup();
+		const rootId = await whiteboards.createRoot();
+		const store = Object.fromEntries(
+			Array.from({ length: 205 }, (_, index) => {
+				const id = `shape:${index}`;
+				return [id, { id, typeName: "shape", type: "geo" }];
+			}),
+		);
+		await canvas.saveDocument({
+			whiteboardId: rootId,
+			snapshot: { schema: { schemaVersion: 2 }, store },
+		});
+		await canvas.applyRecordChanges({
+			whiteboardId: rootId,
+			added: [{ id: "shape:new", typeName: "shape" }],
+			updated: [],
+			removed: [],
+		});
+		const document = await canvas.getDocument(rootId);
+		expect(
+			Object.keys(
+				(document?.snapshot as { store: Record<string, unknown> }).store,
+			),
+		).toHaveLength(206);
 	});
 
 	test("rejects record changes without a whiteboard", async () => {

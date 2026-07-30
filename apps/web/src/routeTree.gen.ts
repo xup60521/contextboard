@@ -17,16 +17,9 @@ import { Route as WhiteboardRouteRouteImport } from './routes/whiteboard/route'
 import { Route as CardsIndexRouteImport } from './routes/cards/index'
 import { Route as CardsCardIdRouteImport } from './routes/cards/$cardId'
 import { Route as CardsOrphansRouteImport } from './routes/cards/orphans'
-import { Route as DemoLocalRouteImport } from './routes/demo/local'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
-import { Route as TestIndexRouteImport } from './routes/test/index'
-import { Route as TestMarkdownRouteImport } from './routes/test/markdown'
-import { Route as TestMarkdownInWhiteboardRouteImport } from './routes/test/markdown-in-whiteboard'
-import { Route as TestStaticRendererRouteImport } from './routes/test/static-renderer'
-import { Route as TestWhiteboardInWhiteboardRouteImport } from './routes/test/whiteboard-in-whiteboard'
 import { Route as WhiteboardIndexRouteImport } from './routes/whiteboard/index'
 import { Route as WhiteboardWhiteboardIdRouteImport } from './routes/whiteboard/$whiteboardId'
-import { Route as TestSubwhiteboardSubwhiteboardidRouteImport } from './routes/test/subwhiteboard/$subwhiteboardid'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -68,43 +61,11 @@ const CardsOrphansRoute = CardsOrphansRouteImport.update({
   path: '/orphans',
   getParentRoute: () => CardsRouteRoute,
 } as any)
-const DemoLocalRoute = DemoLocalRouteImport.update({
-  id: '/demo/local',
-  path: '/demo/local',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
   id: '/demo/tanstack-query',
   path: '/demo/tanstack-query',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TestIndexRoute = TestIndexRouteImport.update({
-  id: '/test/',
-  path: '/test/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TestMarkdownRoute = TestMarkdownRouteImport.update({
-  id: '/test/markdown',
-  path: '/test/markdown',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TestMarkdownInWhiteboardRoute =
-  TestMarkdownInWhiteboardRouteImport.update({
-    id: '/test/markdown-in-whiteboard',
-    path: '/test/markdown-in-whiteboard',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const TestStaticRendererRoute = TestStaticRendererRouteImport.update({
-  id: '/test/static-renderer',
-  path: '/test/static-renderer',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TestWhiteboardInWhiteboardRoute =
-  TestWhiteboardInWhiteboardRouteImport.update({
-    id: '/test/whiteboard-in-whiteboard',
-    path: '/test/whiteboard-in-whiteboard',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const WhiteboardIndexRoute = WhiteboardIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -115,12 +76,6 @@ const WhiteboardWhiteboardIdRoute = WhiteboardWhiteboardIdRouteImport.update({
   path: '/$whiteboardId',
   getParentRoute: () => WhiteboardRouteRoute,
 } as any)
-const TestSubwhiteboardSubwhiteboardidRoute =
-  TestSubwhiteboardSubwhiteboardidRouteImport.update({
-    id: '/test/subwhiteboard/$subwhiteboardid',
-    path: '/test/subwhiteboard/$subwhiteboardid',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -130,17 +85,10 @@ export interface FileRoutesByFullPath {
   '/data': typeof DataRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
-  '/demo/local': typeof DemoLocalRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
-  '/test/markdown': typeof TestMarkdownRoute
-  '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
-  '/test/static-renderer': typeof TestStaticRendererRoute
-  '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
   '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/cards/': typeof CardsIndexRoute
-  '/test/': typeof TestIndexRoute
   '/whiteboard/': typeof WhiteboardIndexRoute
-  '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -148,17 +96,10 @@ export interface FileRoutesByTo {
   '/data': typeof DataRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
-  '/demo/local': typeof DemoLocalRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
-  '/test/markdown': typeof TestMarkdownRoute
-  '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
-  '/test/static-renderer': typeof TestStaticRendererRoute
-  '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
   '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/cards': typeof CardsIndexRoute
-  '/test': typeof TestIndexRoute
   '/whiteboard': typeof WhiteboardIndexRoute
-  '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -169,17 +110,10 @@ export interface FileRoutesById {
   '/data': typeof DataRoute
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
-  '/demo/local': typeof DemoLocalRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
-  '/test/markdown': typeof TestMarkdownRoute
-  '/test/markdown-in-whiteboard': typeof TestMarkdownInWhiteboardRoute
-  '/test/static-renderer': typeof TestStaticRendererRoute
-  '/test/whiteboard-in-whiteboard': typeof TestWhiteboardInWhiteboardRoute
   '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/cards/': typeof CardsIndexRoute
-  '/test/': typeof TestIndexRoute
   '/whiteboard/': typeof WhiteboardIndexRoute
-  '/test/subwhiteboard/$subwhiteboardid': typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -191,17 +125,10 @@ export interface FileRouteTypes {
     | '/data'
     | '/cards/$cardId'
     | '/cards/orphans'
-    | '/demo/local'
     | '/demo/tanstack-query'
-    | '/test/markdown'
-    | '/test/markdown-in-whiteboard'
-    | '/test/static-renderer'
-    | '/test/whiteboard-in-whiteboard'
     | '/whiteboard/$whiteboardId'
     | '/cards/'
-    | '/test/'
     | '/whiteboard/'
-    | '/test/subwhiteboard/$subwhiteboardid'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -209,17 +136,10 @@ export interface FileRouteTypes {
     | '/data'
     | '/cards/$cardId'
     | '/cards/orphans'
-    | '/demo/local'
     | '/demo/tanstack-query'
-    | '/test/markdown'
-    | '/test/markdown-in-whiteboard'
-    | '/test/static-renderer'
-    | '/test/whiteboard-in-whiteboard'
     | '/whiteboard/$whiteboardId'
     | '/cards'
-    | '/test'
     | '/whiteboard'
-    | '/test/subwhiteboard/$subwhiteboardid'
   id:
     | '__root__'
     | '/'
@@ -229,17 +149,10 @@ export interface FileRouteTypes {
     | '/data'
     | '/cards/$cardId'
     | '/cards/orphans'
-    | '/demo/local'
     | '/demo/tanstack-query'
-    | '/test/markdown'
-    | '/test/markdown-in-whiteboard'
-    | '/test/static-renderer'
-    | '/test/whiteboard-in-whiteboard'
     | '/whiteboard/$whiteboardId'
     | '/cards/'
-    | '/test/'
     | '/whiteboard/'
-    | '/test/subwhiteboard/$subwhiteboardid'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -248,14 +161,7 @@ export interface RootRouteChildren {
   WhiteboardRouteRoute: typeof WhiteboardRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   DataRoute: typeof DataRoute
-  DemoLocalRoute: typeof DemoLocalRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
-  TestMarkdownRoute: typeof TestMarkdownRoute
-  TestMarkdownInWhiteboardRoute: typeof TestMarkdownInWhiteboardRoute
-  TestStaticRendererRoute: typeof TestStaticRendererRoute
-  TestWhiteboardInWhiteboardRoute: typeof TestWhiteboardInWhiteboardRoute
-  TestIndexRoute: typeof TestIndexRoute
-  TestSubwhiteboardSubwhiteboardidRoute: typeof TestSubwhiteboardSubwhiteboardidRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -316,53 +222,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CardsOrphansRouteImport
       parentRoute: typeof CardsRouteRoute
     }
-    '/demo/local': {
-      id: '/demo/local'
-      path: '/demo/local'
-      fullPath: '/demo/local'
-      preLoaderRoute: typeof DemoLocalRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/demo/tanstack-query': {
       id: '/demo/tanstack-query'
       path: '/demo/tanstack-query'
       fullPath: '/demo/tanstack-query'
       preLoaderRoute: typeof DemoTanstackQueryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/test/': {
-      id: '/test/'
-      path: '/test'
-      fullPath: '/test/'
-      preLoaderRoute: typeof TestIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/test/markdown': {
-      id: '/test/markdown'
-      path: '/test/markdown'
-      fullPath: '/test/markdown'
-      preLoaderRoute: typeof TestMarkdownRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/test/markdown-in-whiteboard': {
-      id: '/test/markdown-in-whiteboard'
-      path: '/test/markdown-in-whiteboard'
-      fullPath: '/test/markdown-in-whiteboard'
-      preLoaderRoute: typeof TestMarkdownInWhiteboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/test/static-renderer': {
-      id: '/test/static-renderer'
-      path: '/test/static-renderer'
-      fullPath: '/test/static-renderer'
-      preLoaderRoute: typeof TestStaticRendererRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/test/whiteboard-in-whiteboard': {
-      id: '/test/whiteboard-in-whiteboard'
-      path: '/test/whiteboard-in-whiteboard'
-      fullPath: '/test/whiteboard-in-whiteboard'
-      preLoaderRoute: typeof TestWhiteboardInWhiteboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/whiteboard/': {
@@ -378,13 +242,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/whiteboard/$whiteboardId'
       preLoaderRoute: typeof WhiteboardWhiteboardIdRouteImport
       parentRoute: typeof WhiteboardRouteRoute
-    }
-    '/test/subwhiteboard/$subwhiteboardid': {
-      id: '/test/subwhiteboard/$subwhiteboardid'
-      path: '/test/subwhiteboard/$subwhiteboardid'
-      fullPath: '/test/subwhiteboard/$subwhiteboardid'
-      preLoaderRoute: typeof TestSubwhiteboardSubwhiteboardidRouteImport
-      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -425,14 +282,7 @@ const rootRouteChildren: RootRouteChildren = {
   WhiteboardRouteRoute: WhiteboardRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   DataRoute: DataRoute,
-  DemoLocalRoute: DemoLocalRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
-  TestMarkdownRoute: TestMarkdownRoute,
-  TestMarkdownInWhiteboardRoute: TestMarkdownInWhiteboardRoute,
-  TestStaticRendererRoute: TestStaticRendererRoute,
-  TestWhiteboardInWhiteboardRoute: TestWhiteboardInWhiteboardRoute,
-  TestIndexRoute: TestIndexRoute,
-  TestSubwhiteboardSubwhiteboardidRoute: TestSubwhiteboardSubwhiteboardidRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

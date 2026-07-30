@@ -1,7 +1,14 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import {
+	useApplicationRuntime,
+	useApplicationValue,
+} from "@contextboard/application";
+import {
+	CardPreviewDialog,
+	type Id,
+} from "@contextboard/web-ui";
 import type { JSONContent } from "@tiptap/core";
-import { useQuery } from "#/integrations/local/react";
 import { FileText, Layers } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReadonlyRichTextPreview } from "@contextboard/editor";
@@ -14,11 +21,8 @@ import {
 	CommandList,
 } from "#/components/ui/command";
 import { Dialog, DialogContent } from "#/components/ui/dialog";
-import { api } from "#/integrations/local/api";
-import type { Id } from "#/integrations/local/types";
 type CardSearchResult = { kind: "card"; id: Id<"cards">; title: string; preview: string; content: JSONContent; boardWhiteboardId: Id<"whiteboards"> | null; shapeId: string | null };
 type WhiteboardSearchResult = { kind: "whiteboard"; id: Id<"whiteboards">; title: string; boardWhiteboardId: Id<"whiteboards"> | null; shapeId: string | null };
-import { CardPreviewDialog } from "./CardPreviewDialog";
 
 type Mode = "global" | "local";
 
@@ -36,6 +40,7 @@ function whiteboardValue(whiteboard: WhiteboardSearchResult) {
 
 export function CommandPalette() {
 	const navigate = useNavigate();
+	const runtime = useApplicationRuntime();
 	const params = useParams({ strict: false });
 	const currentWhiteboardId =
 		(params.whiteboardId as Id<"whiteboards"> | undefined) ?? null;
@@ -74,17 +79,25 @@ export function CommandPalette() {
 
 	const isLocal = mode === "local" && currentWhiteboardId !== null;
 
-	const globalResults = useQuery(
-		api.search.searchGlobal,
-		open && !isLocal ? { term: debouncedQuery } : "skip",
+	const searchState = useApplicationValue(
+		() =>
+			open && runtime.search
+				? runtime.search.search({
+						term: debouncedQuery,
+						...(isLocal && currentWhiteboardId
+							? { whiteboardId: currentWhiteboardId }
+							: {}),
+					})
+				: Promise.resolve({ cards: [], whiteboards: [] }),
+		[open, isLocal, currentWhiteboardId, debouncedQuery, runtime.search],
 	);
-	const localResults = useQuery(
-		api.search.searchInWhiteboard,
-		open && isLocal && currentWhiteboardId
-			? { whiteboardId: currentWhiteboardId, term: debouncedQuery }
-			: "skip",
-	);
-	const results = isLocal ? localResults : globalResults;
+	const results =
+		searchState.status === "ready"
+			? (searchState.data as {
+					cards: CardSearchResult[];
+					whiteboards: WhiteboardSearchResult[];
+				})
+			: undefined;
 
 	const whiteboards = useMemo(() => results?.whiteboards ?? [], [results]);
 	const cards = useMemo(() => results?.cards ?? [], [results]);

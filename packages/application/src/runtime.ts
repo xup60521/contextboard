@@ -86,10 +86,37 @@ export type CardSearchResult = {
 	shapeId: string | null;
 };
 
+export type GlobalCardSearchResult = CardSearchResult & {
+	kind: "card";
+	content: unknown;
+};
+
+export type WhiteboardSearchResult = {
+	kind: "whiteboard";
+	id: string;
+	title: string;
+	boardWhiteboardId: string | null;
+	shapeId: string | null;
+};
+
+export type SearchResults = {
+	cards: GlobalCardSearchResult[];
+	whiteboards: WhiteboardSearchResult[];
+};
+
+export interface SearchService {
+	search(input: {
+		term: string;
+		whiteboardId?: string;
+		limit?: number;
+	}): Promise<SearchResults>;
+}
+
 /** The narrow card capability the shared card UI is allowed to depend on. */
 export interface CardsService {
 	list(options?: ListCardsOptions): Promise<CardSummary[]>;
 	get(cardId: string): Promise<CardDetail | null>;
+	getMany(cardIds: string[]): Promise<Array<CardDetail | null>>;
 	create(input?: { content?: unknown }): Promise<string>;
 	updateContent(input: UpdateCardContentInput): Promise<number>;
 	delete(cardId: string): Promise<void>;
@@ -334,6 +361,7 @@ export interface ApplicationRuntime {
 	whiteboards?: WhiteboardsService;
 	canvas?: CanvasService;
 	files?: FileRuntime;
+	search?: SearchService;
 	navigation: NavigationRuntime;
 	sync?: SyncRuntime;
 	ui?: {

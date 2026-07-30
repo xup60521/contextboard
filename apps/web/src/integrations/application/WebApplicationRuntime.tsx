@@ -4,13 +4,14 @@ import {
 	createRepositoryCanvasService,
 	createRepositoryCardsService,
 	createRepositoryWhiteboardsService,
+	createRepositorySearchService,
 } from "@contextboard/application";
-import { IndexedDbWorkspaceRepository } from "@contextboard/storage-indexeddb";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";
 import { useLocalDatabase } from "../local/provider";
 import { useSyncRuntime } from "../sync/provider";
 import { createWebFileRuntime } from "./webFileRuntime";
+import { getWebWorkspaceRepository } from "./repository";
 
 export function WebApplicationRuntime({ children }: { children: ReactNode }) {
 	const local = useLocalDatabase();
@@ -19,7 +20,7 @@ export function WebApplicationRuntime({ children }: { children: ReactNode }) {
 
 	const runtime = useMemo<ApplicationRuntime | null>(() => {
 		if (local.status !== "ready") return null;
-		const repository = new IndexedDbWorkspaceRepository(local.database);
+		const repository = getWebWorkspaceRepository(local.database);
 		return {
 			platform: "web",
 			workspaceId: local.workspaceId,
@@ -32,7 +33,8 @@ export function WebApplicationRuntime({ children }: { children: ReactNode }) {
 			canvas: createRepositoryCanvasService(repository, {
 				deviceId: local.deviceId,
 			}),
-			files: createWebFileRuntime(local.database, local.deviceId),
+			search: createRepositorySearchService(repository),
+			files: createWebFileRuntime(repository, local.deviceId),
 			navigation: {
 				cardsHref: () => "/cards?orphan=&sort=title&q=",
 				cardHref: (cardId) => `/cards/${encodeURIComponent(cardId)}`,

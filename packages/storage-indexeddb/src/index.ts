@@ -24,6 +24,7 @@ import { executeEntityCommand, queryEntities } from "./entity-store";
  */
 export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
 	#listeners = new Set<WorkspaceChangeListener>();
+	#localListeners = new Set<WorkspaceChangeListener>();
 
 	constructor(private readonly database: ContextboardDatabase) {}
 
@@ -34,12 +35,18 @@ export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
 	async execute<T>(command: DomainCommand<T>): Promise<T> {
 		const result = await executeEntityCommand(this.database, command);
 		for (const listener of this.#listeners) listener();
+		for (const listener of this.#localListeners) listener();
 		return result as T;
 	}
 
 	subscribe(listener: WorkspaceChangeListener) {
 		this.#listeners.add(listener);
 		return () => this.#listeners.delete(listener);
+	}
+
+	subscribeLocal(listener: WorkspaceChangeListener) {
+		this.#localListeners.add(listener);
+		return () => this.#localListeners.delete(listener);
 	}
 
 	getPendingBatches(limit: number) {

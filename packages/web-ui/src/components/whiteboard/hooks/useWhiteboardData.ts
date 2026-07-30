@@ -1,4 +1,5 @@
 import {
+	fileSrc,
 	type CanvasItem,
 	type WhiteboardBreadcrumb,
 	type WhiteboardDetail,
@@ -62,9 +63,19 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	const [breadcrumbs, setBreadcrumbs] = useState<
 		WhiteboardBreadcrumb[] | undefined
 	>();
-	const [items, setItems] = useState<CanvasItem[] | undefined>();
-	const [tldrawDocument, setTldrawDocument] =
-		useState<TldrawDocumentResult>(null);
+	const canvasKey = whiteboardId ?? "__root__";
+	const [canvasData, setCanvasData] = useState<
+		| {
+				key: string;
+				items: CanvasItem[];
+				document: TldrawDocumentResult;
+		  }
+		| undefined
+	>();
+	const activeCanvasData =
+		canvasData?.key === canvasKey ? canvasData : undefined;
+	const items = activeCanvasData?.items;
+	const tldrawDocument = activeCanvasData?.document;
 
 	useEffect(() => {
 		if (!whiteboardId || !whiteboards) {
@@ -74,7 +85,6 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		}
 		let active = true;
 		setWhiteboard(undefined);
-		setBreadcrumbs(undefined);
 		const load = async () => {
 			const detail = await whiteboards.get(whiteboardId);
 			if (!active) return;
@@ -92,16 +102,17 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	useEffect(() => {
 		if (!canvas) return;
 		let active = true;
-		setItems(undefined);
+		setCanvasData(undefined);
 		const load = async () => {
 			const [nextItems, nextDocument] = await Promise.all([
 				canvas.listItems(whiteboardId ?? null),
 				canvas.getDocument(whiteboardId ?? null),
 			]);
 			if (!active) return;
-			setItems(nextItems);
-			setTldrawDocument(
-				nextDocument
+			setCanvasData({
+				key: canvasKey,
+				items: nextItems,
+				document: nextDocument
 					? ({
 							whiteboardId: nextDocument.whiteboardId,
 							snapshot: nextDocument.snapshot,
@@ -109,7 +120,7 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 							canvasRecordVersions: nextDocument.canvasRecordVersions,
 						} as NonNullable<TldrawDocumentResult>)
 					: null,
-			);
+			});
 		};
 		void load();
 		const unsubscribe = canvas.subscribe(() => void load());
@@ -117,7 +128,7 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			active = false;
 			unsubscribe();
 		};
-	}, [canvas, whiteboardId]);
+	}, [canvas, canvasKey, whiteboardId]);
 
 	const requireCanvas = useCallback(() => {
 		if (!canvas) throw new Error("This platform has no canvas capability");
@@ -170,11 +181,10 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		async ({ file }: { storageId: Id<"_storage">; file?: File }) => {
 			if (!files || !file) throw new Error("This platform cannot store files");
 			const descriptor = await files.upload(file);
-			const url = await files.resolveUrl(descriptor.fileId);
 			return {
 				fileId: descriptor.fileId as Id<"files">,
 				storageId: descriptor.fileId as Id<"_storage">,
-				url: url ?? "",
+				url: fileSrc(descriptor.fileId),
 			};
 		},
 		[files],

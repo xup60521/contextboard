@@ -31,6 +31,7 @@ export function createDesktopFileRuntime(
 						updatedByDeviceId: deviceId,
 						deletedAt: null,
 						sha256: fileId,
+						hash: fileId,
 						contentType,
 						size: file.size,
 						refCount: 0,

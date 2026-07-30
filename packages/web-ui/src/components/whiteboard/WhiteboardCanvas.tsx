@@ -72,6 +72,8 @@ const whiteboardComponents = {
 	MenuPanel: CustomMenuPanel,
 } satisfies TLComponents;
 
+const LOADING_INDICATOR_DELAY_MS = 200;
+
 export function WhiteboardCanvas({
 	whiteboardId,
 	focusShapeId = null,
@@ -303,12 +305,18 @@ export function WhiteboardCanvas({
 
 	// Render as an overlay above the persistent <Tldraw> instead of replacing it,
 	// so the editor is never unmounted while a board's data is (re)loading.
-	const overlayLabel = !whiteboardId
-		? null
-		: whiteboard === undefined || breadcrumbs === undefined
-			? "Loading whiteboard..."
-			: whiteboard === null
-				? "Whiteboard not found."
+	const whiteboardIsLoading =
+		whiteboardId !== null &&
+		(whiteboard === undefined || breadcrumbs === undefined);
+	const showLoadingIndicator = useDelayedVisibility(
+		whiteboardIsLoading,
+		LOADING_INDICATOR_DELAY_MS,
+	);
+	const overlayLabel =
+		whiteboardId && whiteboard === null
+			? "Whiteboard not found."
+			: showLoadingIndicator
+				? "Loading whiteboard..."
 				: null;
 
 	const displayedBreadcrumbs = whiteboardId ? (breadcrumbs ?? []) : [];
@@ -324,10 +332,10 @@ export function WhiteboardCanvas({
 						>
 							Root
 						</a>
-						{displayedBreadcrumbs.map((crumb) => (
+						{displayedBreadcrumbs.map((crumb, index) => (
 							<span key={crumb._id} className="flex min-w-0 items-center gap-2">
 								<span className="text-[var(--muted-foreground)]">/</span>
-								{crumb._id === whiteboardId ? (
+								{index === displayedBreadcrumbs.length - 1 ? (
 									<EditableWhiteboardTitle
 										whiteboardId={crumb._id}
 										title={crumb.title}
@@ -437,6 +445,24 @@ export function WhiteboardCanvas({
 			<WhiteboardCardPreviewLayer currentWhiteboardId={whiteboardId} />
 		</main>
 	);
+}
+
+function useDelayedVisibility(visible: boolean, delayMs: number) {
+	const [delayedVisible, setDelayedVisible] = useState(false);
+
+	useEffect(() => {
+		if (!visible) {
+			setDelayedVisible(false);
+			return;
+		}
+
+		const timer = window.setTimeout(() => {
+			setDelayedVisible(true);
+		}, delayMs);
+		return () => window.clearTimeout(timer);
+	}, [delayMs, visible]);
+
+	return visible && delayedVisible;
 }
 
 function WhiteboardLoadingOverlay({ label }: { label: string }) {

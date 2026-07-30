@@ -3,9 +3,13 @@ import {
 	type CardReferenceRuntime,
 	type ImageUploadRuntime,
 } from "@contextboard/editor";
-import { useApplicationRuntime } from "@contextboard/application";
+import {
+	fileSrc,
+	useApplicationRuntime,
+} from "@contextboard/application";
 import type { JSONContent } from "@tiptap/core";
 import { useCallback, useMemo } from "react";
+import { useResolvedCardContent } from "./useResolvedCardContent";
 
 export type CardDocumentEditorProps = {
 	cardId?: string;
@@ -37,16 +41,15 @@ export function CardDocumentEditor({
 	...props
 }: CardDocumentEditorProps) {
 	const runtime = useApplicationRuntime();
+	const resolvedContent = useResolvedCardContent(content ?? { type: "doc" });
 	const upload = useCallback<ImageUploadRuntime>(
 		async (file) => {
 			if (!runtime.files) throw new Error("File storage is unavailable.");
 			const descriptor = await runtime.files.upload(file);
-			const src = await runtime.files.resolveUrl(descriptor.fileId);
-			if (!src) throw new Error("Uploaded image could not be read.");
 			return {
 				fileId: descriptor.fileId,
 				storageId: descriptor.fileId,
-				src,
+				src: fileSrc(descriptor.fileId),
 			};
 		},
 		[runtime.files],
@@ -65,7 +68,7 @@ export function CardDocumentEditor({
 
 	return (
 		<RichTextEditor
-			content={content}
+			content={content ? resolvedContent : null}
 			editable={editable}
 			onImageUpload={onImageUpload ?? (runtime.files ? upload : undefined)}
 			cardReferenceSupport={cardReferenceSupport ?? references}

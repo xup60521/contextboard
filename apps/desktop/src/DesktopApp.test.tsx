@@ -135,10 +135,10 @@ function createNativeStub() {
 			// write names its own entity, mirroring the SQLite command contract.
 			if (request.input?.writes) {
 				const writes = request.input.writes;
-				if (!writes.length || writes.length > 200)
+				if (!writes.length)
 					throw {
 						code: "INVALID_ARGUMENT",
-						message: "writes must contain 1 to 200 entries",
+						message: "writes must contain at least 1 entry",
 					};
 				return writes.map((write) => {
 					const rows = table(write.entity);

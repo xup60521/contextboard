@@ -1,6 +1,8 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
-import { WhiteboardCanvas } from "#/components/whiteboard/WhiteboardCanvas";
-import type { Id } from "#/integrations/local/types";
+import {
+	type Id,
+	WhiteboardCanvas,
+} from "@contextboard/web-ui";
 
 type WhiteboardSearch = {
 	/** tldraw shape id to select & zoom to once the board hydrates. */

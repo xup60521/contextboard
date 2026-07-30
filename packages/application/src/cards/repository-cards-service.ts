@@ -11,6 +11,7 @@ import {
 	isActiveRow,
 	listRows,
 } from "../repository/entities";
+import { withRetry } from "../workspace";
 import type {
 	AppendCardPlacement,
 	CardDetail,
@@ -28,6 +29,7 @@ import {
 	deriveCardMetadata,
 	normalizeCardContent,
 } from "./card-content";
+import { normalizeImageSources } from "../files/fileUrl";
 
 /**
  * The card entity as it is materialized by every backend's generic entity
@@ -180,7 +182,7 @@ export function createRepositoryCardsService(
 	 * Keeps `cardReference`/`fileReference` rows in step with the content, so
 	 * backlinks and blob refcounts behave identically on both platforms.
 	 */
-	async function reconcileReferences(cardId: string, content: unknown) {
+	async function planReferenceWrites(cardId: string, content: unknown) {
 		const [fileReferences, cardReferences, files] = await Promise.all([
 			listRows(repository, "fileReferences"),
 			listRows(repository, "cardReferences"),
@@ -201,7 +203,7 @@ export function createRepositoryCardsService(
 			{ targetType: "card", targetId: cardId, content },
 			{ now: now(), deviceId },
 		);
-		await applyWrites(repository, "cardReferences.update", plan.writes);
+		return plan.writes;
 	}
 
 	async function archive(cardIds: string[], commandType: string) {
@@ -346,24 +348,42 @@ export function createRepositoryCardsService(
 		},
 
 		async create(input = {}) {
-			const content = input.content ?? DEFAULT_CARD_CONTENT;
-			const timestamp = now();
-			const value: CardEntity = {
-				id: createId(),
-				content,
-				...deriveCardMetadata(content),
-				contentVersion: 1,
-				createdAt: timestamp,
-				updatedAt: timestamp,
-				revision: 1,
-				activePlacementCount: 0,
-				updatedByDeviceId: deviceId,
-				deletedAt: null,
-				archivedAt: null,
-			};
-			await repository.execute({ type: "cards.create", input: { value } });
-			await reconcileReferences(value.id, content);
-			return value.id;
+			const content = normalizeImageSources(
+				input.content ?? DEFAULT_CARD_CONTENT,
+			);
+			const cardId = createId();
+			return withRetry(async () => {
+				const timestamp = now();
+				const value: CardEntity = {
+					id: cardId,
+					content,
+					...deriveCardMetadata(content),
+					contentVersion: 1,
+					createdAt: timestamp,
+					updatedAt: timestamp,
+					revision: 1,
+					activePlacementCount: 0,
+					updatedByDeviceId: deviceId,
+					deletedAt: null,
+					archivedAt: null,
+				};
+				const referenceWrites = await planReferenceWrites(cardId, content);
+				await applyWrites(repository, "cards.create", [
+					{
+						entity: "card",
+						operation: "upsert",
+						id: cardId,
+						value,
+						expectedRevision: 0,
+					},
+					...referenceWrites,
+				]);
+				return cardId;
+			});
+		},
+
+		async getMany(cardIds: string[]) {
+			return Promise.all(cardIds.map((cardId) => this.get(cardId)));
 		},
 
 		async updateContent({
@@ -371,26 +391,41 @@ export function createRepositoryCardsService(
 			content,
 			expectedVersion,
 		}: UpdateCardContentInput) {
-			const row = await read(cardId);
-			if (!row) throw new Error("Card not found");
-			if (
-				typeof expectedVersion === "number" &&
-				expectedVersion !== row.contentVersion
-			)
-				throw new Error("Card was updated elsewhere");
-			if (JSON.stringify(content) === JSON.stringify(row.content))
-				return row.contentVersion;
-			const contentVersion = row.contentVersion + 1;
-			const value: CardEntity = {
-				...row,
-				content,
-				...deriveCardMetadata(content),
-				contentVersion,
-				updatedAt: now(),
-			};
-			await repository.execute({ type: "cards.update", input: { value } });
-			await reconcileReferences(cardId, content);
-			return contentVersion;
+			const normalizedContent = normalizeImageSources(content);
+			return withRetry(async () => {
+				const row = await read(cardId);
+				if (!row) throw new Error("Card not found");
+				if (
+					typeof expectedVersion === "number" &&
+					expectedVersion !== row.contentVersion
+				)
+					throw new Error("Card was updated elsewhere");
+				if (JSON.stringify(normalizedContent) === JSON.stringify(row.content))
+					return row.contentVersion;
+				const contentVersion = row.contentVersion + 1;
+				const value: CardEntity = {
+					...row,
+					content: normalizedContent,
+					...deriveCardMetadata(normalizedContent),
+					contentVersion,
+					updatedAt: now(),
+				};
+				const referenceWrites = await planReferenceWrites(
+					cardId,
+					normalizedContent,
+				);
+				await applyWrites(repository, "cards.update", [
+					{
+						entity: "card",
+						operation: "upsert",
+						id: cardId,
+						value,
+						expectedRevision: row.revision,
+					},
+					...referenceWrites,
+				]);
+				return contentVersion;
+			});
 		},
 
 		async delete(cardId: string) {
@@ -446,6 +481,7 @@ export function createRepositoryCardsService(
 				.map<CardSearchResult>((card) => {
 					const placement = preferPlacement(
 						activeItems.filter((item) => item.cardId === card.id),
+						whiteboardId,
 					);
 					return {
 						id: card.id,

@@ -174,9 +174,7 @@ export function useVisibleCardContentHydration({
 					);
 
 					try {
-						const details = await Promise.all(
-							missIds.map((cardId) => cards.get(cardId)),
-						);
+						const details = await cards.getMany(missIds);
 						const results = details
 							.filter((detail) => detail !== null)
 							.map((detail) => ({

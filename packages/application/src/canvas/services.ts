@@ -3,6 +3,7 @@ import {
 	DEFAULT_CARD_CONTENT,
 	normalizeCardContent,
 } from "../cards/card-content";
+import { normalizeImageSources } from "../files/fileUrl";
 import {
 	applyWrites,
 	type EntityRow,
@@ -204,8 +205,6 @@ async function createSubwhiteboardItem(
 		const parent = input.parentWhiteboardId
 			? (boards.find((row) => row.id === input.parentWhiteboardId) ?? null)
 			: null;
-		if (input.parentWhiteboardId && !parent)
-			throw new Error("Whiteboard not found");
 		const timestamp = now();
 		const plan = planCreateSubwhiteboard(
 			{
@@ -219,9 +218,11 @@ async function createSubwhiteboardItem(
 							pathKey: String(parent.pathKey ?? ""),
 						}
 					: null,
-				activeChildCount: boards.filter(
-					(row) => row.parentWhiteboardId === input.parentWhiteboardId,
-				).length,
+				activeChildCount: parent
+					? boards.filter(
+							(row) => row.parentWhiteboardId === parent.id,
+						).length
+					: 0,
 			},
 			{
 				boardId: createId(),
@@ -387,7 +388,9 @@ export function createRepositoryCanvasService(
 			);
 			if (!board || !isActiveRow(board))
 				throw new Error("Whiteboard not found");
-			const content = input.content ?? DEFAULT_CARD_CONTENT;
+			const content = normalizeImageSources(
+				input.content ?? DEFAULT_CARD_CONTENT,
+			);
 			const plan = planCreateCardItem(
 				{
 					whiteboardId: input.whiteboardId,
@@ -421,7 +424,9 @@ export function createRepositoryCanvasService(
 			// A pasted or duplicated shape hands over its serialized props, so the
 			// document arrives as a JSON string and must be parsed before it is
 			// stored.
-			const content = normalizeCardContent(input.content);
+			const content = normalizeImageSources(
+				normalizeCardContent(input.content),
+			);
 			const result = await withRetry(async () => {
 				const [items, cards] = await Promise.all([
 					listRows(repository, "items"),
@@ -614,10 +619,73 @@ export function createRepositoryCanvasService(
 				);
 				const writes: Parameters<typeof applyWrites>[2] = [];
 				const versions: Record<string, number> = {};
-
-				for (const payload of [...added, ...updated]) {
+				const clock = `${String(timestamp).padStart(13, "0")}:000000:${deviceId}`;
+				const incomingUpserts = new Map<string, unknown>();
+				for (const rawPayload of [...added, ...updated]) {
+					const payload = normalizeImageSources(rawPayload);
 					const id = recordIdOf(payload);
-					if (!id) continue;
+					if (id) incomingUpserts.set(id, payload);
+				}
+				const incomingRemovals = new Set(removed);
+
+				if (existing.size === 0) {
+					const legacy = await readDocumentRow(whiteboardId);
+					const store = (
+						legacy?.snapshot as
+							| { store?: Record<string, unknown> }
+							| undefined
+					)?.store;
+					if (store && typeof store === "object") {
+						const migrating = new Map<string, unknown>();
+						for (const rawPayload of Object.values(store)) {
+							const payload = normalizeImageSources(rawPayload);
+							const id = recordIdOf(payload);
+							if (!id || !payload || typeof payload !== "object") continue;
+							const record = payload as { type?: unknown };
+							if (
+								record.type === "markdown-card" ||
+								record.type === "subwhiteboard-link"
+							)
+								continue;
+							migrating.set(id, payload);
+						}
+						for (const [id, payload] of incomingUpserts)
+							migrating.set(id, payload);
+						for (const id of incomingRemovals) migrating.delete(id);
+						for (const [id, payload] of migrating) {
+							const rowId = `${whiteboardId}:${id}`;
+							const shape = payload as {
+								typeName?: unknown;
+								type?: unknown;
+							};
+							writes.push({
+								entity: "canvasRecord",
+								operation: "upsert",
+								id: rowId,
+								value: {
+									id: rowId,
+									whiteboardId,
+									recordId: id,
+									recordType: String(
+										shape.typeName ?? shape.type ?? "unknown",
+									),
+									payload,
+									createdAt: timestamp,
+									updatedAt: timestamp,
+									updatedByDeviceId: deviceId,
+									deletedAt: null,
+									clock,
+								},
+								expectedRevision: 0,
+							});
+							if (incomingUpserts.has(id)) versions[id] = 1;
+						}
+						await applyWrites(repository, "records.update", writes);
+						return { versions };
+					}
+				}
+
+				for (const [id, payload] of incomingUpserts) {
 					const prior = existing.get(id);
 					const rowId = prior?.id ?? `${whiteboardId}:${id}`;
 					const shape = payload as { typeName?: unknown; type?: unknown };
@@ -635,13 +703,14 @@ export function createRepositoryCanvasService(
 							updatedAt: timestamp,
 							updatedByDeviceId: deviceId,
 							deletedAt: null,
+							clock,
 						},
 						...(prior ? { expectedRevision: prior.revision } : {}),
 					});
 					versions[id] = (prior?.revision ?? 0) + 1;
 				}
 
-				for (const id of removed) {
+				for (const id of incomingRemovals) {
 					const prior = existing.get(id);
 					if (!prior) continue;
 					writes.push({
@@ -655,15 +724,7 @@ export function createRepositoryCanvasService(
 					// revision back and the canvas would wait forever.
 				}
 
-				// Backends cap a single command at 200 writes. Drawing deltas are
-				// per-record independent, so chunking costs no consistency here.
-				for (let index = 0; index < writes.length; index += 200) {
-					await applyWrites(
-						repository,
-						"records.update",
-						writes.slice(index, index + 200),
-					);
-				}
+				await applyWrites(repository, "records.update", writes);
 				return { versions };
 			});
 		},

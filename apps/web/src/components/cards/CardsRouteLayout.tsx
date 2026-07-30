@@ -1,6 +1,8 @@
 import { Outlet, useParams } from "@tanstack/react-router";
-import type { Id } from "#/integrations/local/types";
-import { CardDetailPage } from "./CardDetailPage";
+import {
+	CardDetailPage,
+	type Id,
+} from "@contextboard/web-ui";
 
 export function CardsRouteLayout() {
 	const { cardId } = useParams({ strict: false });

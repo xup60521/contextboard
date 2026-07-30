@@ -109,4 +109,46 @@ describe("useWhiteboardData", () => {
 		const seen = renderData(runtime, "missing-board");
 		await waitFor(() => expect(seen.current?.whiteboard).toBeNull());
 	});
+
+	test("does not expose the previous board drawing during navigation", async () => {
+		const runtime = createRuntime();
+		const firstBoardId = await runtime.whiteboards!.createRoot();
+		const secondBoardId = await runtime.whiteboards!.createRoot();
+		await runtime.canvas!.applyRecordChanges({
+			whiteboardId: firstBoardId,
+			added: [{ id: "shape:first", typeName: "shape" }],
+			updated: [],
+			removed: [],
+		});
+
+		const seen: { current: ReturnType<typeof useWhiteboardData> | null } = {
+			current: null,
+		};
+		function Probe({ whiteboardId }: { whiteboardId: string }) {
+			seen.current = useWhiteboardData(whiteboardId);
+			return null;
+		}
+		const view = render(
+			<ApplicationRuntimeProvider runtime={runtime}>
+				<Probe whiteboardId={firstBoardId} />
+			</ApplicationRuntimeProvider>,
+		);
+
+		await waitFor(() =>
+			expect(seen.current?.tldrawDocument?.whiteboardId).toBe(firstBoardId),
+		);
+
+		view.rerender(
+			<ApplicationRuntimeProvider runtime={runtime}>
+				<Probe whiteboardId={secondBoardId} />
+			</ApplicationRuntimeProvider>,
+		);
+
+		expect(seen.current?.itemQuery.status).toBe("LoadingFirstPage");
+		expect(seen.current?.tldrawDocument).toBeUndefined();
+		await waitFor(() =>
+			expect(seen.current?.itemQuery.status).toBe("Exhausted"),
+		);
+		expect(seen.current?.tldrawDocument).toBeNull();
+	});
 });

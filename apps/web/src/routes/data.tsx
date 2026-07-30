@@ -7,7 +7,7 @@ import {
 	importArchive,
 } from "#/integrations/local/archive";
 import { useLocalDatabase } from "#/integrations/local/provider";
-import { useMutation } from "#/integrations/local/react";
+import { localMutation } from "#/integrations/local/operations";
 import { useSyncRuntime } from "#/integrations/sync/provider";
 
 export const Route = createFileRoute("/data")({
@@ -18,7 +18,19 @@ export const Route = createFileRoute("/data")({
 function DataManagementPage() {
 	const local = useLocalDatabase();
 	const sync = useSyncRuntime();
-	const resolveConflict = useMutation("conflicts.resolve");
+	const resolveConflict = async (input: {
+		conflictId: string;
+		resolution: "keep-local" | "keep-remote" | "keep-both";
+	}) => {
+		if (local.status !== "ready") return;
+		await localMutation(
+			local.database,
+			local.deviceId,
+			"conflicts.resolve",
+			input,
+		);
+		sync.notifyLocalChange();
+	};
 	const unresolvedConflicts =
 		useLiveQuery(
 			() =>

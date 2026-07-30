@@ -16,7 +16,13 @@ import { useVisibleCardContentHydration } from "./useVisibleCardContentHydration
 const getCardMock = vi.fn();
 
 vi.mock("@contextboard/application", () => ({
-	useApplicationRuntime: () => ({ cards: { get: getCardMock } }),
+	useApplicationRuntime: () => ({
+		cards: {
+			get: getCardMock,
+			getMany: (cardIds: string[]) =>
+				Promise.all(cardIds.map((cardId) => getCardMock(cardId))),
+		},
+	}),
 }));
 
 vi.mock("tldraw", () => ({

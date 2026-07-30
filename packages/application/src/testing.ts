@@ -81,8 +81,8 @@ export function createMemoryWorkspaceRepository(
 			// Multi-entity atomic form: the command type is only a label, every
 			// write names its own entity and may assert an expected revision.
 			if (input.writes) {
-				if (!input.writes.length || input.writes.length > 200)
-					throw new Error("writes must contain 1 to 200 entries");
+				if (!input.writes.length)
+					throw new Error("writes must contain at least 1 entry");
 				const materialized: Record<string, unknown>[] = [];
 				for (const write of input.writes) {
 					const rows = table(write.entity);

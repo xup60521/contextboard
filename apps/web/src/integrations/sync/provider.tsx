@@ -3,13 +3,11 @@ import {
 	HttpSyncTransport,
 	HttpSyncError,
 	SyncCoordinator,
-	type WorkspaceRepository,
 } from "@contextboard/client-core";
 import {
 	adoptWorkspaceId,
 	hasWorkspaceData,
 } from "@contextboard/local-db";
-import { IndexedDbWorkspaceRepository } from "@contextboard/storage-indexeddb";
 import type { SyncStatus } from "@contextboard/sync-protocol";
 import {
 	createContext,
@@ -22,6 +20,7 @@ import {
 	useState,
 } from "react";
 import { useLocalDatabase } from "../local/provider";
+import { getWebWorkspaceRepository } from "../application/repository";
 import { bootstrapLatestCheckpoint, maybeCreateCheckpoint } from "./checkpoint";
 
 export type SyncUiState = SyncStatus & {
@@ -133,6 +132,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
 	useEffect(() => {
 		if (local.status !== "ready") return;
+		const unsubscribe = getWebWorkspaceRepository(local.database).subscribeLocal(
+			notifyLocalChange,
+		);
+		return () => {
+			unsubscribe();
+		};
+	}, [local, notifyLocalChange]);
+
+	useEffect(() => {
+		if (local.status !== "ready") return;
 		void refreshCountsRef.current();
 		if (!userId) {
 			coordinatorRef.current?.stop();
@@ -190,8 +199,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 				}
 			}
 			if (!active) return;
-			const repository: WorkspaceRepository =
-				new IndexedDbWorkspaceRepository(local.database);
+			const repository = getWebWorkspaceRepository(local.database);
 			const coordinator = new SyncCoordinator(
 				workspaceId,
 				repository,

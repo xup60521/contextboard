@@ -17,6 +17,7 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "test:e2e": "bun run --filter @contextboard/web-sync-e2e test:e2e",
+    "test:browser": "bun run --filter @contextboard/web test:browser",
     "check": "turbo run check",
     "lint": "turbo run lint",
     "format": "turbo run format",

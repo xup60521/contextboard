@@ -1,4 +1,4 @@
-import { useApplicationRuntime } from "@contextboard/application";
+import { fileSrc, useApplicationRuntime } from "@contextboard/application";
 import type { UploadedImage } from "@contextboard/editor";
 import { useCallback } from "react";
 
@@ -15,11 +15,9 @@ export function useImageUpload(): (file: File) => Promise<UploadedImage> {
 		async (file: File) => {
 			if (!files) throw new Error("This platform cannot store files");
 			const descriptor = await files.upload(file);
-			const src = await files.resolveUrl(descriptor.fileId);
-			if (!src) throw new Error("The uploaded image could not be resolved");
 			return {
 				fileId: descriptor.fileId,
-				src,
+				src: fileSrc(descriptor.fileId),
 				storageId: descriptor.fileId,
 			};
 		},

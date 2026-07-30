@@ -256,8 +256,8 @@ export async function executeEntityCommand(
 					expectedRevision: undefined,
 				},
 			];
-	if (writes.length < 1 || writes.length > 200)
-		throw new InvalidDomainArgumentError("writes must contain 1 to 200 entries");
+	if (writes.length < 1)
+		throw new InvalidDomainArgumentError("writes must contain at least 1 entry");
 	const keys = new Set<string>();
 	for (const write of writes) {
 		if (!write.id)

@@ -40,8 +40,11 @@ export type {
 	CreateSubwhiteboardResult,
 	FileDescriptor,
 	FileRuntime,
+	GlobalCardSearchResult,
 	ListCardsOptions,
 	NavigationRuntime,
+	SearchResults,
+	SearchService,
 	SyncRuntime,
 	SyncRuntimeState,
 	TldrawDocument,
@@ -50,8 +53,10 @@ export type {
 	WhiteboardBreadcrumb,
 	WhiteboardDetail,
 	WhiteboardSummary,
+	WhiteboardSearchResult,
 	WhiteboardsService,
 } from "./runtime";
+export { createRepositorySearchService } from "./search/repository-search-service";
 export {
 	type EntityRow,
 	applyWrites,
@@ -60,5 +65,10 @@ export {
 	listActiveRows,
 	listRows,
 } from "./repository/entities";
+export {
+	fileSrc,
+	normalizeImageSources,
+	parseFileSrc,
+} from "./files/fileUrl";
 export * from "./workspace";
 export * from "./canvas";

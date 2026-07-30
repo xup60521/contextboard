@@ -93,7 +93,7 @@ describe("CardDocumentEditor", () => {
 		expect(await upload(file)).toEqual({
 			fileId: "file-1",
 			storageId: "file-1",
-			src: "blob:resolved",
+			src: "contextboard-file:file-1",
 		});
 		expect(uploadMock).toHaveBeenCalledWith(file);
 		expect(richTextEditorProps?.placeholder).toBe("Type here");
