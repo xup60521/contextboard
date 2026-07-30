@@ -1,15 +1,15 @@
 import type { JSONContent } from "@tiptap/core";
-import { CardDocumentEditor } from "#/components/cards/CardDocumentEditor";
-import { useDebouncedCardSave } from "#/components/cards/useDebouncedCardSave";
-import { useCardReferenceSupport } from "#/components/editor/useCardReferenceSupport";
-import { CardPreviewDialog } from "#/components/search/CardPreviewDialog";
-import type { Id } from "#/integrations/local/types";
+import { CardDocumentEditor } from "../cards/CardDocumentEditor";
+import { useDebouncedCardSave } from "../cards/useDebouncedCardSave";
+import { useCardReferenceSupport } from "./useCardReferenceSupport";
+import { CardPreviewDialog } from "../cards/CardPreviewDialog";
 
-export type CardEditorPaneProps = {
-	cardId: Id<"cards">;
+
+type CardEditorPaneProps = {
+	cardId: string;
 	content: JSONContent;
 	/** The current board context for empty-`@` recent-card suggestions. */
-	whiteboardId?: Id<"whiteboards"> | null;
+	whiteboardId?: string | null;
 	className?: string;
 	contentClassName?: string;
 	onEditorReady?: () => void;
@@ -25,7 +25,7 @@ export function CardEditorPane({
 	content,
 	whiteboardId,
 	className = "notion-editor seamless",
-	contentClassName = "min-h-[60vh] bg-[var(--bg-base)]",
+	contentClassName = "min-h-[60vh]",
 	onEditorReady,
 }: CardEditorPaneProps) {
 	const { support, previewCardId, closePreview } =

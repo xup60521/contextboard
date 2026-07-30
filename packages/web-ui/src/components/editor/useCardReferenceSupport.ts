@@ -1,11 +1,9 @@
-import { useLocalClient } from "#/integrations/local/react";
+import { useApplicationRuntime } from "@contextboard/application";
+import type { CardReferenceSupport } from "@contextboard/editor";
 import { useCallback, useMemo, useState } from "react";
-import { api } from "#/integrations/local/api";
-import type { Id } from "#/integrations/local/types";
-import type { CardReferenceSupport } from "./card-reference/types";
 
 type CardReferenceSupportOptions = {
-	onOpenPreview?: (cardId: Id<"cards">) => void;
+	onOpenPreview?: (cardId: string) => void;
 };
 
 /**
@@ -14,34 +12,32 @@ type CardReferenceSupportOptions = {
  * owns the modifier-click preview state so the wrapper can render the dialog.
  */
 export function useCardReferenceSupport(
-	whiteboardId: Id<"whiteboards"> | null | undefined,
+	whiteboardId: string | null | undefined,
 	options?: CardReferenceSupportOptions,
 ): {
 	support: CardReferenceSupport;
-	previewCardId: Id<"cards"> | null;
+	previewCardId: string | null;
 	closePreview: () => void;
 } {
-	const localClient = useLocalClient();
-	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
+	const { cards } = useApplicationRuntime();
+	const [previewCardId, setPreviewCardId] = useState<string | null>(null);
 
 	const search = useCallback(
-		async (query: string) => {
-			const term = query.trim();
-			return await localClient.query(
-				api.search.searchCardsForReference,
-				whiteboardId ? { term, whiteboardId } : { term },
-			);
-		},
-		[localClient, whiteboardId],
+		async (query: string) =>
+			await cards.search({
+				query: query.trim(),
+				whiteboardId: whiteboardId ?? undefined,
+			}),
+		[cards, whiteboardId],
 	);
 
 	const onOpenPreview = useCallback(
 		(cardId: string) => {
 			if (options?.onOpenPreview) {
-				options.onOpenPreview(cardId as Id<"cards">);
+				options.onOpenPreview(cardId);
 				return;
 			}
-			setPreviewCardId(cardId as Id<"cards">);
+			setPreviewCardId(cardId);
 		},
 		[options],
 	);

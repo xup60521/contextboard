@@ -106,6 +106,12 @@ export interface CardsService {
 		query: string;
 		limit?: number;
 		excludeCardId?: string;
+		/**
+		 * Scopes an *empty* query to the cards placed on this board, so the `@`
+		 * picker opens on the current board's recent cards. Ignored once the
+		 * user types, because search is global.
+		 */
+		whiteboardId?: string;
 	}): Promise<CardSearchResult[]>;
 	/** Notifies when the underlying store changed, so views can revalidate. */
 	subscribe(listener: () => void): () => void;

@@ -402,17 +402,33 @@ export function createRepositoryCardsService(
 			return append(cardIds, whiteboardId);
 		},
 
-		async search({ query, limit = DEFAULT_SEARCH_LIMIT, excludeCardId }) {
+		async search({
+			query,
+			limit = DEFAULT_SEARCH_LIMIT,
+			excludeCardId,
+			whiteboardId,
+		}) {
 			const term = query.trim().toLocaleLowerCase();
 			const [cards, items] = await Promise.all([
 				listCards(),
 				listRows(repository, "items"),
 			]);
 			const activeItems = items.filter(isActiveRow);
+			// An empty query is "show me this board's recent cards"; typing makes
+			// the search global.
+			const boardCardIds =
+				!term && whiteboardId
+					? new Set(
+							activeItems
+								.filter((item) => item.whiteboardId === whiteboardId)
+								.map((item) => item.cardId),
+						)
+					: null;
 			return cards
 				.filter(
 					(card) =>
 						card.id !== excludeCardId &&
+						(!boardCardIds || boardCardIds.has(card.id)) &&
 						(!term ||
 							`${card.derivedTitle} ${card.plainText}`
 								.toLocaleLowerCase()

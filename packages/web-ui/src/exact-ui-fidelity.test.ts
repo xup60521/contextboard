@@ -74,6 +74,14 @@ const pairs = [
 		"apps/web/src/components/whiteboard/EditableWhiteboardTitle.tsx",
 		"packages/web-ui/src/components/whiteboard/EditableWhiteboardTitle.tsx",
 	],
+	[
+		"apps/web/src/components/search/CardPreviewDialog.tsx",
+		"packages/web-ui/src/components/cards/CardPreviewDialog.tsx",
+	],
+	[
+		"apps/web/src/components/editor/CardEditorPane.tsx",
+		"packages/web-ui/src/components/editor/CardEditorPane.tsx",
+	],
 ] as const;
 
 function read(relativePath: string) {

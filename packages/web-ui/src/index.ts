@@ -58,7 +58,6 @@ export { DeleteCardDialog } from "./components/cards/DeleteCardDialog.tsx";
 export { CardGrid } from "./components/cards/CardGrid.tsx";
 export { CardLibraryToolbar } from "./components/cards/CardLibraryToolbar.tsx";
 export { useCardLibraryActions } from "./components/cards/useCardLibraryActions.ts";
-export { CardPreviewDialog } from "./components/cards/CardPreviewDialog.tsx";
 export { CardLibraryPage } from "./components/cards/CardLibraryPage.tsx";
 export type {
 	CardLibrarySearchAdapter,
@@ -90,3 +89,12 @@ export {
 	type WhiteboardNavigation,
 } from "./components/whiteboard/navigation.ts";
 export type { Id } from "./components/whiteboard/ids.ts";
+
+export {
+	CardPreviewDialog,
+	isInsidePreviewAllowedPortal,
+	shouldPreventPreviewOutsideDismiss,
+} from "./components/cards/CardPreviewDialog.tsx";
+export { CardEditorPane } from "./components/editor/CardEditorPane.tsx";
+export { useCardReferenceSupport } from "./components/editor/useCardReferenceSupport.ts";
+export { useImageUpload } from "./components/editor/useImageUpload.ts";
