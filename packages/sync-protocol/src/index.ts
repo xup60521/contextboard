@@ -14,9 +14,7 @@ export function deterministicEntityId(
 	namespace: string,
 	...parts: string[]
 ): string {
-	const value = parts
-		.map((part) => `${part.length}:${part}`)
-		.join("|");
+	const value = parts.map((part) => `${part.length}:${part}`).join("|");
 	const digest = [
 		hash32(value, 0x811c9dc5),
 		hash32(value, 0x9e3779b9),
@@ -146,10 +144,22 @@ export type WorkspaceMembership = {
 	workspaceId: string;
 	role: "owner" | "member";
 	createdAt: number;
+	isDefault: boolean;
+};
+
+export type WorkspaceRedirect = {
+	fromWorkspaceId: string;
+	toWorkspaceId: string;
+	mergedAt: number;
 };
 
 export type ListWorkspacesResponse = {
 	workspaces: WorkspaceMembership[];
+	redirects: WorkspaceRedirect[];
+};
+
+export type SelectWorkspaceRequest = {
+	workspaceId: string;
 };
 
 export type ClaimWorkspaceRequest = {
@@ -297,9 +307,10 @@ export function parseBlobRequestHeaders(
 	const read = (name: string) =>
 		value instanceof Headers ? value.get(name) : value[name];
 	const contentLength = read("x-contextboard-blob-size");
-	const size = contentLength === null || contentLength === undefined
-		? Number.NaN
-		: Number(contentLength);
+	const size =
+		contentLength === null || contentLength === undefined
+			? Number.NaN
+			: Number(contentLength);
 	return {
 		workspaceId: parseWorkspaceId(read("x-contextboard-workspace")),
 		contentType: (() => {
@@ -429,15 +440,20 @@ export function parseClaimWorkspaceRequest(
 	};
 }
 
+export function parseSelectWorkspaceRequest(
+	value: unknown,
+): SelectWorkspaceRequest {
+	if (!isRecord(value))
+		throw new SyncProtocolError("Request must be an object");
+	return { workspaceId: parseWorkspaceId(value.workspaceId) };
+}
+
 export function parseCheckpointDescriptor(
 	value: unknown,
 ): CheckpointDescriptor {
 	if (!isRecord(value))
 		throw new SyncProtocolError("Checkpoint descriptor must be an object");
-	if (
-		!Number.isFinite(value.createdAt) ||
-		Number(value.createdAt) < 0
-	)
+	if (!Number.isFinite(value.createdAt) || Number(value.createdAt) < 0)
 		throw new SyncProtocolError("Checkpoint timestamp is invalid");
 	const coveredCursor = parseSyncCursor(value.coveredCursor);
 	if (coveredCursor === null)

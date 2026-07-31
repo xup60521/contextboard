@@ -18,6 +18,7 @@ apps/*/src-tauri/target
 .output
 .vinxi
 .data
+.backups
 __unconfig*
 todos.json
 package-lock.json

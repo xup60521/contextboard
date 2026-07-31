@@ -98,8 +98,31 @@ Because GitHub's OAuth callback resolves against `BETTER_AUTH_URL`, the Web app
 must be running for desktop sign-in: use `bun run dev`, not `bun run dev:desktop`.
 
 A device with no local data joins the workspace already on the account; a device
-that already holds data claims its own. Desktop does not use checkpoints: it
-replays the change log from its persisted cursor.
+that already holds data remains attached to its current workspace. A migrated
+workspace follows a server redirect and replays the canonical change log from
+the beginning. Local data is never silently claimed by another account; an
+unlinked non-empty workspace must be explicitly created or selected.
+
+To merge an existing workspace safely, stop the sync service and clients, run a
+dry run, then apply the migration. The command validates account membership,
+device sequences, change IDs, and blobs, and creates a recoverable server
+backup before applying:
+
+```powershell
+bun run --filter @contextboard/sync-server migrate:workspace -- `
+  --source contextboard-desktop `
+  --target <account-default-workspace-id> `
+  --dry-run
+bun run --filter @contextboard/sync-server migrate:workspace -- `
+  --source contextboard-desktop `
+  --target <account-default-workspace-id> `
+  --apply
+```
+
+The desktop app keeps its native SQLite workspace and device identity during a
+redirect, but resets its sync cursor so it cannot miss earlier changes in the
+target workspace. Desktop does not use checkpoints: it replays the change log
+from its persisted cursor.
 
 Three settings must line up for this to work:
 

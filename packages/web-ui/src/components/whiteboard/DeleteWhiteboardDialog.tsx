@@ -32,7 +32,8 @@ export function DeleteWhiteboardDialog({
 				<DialogHeader>
 					<DialogTitle>Delete whiteboard</DialogTitle>
 					<DialogDescription>
-						This whiteboard contains cards. What would you like to do with them?
+						This deletes this whiteboard and all nested whiteboards. What would
+						you do with their cards?
 					</DialogDescription>
 				</DialogHeader>
 				<DialogFooter>

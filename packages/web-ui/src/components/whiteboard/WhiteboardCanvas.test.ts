@@ -112,6 +112,35 @@ describe("itemToShape", () => {
 		}
 	});
 
+	test("marks hydrated cards with workspace provenance", () => {
+		const shape = itemToShape({
+			_id: "item-1",
+			workspaceId: "workspace-1",
+			kind: "card",
+			cardId: "card-1",
+			childWhiteboardId: null,
+			shapeId: "shape:card",
+			x: 20,
+			y: 40,
+			w: 320,
+			h: 160,
+			rotation: 0,
+			zIndex: 2,
+			card: {
+				_id: "card-1",
+				derivedTitle: "Card",
+				preview: "Preview",
+				version: 1,
+			},
+			childWhiteboard: null,
+		} as never);
+
+		expect(shape.type).toBe("markdown-card");
+		if (shape.type === "markdown-card") {
+			expect(shape.props.originWorkspaceId).toBe("workspace-1");
+		}
+	});
+
 	test("leaves non-markdown board items on their persisted height", () => {
 		const shape = itemToShape({
 			_id: "item-2",

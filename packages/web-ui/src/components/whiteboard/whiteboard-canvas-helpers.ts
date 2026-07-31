@@ -25,6 +25,7 @@ import { isManagedWhiteboardShapeRecord } from "./tldraw-persistence";
 
 export type BoardItemResult = {
 	_id: Id<"boardItems">;
+	workspaceId?: string;
 	kind: "card" | "subwhiteboard";
 	cardId: Id<"cards"> | null;
 	childWhiteboardId: Id<"whiteboards"> | null;
@@ -225,6 +226,7 @@ export function itemToShape(
 				}),
 				content: "",
 				cardId: item.cardId ?? undefined,
+				originWorkspaceId: item.workspaceId,
 				title: item.card?.derivedTitle,
 				preview: item.card?.preview,
 				contentLoaded: false,
@@ -267,6 +269,7 @@ function managedShapeChanged(
 			existing.props.w !== next.props.w ||
 			existing.props.content !== next.props.content ||
 			existing.props.cardId !== next.props.cardId ||
+			existing.props.originWorkspaceId !== next.props.originWorkspaceId ||
 			existing.props.title !== next.props.title ||
 			existing.props.preview !== next.props.preview ||
 			existing.props.contentLoaded !== next.props.contentLoaded ||

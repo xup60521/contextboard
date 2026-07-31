@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync, renameSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type {
 	BlobDescriptor,
@@ -7,6 +7,7 @@ import type {
 	CheckpointDescriptor,
 	PullChangesResponse,
 	PushChangesResponse,
+	WorkspaceRedirect,
 } from "@contextboard/sync-protocol";
 
 const SCHEMA = `
@@ -24,13 +25,14 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 CREATE TABLE IF NOT EXISTS change_batches (
   cursor INTEGER PRIMARY KEY AUTOINCREMENT,
-  change_id TEXT NOT NULL UNIQUE,
+  change_id TEXT NOT NULL,
   workspace_id TEXT NOT NULL,
   device_id TEXT NOT NULL,
   device_sequence INTEGER NOT NULL,
   clock TEXT NOT NULL,
   payload TEXT NOT NULL,
   created_at INTEGER NOT NULL,
+  UNIQUE (workspace_id, change_id),
   UNIQUE (workspace_id, device_id, device_sequence)
 );
 CREATE INDEX IF NOT EXISTS change_batches_workspace_cursor
@@ -59,7 +61,13 @@ CREATE TABLE IF NOT EXISTS workspace_members (
   user_id TEXT NOT NULL,
   role TEXT NOT NULL,
   created_at INTEGER NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (workspace_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS workspace_redirects (
+  from_workspace_id TEXT PRIMARY KEY,
+  to_workspace_id TEXT NOT NULL,
+  merged_at INTEGER NOT NULL
 );
 `;
 
@@ -82,6 +90,7 @@ export class SyncStore {
 		this.db = new Database(databasePath, { create: true, strict: true });
 		this.blobRoot = blobRoot;
 		this.db.exec(SCHEMA);
+		this.migrateChangeBatchConstraints();
 		const memberColumns = this.db
 			.query("PRAGMA table_info(workspace_members)")
 			.all() as Array<{ name: string }>;
@@ -90,6 +99,15 @@ export class SyncStore {
 				"ALTER TABLE workspace_members ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0",
 			);
 		}
+		if (!memberColumns.some((column) => column.name === "is_default")) {
+			this.db.exec(
+				"ALTER TABLE workspace_members ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0",
+			);
+		}
+		this.db.exec(
+			"CREATE UNIQUE INDEX IF NOT EXISTS workspace_members_one_default_per_user ON workspace_members(user_id) WHERE is_default = 1",
+		);
+		this.backfillDefaultWorkspaces();
 	}
 
 	close() {
@@ -103,7 +121,7 @@ export class SyncStore {
 			"INSERT OR IGNORE INTO workspaces(id, created_at) VALUES (?, ?)",
 		);
 		const findByChangeId = this.db.prepare(
-			"SELECT cursor, change_id, workspace_id, device_id, device_sequence FROM change_batches WHERE change_id = ?",
+			"SELECT cursor, change_id, workspace_id, device_id, device_sequence FROM change_batches WHERE workspace_id = ? AND change_id = ?",
 		);
 		const findBySequence = this.db.prepare(
 			"SELECT cursor, change_id FROM change_batches WHERE workspace_id = ? AND device_id = ? AND device_sequence = ?",
@@ -126,7 +144,7 @@ export class SyncStore {
 			for (const batch of batches) {
 				if (batch.workspaceId !== workspaceId)
 					throw new Error("Workspace mismatch");
-				const byId = findByChangeId.get(batch.changeId) as {
+				const byId = findByChangeId.get(workspaceId, batch.changeId) as {
 					workspace_id: string;
 					device_id: string;
 					device_sequence: number;
@@ -280,9 +298,7 @@ export class SyncStore {
 				() => undefined,
 			);
 			if (renamed)
-				await Promise.resolve(Bun.file(path).delete()).catch(
-					() => undefined,
-				);
+				await Promise.resolve(Bun.file(path).delete()).catch(() => undefined);
 			throw error;
 		}
 	}
@@ -349,6 +365,71 @@ export class SyncStore {
 			: null;
 	}
 
+	private backfillDefaultWorkspaces() {
+		const users = this.db
+			.query(
+				"SELECT DISTINCT user_id FROM workspace_members WHERE is_default = 0",
+			)
+			.all() as Array<{ user_id: string }>;
+		const choose = this.db.prepare(
+			`SELECT workspace_id FROM workspace_members
+			 WHERE user_id = ? ORDER BY created_at, workspace_id LIMIT 1`,
+		);
+		const mark = this.db.prepare(
+			"UPDATE workspace_members SET is_default = 1 WHERE user_id = ? AND workspace_id = ?",
+		);
+		this.db.transaction(() => {
+			for (const { user_id } of users) {
+				const existing = this.db
+					.prepare(
+						"SELECT 1 FROM workspace_members WHERE user_id = ? AND is_default = 1 LIMIT 1",
+					)
+					.get(user_id);
+				if (existing) continue;
+				const first = choose.get(user_id) as { workspace_id: string } | null;
+				if (first) mark.run(user_id, first.workspace_id);
+			}
+		})();
+	}
+
+	private migrateChangeBatchConstraints() {
+		const indexes = this.db
+			.query("PRAGMA index_list(change_batches)")
+			.all() as Array<{ name: string; unique: number }>;
+		const hasGlobalChangeIdIndex = indexes.some((index) => {
+			if (!index.unique) return false;
+			const columns = this.db
+				.query(`PRAGMA index_info(${JSON.stringify(index.name)})`)
+				.all() as Array<{ name: string }>;
+			return columns.length === 1 && columns[0]?.name === "change_id";
+		});
+		if (!hasGlobalChangeIdIndex) return;
+		this.db.exec(`
+			BEGIN IMMEDIATE;
+			CREATE TABLE change_batches_rebuilt (
+			  cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+			  change_id TEXT NOT NULL,
+			  workspace_id TEXT NOT NULL,
+			  device_id TEXT NOT NULL,
+			  device_sequence INTEGER NOT NULL,
+			  clock TEXT NOT NULL,
+			  payload TEXT NOT NULL,
+			  created_at INTEGER NOT NULL,
+			  UNIQUE (workspace_id, change_id),
+			  UNIQUE (workspace_id, device_id, device_sequence)
+			);
+			INSERT INTO change_batches_rebuilt
+			  (cursor, change_id, workspace_id, device_id, device_sequence, clock, payload, created_at)
+			SELECT cursor, change_id, workspace_id, device_id, device_sequence, clock, payload, created_at
+			FROM change_batches ORDER BY cursor;
+			DROP TABLE change_batches;
+			ALTER TABLE change_batches_rebuilt RENAME TO change_batches;
+			CREATE INDEX change_batches_workspace_cursor
+			  ON change_batches(workspace_id, cursor);
+			COMMIT;
+		`);
+	}
+
 	isWorkspaceMember(workspaceId: string, userId: string) {
 		return Boolean(
 			this.db
@@ -360,29 +441,97 @@ export class SyncStore {
 	}
 
 	listWorkspaces(userId: string) {
-		return this.db
+		const workspaces = this.db
 			.prepare(
-				`SELECT workspace_id workspaceId, role, created_at createdAt
-				 FROM workspace_members WHERE user_id = ?
+				`SELECT workspace_id workspaceId, role, created_at createdAt,
+						is_default isDefault
+				 FROM workspace_members
+				 WHERE user_id = ?
+				   AND workspace_id NOT IN (
+						SELECT from_workspace_id FROM workspace_redirects
+					)
 				 ORDER BY created_at, workspace_id`,
 			)
 			.all(userId) as Array<{
 			workspaceId: string;
 			role: "owner" | "member";
 			createdAt: number;
+			isDefault: number;
 		}>;
+		const redirects = this.db
+			.prepare(
+				`SELECT r.from_workspace_id fromWorkspaceId,
+						r.to_workspace_id toWorkspaceId, r.merged_at mergedAt
+				 FROM workspace_redirects r
+				 JOIN workspace_members source
+				   ON source.workspace_id = r.from_workspace_id AND source.user_id = ?
+				 JOIN workspace_members target
+				   ON target.workspace_id = r.to_workspace_id AND target.user_id = ?
+				 ORDER BY r.merged_at, r.from_workspace_id`,
+			)
+			.all(userId, userId) as WorkspaceRedirect[];
+		return {
+			workspaces: workspaces.map((workspace) => ({
+				...workspace,
+				isDefault: Boolean(workspace.isDefault),
+			})),
+			redirects,
+		};
+	}
+
+	getWorkspaceRedirect(workspaceId: string, userId: string) {
+		return this.db
+			.prepare(
+				`SELECT r.from_workspace_id fromWorkspaceId,
+						r.to_workspace_id toWorkspaceId, r.merged_at mergedAt
+				 FROM workspace_redirects r
+				 JOIN workspace_members source
+				   ON source.workspace_id = r.from_workspace_id AND source.user_id = ?
+				 JOIN workspace_members target
+				   ON target.workspace_id = r.to_workspace_id AND target.user_id = ?
+				 WHERE r.from_workspace_id = ?`,
+			)
+			.get(userId, userId, workspaceId) as WorkspaceRedirect | null;
+	}
+
+	selectDefaultWorkspace(workspaceId: string, userId: string) {
+		return this.db.transaction(() => {
+			const membership = this.db
+				.prepare(
+					`SELECT workspace_id workspaceId, role, created_at createdAt
+					 FROM workspace_members WHERE workspace_id = ? AND user_id = ?`,
+				)
+				.get(workspaceId, userId) as {
+				workspaceId: string;
+				role: "owner" | "member";
+				createdAt: number;
+			} | null;
+			if (!membership) throw new WorkspaceMembershipError("Forbidden");
+			this.db
+				.prepare(
+					"UPDATE workspace_members SET is_default = 0 WHERE user_id = ?",
+				)
+				.run(userId);
+			this.db
+				.prepare(
+					"UPDATE workspace_members SET is_default = 1 WHERE workspace_id = ? AND user_id = ?",
+				)
+				.run(workspaceId, userId);
+			return { ...membership, isDefault: true };
+		})();
 	}
 
 	claimWorkspace(workspaceId: string, deviceId: string, userId: string) {
 		return this.db.transaction(() => {
 			const membership = this.db
 				.prepare(
-					`SELECT role, created_at createdAt FROM workspace_members
+					`SELECT role, created_at createdAt, is_default isDefault FROM workspace_members
 					 WHERE workspace_id = ? AND user_id = ?`,
 				)
 				.get(workspaceId, userId) as {
 				role: "owner" | "member";
 				createdAt: number;
+				isDefault: number;
 			} | null;
 			if (membership) {
 				this.db
@@ -395,6 +544,7 @@ export class SyncStore {
 					workspaceId,
 					role: membership.role,
 					createdAt: membership.createdAt,
+					isDefault: Boolean(membership.isDefault),
 					claimed: false,
 				};
 			}
@@ -406,15 +556,18 @@ export class SyncStore {
 					"Workspace already belongs to another account",
 				);
 			const createdAt = Date.now();
+			const hasMembership = this.db
+				.prepare("SELECT 1 FROM workspace_members WHERE user_id = ? LIMIT 1")
+				.get(userId);
 			this.db
 				.prepare("INSERT INTO workspaces(id, created_at) VALUES (?, ?)")
 				.run(workspaceId, createdAt);
 			this.db
 				.prepare(
-					`INSERT INTO workspace_members(workspace_id, user_id, role, created_at)
-					 VALUES (?, ?, 'owner', ?)`,
+					`INSERT INTO workspace_members(workspace_id, user_id, role, created_at, is_default)
+					 VALUES (?, ?, 'owner', ?, ?)`,
 				)
-				.run(workspaceId, userId, createdAt);
+				.run(workspaceId, userId, createdAt, hasMembership ? 0 : 1);
 			this.db
 				.prepare(
 					`INSERT INTO devices(workspace_id, device_id, last_sequence)
@@ -425,9 +578,200 @@ export class SyncStore {
 				workspaceId,
 				role: "owner" as const,
 				createdAt,
+				isDefault: !hasMembership,
 				claimed: true,
 			};
 		})();
+	}
+
+	mergeWorkspaces(
+		sourceWorkspaceId: string,
+		targetWorkspaceId: string,
+		options: { dryRun?: boolean } = {},
+	) {
+		if (sourceWorkspaceId === targetWorkspaceId)
+			throw new WorkspaceMergeError("Source and target workspaces must differ");
+		if (
+			this.db
+				.prepare(
+					"SELECT 1 FROM workspace_redirects WHERE from_workspace_id = ?",
+				)
+				.get(sourceWorkspaceId)
+		)
+			throw new WorkspaceMergeError("Source workspace is already merged");
+		if (
+			!this.db
+				.prepare("SELECT 1 FROM workspaces WHERE id = ?")
+				.get(sourceWorkspaceId) ||
+			!this.db
+				.prepare("SELECT 1 FROM workspaces WHERE id = ?")
+				.get(targetWorkspaceId)
+		)
+			throw new WorkspaceMergeError("Both workspaces must exist");
+
+		const sourceMembers = this.membersForWorkspace(sourceWorkspaceId);
+		const targetMembers = this.membersForWorkspace(targetWorkspaceId);
+		if (JSON.stringify(sourceMembers) !== JSON.stringify(targetMembers))
+			throw new WorkspaceMergeError(
+				"Workspaces must have identical memberships before merging",
+			);
+
+		const sourceBatches = this.db
+			.prepare(
+				`SELECT cursor, change_id changeId, device_id deviceId,
+						device_sequence deviceSequence, clock, payload, created_at createdAt
+				 FROM change_batches WHERE workspace_id = ? ORDER BY cursor`,
+			)
+			.all(sourceWorkspaceId) as Array<{
+			cursor: number;
+			changeId: string;
+			deviceId: string;
+			deviceSequence: number;
+			clock: string;
+			payload: string;
+			createdAt: number;
+		}>;
+		const targetChangeIds = new Map(
+			(
+				this.db
+					.prepare(
+						"SELECT change_id changeId, payload FROM change_batches WHERE workspace_id = ?",
+					)
+					.all(targetWorkspaceId) as Array<{
+					changeId: string;
+					payload: string;
+				}>
+			).map((row) => [row.changeId, row.payload]),
+		);
+		const targetSequences = new Set(
+			(
+				this.db
+					.prepare(
+						"SELECT device_id deviceId, device_sequence deviceSequence FROM change_batches WHERE workspace_id = ?",
+					)
+					.all(targetWorkspaceId) as Array<{
+					deviceId: string;
+					deviceSequence: number;
+				}>
+			).map((row) => `${row.deviceId}:${row.deviceSequence}`),
+		);
+		const batches = sourceBatches.map((row) => {
+			const payload = JSON.parse(row.payload) as ChangeBatch;
+			if (payload.workspaceId !== sourceWorkspaceId)
+				throw new WorkspaceMergeError("Source batch has an invalid workspace");
+			const existing = targetChangeIds.get(row.changeId);
+			if (existing && existing !== row.payload)
+				throw new WorkspaceMergeError(`Change ID collision: ${row.changeId}`);
+			if (targetSequences.has(`${row.deviceId}:${row.deviceSequence}`))
+				throw new WorkspaceMergeError(
+					`Device sequence collision: ${row.deviceId}:${row.deviceSequence}`,
+				);
+			return { row, payload: { ...payload, workspaceId: targetWorkspaceId } };
+		});
+
+		const sourceBlobs = this.db
+			.prepare(
+				`SELECT hash, content_type contentType, size
+				 FROM blobs WHERE workspace_id = ? ORDER BY hash`,
+			)
+			.all(sourceWorkspaceId) as Array<{
+			hash: string;
+			contentType: string;
+			size: number;
+		}>;
+		for (const blob of sourceBlobs) {
+			const sourcePath = this.blobPath(sourceWorkspaceId, blob.hash);
+			if (!existsSync(sourcePath))
+				throw new WorkspaceMergeError(`Source blob is missing: ${blob.hash}`);
+			const target = this.getBlobDescriptor(targetWorkspaceId, blob.hash);
+			if (
+				target &&
+				(target.contentType !== blob.contentType || target.size !== blob.size)
+			)
+				throw new WorkspaceMergeError(
+					`Blob descriptor collision: ${blob.hash}`,
+				);
+		}
+		const report = {
+			sourceWorkspaceId,
+			targetWorkspaceId,
+			batches: batches.length,
+			blobs: sourceBlobs.length,
+		};
+		if (options.dryRun) return { ...report, applied: false };
+
+		const copiedBlobPaths: string[] = [];
+		try {
+			for (const blob of sourceBlobs) {
+				const targetPath = this.blobPath(targetWorkspaceId, blob.hash);
+				if (!existsSync(targetPath)) {
+					mkdirSync(dirname(targetPath), { recursive: true });
+					copyFileSync(this.blobPath(sourceWorkspaceId, blob.hash), targetPath);
+					copiedBlobPaths.push(targetPath);
+				}
+			}
+			this.db.transaction(() => {
+				const insertBatch = this.db.prepare(
+					`INSERT INTO change_batches
+					 (change_id, workspace_id, device_id, device_sequence, clock, payload, created_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				);
+				const upsertDevice = this.db.prepare(
+					`INSERT INTO devices(workspace_id, device_id, last_sequence)
+					 VALUES (?, ?, ?)
+					 ON CONFLICT(workspace_id, device_id) DO UPDATE
+					 SET last_sequence = MAX(last_sequence, excluded.last_sequence)`,
+				);
+				const insertBlob = this.db.prepare(
+					`INSERT OR IGNORE INTO blobs(workspace_id, hash, content_type, size, created_at)
+					 VALUES (?, ?, ?, ?, ?)`,
+				);
+				for (const { row, payload } of batches) {
+					if (!targetChangeIds.has(row.changeId))
+						insertBatch.run(
+							row.changeId,
+							targetWorkspaceId,
+							row.deviceId,
+							row.deviceSequence,
+							row.clock,
+							JSON.stringify(payload),
+							row.createdAt,
+						);
+					upsertDevice.run(targetWorkspaceId, row.deviceId, row.deviceSequence);
+				}
+				for (const blob of sourceBlobs) {
+					insertBlob.run(
+						targetWorkspaceId,
+						blob.hash,
+						blob.contentType,
+						blob.size,
+						Date.now(),
+					);
+				}
+				this.db
+					.prepare(
+						`INSERT INTO workspace_redirects(from_workspace_id, to_workspace_id, merged_at)
+						 VALUES (?, ?, ?)`,
+					)
+					.run(sourceWorkspaceId, targetWorkspaceId, Date.now());
+			})();
+		} catch (error) {
+			for (const path of copiedBlobPaths)
+				Bun.file(path)
+					.delete()
+					.catch(() => undefined);
+			throw error;
+		}
+		return { ...report, applied: true };
+	}
+
+	private membersForWorkspace(workspaceId: string) {
+		return this.db
+			.prepare(
+				`SELECT user_id userId, role FROM workspace_members
+				 WHERE workspace_id = ? ORDER BY user_id`,
+			)
+			.all(workspaceId) as Array<{ userId: string; role: string }>;
 	}
 }
 
@@ -442,5 +786,19 @@ export class WorkspaceClaimConflictError extends Error {
 	constructor(message: string) {
 		super(message);
 		this.name = "WorkspaceClaimConflictError";
+	}
+}
+
+export class WorkspaceMembershipError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "WorkspaceMembershipError";
+	}
+}
+
+export class WorkspaceMergeError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "WorkspaceMergeError";
 	}
 }

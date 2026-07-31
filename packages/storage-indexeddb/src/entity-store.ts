@@ -128,6 +128,7 @@ const COMMAND_ACTIONS: Record<string, "upsert" | "delete"> = {
 	create: "upsert",
 	put: "upsert",
 	update: "upsert",
+	upsert: "upsert",
 	delete: "delete",
 };
 

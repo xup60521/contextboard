@@ -5,8 +5,9 @@ import {
 	useEffect,
 } from "react";
 import type { Editor, TLShapeId } from "tldraw";
-import type { Id } from "../ids";
+import type { MarkdownCardShape } from "../custom-shapes";
 import type { WhiteboardFrame } from "../frame-sync";
+import type { Id } from "../ids";
 import {
 	hasManagedShapeFrameChanged,
 	hasPersistableDrawingChange,
@@ -21,7 +22,9 @@ export function useStoreListener({
 	hydratingRef,
 	itemIdByShapeIdRef,
 	archiveItem,
-	restoreOrAdoptCardItem,
+	consumePasteIntent,
+	handleAddedCards,
+	handleRemovedCards,
 	setWhiteboardDeletePending,
 	queueFrameUpdate,
 	queueDrawingSave,
@@ -34,17 +37,9 @@ export function useStoreListener({
 		itemId: Id<"boardItems">;
 		deleteCards: boolean;
 	}) => Promise<unknown>;
-	restoreOrAdoptCardItem: (args: {
-		whiteboardId: Id<"whiteboards"> | null;
-		shapeId: string;
-		sourceCardId?: string;
-		content?: string;
-		x: number;
-		y: number;
-		w: number;
-		h: number;
-		rotation: number;
-	}) => Promise<unknown>;
+	consumePasteIntent: () => boolean;
+	handleAddedCards: (cards: MarkdownCardShape[], isPaste: boolean) => void;
+	handleRemovedCards: (shapeIds: string[]) => void;
 	setWhiteboardDeletePending: Dispatch<
 		SetStateAction<{
 			itemId: Id<"boardItems">;
@@ -60,6 +55,8 @@ export function useStoreListener({
 		const removeListener = editor.store.listen(
 			({ changes }) => {
 				if (hydratingRef.current) return;
+				const isPaste = consumePasteIntent();
+				const untrackedCards: MarkdownCardShape[] = [];
 
 				for (const record of Object.values(changes.added)) {
 					if (!isManagedWhiteboardShape(record)) continue;
@@ -73,18 +70,18 @@ export function useStoreListener({
 						continue;
 					}
 
-					void restoreOrAdoptCardItem({
-						whiteboardId,
-						shapeId: record.id,
-						sourceCardId: record.props.cardId,
-						content: record.props.content,
-						x: record.x,
-						y: record.y,
-						w: record.props.w,
-						h: record.props.h,
-						rotation: record.rotation,
-					});
+					untrackedCards.push(record);
 				}
+				handleAddedCards(untrackedCards, isPaste);
+				handleRemovedCards(
+					Object.values(changes.removed)
+						.filter(
+							(shape): shape is MarkdownCardShape =>
+								isManagedWhiteboardShape(shape) &&
+								shape.type === "markdown-card",
+						)
+						.map((shape) => shape.id),
+				);
 
 				for (const shape of Object.values(changes.removed)) {
 					if (!isManagedWhiteboardShape(shape)) continue;
@@ -94,7 +91,9 @@ export function useStoreListener({
 						if (shape.type === "subwhiteboard-link") {
 							setWhiteboardDeletePending({ itemId, shape });
 						} else {
-							void archiveItem({ itemId, deleteCards: true });
+							// Plain delete detaches the card from this board; the card itself
+							// survives (Ctrl+Delete is the global delete path).
+							void archiveItem({ itemId, deleteCards: false });
 						}
 					}
 				}
@@ -171,12 +170,14 @@ export function useStoreListener({
 		};
 	}, [
 		archiveItem,
+		consumePasteIntent,
 		editor,
 		hydratingRef,
+		handleAddedCards,
+		handleRemovedCards,
 		itemIdByShapeIdRef,
 		queueDrawingSave,
 		queueFrameUpdate,
-		restoreOrAdoptCardItem,
 		setWhiteboardDeletePending,
 		whiteboardId,
 	]);

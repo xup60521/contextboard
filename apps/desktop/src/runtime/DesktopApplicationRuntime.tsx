@@ -41,7 +41,7 @@ export function DesktopApplicationRuntime({
 			cards: createRepositoryCardsService(repository),
 			search: createRepositorySearchService(repository),
 			whiteboards: createRepositoryWhiteboardsService(repository),
-			canvas: createRepositoryCanvasService(repository),
+			canvas: createRepositoryCanvasService(repository, { workspaceId }),
 			files: createDesktopFileRuntime(repository),
 			navigation: {
 				cardsHref: () => "/cards",

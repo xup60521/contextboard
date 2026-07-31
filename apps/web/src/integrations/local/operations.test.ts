@@ -140,7 +140,7 @@ describe("local operations", () => {
 	});
 
 	test("copy-pastes a markdown card as another placement on the same board", async () => {
-		const { db, deviceId } = await setup();
+		const { db, deviceId, workspaceId } = await setup();
 		const board = await localMutation(
 			db,
 			deviceId,
@@ -162,6 +162,7 @@ describe("local operations", () => {
 				whiteboardId: board.childWhiteboardId,
 				shapeId: "shape:pasted",
 				sourceCardId: card.cardId,
+				sourceWorkspaceId: workspaceId,
 				x: 40,
 				y: 50,
 				w: 576,

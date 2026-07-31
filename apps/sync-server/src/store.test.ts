@@ -87,7 +87,8 @@ describe("SyncStore", () => {
 		expect(claimed.role).toBe("owner");
 		const retry = store.claimWorkspace("workspace-1", "device-1", "user-1");
 		expect(retry.claimed).toBe(false);
-		expect(store.listWorkspaces("user-1")).toHaveLength(1);
+		expect(store.listWorkspaces("user-1").workspaces).toHaveLength(1);
+		expect(store.listWorkspaces("user-1").workspaces[0]?.isDefault).toBe(true);
 		expect(() =>
 			store.claimWorkspace("workspace-1", "device-2", "user-2"),
 		).toThrow("another account");
@@ -105,9 +106,7 @@ describe("SyncStore", () => {
 			),
 		).rejects.toThrow("hash or size mismatch");
 		expect(store.getBlobDescriptor("workspace-1", "0".repeat(64))).toBeNull();
-		expect(
-			readdirSync(join(store.blobRoot, "workspace-1")),
-		).toHaveLength(0);
+		expect(readdirSync(join(store.blobRoot, "workspace-1"))).toHaveLength(0);
 		store.close();
 	});
 
@@ -136,6 +135,87 @@ describe("SyncStore", () => {
 		store.close();
 	});
 
+	test("assigns the oldest membership as default and supports explicit selection", () => {
+		const store = createStore();
+		store.claimWorkspace("workspace-old", "device-1", "user-1");
+		store.claimWorkspace("workspace-new", "device-2", "user-1");
+		let listing = store.listWorkspaces("user-1");
+		expect(
+			Object.fromEntries(
+				listing.workspaces.map((item) => [item.workspaceId, item.isDefault]),
+			),
+		).toEqual({ "workspace-old": true, "workspace-new": false });
+		store.selectDefaultWorkspace("workspace-new", "user-1");
+		listing = store.listWorkspaces("user-1");
+		expect(
+			listing.workspaces.find((item) => item.workspaceId === "workspace-new")
+				?.isDefault,
+		).toBe(true);
+		store.close();
+	});
+
+	test("merges source history and blobs into the target without deleting the source", async () => {
+		const store = createStore();
+		store.claimWorkspace("target", "target-device", "user-1");
+		store.claimWorkspace("source", "source-device", "user-1");
+		const targetBatch = {
+			...batch(1, "target-change"),
+			workspaceId: "target",
+			deviceId: "target-device",
+		};
+		const sourceBatch = {
+			...batch(1, "source-change"),
+			workspaceId: "source",
+			deviceId: "source-device",
+		};
+		store.push("target", [targetBatch]);
+		store.push("source", [sourceBatch]);
+		const bytes = new TextEncoder().encode("source blob");
+		const descriptor = {
+			hash: sha256(bytes),
+			contentType: "text/plain",
+			size: bytes.length,
+		};
+		await store.putBlob("source", descriptor, new Blob([bytes]).stream());
+
+		const report = store.mergeWorkspaces("source", "target");
+		expect(report).toMatchObject({ applied: true, batches: 1, blobs: 1 });
+		const pulled = store.pull("target", null, 10);
+		expect(pulled.batches.map((item) => item.changeId)).toEqual([
+			"target-change",
+			"source-change",
+		]);
+		expect(pulled.batches[1]?.workspaceId).toBe("target");
+		expect(store.getBlobDescriptor("target", descriptor.hash)).toEqual(
+			descriptor,
+		);
+		expect(
+			store.listWorkspaces("user-1").workspaces.map((item) => item.workspaceId),
+		).toEqual(["target"]);
+		expect(store.listWorkspaces("user-1").redirects).toHaveLength(1);
+		expect(store.getWorkspaceRedirect("source", "user-1")?.toWorkspaceId).toBe(
+			"target",
+		);
+		store.close();
+	});
+
+	test("aborts a merge on a target device-sequence collision", () => {
+		const store = createStore();
+		store.claimWorkspace("target", "device-1", "user-1");
+		store.claimWorkspace("source", "source-device", "user-1");
+		store.push("target", [
+			{ ...batch(1, "target-change"), workspaceId: "target" },
+		]);
+		store.push("source", [
+			{ ...batch(1, "source-change"), workspaceId: "source" },
+		]);
+		expect(() => store.mergeWorkspaces("source", "target")).toThrow(
+			"Device sequence collision",
+		);
+		expect(store.listWorkspaces("user-1").redirects).toHaveLength(0);
+		store.close();
+	});
+
 	test("an interrupted upload leaves neither a completed record nor temp file", async () => {
 		const store = createStore();
 		const bytes = new TextEncoder().encode("partial");
@@ -153,12 +233,8 @@ describe("SyncStore", () => {
 		await expect(
 			store.putBlob("workspace-1", descriptor, interrupted),
 		).rejects.toThrow("connection lost");
-		expect(
-			store.getBlobDescriptor("workspace-1", descriptor.hash),
-		).toBeNull();
-		expect(
-			readdirSync(join(store.blobRoot, "workspace-1")),
-		).toHaveLength(0);
+		expect(store.getBlobDescriptor("workspace-1", descriptor.hash)).toBeNull();
+		expect(readdirSync(join(store.blobRoot, "workspace-1"))).toHaveLength(0);
 		store.close();
 	});
 });

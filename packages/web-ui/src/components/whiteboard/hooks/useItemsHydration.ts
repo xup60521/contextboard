@@ -1,11 +1,11 @@
 import { type MutableRefObject, useEffect } from "react";
 import type { Editor, TLRecord, TLShapeId } from "tldraw";
-import type { Id } from "../ids";
 import {
 	frameFromItem,
 	resolveFrameForHydration,
 	type SequencedFrame,
 } from "../frame-sync";
+import type { Id } from "../ids";
 import {
 	type BoardItemResult,
 	bothBindingEndpointsExist,
@@ -13,6 +13,19 @@ import {
 	isMarkdownCardShape,
 	rehydrateItemShape,
 } from "../whiteboard-canvas-helpers";
+
+export function getStaleManagedShapeIds(
+	currentManagedShapes: ReadonlyArray<{ id: string }>,
+	wantedShapeIds: ReadonlySet<string>,
+	protectedShapeIds: ReadonlySet<string>,
+) {
+	return currentManagedShapes
+		.filter(
+			(shape) =>
+				!wantedShapeIds.has(shape.id) && !protectedShapeIds.has(shape.id),
+		)
+		.map((shape) => shape.id);
+}
 
 export function useItemsHydration({
 	editor,
@@ -28,6 +41,7 @@ export function useItemsHydration({
 	prioritizeCardContent,
 	scheduleVisibleCardHydration,
 	hydratingRef,
+	protectedPasteShapeIdsRef,
 	reconciliationGeneration,
 }: {
 	editor: Editor | null;
@@ -45,6 +59,7 @@ export function useItemsHydration({
 	prioritizeCardContent: (shapeId: TLShapeId, cardId: Id<"cards">) => void;
 	scheduleVisibleCardHydration: () => void;
 	hydratingRef: MutableRefObject<boolean>;
+	protectedPasteShapeIdsRef: MutableRefObject<Set<string>>;
 	reconciliationGeneration: number;
 }) {
 	// Sync persisted board items → tldraw shapes
@@ -76,6 +91,11 @@ export function useItemsHydration({
 		}
 
 		const wantedShapeIds = new Set(items.map((item) => item.shapeId));
+		for (const shapeId of protectedPasteShapeIdsRef.current) {
+			if (wantedShapeIds.has(shapeId)) {
+				protectedPasteShapeIdsRef.current.delete(shapeId);
+			}
+		}
 		const currentManagedShapes = editor
 			.getCurrentPageShapes()
 			.filter(isManagedWhiteboardShape);
@@ -83,12 +103,14 @@ export function useItemsHydration({
 		hydratingRef.current = true;
 		editor.run(
 			() => {
-				const staleShapeIds = currentManagedShapes
-					.filter((shape) => !wantedShapeIds.has(shape.id))
-					.map((shape) => shape.id);
+				const staleShapeIds = getStaleManagedShapeIds(
+					currentManagedShapes,
+					wantedShapeIds,
+					protectedPasteShapeIdsRef.current,
+				);
 
 				if (staleShapeIds.length > 0) {
-					editor.deleteShapes(staleShapeIds);
+					editor.deleteShapes(staleShapeIds as TLShapeId[]);
 				}
 
 				for (const item of items) {

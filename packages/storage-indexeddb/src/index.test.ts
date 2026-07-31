@@ -157,6 +157,131 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 		expect(batch?.changes.map((change) => change.revision)).toEqual([1, 1]);
 	});
 
+	test("commits every cascade entity type in one sync batch", async () => {
+		const { repository } = await makeRepository();
+		await repository.execute({
+			type: "whiteboards.archiveTree",
+			input: {
+				writes: [
+					{
+						entity: "whiteboard",
+						operation: "upsert",
+						id: "cascade-board",
+						value: { parentWhiteboardId: null },
+					},
+					{
+						entity: "boardItem",
+						operation: "upsert",
+						id: "cascade-item",
+						value: { whiteboardId: "cascade-board" },
+					},
+					{
+						entity: "card",
+						operation: "upsert",
+						id: "cascade-card",
+						value: { activePlacementCount: 1 },
+					},
+					{
+						entity: "tldrawDocument",
+						operation: "upsert",
+						id: "cascade-document",
+						value: { whiteboardId: "cascade-board" },
+					},
+					{
+						entity: "canvasRecord",
+						operation: "upsert",
+						id: "cascade-record",
+						value: { whiteboardId: "cascade-board" },
+					},
+					{
+						entity: "file",
+						operation: "upsert",
+						id: "cascade-file",
+						value: { sha256: "cascade-file-hash" },
+					},
+					{
+						entity: "fileReference",
+						operation: "upsert",
+						id: "cascade-file-reference",
+						value: {
+							fileId: "cascade-file",
+							targetKey: "tldrawDocument:cascade-document",
+						},
+					},
+					{
+						entity: "cardReference",
+						operation: "upsert",
+						id: "cascade-card-reference",
+						value: { sourceCardId: "cascade-card", targetCardId: "other" },
+					},
+					{
+						entity: "cardRelation",
+						operation: "upsert",
+						id: "cascade-relation",
+						value: { whiteboardId: "cascade-board" },
+					},
+				],
+			},
+		});
+
+		const pending = await repository.getPendingBatches(10);
+		expect(pending).toHaveLength(1);
+		expect(new Set(pending[0]?.changes.map((change) => change.entityType))).toEqual(
+			new Set([
+				"whiteboard",
+				"boardItem",
+				"card",
+				"tldrawDocument",
+				"canvasRecord",
+				"file",
+				"fileReference",
+				"cardReference",
+				"cardRelation",
+			]),
+		);
+		expect(pending[0]?.changes.every((change) => change.revision === 1)).toBe(
+			true,
+		);
+	});
+
+	test("preserves payloads when a multi-write tombstones entities", async () => {
+		const { database, repository } = await makeRepository();
+		await repository.execute({
+			type: "whiteboards.create",
+			input: {
+				value: {
+					id: "board-delete",
+					title: "Keep this in the tombstone",
+					parentWhiteboardId: null,
+				},
+			},
+		});
+		await repository.execute({
+			type: "whiteboards.archiveTree",
+			input: {
+				writes: [
+					{
+						entity: "whiteboard",
+						operation: "delete",
+						id: "board-delete",
+						expectedRevision: 1,
+					},
+				],
+			},
+		});
+
+		expect(await database.whiteboards.get("board-delete")).toMatchObject({
+			title: "Keep this in the tombstone",
+			deletedAt: expect.any(Number),
+		});
+		const batches = await repository.getPendingBatches(10);
+		const batch = batches.at(-1);
+		expect(batch?.changes.at(-1)?.value).toMatchObject({
+			title: "Keep this in the tombstone",
+			deletedAt: expect.any(Number),
+		});
+	});
+
 	test("rejects duplicate writes and rolls back the whole conflict", async () => {
 		const { database, repository } = await makeRepository();
 		await expect(

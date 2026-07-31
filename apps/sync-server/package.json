@@ -7,6 +7,7 @@
     "db:auth:migrate": "bun --env-file=.env.local src/migrate-auth.ts",
     "dev": "bun run db:auth:migrate && PORT=8789 bun --env-file=.env.local --watch src/index.ts",
     "db:auth:migrate:prod": "bun --env-file=.env.production src/migrate-auth.ts",
+    "migrate:workspace": "bun --env-file=.env.local src/migrate-workspace.ts",
     "start": "bun run db:auth:migrate:prod && bun --env-file=.env.production src/index.ts",
     "build": "tsc --noEmit",
     "check": "tsc --noEmit",

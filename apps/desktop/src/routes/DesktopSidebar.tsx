@@ -47,6 +47,8 @@ export function DesktopSidebar() {
 		signIn: signedIn ? undefined : sync.signIn,
 		signOut: signedIn ? sync.signOut : undefined,
 		syncNow: signedIn ? sync.syncNow : undefined,
+		createWorkspace: signedIn ? sync.createWorkspace : undefined,
+		workspaceSelectionRequired: sync.workspaceSelectionRequired,
 	};
 	return <AppSidebar footer={footer} />;
 }

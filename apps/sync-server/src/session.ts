@@ -11,6 +11,15 @@ export class SessionAccessError extends Error {
 	}
 }
 
+export class WorkspaceRedirectError extends Error {
+	readonly status = 410 as const;
+
+	constructor(readonly redirectWorkspaceId: string) {
+		super("Workspace has been merged into another workspace");
+		this.name = "WorkspaceRedirectError";
+	}
+}
+
 export async function requireWorkspaceSession(
 	auth: ContextboardAuth,
 	store: SyncStore,
@@ -18,6 +27,8 @@ export async function requireWorkspaceSession(
 	workspaceId: string,
 ) {
 	const session = await requireSession(auth, request);
+	const redirect = store.getWorkspaceRedirect(workspaceId, session.user.id);
+	if (redirect) throw new WorkspaceRedirectError(redirect.toWorkspaceId);
 	if (!store.isWorkspaceMember(workspaceId, session.user.id)) {
 		throw new SessionAccessError(403, "Forbidden");
 	}

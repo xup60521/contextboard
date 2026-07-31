@@ -14,9 +14,11 @@ function setup() {
 		now: () => ++clock,
 		createId: () => `id-${++counter}`,
 		deviceId: "device-1",
+		workspaceId: "workspace-1",
 	};
 	return {
 		repository,
+		workspaceId: options.workspaceId,
 		cards: createRepositoryCardsService(repository, options),
 		whiteboards: createRepositoryWhiteboardsService(repository, options),
 		canvas: createRepositoryCanvasService(repository, options),
@@ -33,9 +35,12 @@ describe("repository whiteboards capability", () => {
 			shapeId: "shape:b",
 		});
 
-		expect(await whiteboards.rename({ whiteboardId: rootId, title: "  My   board  " })).toBe(
-			"My board",
-		);
+		expect(
+			await whiteboards.rename({
+				whiteboardId: rootId,
+				title: "  My   board  ",
+			}),
+		).toBe("My board");
 		const detail = await whiteboards.get(rootId);
 		expect(detail?.title).toBe("My board");
 		expect(detail?.cardCount).toBe(1);
@@ -57,6 +62,74 @@ describe("repository whiteboards capability", () => {
 			rootId,
 			childWhiteboardId,
 		]);
+	});
+
+	test("archives a whiteboard tree and removes its parent links", async () => {
+		const { whiteboards, canvas, cards } = setup();
+		const parentId = await whiteboards.createRoot();
+		const child = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: parentId,
+			shapeId: "shape:child",
+		});
+		const grandchild = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: child.childWhiteboardId,
+			shapeId: "shape:grandchild",
+		});
+		const sibling = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: parentId,
+			shapeId: "shape:sibling",
+		});
+		const cardId = await cards.create();
+		await cards.appendToWhiteboard({
+			cardId,
+			whiteboardId: grandchild.childWhiteboardId,
+		});
+		await whiteboards.archive(child.childWhiteboardId);
+
+		expect(await whiteboards.get(child.childWhiteboardId)).toBeNull();
+		expect(await whiteboards.get(grandchild.childWhiteboardId)).toBeNull();
+		expect(await whiteboards.get(sibling.childWhiteboardId)).not.toBeNull();
+		expect(
+			(await canvas.listItems(parentId)).map((item) => item.childWhiteboardId),
+		).toEqual([sibling.childWhiteboardId]);
+		expect((await cards.get(cardId))?.activePlacementCount).toBe(0);
+	});
+
+	test("deleting a subwhiteboard link uses the same cascade", async () => {
+		const { whiteboards, canvas } = setup();
+		const parentId = await whiteboards.createRoot();
+		const child = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: parentId,
+			shapeId: "shape:child",
+		});
+		await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: child.childWhiteboardId,
+			shapeId: "shape:grandchild",
+		});
+
+		await canvas.archiveItem({ itemId: child.itemId, deleteCards: false });
+
+		expect(await whiteboards.get(child.childWhiteboardId)).toBeNull();
+		expect(await canvas.listItems(parentId)).toEqual([]);
+	});
+
+	test("archive options delete cards only after their final placement", async () => {
+		const { whiteboards, canvas, cards } = setup();
+		const parentId = await whiteboards.createRoot();
+		const child = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: parentId,
+			shapeId: "shape:child",
+		});
+		const cardId = await cards.create();
+		await cards.appendToWhiteboard({
+			cardId,
+			whiteboardId: child.childWhiteboardId,
+		});
+
+		await whiteboards.archive(child.childWhiteboardId, { deleteCards: true });
+
+		expect(await cards.get(cardId)).toBeNull();
+		expect(await canvas.listItems(parentId)).toEqual([]);
 	});
 
 	test("archiving a board removes it from every read path", async () => {
@@ -128,6 +201,40 @@ describe("repository canvas capability", () => {
 		expect(detail?.placements).toEqual([]);
 	});
 
+	test("archiveItem without deleteCards detaches the placement and keeps the card", async () => {
+		const { whiteboards, canvas, cards } = setup();
+		const rootId = await whiteboards.createRoot();
+		const child = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: rootId,
+			shapeId: "shape:child",
+		});
+		const { itemId, cardId } = await canvas.createCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:card",
+		});
+		await cards.appendToWhiteboard({
+			cardId,
+			whiteboardId: child.childWhiteboardId,
+		});
+
+		// Detaching one of two placements leaves the card on the other board.
+		await canvas.archiveItem({ itemId, deleteCards: false });
+		const afterFirst = await cards.get(cardId);
+		expect(afterFirst).not.toBeNull();
+		expect(afterFirst?.activePlacementCount).toBe(1);
+		expect(await canvas.listItems(rootId)).toHaveLength(1);
+		expect(await canvas.listItems(child.childWhiteboardId)).toHaveLength(1);
+
+		// Detaching the final placement leaves the card alive as an orphan.
+		const lastItemId = (await canvas.listItems(child.childWhiteboardId))[0]?.id;
+		if (!lastItemId) throw new Error("expected a placement on the child board");
+		await canvas.archiveItem({ itemId: lastItemId, deleteCards: false });
+		const afterLast = await cards.get(cardId);
+		expect(afterLast).not.toBeNull();
+		expect(afterLast?.activePlacementCount).toBe(0);
+		expect(afterLast?.placements).toEqual([]);
+	});
+
 	test("restoreOrAdoptCardItem is idempotent for a shape that already exists", async () => {
 		const { whiteboards, canvas } = setup();
 		const rootId = await whiteboards.createRoot();
@@ -155,6 +262,99 @@ describe("repository canvas capability", () => {
 		const items = await canvas.listItems(rootId);
 		expect(items).toHaveLength(1);
 		expect(items[0]?.shapeId).toBe("shape:pasted");
+	});
+
+	test("links a trusted same-workspace paste to the source card", async () => {
+		const { whiteboards, canvas, cards, workspaceId } = setup();
+		const rootId = await whiteboards.createRoot();
+		const content = {
+			type: "doc",
+			content: [{ type: "paragraph", content: [{ type: "text", text: "Linked" }] }],
+		};
+		const source = await canvas.createCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:source",
+			content,
+		});
+
+		await canvas.restoreOrAdoptCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:linked",
+			sourceCardId: source.cardId,
+			sourceWorkspaceId: workspaceId,
+			placement: "link",
+			content,
+		});
+
+		const linked = (await canvas.listItems(rootId)).find(
+			(item) => item.shapeId === "shape:linked",
+		);
+		expect(linked?.cardId).toBe(source.cardId);
+		expect((await cards.get(source.cardId))?.activePlacementCount).toBe(2);
+	});
+
+	test("duplicates explicitly even when the source is trusted", async () => {
+		const { whiteboards, canvas, cards, workspaceId } = setup();
+		const rootId = await whiteboards.createRoot();
+		const content = {
+			type: "doc",
+			content: [{ type: "paragraph", content: [{ type: "text", text: "Copy" }] }],
+		};
+		const source = await canvas.createCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:source",
+			content,
+		});
+
+		await canvas.restoreOrAdoptCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:duplicate",
+			sourceCardId: source.cardId,
+			sourceWorkspaceId: workspaceId,
+			placement: "duplicate",
+			content,
+		});
+
+		const duplicate = (await canvas.listItems(rootId)).find(
+			(item) => item.shapeId === "shape:duplicate",
+		);
+		expect(duplicate?.cardId).toBeTruthy();
+		expect(duplicate?.cardId).not.toBe(source.cardId);
+		expect((await cards.get(duplicate!.cardId!))?.content).toEqual(content);
+		expect((await cards.get(source.cardId))?.activePlacementCount).toBe(1);
+	});
+
+	test("does not trust a colliding external card id", async () => {
+		const { whiteboards, canvas, cards } = setup();
+		const rootId = await whiteboards.createRoot();
+		const source = await canvas.createCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:source",
+			content: {
+				type: "doc",
+				content: [{ type: "paragraph", content: [{ type: "text", text: "Original" }] }],
+			},
+		});
+		const externalContent = {
+			type: "doc",
+			content: [{ type: "paragraph", content: [{ type: "text", text: "External" }] }],
+		};
+
+		await canvas.restoreOrAdoptCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:external",
+			sourceCardId: source.cardId,
+			sourceWorkspaceId: "different-workspace",
+			content: externalContent,
+		});
+
+		const external = (await canvas.listItems(rootId)).find(
+			(item) => item.shapeId === "shape:external",
+		);
+		expect(external?.cardId).toBeTruthy();
+		expect(external?.cardId).not.toBe(source.cardId);
+		expect((await cards.get(source.cardId))?.title).toBe("Original");
+		expect((await cards.get(source.cardId))?.activePlacementCount).toBe(1);
 	});
 
 	test("saves and reloads a tldraw snapshot, rejecting a stale revision", async () => {

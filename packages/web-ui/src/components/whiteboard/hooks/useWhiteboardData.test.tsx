@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import {
-	ApplicationRuntimeProvider,
 	type ApplicationRuntime,
+	ApplicationRuntimeProvider,
 	createRepositoryCanvasService,
 	createRepositoryCardsService,
 	createRepositoryWhiteboardsService,
@@ -21,6 +21,7 @@ function createRuntime() {
 		now: () => ++clock,
 		createId: () => `id-${++counter}`,
 		deviceId: "device-1",
+		workspaceId: "test",
 	};
 	const runtime: ApplicationRuntime = {
 		platform: "desktop",
@@ -108,6 +109,30 @@ describe("useWhiteboardData", () => {
 		const runtime = createRuntime();
 		const seen = renderData(runtime, "missing-board");
 		await waitFor(() => expect(seen.current?.whiteboard).toBeNull());
+	});
+
+	test("forwards the selected card policy when archiving a board", async () => {
+		const runtime = createRuntime();
+		const rootId = await runtime.whiteboards!.createRoot();
+		const child = await runtime.whiteboards!.createSubwhiteboard({
+			parentWhiteboardId: rootId,
+			shapeId: "shape:child",
+		});
+		const cardId = await runtime.cards!.create();
+		await runtime.cards!.appendToWhiteboard({
+			cardId,
+			whiteboardId: child.childWhiteboardId,
+		});
+
+		const seen = renderData(runtime, child.childWhiteboardId);
+		await waitFor(() => expect(seen.current?.whiteboard).not.toBeNull());
+		await seen.current!.archiveWhiteboard({
+			whiteboardId: child.childWhiteboardId,
+			deleteCards: false,
+		});
+
+		expect(await runtime.whiteboards!.get(child.childWhiteboardId)).toBeNull();
+		expect(await runtime.cards!.get(cardId)).not.toBeNull();
 	});
 
 	test("does not expose the previous board drawing during navigation", async () => {

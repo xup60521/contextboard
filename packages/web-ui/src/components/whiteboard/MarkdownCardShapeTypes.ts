@@ -16,6 +16,7 @@ export type MarkdownCardShape = TLBaseShape<
 		h: number;
 		content: string;
 		cardId?: string;
+		originWorkspaceId?: string;
 		title?: string;
 		preview?: string;
 		contentLoaded?: boolean;
@@ -46,6 +47,7 @@ export const markdownCardShapeProps = {
 	h: T.number,
 	content: T.string,
 	cardId: T.string.optional(),
+	originWorkspaceId: T.string.optional(),
 	title: T.string.optional(),
 	preview: T.string.optional(),
 	contentLoaded: T.boolean.optional(),

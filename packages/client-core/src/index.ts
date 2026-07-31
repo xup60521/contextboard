@@ -12,6 +12,7 @@ import type {
 	PushChangesResponse,
 	SyncStatus,
 	SyncTransport,
+	WorkspaceMembership,
 } from "@contextboard/sync-protocol";
 import { syncVersionHeaders } from "@contextboard/sync-protocol";
 
@@ -51,6 +52,7 @@ export class HttpSyncError extends Error {
 	constructor(
 		readonly status: number,
 		message: string,
+		readonly redirectWorkspaceId?: string,
 	) {
 		super(message);
 		this.name = "HttpSyncError";
@@ -114,15 +116,22 @@ export class HttpSyncTransport implements SyncTransport {
 		if (!response.ok) {
 			const body = await response.text().catch(() => "");
 			let message = body;
+			let redirectWorkspaceId: string | undefined;
 			try {
-				const parsed = JSON.parse(body) as { error?: unknown };
+				const parsed = JSON.parse(body) as {
+					error?: unknown;
+					redirectWorkspaceId?: unknown;
+				};
 				if (typeof parsed.error === "string") message = parsed.error;
+				if (typeof parsed.redirectWorkspaceId === "string")
+					redirectWorkspaceId = parsed.redirectWorkspaceId;
 			} catch {
 				// Keep a non-JSON upstream error as-is.
 			}
 			throw new HttpSyncError(
 				response.status,
 				message || `Sync request failed (${response.status})`,
+				redirectWorkspaceId,
 			);
 		}
 		if (response.status === 204) return null as T;
@@ -163,6 +172,13 @@ export class HttpSyncTransport implements SyncTransport {
 			signal,
 		);
 	}
+	selectWorkspace(workspaceId: string, signal?: AbortSignal) {
+		return this.post<WorkspaceMembership>(
+			"/api/sync/v1/workspaces/select",
+			{ workspaceId },
+			signal,
+		);
+	}
 	async uploadBlob(
 		workspaceId: string,
 		descriptor: BlobDescriptor,
@@ -198,8 +214,27 @@ export class HttpSyncTransport implements SyncTransport {
 				signal,
 			},
 		);
-		if (!response.ok)
-			throw new HttpSyncError(response.status, await response.text());
+		if (!response.ok) {
+			const body = await response.text().catch(() => "");
+			let message = body;
+			let redirectWorkspaceId: string | undefined;
+			try {
+				const parsed = JSON.parse(body) as {
+					error?: unknown;
+					redirectWorkspaceId?: unknown;
+				};
+				if (typeof parsed.error === "string") message = parsed.error;
+				if (typeof parsed.redirectWorkspaceId === "string")
+					redirectWorkspaceId = parsed.redirectWorkspaceId;
+			} catch {
+				// Keep a non-JSON upstream error as-is.
+			}
+			throw new HttpSyncError(
+				response.status,
+				message || `Sync request failed (${response.status})`,
+				redirectWorkspaceId,
+			);
+		}
 		return response.blob();
 	}
 	getLatestCheckpoint(workspaceId: string, signal?: AbortSignal) {

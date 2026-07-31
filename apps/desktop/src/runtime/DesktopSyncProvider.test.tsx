@@ -92,7 +92,12 @@ function createStub(options: StubOptions = {}) {
 				return json({
 					workspaces: (
 						options.remoteWorkspaces ?? ["contextboard-desktop"]
-					).map((id) => ({ workspaceId: id, role: "owner" })),
+					).map((id, index) => ({
+						workspaceId: id,
+						role: "owner",
+						isDefault: index === 0,
+					})),
+					redirects: [],
 				});
 			if (url.endsWith("/api/sync/v1/workspaces/claim"))
 				return json({ workspaceId: "contextboard-desktop", claimed: true });
@@ -219,7 +224,7 @@ describe("Desktop sync driver", () => {
 		);
 	});
 
-	test("claims its own workspace when the device already holds data", async () => {
+	test("does not claim a new account workspace when the device already holds data", async () => {
 		const stub = createStub({
 			storedToken: "session-token",
 			remoteWorkspaces: ["workspace-from-web"],
@@ -229,12 +234,65 @@ describe("Desktop sync driver", () => {
 		mount(stub.invoke);
 
 		await waitFor(() =>
-			expect(
-				stub.requests.some((request) => request.url.endsWith("/claim")),
-			).toBe(true),
+			expect(screen.getByTestId("state").textContent).toBe("error"),
 		);
+		expect(
+			stub.requests.some((request) => request.url.endsWith("/claim")),
+		).toBe(false);
 		expect(stub.calls.some((call) => call.command === "workspace_adopt")).toBe(
 			false,
+		);
+	});
+
+	test("follows a server workspace redirect even when local data exists", async () => {
+		const stub = createStub({
+			storedToken: "session-token",
+			remoteWorkspaces: ["workspace-from-web"],
+			hasData: true,
+		});
+		stub.fetchStub.mockImplementation(
+			async (input: RequestInfo | URL, init) => {
+				const url = String(input);
+				const headers = new Headers(init?.headers);
+				stub.requests.push({ url, headers, credentials: init?.credentials });
+				const json = (body: unknown) =>
+					new Response(JSON.stringify(body), {
+						status: 200,
+						headers: { "content-type": "application/json" },
+					});
+				if (url.endsWith("/api/auth/get-session"))
+					return json({ user: { id: "user-1", email: "ada@example.com" } });
+				if (url.endsWith("/api/sync/v1/workspaces"))
+					return json({
+						workspaces: [
+							{
+								workspaceId: "workspace-from-web",
+								role: "owner",
+								isDefault: true,
+							},
+						],
+						redirects: [
+							{
+								fromWorkspaceId: "contextboard-desktop",
+								toWorkspaceId: "workspace-from-web",
+								mergedAt: 1,
+							},
+						],
+					});
+				throw new Error(`Unexpected request ${url}`);
+			},
+		);
+		vi.stubGlobal("fetch", stub.fetchStub);
+		mount(stub.invoke);
+
+		await waitFor(() =>
+			expect(
+				stub.calls.some(
+					(call) =>
+						call.command === "workspace_adopt" &&
+						call.args?.targetWorkspaceId === "workspace-from-web",
+				),
+			).toBe(true),
 		);
 	});
 

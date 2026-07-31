@@ -71,6 +71,15 @@ const DEBOUNCE_MS = 500;
 const VISIBLE_POLL_MS = 2_000;
 const HIDDEN_POLL_MS = 30_000;
 
+class WorkspaceSelectionRequiredError extends Error {
+	constructor() {
+		super(
+			"This local workspace is not linked to the signed-in account. Choose an account workspace or explicitly create a new workspace.",
+		);
+		this.name = "WorkspaceSelectionRequiredError";
+	}
+}
+
 export type DesktopSyncRuntime = {
 	state: SyncRuntimeState;
 	message?: string;
@@ -79,6 +88,8 @@ export type DesktopSyncRuntime = {
 	signIn: () => Promise<void>;
 	signOut: () => Promise<void>;
 	syncNow: () => Promise<void>;
+	createWorkspace: () => Promise<void>;
+	workspaceSelectionRequired: boolean;
 };
 
 const DesktopSyncContext = createContext<DesktopSyncRuntime | null>(null);
@@ -103,6 +114,9 @@ export function DesktopSyncProvider({
 	);
 	const [message, setMessage] = useState<string | undefined>();
 	const [pendingCount, setPendingCount] = useState(0);
+	const [bootstrapNonce, setBootstrapNonce] = useState(0);
+	const [workspaceSelectionRequired, setWorkspaceSelectionRequired] =
+		useState(false);
 
 	const tokenRef = useRef<string | null>(null);
 	tokenRef.current = token;
@@ -141,6 +155,7 @@ export function DesktopSyncProvider({
 		setAccount(null);
 		setState("local-only");
 		setMessage(undefined);
+		setWorkspaceSelectionRequired(false);
 		await clearDesktopSessionToken(invoke).catch(() => undefined);
 	}, [invoke]);
 
@@ -155,6 +170,13 @@ export function DesktopSyncProvider({
 				await forgetSession();
 				return;
 			}
+			if (error instanceof HttpSyncError && error.redirectWorkspaceId) {
+				coordinator.stop();
+				if (coordinatorRef.current === coordinator)
+					coordinatorRef.current = null;
+				if (adoptWorkspaceId) await adoptWorkspaceId(error.redirectWorkspaceId);
+				return;
+			}
 			throw error;
 		} finally {
 			await refreshPendingRef.current();
@@ -164,6 +186,26 @@ export function DesktopSyncProvider({
 	const syncNow = useCallback(async () => {
 		await syncNowRef.current();
 	}, []);
+
+	const createWorkspace = useCallback(async () => {
+		if (!repository || !workspaceId || !tokenRef.current)
+			throw new Error("Sign in before creating a workspace");
+		const transport = new HttpSyncTransport({
+			baseURL: SYNC_BASE_URL,
+			credentials: "omit",
+			getAuthHeaders: () => ({
+				authorization: `Bearer ${tokenRef.current}`,
+			}),
+		});
+		await transport.claimWorkspace({
+			workspaceId,
+			deviceId: await repository.deviceId(),
+		});
+		setState("syncing");
+		setMessage(undefined);
+		setWorkspaceSelectionRequired(false);
+		setBootstrapNonce((current) => current + 1);
+	}, [repository, workspaceId]);
 
 	// Local writes schedule a push; remote applies deliberately do not, so the
 	// coordinator cannot re-arm itself in a loop.
@@ -221,19 +263,31 @@ export function DesktopSyncProvider({
 
 			const listing = await transport.listWorkspaces(controller.signal);
 			if (!active) return;
+			const currentMembership = listing.workspaces.find(
+				(item) => item.workspaceId === workspaceId,
+			);
+			const redirect = (listing.redirects ?? []).find(
+				(item) => item.fromWorkspaceId === workspaceId,
+			);
+			const defaultWorkspace =
+				listing.workspaces.find((item) => item.isDefault) ??
+				listing.workspaces[0];
 			let activeWorkspaceId = workspaceId;
-			if (
-				!listing.workspaces.some((item) => item.workspaceId === workspaceId)
-			) {
+			if (redirect) {
+				await adoptWorkspaceId(redirect.toWorkspaceId);
+				return;
+			}
+			if (!currentMembership) {
 				const hasData = await repository.hasData();
-				if (!hasData && listing.workspaces[0]) {
+				if (!hasData && defaultWorkspace) {
 					// A fresh install joins the account's existing workspace instead
 					// of pushing an empty one alongside it.
-					activeWorkspaceId = listing.workspaces[0].workspaceId;
+					activeWorkspaceId = defaultWorkspace.workspaceId;
 					await adoptWorkspaceId(activeWorkspaceId);
 					// The repository is rebuilt on the new id; this effect re-runs.
 					return;
 				}
+				if (hasData) throw new WorkspaceSelectionRequiredError();
 				await transport.claimWorkspace(
 					{
 						workspaceId,
@@ -297,6 +351,12 @@ export function DesktopSyncProvider({
 					await forgetSession();
 					return;
 				}
+				if (error instanceof WorkspaceSelectionRequiredError) {
+					setState("error");
+					setMessage(error.message);
+					setWorkspaceSelectionRequired(true);
+					return;
+				}
 				failures += 1;
 				setState(isOffline() ? "offline" : "error");
 				setMessage(describeSyncFailure(error));
@@ -335,6 +395,7 @@ export function DesktopSyncProvider({
 		};
 	}, [
 		adoptWorkspaceId,
+		bootstrapNonce,
 		forgetSession,
 		repository,
 		syncNow,
@@ -345,6 +406,7 @@ export function DesktopSyncProvider({
 	const signIn = useCallback(async () => {
 		setMessage(undefined);
 		setState("syncing");
+		setWorkspaceSelectionRequired(false);
 		try {
 			await startDesktopAuth(SYNC_BASE_URL, invoke);
 			const oneTimeToken = await awaitDesktopAuthToken(invoke);
@@ -372,6 +434,8 @@ export function DesktopSyncProvider({
 			signIn,
 			signOut,
 			syncNow,
+			createWorkspace,
+			workspaceSelectionRequired,
 		}),
 		[
 			account,
@@ -382,6 +446,8 @@ export function DesktopSyncProvider({
 			signOut,
 			state,
 			syncNow,
+			createWorkspace,
+			workspaceSelectionRequired,
 		],
 	);
 

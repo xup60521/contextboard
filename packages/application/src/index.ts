@@ -51,6 +51,7 @@ export type {
 	TldrawSaveResult,
 	UpdateCardContentInput,
 	WhiteboardBreadcrumb,
+	WhiteboardArchiveOptions,
 	WhiteboardDetail,
 	WhiteboardSummary,
 	WhiteboardSearchResult,

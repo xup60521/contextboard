@@ -321,9 +321,7 @@ async function rebuildLegacyPendingBatches(
 		const deviceSequence =
 			Math.max(
 				0,
-				typeof sequenceSetting?.value === "number"
-					? sequenceSetting.value
-					: 0,
+				typeof sequenceSetting?.value === "number" ? sequenceSetting.value : 0,
 				...appliedSequences,
 				...pendingSequences,
 			) + 1;
@@ -526,7 +524,7 @@ export async function applyRemoteBatches(
 						: change.entityType === "cardRelation" ||
 								change.entityType === "canvasRecord"
 							? { ...incoming, clock: change.clock }
-						: incoming;
+							: incoming;
 				const local = (await table.get(change.entityId)) as
 					| Record<string, unknown>
 					| undefined;
@@ -578,8 +576,7 @@ export async function applyRemoteBatches(
 								.toArray()
 						).filter(
 							(placement) =>
-								placement.deletedAt === null &&
-								placement.archivedAt === null,
+								placement.deletedAt === null && placement.archivedAt === null,
 						);
 						await db.cards.put({
 							...materialized,
@@ -764,6 +761,54 @@ export async function adoptWorkspaceId(
 	if (await hasWorkspaceData(db))
 		throw new Error("A non-empty local workspace cannot be replaced");
 	await db.settings.put({ key: "workspaceId", value: workspaceId });
+}
+
+/**
+ * Rebinds a non-empty local workspace after the server has explicitly merged
+ * its remote workspace into another one. This is intentionally separate from
+ * adoptWorkspaceId so ordinary workspace selection cannot silently rename
+ * local data.
+ */
+export async function rebindWorkspaceId(
+	db: ContextboardDatabase,
+	fromWorkspaceId: string,
+	toWorkspaceId: string,
+) {
+	if (!fromWorkspaceId || !toWorkspaceId || fromWorkspaceId === toWorkspaceId)
+		throw new Error("Workspace rebind requires two different workspace IDs");
+	await db.transaction(
+		"rw",
+		[db.settings, db.changeLog, db.appliedChangeBatches, db.syncPeers],
+		async () => {
+			const [batches, applied, peer] = await Promise.all([
+				db.changeLog.toArray(),
+				db.appliedChangeBatches.toArray(),
+				db.syncPeers.get("contextboard-cloud"),
+			]);
+			await db.changeLog.bulkPut(
+				batches.map((batch) =>
+					batch.workspaceId === fromWorkspaceId
+						? { ...batch, workspaceId: toWorkspaceId }
+						: batch,
+				),
+			);
+			await db.appliedChangeBatches.bulkPut(
+				applied.map((batch) =>
+					batch.workspaceId === fromWorkspaceId
+						? { ...batch, workspaceId: toWorkspaceId }
+						: batch,
+				),
+			);
+			await db.settings.put({ key: "workspaceId", value: toWorkspaceId });
+			if (peer)
+				await db.syncPeers.put({
+					...peer,
+					cursor: null,
+					lastSyncedAt: null,
+					updatedAt: Date.now(),
+				});
+		},
+	);
 }
 
 export async function getLocalBlob(db: ContextboardDatabase, hash: string) {

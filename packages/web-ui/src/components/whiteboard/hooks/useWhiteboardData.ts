@@ -1,9 +1,9 @@
 import {
-	fileSrc,
 	type CanvasItem,
+	fileSrc,
+	useApplicationRuntime,
 	type WhiteboardBreadcrumb,
 	type WhiteboardDetail,
-	useApplicationRuntime,
 } from "@contextboard/application";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Id } from "../ids";
@@ -12,9 +12,10 @@ import type {
 	TldrawDocumentResult,
 } from "../whiteboard-canvas-helpers";
 
-function toBoardItem(item: CanvasItem): BoardItemResult {
+function toBoardItem(item: CanvasItem, workspaceId: string): BoardItemResult {
 	return {
 		_id: item.id,
+		workspaceId,
 		kind: item.kind,
 		cardId: item.cardId,
 		childWhiteboardId: item.childWhiteboardId,
@@ -156,6 +157,16 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			requireCanvas().archiveItem(input),
 		[requireCanvas],
 	);
+	const archiveWhiteboard = useCallback(
+		(input: { whiteboardId: string; deleteCards: boolean }) => {
+			if (!whiteboards)
+				throw new Error("This platform has no whiteboard capability");
+			return whiteboards.archive(input.whiteboardId, {
+				deleteCards: input.deleteCards,
+			});
+		},
+		[whiteboards],
+	);
 	const restoreOrAdoptCardItem = useCallback(
 		(input: Parameters<Canvas["restoreOrAdoptCardItem"]>[0]) =>
 			requireCanvas().restoreOrAdoptCardItem(input),
@@ -204,11 +215,12 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	);
 
 	const boardItems = useMemo(
-		() => (items ?? []).map(toBoardItem),
-		[items],
+		() => (items ?? []).map((item) => toBoardItem(item, runtime.workspaceId)),
+		[items, runtime.workspaceId],
 	);
 
 	return {
+		workspaceId: runtime.workspaceId,
 		whiteboard,
 		breadcrumbs: breadcrumbs?.map((crumb) => ({
 			_id: crumb.id as Id<"whiteboards">,
@@ -221,6 +233,7 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		createSubwhiteboardItem,
 		updateItemFrame,
 		archiveItem,
+		archiveWhiteboard,
 		archiveCardsGlobally,
 		restoreOrAdoptCardItem,
 		applyCanvasRecordChanges,

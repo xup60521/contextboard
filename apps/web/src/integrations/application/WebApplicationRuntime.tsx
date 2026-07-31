@@ -32,6 +32,7 @@ export function WebApplicationRuntime({ children }: { children: ReactNode }) {
 			}),
 			canvas: createRepositoryCanvasService(repository, {
 				deviceId: local.deviceId,
+				workspaceId: local.workspaceId,
 			}),
 			search: createRepositorySearchService(repository),
 			files: createWebFileRuntime(repository, local.deviceId),

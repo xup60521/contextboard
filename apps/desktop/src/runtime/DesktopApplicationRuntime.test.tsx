@@ -14,6 +14,8 @@ const syncState: { current: DesktopSyncRuntime } = {
 		signIn: async () => undefined,
 		signOut: async () => undefined,
 		syncNow: async () => undefined,
+		createWorkspace: async () => undefined,
+		workspaceSelectionRequired: false,
 	},
 };
 

@@ -20,6 +20,7 @@ import type {
 	CreateSubwhiteboardResult,
 	TldrawDocument,
 	TldrawSaveResult,
+	WhiteboardArchiveOptions,
 	WhiteboardDetail,
 	WhiteboardSummary,
 	WhiteboardsService,
@@ -27,6 +28,7 @@ import type {
 import { withRetry } from "../workspace";
 import { deriveWhiteboardCounts } from "./derive/counts";
 import { planArchiveItem } from "./plan/archive-item";
+import { planArchiveWhiteboardTree } from "./plan/archive-whiteboard-tree";
 import { planCreateCardItem } from "./plan/create-card-item";
 import { planCreateSubwhiteboard } from "./plan/create-subwhiteboard";
 import { planReferences } from "./plan/references";
@@ -41,6 +43,7 @@ type ServiceOptions = {
 	now?: () => number;
 	createId?: () => string;
 	deviceId?: string;
+	workspaceId?: string;
 };
 
 function resolve(options: ServiceOptions) {
@@ -48,6 +51,7 @@ function resolve(options: ServiceOptions) {
 		now: options.now ?? (() => Date.now()),
 		createId: options.createId ?? (() => crypto.randomUUID()),
 		deviceId: options.deviceId ?? "",
+		workspaceId: options.workspaceId ?? "",
 	};
 }
 
@@ -92,6 +96,56 @@ async function readBoardSnapshot(repository: WorkspaceRepository) {
 		items: items.filter(isActiveRow),
 		boards: boards.filter(isActiveRow),
 	};
+}
+
+async function archiveWhiteboardTree(
+	repository: WorkspaceRepository,
+	options: ServiceOptions,
+	whiteboardId: string,
+	archiveOptions: WhiteboardArchiveOptions = {},
+): Promise<boolean> {
+	const { now } = resolve(options);
+	return withRetry(async () => {
+		const [
+			whiteboards,
+			items,
+			cards,
+			tldrawDocuments,
+			canvasRecords,
+			fileReferences,
+			files,
+			cardRelations,
+		] = await Promise.all([
+			listRows(repository, "whiteboards"),
+			listRows(repository, "items"),
+			listRows(repository, "cards"),
+			listRows(repository, "tldrawDocuments"),
+			listRows(repository, "records"),
+			listRows(repository, "fileReferences"),
+			listRows(repository, "files"),
+			listRows(repository, "cardRelations"),
+		]);
+		const plan = planArchiveWhiteboardTree(
+			{
+				whiteboards,
+				items,
+				cards,
+				tldrawDocuments,
+				canvasRecords,
+				fileReferences,
+				files,
+				cardRelations,
+			},
+			{
+				whiteboardId,
+				deleteCards: archiveOptions.deleteCards === true,
+				now: now(),
+			},
+		);
+		if (plan.writes.length === 0) return false;
+		await applyWrites(repository, "whiteboards.archiveTree", plan.writes);
+		return true;
+	});
 }
 
 export function createRepositoryWhiteboardsService(
@@ -171,13 +225,8 @@ export function createRepositoryWhiteboardsService(
 			return next;
 		},
 
-		async archive(id: string) {
-			const row = await getRow(repository, "whiteboards", id);
-			if (!row || !isActiveRow(row)) return;
-			await repository.execute({
-				type: "whiteboards.delete",
-				input: { value: { ...row, archivedAt: now(), updatedAt: now() } },
-			});
+		async archive(id: string, archiveOptions = {}) {
+			await archiveWhiteboardTree(repository, options, id, archiveOptions);
 		},
 
 		subscribe(listener: () => void) {
@@ -219,9 +268,7 @@ async function createSubwhiteboardItem(
 						}
 					: null,
 				activeChildCount: parent
-					? boards.filter(
-							(row) => row.parentWhiteboardId === parent.id,
-						).length
+					? boards.filter((row) => row.parentWhiteboardId === parent.id).length
 					: 0,
 			},
 			{
@@ -245,7 +292,7 @@ export function createRepositoryCanvasService(
 	repository: WorkspaceRepository,
 	options: ServiceOptions = {},
 ): CanvasService {
-	const { now, createId, deviceId } = resolve(options);
+	const { now, createId, deviceId, workspaceId } = resolve(options);
 
 	/** Mirrors the Web reference reconciliation for canvas-owned content. */
 	async function reconcileReferences(
@@ -317,9 +364,7 @@ export function createRepositoryCanvasService(
 			const cardById = new Map(
 				cards.filter(isActiveRow).map((card) => [card.id, card]),
 			);
-			const boardById = new Map(
-				activeBoards.map((board) => [board.id, board]),
-			);
+			const boardById = new Map(activeBoards.map((board) => [board.id, board]));
 			return activeItems
 				.filter((item) => (item.whiteboardId ?? null) === whiteboardId)
 				.sort(
@@ -381,11 +426,7 @@ export function createRepositoryCanvasService(
 		},
 
 		async createCardItem(input): Promise<CreateCardItemResult> {
-			const board = await getRow(
-				repository,
-				"whiteboards",
-				input.whiteboardId,
-			);
+			const board = await getRow(repository, "whiteboards", input.whiteboardId);
 			if (!board || !isActiveRow(board))
 				throw new Error("Whiteboard not found");
 			const content = normalizeImageSources(
@@ -436,9 +477,14 @@ export function createRepositoryCanvasService(
 				const existing =
 					items.find(
 						(item) =>
-							(item.whiteboardId ?? null) === whiteboardId &&
-							item.shapeId === input.shapeId,
+						(item.whiteboardId ?? null) === whiteboardId &&
+						item.shapeId === input.shapeId,
 					) ?? null;
+				const placement = input.placement ?? "auto";
+				const sourceIsTrusted =
+					placement !== "duplicate" &&
+					workspaceId.length > 0 &&
+					input.sourceWorkspaceId === workspaceId;
 				const plan = planRestoreOrAdoptCardItem(
 					{
 						existingPlacement: existing as never,
@@ -447,7 +493,7 @@ export function createRepositoryCanvasService(
 								? ((cardById.get(existing.cardId) ?? null) as never)
 								: null,
 						sourceCard:
-							typeof input.sourceCardId === "string"
+							sourceIsTrusted && typeof input.sourceCardId === "string"
 								? ((cardById.get(input.sourceCardId) ?? null) as never)
 								: null,
 					},
@@ -503,6 +549,18 @@ export function createRepositoryCanvasService(
 			await withRetry(async () => {
 				const row = await getRow(repository, "items", itemId);
 				if (!row || !isActiveRow(row)) return;
+				if (
+					row.kind === "subwhiteboard" &&
+					typeof row.childWhiteboardId === "string"
+				) {
+					const archived = await archiveWhiteboardTree(
+						repository,
+						options,
+						row.childWhiteboardId,
+						{ deleteCards },
+					);
+					if (archived) return;
+				}
 				const card =
 					typeof row.cardId === "string"
 						? await getRow(repository, "cards", row.cardId)
@@ -631,9 +689,7 @@ export function createRepositoryCanvasService(
 				if (existing.size === 0) {
 					const legacy = await readDocumentRow(whiteboardId);
 					const store = (
-						legacy?.snapshot as
-							| { store?: Record<string, unknown> }
-							| undefined
+						legacy?.snapshot as { store?: Record<string, unknown> } | undefined
 					)?.store;
 					if (store && typeof store === "object") {
 						const migrating = new Map<string, unknown>();
@@ -666,9 +722,7 @@ export function createRepositoryCanvasService(
 									id: rowId,
 									whiteboardId,
 									recordId: id,
-									recordType: String(
-										shape.typeName ?? shape.type ?? "unknown",
-									),
+									recordType: String(shape.typeName ?? shape.type ?? "unknown"),
 									payload,
 									createdAt: timestamp,
 									updatedAt: timestamp,

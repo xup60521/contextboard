@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	type TLComponents,
 	type TLShapeId,
@@ -6,9 +6,9 @@ import {
 	type TldrawOptions,
 	type VecLike,
 } from "tldraw";
-import type { Id } from "./ids";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { DeleteCardDialog } from "../cards/DeleteCardDialog";
+import { CardPasteResolutionMenu } from "./CardPasteResolutionMenu";
 import { CustomMenuPanel } from "./CustomMenuPanel";
 import {
 	markdownWhiteboardShapeUtils,
@@ -17,7 +17,6 @@ import {
 import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import { EditableWhiteboardTitle } from "./EditableWhiteboardTitle";
 import type { SequencedFrame } from "./frame-sync";
-import { useWhiteboardNavigation } from "./navigation";
 import { useCameraReset } from "./hooks/useCameraReset";
 import { useCanvasEvents } from "./hooks/useCanvasEvents";
 import { useCardDeleteShortcut } from "./hooks/useCardDeleteShortcut";
@@ -27,22 +26,27 @@ import { useFocusShape } from "./hooks/useFocusShape";
 import { useFrameSync } from "./hooks/useFrameSync";
 import { useItemCreation } from "./hooks/useItemCreation";
 import { useItemsHydration } from "./hooks/useItemsHydration";
+import { usePasteResolution } from "./hooks/usePasteResolution";
 import { useRightDragPan } from "./hooks/useRightDragPan";
 import { useStoreListener } from "./hooks/useStoreListener";
 import { useThemeSync } from "./hooks/useThemeSync";
 import { useVisibleCardContentHydration } from "./hooks/useVisibleCardContentHydration";
 import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
 import { useWhiteboardData } from "./hooks/useWhiteboardData";
+import type { Id } from "./ids";
+import { useWhiteboardNavigation } from "./navigation";
 import {
 	singlePageTldrawComponents,
 	singlePageTldrawOptions,
 	singlePageTldrawUiOverrides,
 } from "./tldraw-single-page";
+import { WhiteboardActionsContext } from "./WhiteboardActionsContext";
 import { WhiteboardCardPreviewLayer } from "./WhiteboardCardPreviewLayer";
 import {
 	WhiteboardContextMenu,
 	WhiteboardContextMenuContext,
 } from "./WhiteboardContextMenu";
+import { WhiteboardMainMenu } from "./WhiteboardMainMenu";
 import {
 	type BoardItemResult,
 	getWhiteboardKey,
@@ -69,6 +73,7 @@ const whiteboardOptions = {
 const whiteboardComponents = {
 	...singlePageTldrawComponents,
 	ContextMenu: WhiteboardContextMenu,
+	MainMenu: WhiteboardMainMenu,
 	MenuPanel: CustomMenuPanel,
 } satisfies TLComponents;
 
@@ -88,6 +93,7 @@ export function WhiteboardCanvas({
 	// ── Persisted data ─────────────────────────────────────────────────────────
 	const {
 		whiteboard,
+		workspaceId,
 		breadcrumbs,
 		itemQuery,
 		items,
@@ -96,6 +102,7 @@ export function WhiteboardCanvas({
 		createSubwhiteboardItem,
 		updateItemFrame,
 		archiveItem,
+		archiveWhiteboard,
 		archiveCardsGlobally,
 		restoreOrAdoptCardItem,
 		applyCanvasRecordChanges,
@@ -114,6 +121,8 @@ export function WhiteboardCanvas({
 		itemId: Id<"boardItems">;
 		shape: ManagedWhiteboardShape;
 	} | null>(null);
+	const [currentWhiteboardDeletePending, setCurrentWhiteboardDeletePending] =
+		useState(false);
 
 	// ── Shared refs (written/read by multiple hooks) ───────────────────────────
 	const hydratingRef = useRef(false);
@@ -123,6 +132,7 @@ export function WhiteboardCanvas({
 	const pendingEditShapeIdRef = useRef<TLShapeId | null>(null);
 	const itemIdByShapeIdRef = useRef(new Map<string, Id<"boardItems">>());
 	const latestItemsRef = useRef(new Map<Id<"boardItems">, BoardItemResult>());
+	const protectedPasteShapeIdsRef = useRef(new Set<string>());
 	const contextMenuPointRef = useRef<VecLike | null>(null);
 
 	// ── Hooks ──────────────────────────────────────────────────────────────────
@@ -176,10 +186,12 @@ export function WhiteboardCanvas({
 		hydratingRef.current = false;
 		itemIdByShapeIdRef.current = new Map();
 		optimisticFramesRef.current = new Map();
+		protectedPasteShapeIdsRef.current.clear();
 		pendingEditShapeIdRef.current = null;
 		queuedFrameUpdatesRef.current = new Map();
 		pendingDrawingSaveRef.current = null;
 		setWhiteboardDeletePending(null);
+		setCurrentWhiteboardDeletePending(false);
 	}, [editor, whiteboardId]);
 
 	const {
@@ -223,6 +235,7 @@ export function WhiteboardCanvas({
 		prioritizeCardContent,
 		scheduleVisibleCardHydration,
 		hydratingRef,
+		protectedPasteShapeIdsRef,
 		reconciliationGeneration,
 	});
 
@@ -247,13 +260,30 @@ export function WhiteboardCanvas({
 	const { whiteboardCardDeletePending, setWhiteboardCardDeletePending } =
 		useCardDeleteShortcut({ editor });
 
+	const {
+		pending: pendingPaste,
+		handleUiEvent,
+		consumePasteIntent,
+		handleAddedCards,
+		handleRemovedCards,
+		resolvePending: resolvePaste,
+	} = usePasteResolution({
+		editor,
+		whiteboardId,
+		workspaceId,
+		restoreOrAdoptCardItem,
+		protectedPasteShapeIdsRef,
+	});
+
 	useStoreListener({
 		editor,
 		whiteboardId,
 		hydratingRef,
 		itemIdByShapeIdRef,
 		archiveItem,
-		restoreOrAdoptCardItem,
+		consumePasteIntent,
+		handleAddedCards,
+		handleRemovedCards,
 		setWhiteboardDeletePending,
 		queueFrameUpdate,
 		queueDrawingSave,
@@ -303,6 +333,14 @@ export function WhiteboardCanvas({
 		pointRef: contextMenuPointRef,
 	};
 
+	const whiteboardActions = useMemo(
+		() => ({
+			canDelete: whiteboardId !== null && Boolean(whiteboard),
+			requestDelete: () => setCurrentWhiteboardDeletePending(true),
+		}),
+		[whiteboard, whiteboardId],
+	);
+
 	// Render as an overlay above the persistent <Tldraw> instead of replacing it,
 	// so the editor is never unmounted while a board's data is (re)loading.
 	const whiteboardIsLoading =
@@ -320,6 +358,32 @@ export function WhiteboardCanvas({
 				: null;
 
 	const displayedBreadcrumbs = whiteboardId ? (breadcrumbs ?? []) : [];
+
+	const finishWhiteboardDelete = (deleteCards: boolean) => {
+		if (whiteboardDeletePending) {
+			void archiveItem({
+				itemId: whiteboardDeletePending.itemId,
+				deleteCards,
+			});
+			setWhiteboardDeletePending(null);
+			return;
+		}
+
+		if (!currentWhiteboardDeletePending || !whiteboardId) return;
+		void archiveWhiteboard({
+			whiteboardId,
+			deleteCards,
+		})
+			.then(() => {
+				setCurrentWhiteboardDeletePending(false);
+				const parentId = whiteboard?.parentWhiteboardId;
+				if (parentId) navigate.openWhiteboard(parentId);
+				else navigate.openRootWhiteboard();
+			})
+			.catch((error) => {
+				console.warn("Failed to delete whiteboard", error);
+			});
+	};
 
 	return (
 		<main className="flex h-dvh min-h-[620px] w-full overflow-hidden bg-[var(--background)]">
@@ -342,9 +406,7 @@ export function WhiteboardCanvas({
 									/>
 								) : (
 									<a
-										{...navigate.linkProps(
-											navigate.whiteboardHref(crumb._id),
-										)}
+										{...navigate.linkProps(navigate.whiteboardHref(crumb._id))}
 										className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
 									>
 										{crumb.title}
@@ -363,28 +425,37 @@ export function WhiteboardCanvas({
 						</button>
 					)}
 				</div>
-				<div className="absolute inset-0 overflow-hidden bg-[var(--background)]">
-					<WhiteboardContextMenuContext.Provider value={contextValue}>
-						<WhiteboardCardContext.Provider value={whiteboardId}>
-							<Tldraw
-								assets={assetStore}
-								components={whiteboardComponents}
-								onMount={(mountedEditor) => {
-									emptyDrawingSnapshotRef.current =
-										mountedEditor.store.getStoreSnapshot("document");
-									setEditor(mountedEditor);
+				<div className="absolute inset-0 isolate overflow-hidden bg-[var(--background)]">
+					<WhiteboardActionsContext.Provider value={whiteboardActions}>
+						<WhiteboardContextMenuContext.Provider value={contextValue}>
+							<WhiteboardCardContext.Provider value={whiteboardId}>
+								<Tldraw
+									assets={assetStore}
+									components={whiteboardComponents}
+									onMount={(mountedEditor) => {
+										emptyDrawingSnapshotRef.current =
+											mountedEditor.store.getStoreSnapshot("document");
+										setEditor(mountedEditor);
 
-									return () => {
-										setEditor(null);
-									};
-								}}
-								options={whiteboardOptions}
-								overrides={singlePageTldrawUiOverrides}
-								shapeUtils={markdownWhiteboardShapeUtils}
-							/>
-						</WhiteboardCardContext.Provider>
-					</WhiteboardContextMenuContext.Provider>
+										return () => {
+											setEditor(null);
+										};
+									}}
+									options={whiteboardOptions}
+									onUiEvent={handleUiEvent}
+									overrides={singlePageTldrawUiOverrides}
+									shapeUtils={markdownWhiteboardShapeUtils}
+								/>
+							</WhiteboardCardContext.Provider>
+						</WhiteboardContextMenuContext.Provider>
+					</WhiteboardActionsContext.Provider>
 				</div>
+				{pendingPaste ? (
+					<CardPasteResolutionMenu
+						pending={pendingPaste}
+						onResolve={resolvePaste}
+					/>
+				) : null}
 				{hydrationError?.whiteboardKey === whiteboardKey ? (
 					<WhiteboardHydrationErrorOverlay onRetry={retryDrawingHydration} />
 				) : overlayLabel ? (
@@ -392,34 +463,22 @@ export function WhiteboardCanvas({
 				) : null}
 			</div>
 			<DeleteWhiteboardDialog
-				open={whiteboardDeletePending !== null}
+				open={
+					whiteboardDeletePending !== null || currentWhiteboardDeletePending
+				}
 				onCancel={() => {
-					if (!whiteboardDeletePending) return;
-					hydratingRef.current = true;
-					editor?.createShape(whiteboardDeletePending.shape);
-					window.setTimeout(() => {
-						hydratingRef.current = false;
-					}, 0);
+					if (whiteboardDeletePending) {
+						hydratingRef.current = true;
+						editor?.createShape(whiteboardDeletePending.shape);
+						window.setTimeout(() => {
+							hydratingRef.current = false;
+						}, 0);
+					}
 					setWhiteboardDeletePending(null);
+					setCurrentWhiteboardDeletePending(false);
 				}}
-				onKeepCards={() => {
-					if (whiteboardDeletePending) {
-						void archiveItem({
-							itemId: whiteboardDeletePending.itemId,
-							deleteCards: false,
-						});
-						setWhiteboardDeletePending(null);
-					}
-				}}
-				onDeleteCards={() => {
-					if (whiteboardDeletePending) {
-						void archiveItem({
-							itemId: whiteboardDeletePending.itemId,
-							deleteCards: true,
-						});
-						setWhiteboardDeletePending(null);
-					}
-				}}
+				onKeepCards={() => finishWhiteboardDelete(false)}
+				onDeleteCards={() => finishWhiteboardDelete(true)}
 			/>
 			<DeleteCardDialog
 				open={whiteboardCardDeletePending !== null}
@@ -475,11 +534,7 @@ function WhiteboardLoadingOverlay({ label }: { label: string }) {
 	);
 }
 
-function WhiteboardHydrationErrorOverlay({
-	onRetry,
-}: {
-	onRetry: () => void;
-}) {
+function WhiteboardHydrationErrorOverlay({ onRetry }: { onRetry: () => void }) {
 	return (
 		<div
 			className="absolute inset-0 z-20 grid place-items-center bg-[color-mix(in_oklab,var(--background)_92%,transparent)] p-4"

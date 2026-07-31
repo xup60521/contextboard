@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import {
-	ApplicationRuntimeProvider,
 	type ApplicationRuntime,
+	ApplicationRuntimeProvider,
 	type NavigationRuntime,
 } from "@contextboard/application";
 import { renderHook } from "@testing-library/react";
@@ -81,6 +81,14 @@ describe("whiteboard link navigation", () => {
 		navigation.linkProps("/cards").onClick(event);
 
 		expect(navigate).not.toHaveBeenCalled();
+	});
+
+	test("opens the root whiteboard", () => {
+		const { navigation, navigate } = setup();
+
+		navigation.openRootWhiteboard();
+
+		expect(navigate).toHaveBeenCalledWith("/whiteboard");
 	});
 
 	test("clears only the focus param from a hash route", () => {

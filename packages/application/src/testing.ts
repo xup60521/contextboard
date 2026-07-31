@@ -111,7 +111,7 @@ export function createMemoryWorkspaceRepository(
 				return materialized as T;
 			}
 
-			if (!["create", "put", "update", "delete"].includes(action ?? ""))
+			if (!["create", "put", "update", "upsert", "delete"].includes(action ?? ""))
 				throw new Error("The requested domain operation is not supported");
 			const value = input.value;
 			if (!value || typeof value.id !== "string")

@@ -20,13 +20,11 @@ export type SidebarFooterRuntime = {
 	signIn?: () => Promise<void>;
 	signOut?: () => Promise<void>;
 	syncNow?: () => Promise<void>;
+	createWorkspace?: () => Promise<void>;
+	workspaceSelectionRequired?: boolean;
 };
 
-export function AppSidebar({
-	footer,
-}: {
-	footer: SidebarFooterRuntime;
-}) {
+export function AppSidebar({ footer }: { footer: SidebarFooterRuntime }) {
 	return (
 		<AppSidebarFrame footer={<SidebarFooter runtime={footer} />}>
 			<SidebarTabs />
@@ -49,14 +47,16 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 	const isBusy = pending === "sync" || runtime.state === "syncing";
 	const label =
 		runtime.message ??
-		({
-			idle: "Up to date",
-			syncing: "Syncing",
-			offline: "Offline",
-			"local-only": "Local only",
-			error: "Sync error",
-			unavailable: "Sync unavailable",
-		} satisfies Record<SyncRuntimeState, string>)[runtime.state];
+		(
+			{
+				idle: "Up to date",
+				syncing: "Syncing",
+				offline: "Offline",
+				"local-only": "Local only",
+				error: "Sync error",
+				unavailable: "Sync unavailable",
+			} satisfies Record<SyncRuntimeState, string>
+		)[runtime.state];
 
 	const run = (
 		kind: "in" | "out" | "sync",
@@ -86,9 +86,7 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 							title={error ?? runtime.message}
 						>
 							{error ?? label}
-							{runtime.pendingCount
-								? ` · ${runtime.pendingCount} pending`
-								: ""}
+							{runtime.pendingCount ? ` · ${runtime.pendingCount} pending` : ""}
 							{runtime.conflictCount
 								? ` · ${runtime.conflictCount} conflicts`
 								: ""}
@@ -100,6 +98,18 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 							>
 								Open conflict inbox
 							</a>
+						) : null}
+						{runtime.createWorkspace && runtime.workspaceSelectionRequired ? (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="mt-1 w-full justify-start text-[10px]"
+								disabled={pending !== null}
+								onClick={() => run("sync", runtime.createWorkspace)}
+							>
+								Create separate workspace
+							</Button>
 						) : null}
 					</div>
 					{runtime.syncNow ? (

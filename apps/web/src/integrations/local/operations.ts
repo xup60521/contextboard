@@ -543,6 +543,7 @@ function base(deviceId: string, now: number) {
 async function executeMutation(
 	db: ContextboardDatabase,
 	deviceId: string,
+	workspaceId: string,
 	reference: string,
 	args: Args = {},
 ) {
@@ -941,8 +942,12 @@ async function executeMutation(
 				.where("[whiteboardId+shapeId]")
 				.equals([whiteboardId, shapeId])
 				.first();
+			const sourceIsTrusted =
+				args.placement !== "duplicate" &&
+				typeof args.sourceWorkspaceId === "string" &&
+				args.sourceWorkspaceId === workspaceId;
 			const source =
-				typeof args.sourceCardId === "string"
+				sourceIsTrusted && typeof args.sourceCardId === "string"
 					? await db.cards.get(args.sourceCardId)
 					: null;
 			const itemId = id();
@@ -1326,7 +1331,13 @@ export async function localMutation(
 					before.set(`${entityType}:${syncRowId(row)}`, structuredClone(row));
 				}
 			}
-			const result = await executeMutation(db, deviceId, reference, args);
+			const result = await executeMutation(
+				db,
+				deviceId,
+				workspaceId,
+				reference,
+				args,
+			);
 			const changes: EntityChange[] = [];
 			const seen = new Set<string>();
 			const now = Date.now();

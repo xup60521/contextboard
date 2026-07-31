@@ -7,6 +7,7 @@ import {
 	parseClaimWorkspaceRequest,
 	parsePullChangesRequest,
 	parsePushChangesRequest,
+	parseSelectWorkspaceRequest,
 	parseSyncVersionHeaders,
 	parseWorkspaceId,
 	SyncProtocolError,
@@ -17,11 +18,13 @@ import {
 	requireSession,
 	requireWorkspaceSession,
 	SessionAccessError,
+	WorkspaceRedirectError,
 } from "./session";
 import {
 	SequenceConflictError,
 	type SyncStore,
 	WorkspaceClaimConflictError,
+	WorkspaceMembershipError,
 } from "./store";
 
 const POPUP_COMPLETE_PATH = "/api/auth/popup-complete";
@@ -113,7 +116,21 @@ export function createSyncApp(
 	app.get("/api/sync/v1/workspaces", async (context) => {
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
 		const session = await requireSession(auth, context.req.raw);
-		return context.json({ workspaces: store.listWorkspaces(session.user.id) });
+		return context.json(store.listWorkspaces(session.user.id));
+	});
+
+	app.post("/api/sync/v1/workspaces/select", async (context) => {
+		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
+		const input = parseSelectWorkspaceRequest(await context.req.json());
+		const session = await requireSession(auth, context.req.raw);
+		const redirect = store.getWorkspaceRedirect(
+			input.workspaceId,
+			session.user.id,
+		);
+		if (redirect) throw new WorkspaceRedirectError(redirect.toWorkspaceId);
+		return context.json(
+			store.selectDefaultWorkspace(input.workspaceId, session.user.id),
+		);
 	});
 
 	app.post("/api/sync/v1/workspaces/claim", async (context) => {
@@ -215,8 +232,18 @@ export function createSyncApp(
 	app.notFound((context) => context.json({ error: "Not found" }, 404));
 
 	app.onError((error, context) => {
+		if (error instanceof WorkspaceRedirectError)
+			return context.json(
+				{
+					error: error.message,
+					redirectWorkspaceId: error.redirectWorkspaceId,
+				},
+				410,
+			);
 		if (error instanceof SessionAccessError)
 			return context.json({ error: error.message }, error.status);
+		if (error instanceof WorkspaceMembershipError)
+			return context.json({ error: error.message }, 403);
 		if (
 			error instanceof SequenceConflictError ||
 			error instanceof WorkspaceClaimConflictError

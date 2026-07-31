@@ -217,4 +217,30 @@ describe("HttpSyncTransport", () => {
 			restore();
 		}
 	});
+
+	test("preserves workspace redirect details from the server", async () => {
+		const original = globalThis.fetch;
+		globalThis.fetch = (async () =>
+			new Response(
+				JSON.stringify({
+					error: "Workspace has been merged",
+					redirectWorkspaceId: "canonical-workspace",
+				}),
+				{ status: 410, headers: { "content-type": "application/json" } },
+			)) as typeof globalThis.fetch;
+		try {
+			await expect(
+				new HttpSyncTransport().pull({
+					workspaceId: "old-workspace",
+					cursor: null,
+					limit: 10,
+				}),
+			).rejects.toMatchObject({
+				status: 410,
+				redirectWorkspaceId: "canonical-workspace",
+			});
+		} finally {
+			globalThis.fetch = original;
+		}
+	});
 });

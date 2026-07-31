@@ -15,6 +15,7 @@ import {
 	ensureLocalIdentity,
 	getPendingBatches,
 	importCheckpointEntities,
+	rebindWorkspaceId,
 	runLocalCommand,
 } from "./index";
 
@@ -37,6 +38,62 @@ describe("local database", () => {
 		const first = await ensureLocalIdentity(db);
 		const second = await ensureLocalIdentity(db);
 		expect(second).toEqual(first);
+	});
+
+	test("rebinds a merged non-empty workspace and resets its sync cursor", async () => {
+		const db = makeDb();
+		const identity = await ensureLocalIdentity(db);
+		await db.todos.add({
+			id: "preserved",
+			text: "Keep me",
+			completed: false,
+			revision: 1,
+			createdAt: 1,
+			updatedAt: 1,
+			updatedByDeviceId: identity.deviceId,
+			deletedAt: null,
+		});
+		await db.changeLog.add({
+			protocolVersion: SYNC_PROTOCOL_VERSION,
+			schemaVersion: SYNC_SCHEMA_VERSION,
+			changeId: "merged-change",
+			workspaceId: identity.workspaceId,
+			deviceId: identity.deviceId,
+			deviceSequence: 1,
+			clock: "0000000000001:000000:device",
+			command: "todos.add",
+			createdAt: 1,
+			changes: [],
+		});
+		await db.appliedChangeBatches.add({
+			changeId: "merged-change",
+			workspaceId: identity.workspaceId,
+			deviceId: identity.deviceId,
+			deviceSequence: 1,
+			appliedAt: 1,
+		});
+		await db.syncPeers.add({
+			peerId: "contextboard-cloud",
+			url: "",
+			cursor: "99",
+			enabled: true,
+			updatedAt: 1,
+			lastSyncedAt: 1,
+		});
+
+		await rebindWorkspaceId(db, identity.workspaceId, "canonical-workspace");
+
+		expect((await db.settings.get("workspaceId"))?.value).toBe(
+			"canonical-workspace",
+		);
+		expect((await db.changeLog.get("merged-change"))?.workspaceId).toBe(
+			"canonical-workspace",
+		);
+		expect(
+			(await db.appliedChangeBatches.get("merged-change"))?.workspaceId,
+		).toBe("canonical-workspace");
+		expect((await db.syncPeers.get("contextboard-cloud"))?.cursor).toBeNull();
+		expect(await db.todos.get("preserved")).toMatchObject({ text: "Keep me" });
 	});
 
 	test("commits domain writes and their change batch atomically", async () => {
@@ -579,8 +636,9 @@ describe("local database", () => {
 		const copyB = await dbB.cards.get(copyId);
 		expect(copyA?.content).toEqual(cardB.content);
 		expect(copyB?.content).toEqual(cardA.content);
-		expect((copyA as unknown as { customMetadata: unknown }).customMetadata)
-			.toEqual(cardB.customMetadata);
+		expect(
+			(copyA as unknown as { customMetadata: unknown }).customMetadata,
+		).toEqual(cardB.customMetadata);
 		expect(
 			(await dbA.boardItems.where("cardId").equals(copyId).first())?.x,
 		).toBe(58);

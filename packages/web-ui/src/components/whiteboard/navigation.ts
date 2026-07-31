@@ -15,7 +15,10 @@ import { useMemo } from "react";
  */
 export type AppLinkProps = {
 	href: string;
-	onClick: (event: { preventDefault(): void; defaultPrevented: boolean }) => void;
+	onClick: (event: {
+		preventDefault(): void;
+		defaultPrevented: boolean;
+	}) => void;
 };
 
 export type WhiteboardNavigation = {
@@ -24,6 +27,7 @@ export type WhiteboardNavigation = {
 	rootWhiteboardHref(): string;
 	openCard(cardId: string): void;
 	openWhiteboard(whiteboardId: string): void;
+	openRootWhiteboard(): void;
 	/** Spreads onto an `<a>` to make a router href clickable in-app. */
 	linkProps(href: string): AppLinkProps;
 	/**
@@ -44,6 +48,8 @@ export function useWhiteboardNavigation(): WhiteboardNavigation {
 			openCard: (cardId) => navigation.navigate(navigation.cardHref(cardId)),
 			openWhiteboard: (whiteboardId) =>
 				navigation.navigate(navigation.whiteboardHref(whiteboardId)),
+			openRootWhiteboard: () =>
+				navigation.navigate(navigation.rootWhiteboardHref()),
 			linkProps: (href) => ({
 				href: navigation.hrefAttribute?.(href) ?? href,
 				onClick: (event) => {

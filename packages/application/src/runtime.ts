@@ -165,6 +165,10 @@ export type CreateSubwhiteboardResult = {
 	childWhiteboardId: string;
 };
 
+export type WhiteboardArchiveOptions = {
+	deleteCards?: boolean;
+};
+
 export interface WhiteboardsService {
 	list(): Promise<WhiteboardSummary[]>;
 	get(id: string): Promise<WhiteboardDetail | null>;
@@ -179,7 +183,7 @@ export interface WhiteboardsService {
 		rotation?: number;
 	}): Promise<CreateSubwhiteboardResult>;
 	rename(input: { whiteboardId: string; title: string }): Promise<string>;
-	archive(id: string): Promise<void>;
+	archive(id: string, options?: WhiteboardArchiveOptions): Promise<void>;
 	subscribe(listener: () => void): () => void;
 }
 
@@ -270,6 +274,8 @@ export interface CanvasService {
 		whiteboardId: string | null;
 		shapeId: string;
 		sourceCardId?: string | null;
+		sourceWorkspaceId?: string | null;
+		placement?: "auto" | "link" | "duplicate";
 		content?: unknown;
 		x?: number;
 		y?: number;

@@ -35,6 +35,8 @@ export function AppSidebar() {
 						}
 					: undefined,
 				syncNow: sync.syncNow,
+				createWorkspace: sync.createWorkspace,
+				workspaceSelectionRequired: sync.state.workspaceSelectionRequired,
 			}}
 		/>
 	);

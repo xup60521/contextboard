@@ -7,6 +7,7 @@ import {
 import {
 	adoptWorkspaceId,
 	hasWorkspaceData,
+	rebindWorkspaceId,
 } from "@contextboard/local-db";
 import type { SyncStatus } from "@contextboard/sync-protocol";
 import {
@@ -28,6 +29,7 @@ export type SyncUiState = SyncStatus & {
 	pendingCount: number;
 	conflictCount: number;
 	lastSyncedAt: number | null;
+	workspaceSelectionRequired: boolean;
 };
 
 type SyncRuntime = {
@@ -39,7 +41,17 @@ type SyncRuntime = {
 type SyncActions = {
 	syncNow: () => Promise<void>;
 	notifyLocalChange: () => void;
+	createWorkspace: () => Promise<void>;
 };
+
+class WorkspaceSelectionRequiredError extends Error {
+	constructor() {
+		super(
+			"This local workspace is not linked to the signed-in account. Choose an account workspace or explicitly create a new workspace.",
+		);
+		this.name = "WorkspaceSelectionRequiredError";
+	}
+}
 
 const initialState: SyncUiState = {
 	state: "local-only",
@@ -48,6 +60,7 @@ const initialState: SyncUiState = {
 	pendingCount: 0,
 	conflictCount: 0,
 	lastSyncedAt: null,
+	workspaceSelectionRequired: false,
 };
 
 const SyncRuntimeContext = createContext<SyncRuntime | null>(null);
@@ -58,6 +71,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 	const session = useSession();
 	const userId = session.data?.user.id ?? null;
 	const [state, setState] = useState(initialState);
+	const [bootstrapNonce, setBootstrapNonce] = useState(0);
 	const coordinatorRef = useRef<SyncCoordinator | null>(null);
 	const checkpointRef = useRef<{
 		transport: HttpSyncTransport;
@@ -115,6 +129,23 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 				await refetchSessionRef.current();
 				return;
 			}
+			if (
+				error instanceof HttpSyncError &&
+				error.redirectWorkspaceId &&
+				local.status === "ready"
+			) {
+				coordinator.stop();
+				if (coordinatorRef.current === coordinator)
+					coordinatorRef.current = null;
+				checkpointRef.current = null;
+				await rebindWorkspaceId(
+					local.database,
+					local.workspaceId,
+					error.redirectWorkspaceId,
+				);
+				local.updateWorkspaceIdentity(error.redirectWorkspaceId);
+				return;
+			}
 			throw error;
 		} finally {
 			await refreshCountsRef.current();
@@ -122,6 +153,23 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 	};
 
 	const syncNow = useCallback(() => syncNowRef.current(), []);
+
+	const createWorkspace = useCallback(async () => {
+		if (local.status !== "ready" || !userId)
+			throw new Error("Sign in before creating a workspace");
+		const transport = new HttpSyncTransport();
+		await transport.claimWorkspace({
+			workspaceId: local.workspaceId,
+			deviceId: local.deviceId,
+		});
+		setState((current) => ({
+			...current,
+			state: "syncing",
+			error: undefined,
+			workspaceSelectionRequired: false,
+		}));
+		setBootstrapNonce((current) => current + 1);
+	}, [local.deviceId, local.status, local.workspaceId, userId]);
 
 	const notifyLocalChange = useCallback(() => {
 		void refreshCountsRef.current();
@@ -132,9 +180,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
 	useEffect(() => {
 		if (local.status !== "ready") return;
-		const unsubscribe = getWebWorkspaceRepository(local.database).subscribeLocal(
-			notifyLocalChange,
-		);
+		const unsubscribe = getWebWorkspaceRepository(
+			local.database,
+		).subscribeLocal(notifyLocalChange);
 		return () => {
 			unsubscribe();
 		};
@@ -155,6 +203,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 				...current,
 				state: "local-only",
 				workspaceId: local.workspaceId,
+				workspaceSelectionRequired: false,
 			}));
 			return;
 		}
@@ -175,11 +224,27 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 			const currentMembership = listing.workspaces.find(
 				(item) => item.workspaceId === local.workspaceId,
 			);
+			const redirect = (listing.redirects ?? []).find(
+				(item) => item.fromWorkspaceId === local.workspaceId,
+			);
+			const defaultWorkspace =
+				listing.workspaces.find((item) => item.isDefault) ??
+				listing.workspaces[0];
 			let workspaceId = local.workspaceId;
+			if (redirect) {
+				await rebindWorkspaceId(
+					local.database,
+					local.workspaceId,
+					redirect.toWorkspaceId,
+				);
+				if (!active) return;
+				local.updateWorkspaceIdentity(redirect.toWorkspaceId);
+				return;
+			}
 			if (!currentMembership) {
 				const hasData = await hasWorkspaceData(local.database);
-				if (!hasData && listing.workspaces[0]) {
-					workspaceId = listing.workspaces[0].workspaceId;
+				if (!hasData && defaultWorkspace) {
+					workspaceId = defaultWorkspace.workspaceId;
 					await adoptWorkspaceId(local.database, workspaceId);
 					await bootstrapLatestCheckpoint(
 						local.database,
@@ -188,6 +253,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 					);
 					if (!active) return;
 					local.updateWorkspaceIdentity(workspaceId);
+				} else if (hasData) {
+					throw new WorkspaceSelectionRequiredError();
 				} else {
 					await transport.claimWorkspace(
 						{
@@ -230,8 +297,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 				const timer = setTimeout(async () => {
 					timers.delete(timer);
 					await syncNow().catch(() => undefined);
-					if (active && coordinatorRef.current === coordinator)
-						schedulePull();
+					if (active && coordinatorRef.current === coordinator) schedulePull();
 				}, delay);
 				timers.add(timer);
 			};
@@ -258,6 +324,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 					await refetchSessionRef.current();
 					return;
 				}
+				if (error instanceof WorkspaceSelectionRequiredError) {
+					setState((current) => ({
+						...current,
+						state: "error",
+						error: error.message,
+						workspaceSelectionRequired: true,
+					}));
+					return;
+				}
 				bootstrapFailures += 1;
 				if (typeof navigator === "undefined" || navigator.onLine !== false)
 					setState((current) => ({
@@ -265,10 +340,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 						state: "error",
 						error: error instanceof Error ? error.message : String(error),
 					}));
-				const timer = setTimeout(() => {
-					timers.delete(timer);
-					void attemptStart();
-				}, Math.min(60_000, 1_000 * 2 ** Math.min(bootstrapFailures, 6)));
+				const timer = setTimeout(
+					() => {
+						timers.delete(timer);
+						void attemptStart();
+					},
+					Math.min(60_000, 1_000 * 2 ** Math.min(bootstrapFailures, 6)),
+				);
 				timers.add(timer);
 			} finally {
 				bootstrapping = false;
@@ -300,7 +378,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 			window.removeEventListener("online", immediate);
 			window.removeEventListener("pagehide", flush);
 		};
-	}, [local, syncNow, userId]);
+	}, [bootstrapNonce, local, syncNow, userId]);
 
 	useEffect(
 		() => () => {
@@ -318,8 +396,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 		[session.isPending, state, userId],
 	);
 	const actionsValue = useMemo<SyncActions>(
-		() => ({ syncNow, notifyLocalChange }),
-		[notifyLocalChange, syncNow],
+		() => ({ createWorkspace, notifyLocalChange, syncNow }),
+		[createWorkspace, notifyLocalChange, syncNow],
 	);
 	return (
 		<SyncActionsContext.Provider value={actionsValue}>

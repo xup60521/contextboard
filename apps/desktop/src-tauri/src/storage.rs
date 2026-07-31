@@ -237,18 +237,27 @@ impl Storage {
         let mut changes = Vec::with_capacity(writes.len());
         let mut materialized_values = Vec::with_capacity(writes.len());
         for (entity_type, action, id, value, expected_revision) in &writes {
-            let existing: Option<i64> = transaction.query_row(
-                "SELECT revision FROM entities WHERE workspace_id=?1 AND entity_type=?2 AND entity_id=?3",
-                params![workspace, entity_type, id], |row| row.get(0),
+            let existing: Option<(i64, String)> = transaction.query_row(
+                "SELECT revision, value_json FROM entities WHERE workspace_id=?1 AND entity_type=?2 AND entity_id=?3",
+                params![workspace, entity_type, id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
             ).optional()?;
-            if expected_revision.is_some_and(|expected| expected != existing.unwrap_or(0)) {
+            if expected_revision
+                .is_some_and(|expected| expected != existing.as_ref().map_or(0, |row| row.0))
+            {
                 return Err(StorageError::Invalid(format!(
                     "CONFLICT: revision mismatch for {entity_type}:{id}"
                 )));
             }
-            let revision = existing.map_or(1, |value| value + 1);
+            let revision = existing.as_ref().map_or(1, |value| value.0 + 1);
             let deleted = action == "delete";
-            let mut materialized = value.clone().unwrap_or_else(|| json!({}));
+            let mut materialized = if let Some(value) = value.clone() {
+                value
+            } else if let Some((_, existing_value)) = existing.as_ref() {
+                serde_json::from_str(existing_value)?
+            } else {
+                json!({})
+            };
             if let Some(object) = materialized.as_object_mut() {
                 object.insert("id".into(), json!(id));
                 object.insert("revision".into(), json!(revision));
@@ -266,8 +275,10 @@ impl Storage {
                 params![workspace, entity_type, id, serde_json::to_string(&materialized)?, revision, clock, deleted],
             )?;
             changes.push(json!({
-                "entityType": entity_type, "entityId": id, "baseRevision": existing,
-                "revision": revision, "operation": action, "clock": clock,
+                "entityType": entity_type, "entityId": id, "baseRevision": existing.as_ref().map(|row| row.0),
+                "revision": revision,
+                "operation": if deleted { "delete" } else { "upsert" },
+                "clock": clock,
                 "value": materialized
             }));
             materialized_values.push(materialized);
@@ -602,7 +613,7 @@ impl Storage {
         }
         ensure_workspace(&transaction, from)?;
         transaction.execute("UPDATE workspaces SET id=?2 WHERE id=?1", params![from, to])?;
-        for table in [
+		for table in [
             "entities",
             "pending_batches",
             "applied_batches",
@@ -612,9 +623,13 @@ impl Storage {
             transaction.execute(
                 &format!("UPDATE {table} SET workspace_id=?2 WHERE workspace_id=?1"),
                 params![from, to],
-            )?;
-        }
-        // Pending batches carry the workspace id in their serialized payload, so
+			)?;
+		}
+		// Rebinding changes the server workspace's cursor namespace. Replaying
+		// from the beginning is required because target history may contain
+		// changes whose global cursors predate this device's old cursor.
+		transaction.execute("DELETE FROM sync_peers WHERE workspace_id=?1", [to])?;
+		// Pending batches carry the workspace id in their serialized payload, so
         // they would fail validation on push if they kept pointing at the old id.
         let stale: Vec<(String, String)> = {
             let mut statement = transaction
@@ -679,7 +694,7 @@ impl Storage {
                 report.orphan_blobs_removed += 1;
             }
         }
-        let invalid = {
+        let pending = {
             let mut statement = transaction
                 .prepare("SELECT workspace_id,change_id,batch_json FROM pending_batches")?;
             let values = statement
@@ -690,21 +705,30 @@ impl Storage {
                         row.get::<_, String>(2)?,
                     ))
                 })?
-                .filter_map(|row| match row {
-                    Ok((workspace, _id, value))
-                        if serde_json::from_str::<Value>(&value)
-                            .ok()
-                            .is_some_and(|v| validate_batch(&v, &workspace).is_ok()) =>
-                    {
-                        None
-                    }
-                    Ok((workspace, id, _)) => Some(Ok((workspace, id))),
-                    Err(error) => Some(Err(error)),
-                })
                 .collect::<Result<Vec<_>, rusqlite::Error>>()?;
             values
         };
-        for (workspace, id) in invalid {
+        for (workspace, id, batch_json) in pending {
+            let Ok(mut batch) = serde_json::from_str::<Value>(&batch_json) else {
+                transaction.execute(
+                    "DELETE FROM pending_batches WHERE workspace_id=?1 AND change_id=?2",
+                    params![workspace, id],
+                )?;
+                report.invalid_pending_removed += 1;
+                continue;
+            };
+            if validate_batch(&batch, &workspace).is_ok() {
+                continue;
+            }
+            if normalize_legacy_batch_operations(&mut batch)
+                && validate_batch(&batch, &workspace).is_ok()
+            {
+                transaction.execute(
+                    "UPDATE pending_batches SET batch_json=?3 WHERE workspace_id=?1 AND change_id=?2",
+                    params![workspace, id, serde_json::to_string(&batch)?],
+                )?;
+                continue;
+            }
             transaction.execute(
                 "DELETE FROM pending_batches WHERE workspace_id=?1 AND change_id=?2",
                 params![workspace, id],
@@ -868,11 +892,27 @@ fn command_operation(value: &str) -> Option<(&'static str, &'static str)> {
         _ => return None,
     };
     match action {
-        "create" | "put" => Some((entity, "create")),
-        "update" => Some((entity, "update")),
+        "create" | "put" | "update" | "upsert" => Some((entity, "upsert")),
         "delete" => Some((entity, "delete")),
         _ => None,
     }
+}
+
+fn normalize_legacy_batch_operations(batch: &mut Value) -> bool {
+    let Some(changes) = batch.get_mut("changes").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    let mut changed = false;
+    for change in changes {
+        let Some(operation) = change.get("operation").and_then(Value::as_str) else {
+            continue;
+        };
+        if matches!(operation, "create" | "put" | "update") {
+            change["operation"] = json!("upsert");
+            changed = true;
+        }
+    }
+    changed
 }
 
 fn validate_operation_label(value: &str) -> Result<(), StorageError> {
@@ -989,10 +1029,9 @@ mod tests {
                 &json!({"type":"cards.create","input":{"id":"card-1","title":"Saved"}}),
             )
             .unwrap();
-        assert_eq!(
-            store.pending("one", 10).unwrap().as_array().unwrap().len(),
-            1
-        );
+        let pending = store.pending("one", 10).unwrap();
+        assert_eq!(pending.as_array().unwrap().len(), 1);
+        assert_eq!(pending[0]["changes"][0]["operation"], "upsert");
         assert_eq!(
             store
                 .query("two", &json!({"type":"cards.list","input":{}}))
@@ -1086,6 +1125,131 @@ mod tests {
     }
 
     #[test]
+    fn multi_write_tombstones_preserve_entity_payloads() {
+        let (_dir, store) = storage();
+        store
+            .execute(
+                "one",
+                &json!({
+                    "type": "whiteboards.create",
+                    "input": {"value": {
+                        "id": "board-delete",
+                        "title": "Keep this in the tombstone",
+                        "parentWhiteboardId": null
+                    }}
+                }),
+            )
+            .unwrap();
+
+        store
+            .execute(
+                "one",
+                &json!({
+                    "type": "whiteboards.archiveTree",
+                    "input": {"writes": [{
+                        "entity": "whiteboard",
+                        "operation": "delete",
+                        "id": "board-delete",
+                        "expectedRevision": 1
+                    }]}
+                }),
+            )
+            .unwrap();
+
+        let connection = store.connection.lock().unwrap();
+        let (value, deleted): (String, bool) = connection
+            .query_row(
+                "SELECT value_json, deleted FROM entities WHERE workspace_id='one' AND entity_type='whiteboard' AND entity_id='board-delete'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let value: Value = serde_json::from_str(&value).unwrap();
+        assert_eq!(value["title"], "Keep this in the tombstone");
+        assert!(deleted);
+
+        let pending = connection
+            .query_row(
+                "SELECT batch_json FROM pending_batches WHERE workspace_id='one' ORDER BY created_at DESC LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        let pending: Value = serde_json::from_str(&pending).unwrap();
+        assert_eq!(
+            pending["changes"][0]["value"]["title"],
+            "Keep this in the tombstone"
+        );
+    }
+
+    #[test]
+    fn multi_write_cascade_supports_all_entity_types_in_one_batch() {
+        let (_dir, store) = storage();
+        store
+            .execute(
+                "one",
+                &json!({
+                    "type": "whiteboards.archiveTree",
+                    "input": {"writes": [
+                        {"entity":"whiteboard","operation":"upsert","id":"cascade-board","value":{"parentWhiteboardId":null}},
+                        {"entity":"boardItem","operation":"upsert","id":"cascade-item","value":{"whiteboardId":"cascade-board"}},
+                        {"entity":"card","operation":"upsert","id":"cascade-card","value":{"activePlacementCount":1}},
+                        {"entity":"tldrawDocument","operation":"upsert","id":"cascade-document","value":{"whiteboardId":"cascade-board"}},
+                        {"entity":"canvasRecord","operation":"upsert","id":"cascade-record","value":{"whiteboardId":"cascade-board"}},
+                        {"entity":"file","operation":"upsert","id":"cascade-file","value":{"sha256":"cascade-file-hash"}},
+                        {"entity":"fileReference","operation":"upsert","id":"cascade-file-reference","value":{"fileId":"cascade-file","targetKey":"tldrawDocument:cascade-document"}},
+                        {"entity":"cardReference","operation":"upsert","id":"cascade-card-reference","value":{"sourceCardId":"cascade-card","targetCardId":"other"}},
+                        {"entity":"cardRelation","operation":"upsert","id":"cascade-relation","value":{"whiteboardId":"cascade-board"}}
+                    ]}
+                }),
+            )
+            .unwrap();
+
+        let pending = store.pending("one", 10).unwrap();
+        let changes = pending[0]["changes"].as_array().unwrap();
+        let entity_types = changes
+            .iter()
+            .map(|change| change["entityType"].as_str().unwrap())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(changes.len(), 9);
+        assert_eq!(entity_types.len(), 9);
+        assert!(changes.iter().all(|change| change["revision"] == 1));
+    }
+
+    #[test]
+    fn a_revision_conflict_rolls_back_every_cascade_write() {
+        let (_dir, store) = storage();
+        store
+            .execute(
+                "one",
+                &json!({"type":"cards.create","input":{"id":"existing-card"}}),
+            )
+            .unwrap();
+        let before = store.pending("one", 10).unwrap();
+
+        let result = store.execute(
+            "one",
+            &json!({"type":"whiteboards.archiveTree","input":{"writes":[
+                {"entity":"boardItem","operation":"upsert","id":"must-not-persist","value":{}},
+                {"entity":"card","operation":"upsert","id":"existing-card","expectedRevision":0,"value":{}}
+            ]}}),
+        );
+        assert!(
+            matches!(result, Err(StorageError::Invalid(message)) if message.starts_with("CONFLICT:"))
+        );
+        assert_eq!(store.pending("one", 10).unwrap(), before);
+        assert_eq!(
+            store
+                .query(
+                    "one",
+                    &json!({"type":"items.get","input":{"id":"must-not-persist"}})
+                )
+                .unwrap(),
+            Value::Null
+        );
+    }
+
+    #[test]
     fn settings_are_allowlisted_and_survive_reopen() {
         let (dir, store) = storage();
         assert!(store.setting("workspaceId").unwrap().is_none());
@@ -1128,6 +1292,10 @@ mod tests {
             .unwrap();
         assert!(store.has_data("local").unwrap());
         assert!(!store.has_data("cloud").unwrap());
+        store
+            .apply_remote("local", &json!([]), "cloud", "42")
+            .unwrap();
+        assert_eq!(store.sync_state("local", "cloud").unwrap()["cursor"], "42");
 
         store.adopt_workspace("local", "cloud").unwrap();
 
@@ -1142,6 +1310,7 @@ mod tests {
             json!([])
         );
         assert!(store.read_blob("cloud", &hash).unwrap().is_some());
+        assert_eq!(store.sync_state("cloud", "cloud").unwrap()["cursor"], Value::Null);
         let pending = store.pending("cloud", 10).unwrap();
         assert_eq!(pending.as_array().unwrap().len(), 1);
         assert_eq!(pending[0]["workspaceId"], "cloud");
@@ -1190,5 +1359,40 @@ mod tests {
         assert_eq!(second.orphan_blobs_removed, 0);
         assert_eq!(second.invalid_pending_removed, 0);
         assert_eq!(store.missing_blobs("one").unwrap(), vec![descriptor]);
+    }
+
+    #[test]
+    fn recovery_normalizes_legacy_pending_operations_before_removing_invalid_batches() {
+        let (dir, store) = storage();
+        store
+            .execute(
+                "one",
+                &json!({"type":"cards.create","input":{"id":"card-legacy","title":"Saved"}}),
+            )
+            .unwrap();
+        {
+            let connection = store.connection.lock().unwrap();
+            let batch_json: String = connection
+                .query_row(
+                    "SELECT batch_json FROM pending_batches WHERE workspace_id='one'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let mut batch: Value = serde_json::from_str(&batch_json).unwrap();
+            batch["changes"][0]["operation"] = json!("update");
+            connection
+                .execute(
+                    "UPDATE pending_batches SET batch_json=?1 WHERE workspace_id='one'",
+                    [serde_json::to_string(&batch).unwrap()],
+                )
+                .unwrap();
+        }
+
+        drop(store);
+        let reopened = Storage::open(dir.path()).unwrap();
+        let pending = reopened.pending("one", 10).unwrap();
+        assert_eq!(pending.as_array().unwrap().len(), 1);
+        assert_eq!(pending[0]["changes"][0]["operation"], "upsert");
     }
 }
