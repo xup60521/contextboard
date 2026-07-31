@@ -1,6 +1,6 @@
 import { RuntimeNotice, SyncStatusIndicator, AppShell } from "@contextboard/ui";
-import { Outlet } from "@tanstack/react-router";
-import { SidebarProvider } from "@contextboard/web-ui";
+import { Outlet, useParams } from "@tanstack/react-router";
+import { CommandPalette, SidebarProvider } from "@contextboard/web-ui";
 import { DesktopApplicationRuntime } from "../runtime/DesktopApplicationRuntime";
 import { useDesktopRuntime } from "../runtime/DesktopRuntimeProvider";
 import { DesktopSidebar, DesktopSidebarTabsProvider } from "./DesktopSidebar";
@@ -48,6 +48,9 @@ function DesktopBootScreen() {
 
 export function DesktopRootLayout() {
 	const runtime = useDesktopRuntime();
+	const params = useParams({ strict: false });
+	const currentWhiteboardId =
+		typeof params.whiteboardId === "string" ? params.whiteboardId : null;
 	if (runtime.status !== "ready") return <DesktopBootScreen />;
 
 	return (
@@ -59,6 +62,7 @@ export function DesktopRootLayout() {
 					</AppShell>
 				</DesktopSidebarTabsProvider>
 			</SidebarProvider>
+			<CommandPalette currentWhiteboardId={currentWhiteboardId} />
 		</DesktopApplicationRuntime>
 	);
 }

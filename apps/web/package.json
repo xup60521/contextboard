@@ -39,7 +39,6 @@
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/query-core": "5.101.4",
     "@tanstack/react-devtools": "latest",
-    "@tanstack/react-pacer": "^0.22.1",
     "@tanstack/react-query": "latest",
     "@tanstack/react-query-devtools": "latest",
     "@tanstack/react-router": "latest",

@@ -51,6 +51,10 @@ export { SidebarTabRow } from "./components/sidebar/SidebarTabRow.tsx";
 export { ClearOpenTabsDialog } from "./components/sidebar/ClearOpenTabsDialog.tsx";
 export * from "./components/sidebar/sidebar-tabs.ts";
 export {
+	CommandPalette,
+	type CommandPaletteProps,
+} from "./components/search/CommandPalette.tsx";
+export {
 	useCardLibrarySelection,
 } from "./components/cards/useCardLibrarySelection.ts";
 export type { SelectionRect } from "./components/cards/useCardLibrarySelection.ts";

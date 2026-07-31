@@ -1,17 +1,15 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { useNavigate, useParams } from "@tanstack/react-router";
 import {
+	type GlobalCardSearchResult,
+	type SearchResults,
+	type WhiteboardSearchResult,
 	useApplicationRuntime,
 	useApplicationValue,
 } from "@contextboard/application";
-import {
-	CardPreviewDialog,
-	type Id,
-} from "@contextboard/web-ui";
+import { ReadonlyRichTextPreview } from "@contextboard/editor";
 import type { JSONContent } from "@tiptap/core";
 import { FileText, Layers } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ReadonlyRichTextPreview } from "@contextboard/editor";
 import {
 	Command,
 	CommandEmpty,
@@ -19,18 +17,27 @@ import {
 	CommandInput,
 	CommandItem,
 	CommandList,
-} from "#/components/ui/command";
-import { Dialog, DialogContent } from "#/components/ui/dialog";
-type CardSearchResult = { kind: "card"; id: Id<"cards">; title: string; preview: string; content: JSONContent; boardWhiteboardId: Id<"whiteboards"> | null; shapeId: string | null };
-type WhiteboardSearchResult = { kind: "whiteboard"; id: Id<"whiteboards">; title: string; boardWhiteboardId: Id<"whiteboards"> | null; shapeId: string | null };
+} from "../ui/command";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "../ui/dialog";
+import { CardPreviewDialog } from "../cards/CardPreviewDialog";
+
+export type CommandPaletteProps = {
+	currentWhiteboardId?: string | null;
+};
 
 type Mode = "global" | "local";
 
 type ActiveResult =
-	| { kind: "card"; data: CardSearchResult }
+	| { kind: "card"; data: GlobalCardSearchResult }
 	| { kind: "whiteboard"; data: WhiteboardSearchResult };
 
-function cardValue(card: CardSearchResult) {
+function cardValue(card: GlobalCardSearchResult) {
 	return `card-${card.id}`;
 }
 
@@ -38,23 +45,23 @@ function whiteboardValue(whiteboard: WhiteboardSearchResult) {
 	return `whiteboard-${whiteboard.id}`;
 }
 
-export function CommandPalette() {
-	const navigate = useNavigate();
+/**
+ * Keyboard-first search for cards and whiteboards. The host supplies the
+ * current whiteboard because routing is deliberately kept out of shared UI.
+ */
+export function CommandPalette({
+	currentWhiteboardId = null,
+}: CommandPaletteProps) {
 	const runtime = useApplicationRuntime();
-	const params = useParams({ strict: false });
-	const currentWhiteboardId =
-		(params.whiteboardId as Id<"whiteboards"> | undefined) ?? null;
-
 	const [open, setOpen] = useState(false);
 	const [mode, setMode] = useState<Mode>("global");
 	const [query, setQuery] = useState("");
 	const [debouncedQuery] = useDebouncedValue(query, { wait: 150 });
 	const [activeValue, setActiveValue] = useState("");
-	const [previewCardId, setPreviewCardId] = useState<Id<"cards"> | null>(null);
+	const [previewCardId, setPreviewCardId] = useState<string | null>(null);
 
-	// Global hotkeys: Ctrl/Cmd+O = global search, Ctrl/Cmd+P = search within the
-	// current whiteboard. Capture phase + stopPropagation so the keys reach us
-	// before tldraw's canvas handlers and before the browser's native shortcuts.
+	// Capture before tldraw and native browser handlers so Ctrl/Cmd+O and P are
+	// reliable from every focused view in the desktop or web application.
 	useEffect(() => {
 		const handler = (event: KeyboardEvent) => {
 			if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -63,13 +70,8 @@ export function CommandPalette() {
 
 			event.preventDefault();
 			event.stopPropagation();
-
-			if (key === "o") {
-				setMode("global");
-			} else {
-				setMode(currentWhiteboardId ? "local" : "global");
-			}
-			setOpen(true);
+		setMode(key === "o" || !currentWhiteboardId ? "global" : "local");
+		setOpen(true);
 		};
 
 		window.addEventListener("keydown", handler, { capture: true });
@@ -79,7 +81,7 @@ export function CommandPalette() {
 
 	const isLocal = mode === "local" && currentWhiteboardId !== null;
 
-	const searchState = useApplicationValue(
+	const searchState = useApplicationValue<SearchResults>(
 		() =>
 			open && runtime.search
 				? runtime.search.search({
@@ -91,20 +93,13 @@ export function CommandPalette() {
 				: Promise.resolve({ cards: [], whiteboards: [] }),
 		[open, isLocal, currentWhiteboardId, debouncedQuery, runtime.search],
 	);
-	const results =
-		searchState.status === "ready"
-			? (searchState.data as {
-					cards: CardSearchResult[];
-					whiteboards: WhiteboardSearchResult[];
-				})
-			: undefined;
 
+	const results = searchState.status === "ready" ? searchState.data : null;
 	const whiteboards = useMemo(() => results?.whiteboards ?? [], [results]);
 	const cards = useMemo(() => results?.cards ?? [], [results]);
 	const hasResults = cards.length > 0 || whiteboards.length > 0;
 
-	// Map each cmdk value to its result, in the same order the list renders them,
-	// so we can resolve the highlighted item for the preview pane.
+	// Map cmdk's selected value back to the typed result for the preview pane.
 	const resultByValue = useMemo(() => {
 		const map = new Map<string, ActiveResult>();
 		for (const whiteboard of whiteboards) {
@@ -119,7 +114,6 @@ export function CommandPalette() {
 		return map;
 	}, [whiteboards, cards]);
 
-	// Keep the highlighted value valid as results change (cmdk is controlled).
 	useEffect(() => {
 		if (resultByValue.size === 0) {
 			if (activeValue !== "") setActiveValue("");
@@ -130,9 +124,7 @@ export function CommandPalette() {
 		}
 	}, [resultByValue, activeValue]);
 
-	// Debounce which item the preview pane renders. The left-list highlight
-	// updates instantly (cmdk), but mounting the rich-text editor is expensive,
-	// so we only render it once the selection settles to avoid lag while arrowing.
+	// Avoid mounting the rich-text preview on every arrow-key event.
 	const [previewValue] = useDebouncedValue(activeValue, { wait: 120 });
 
 	const close = useCallback(() => {
@@ -140,7 +132,7 @@ export function CommandPalette() {
 	}, []);
 
 	const openCardPreview = useCallback(
-		(card: CardSearchResult) => {
+		(card: GlobalCardSearchResult) => {
 			close();
 			setPreviewCardId(card.id);
 		},
@@ -150,12 +142,11 @@ export function CommandPalette() {
 	const openWhiteboard = useCallback(
 		(whiteboard: WhiteboardSearchResult) => {
 			close();
-			void navigate({
-				to: "/whiteboard/$whiteboardId",
-				params: { whiteboardId: whiteboard.id },
-			});
+			runtime.navigation.navigate(
+				runtime.navigation.whiteboardHref(whiteboard.id),
+			);
 		},
-		[close, navigate],
+		[close, runtime.navigation],
 	);
 
 	const previewResult =
@@ -169,6 +160,13 @@ export function CommandPalette() {
 					if (!next) close();
 				}}
 			>
+				<DialogHeader className="sr-only">
+					<DialogTitle>Search Contextboard</DialogTitle>
+					<DialogDescription>
+						Search cards and whiteboards. Use the arrow keys to navigate and Enter
+						to open a result.
+					</DialogDescription>
+				</DialogHeader>
 				<DialogContent
 					showCloseButton={false}
 					className="overflow-hidden p-0 sm:max-w-3xl"
@@ -185,16 +183,22 @@ export function CommandPalette() {
 							onValueChange={setQuery}
 							placeholder={
 								isLocal
-									? "Search cards & sub-whiteboards on this board…"
-									: "Search all cards & whiteboards…"
+									? "Search cards & sub-whiteboards on this board"
+									: "Search all cards & whiteboards"
 							}
 						/>
 						<div className="flex h-[24rem]">
 							<CommandList className="max-h-none w-1/2 shrink-0 overflow-y-auto border-r border-border">
-								{!hasResults && (
+								{searchState.status === "loading" && (
+									<CommandEmpty>Searching…</CommandEmpty>
+								)}
+								{searchState.status === "error" && (
+									<CommandEmpty>Search is unavailable right now.</CommandEmpty>
+								)}
+								{searchState.status === "ready" && !hasResults && (
 									<CommandEmpty>
 										{debouncedQuery.trim().length === 0 && !isLocal
-											? "Type to search…"
+											? "Type to search"
 											: "No results found."}
 									</CommandEmpty>
 								)}
@@ -285,7 +289,7 @@ function PreviewPane({ result }: { result: ActiveResult | null }) {
 	return <CardPreview card={result.data} />;
 }
 
-function CardPreview({ card }: { card: CardSearchResult }) {
+function CardPreview({ card }: { card: GlobalCardSearchResult }) {
 	return (
 		<div className="p-5">
 			<ReadonlyRichTextPreview

@@ -48,6 +48,15 @@ vi.mock("@contextboard/editor", async (importOriginal) => ({
 	),
 }));
 
+vi.stubGlobal(
+	"ResizeObserver",
+	class {
+		observe() {}
+		unobserve() {}
+		disconnect() {}
+	},
+);
+
 type Entity = Record<string, unknown> & {
 	id: string;
 	revision: number;
@@ -245,6 +254,18 @@ describe("Desktop application shell", () => {
 		// local-only chip.
 		expect(
 			await screen.findByRole("button", { name: /sign in with github/i }),
+		).toBeTruthy();
+	});
+
+	test("opens the shared search palette from Ctrl+O", async () => {
+		const { invoke } = createNativeStub();
+		mount(invoke);
+		await screen.findByText("No cards yet");
+
+		fireEvent.keyDown(window, { key: "o", ctrlKey: true });
+
+		expect(
+			await screen.findByPlaceholderText("Search all cards & whiteboards"),
 		).toBeTruthy();
 	});
 

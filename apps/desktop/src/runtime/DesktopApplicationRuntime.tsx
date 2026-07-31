@@ -3,6 +3,7 @@ import {
 	ApplicationRuntimeProvider,
 	createRepositoryCanvasService,
 	createRepositoryCardsService,
+	createRepositorySearchService,
 	createRepositoryWhiteboardsService,
 	type SyncRuntime,
 } from "@contextboard/application";
@@ -38,6 +39,7 @@ export function DesktopApplicationRuntime({
 			platform: "desktop",
 			workspaceId,
 			cards: createRepositoryCardsService(repository),
+			search: createRepositorySearchService(repository),
 			whiteboards: createRepositoryWhiteboardsService(repository),
 			canvas: createRepositoryCanvasService(repository),
 			files: createDesktopFileRuntime(repository),

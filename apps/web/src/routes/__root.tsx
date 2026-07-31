@@ -1,6 +1,7 @@
 import { AppShell as SharedAppShell } from "@contextboard/ui";
 import applicationCss from "@contextboard/application/application.css?url";
 import {
+	CommandPalette,
 	SidebarProvider,
 	SidebarTabsProvider,
 } from "@contextboard/web-ui";
@@ -14,7 +15,6 @@ import {
 	useRouterState,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
-import { CommandPalette } from "../components/search/CommandPalette";
 import { AppSidebar } from "../components/whiteboard/AppSidebar";
 import { LocalDatabaseProvider } from "../integrations/local/provider";
 import { SyncProvider } from "../integrations/sync/provider";
@@ -71,6 +71,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 		select: (state) => state.location.pathname,
 	});
 	const params = useParams({ strict: false });
+	const currentWhiteboardId =
+		typeof params.whiteboardId === "string" ? params.whiteboardId : null;
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
@@ -98,7 +100,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 							>
 								<AppShell>{children}</AppShell>
 							</SidebarTabsProvider>
-							<CommandPalette />
+							<CommandPalette
+								currentWhiteboardId={currentWhiteboardId}
+							/>
 							<TanStackDevtools
 								config={{
 									position: "bottom-right",
