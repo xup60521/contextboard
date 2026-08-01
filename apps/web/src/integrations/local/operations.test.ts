@@ -1,10 +1,12 @@
 import "fake-indexeddb/auto";
+import { createRepositoryCardRelationsService } from "@contextboard/application/relations";
 import {
 	applyRemoteBatches,
 	type ContextboardDatabase,
 	createContextboardDatabase,
 	ensureLocalIdentity,
 } from "@contextboard/local-db";
+import { IndexedDbWorkspaceRepository } from "@contextboard/storage-indexeddb";
 import {
 	type ChangeBatch,
 	conflictCopyCardId,
@@ -429,42 +431,50 @@ describe("local operations", () => {
 			whiteboardId: board.childWhiteboardId,
 			shapeId: "shape:second",
 		});
-		const relationId = await localMutation(db, deviceId, "relations.create", {
+		// Relations are written through the shared application service, which is
+		// the one path the web app, the desktop bridge and the MCP gateway agree
+		// on. This asserts that path reaches Dexie and the sync change log.
+		const relations = createRepositoryCardRelationsService(
+			new IndexedDbWorkspaceRepository(db),
+			{ deviceId },
+		);
+		const created = await relations.create({
 			whiteboardId: board.childWhiteboardId,
 			sourceCardId: first.cardId,
 			targetCardId: second.cardId,
 			relation: "supports",
 			ordinal: 2,
 		});
-		const relations = await localQuery(db, "relations.list", {
+
+		const listed = await relations.list({
 			cardId: first.cardId,
 			whiteboardId: board.childWhiteboardId,
 		});
-		expect(relations).toHaveLength(1);
-		expect(relations[0]).toMatchObject({
-			_id: relationId,
+		expect(listed).toHaveLength(1);
+		expect(listed[0]).toMatchObject({
+			id: created.id,
 			relation: "supports",
 			ordinal: 2,
 		});
-		expect(relations[0].clock).toMatch(
+		expect((await db.cardRelations.get(created.id))?.clock).toMatch(
 			new RegExp(`${deviceId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
 		);
+		// A relation is not a card reference; writing one must not fabricate the
+		// other.
 		expect(await db.cardReferences.count()).toBe(0);
 		expect(
 			(await db.changeLog.toArray()).some((batch) =>
 				batch.changes.some(
 					(change) =>
 						change.entityType === "cardRelation" &&
-						change.entityId === relationId,
+						change.entityId === created.id,
 				),
 			),
 		).toBe(true);
 
-		await localMutation(db, deviceId, "relations.archive", { relationId });
-		expect(
-			await localQuery(db, "relations.list", { cardId: first.cardId }),
-		).toEqual([]);
-		expect((await db.cardRelations.get(relationId))?.deletedAt).not.toBeNull();
+		await relations.archive({ relationId: created.id });
+		expect(await relations.list({ cardId: first.cardId })).toEqual([]);
+		expect((await db.cardRelations.get(created.id))?.deletedAt).not.toBeNull();
 	});
 
 	test.each([

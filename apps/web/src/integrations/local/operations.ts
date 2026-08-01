@@ -18,7 +18,6 @@ import type {
 	CardId,
 	CardReference,
 	CardRelation,
-	CardRelationKind,
 	FileReference,
 	LocalFile,
 	Whiteboard,
@@ -1112,69 +1111,6 @@ async function executeMutation(
 					pendingDeleteAt: null,
 				});
 			return { fileId, storageId: fileId, url: await blobDataUrl(file) };
-		}
-		case "relations.create": {
-			const whiteboardId = String(args.whiteboardId);
-			const sourceCardId = String(args.sourceCardId);
-			const targetCardId = String(args.targetCardId);
-			const relation = String(args.relation) as CardRelationKind;
-			const allowed: CardRelationKind[] = [
-				"related",
-				"next",
-				"explains",
-				"supports",
-				"cites",
-				"summarizes",
-			];
-			const ordinal =
-				args.ordinal === null || args.ordinal === undefined
-					? null
-					: Number(args.ordinal);
-			if (!allowed.includes(relation)) throw new Error("Invalid card relation");
-			if (ordinal !== null && (!Number.isSafeInteger(ordinal) || ordinal < 0))
-				throw new Error("Invalid relation ordinal");
-			if (sourceCardId === targetCardId)
-				throw new Error("A card cannot relate to itself");
-			const [whiteboard, source, target] = await Promise.all([
-				db.whiteboards.get(whiteboardId),
-				db.cards.get(sourceCardId),
-				db.cards.get(targetCardId),
-			]);
-			if (!whiteboard || !active(whiteboard))
-				throw new Error("Whiteboard not found");
-			if (!source || !active(source) || !target || !active(target))
-				throw new Error("Card not found");
-			const relationId = id();
-			const relationClock = (
-				clocks.get(deviceId) ?? new HybridLogicalClock(deviceId)
-			).tick(now);
-			await db.cardRelations.add({
-				id: relationId as never,
-				...base(deviceId, now),
-				whiteboardId: whiteboardId as never,
-				sourceCardId: sourceCardId as never,
-				targetCardId: targetCardId as never,
-				relation,
-				ordinal,
-				arrowShapeId: null,
-				clock: relationClock,
-			});
-			return relationId;
-		}
-		case "relations.archive": {
-			const relation = await db.cardRelations.get(String(args.relationId));
-			if (!relation || relation.deletedAt !== null) return null;
-			const relationClock = (
-				clocks.get(deviceId) ?? new HybridLogicalClock(deviceId)
-			).tick(now);
-			await db.cardRelations.update(relation.id, {
-				deletedAt: now,
-				revision: relation.revision + 1,
-				updatedAt: now,
-				updatedByDeviceId: deviceId,
-				clock: relationClock,
-			});
-			return null;
 		}
 		case "conflicts.resolve": {
 			const conflictId = String(args.conflictId);

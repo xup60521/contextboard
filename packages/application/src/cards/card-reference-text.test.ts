@@ -101,3 +101,88 @@ describe("card reference text", () => {
 		);
 	});
 });
+
+// `update_card` replaces the whole document, so anything that renders but does
+// not parse back is data an agent would destroy just by editing a card. Each of
+// these asserts the exact text survives a full round trip.
+describe("markdown round trips", () => {
+	const roundTrip = (text: string) =>
+		cardContentToTextWithReferences(textToCardContentWithReferences(text));
+
+	test.each([
+		["headings", "Title\n## Section\n### Deeper\nBody."],
+		["bullet list", "Title\n- one\n- two\n- three"],
+		["ordered list", "Title\n1. first\n2. second\n3. third"],
+		["blockquote", "Title\n> quoted line\n> second line"],
+		["horizontal rule", "Title\nAbove.\n---\nBelow."],
+		["block math", "Title\n$$E = mc^2$$"],
+		["inline math", "Title\nThe cap is $n \\log n$ overall."],
+		["fenced code", "Title\n```ts\nconst x = 1;\n```"],
+		["unfenced code", "Title\n```\nplain\n```"],
+		[
+			"table",
+			"Title\n| Name | Role |\n| --- | --- |\n| Ada | Author |\n| Alan | Editor |",
+		],
+		["nested bullets", "Title\n- outer\n  - inner\n  - inner two\n- outer two"],
+		["paragraphs and blanks", "Title\nOne.\n\nTwo.\n\nThree."],
+	])("preserves %s", (_label, text) => {
+		expect(roundTrip(text)).toBe(text);
+	});
+
+	test("keeps references inside a list item", () => {
+		const text = "Title\n- see [notes](contextboard:card/card-1)\n- plain";
+		expect(roundTrip(text)).toBe(text);
+		expect(referencedCardIds(text)).toEqual(["card-1"]);
+	});
+
+	test("keeps references inside a table cell", () => {
+		const text =
+			"Title\n| Source | Note |\n| --- | --- |\n| [Shannon](contextboard:card/card-7) | 1948 |";
+		expect(roundTrip(text)).toBe(text);
+		expect([
+			...collectReferenceIds(textToCardContentWithReferences(text), "cardId"),
+		]).toEqual(["card-7"]);
+	});
+
+	test("does not read a reference inside a code block as a link", () => {
+		const text = "Title\n```\n[x](contextboard:card/card-9)\n```";
+		const content = textToCardContentWithReferences(text);
+		expect([...collectReferenceIds(content, "cardId")]).toEqual([]);
+		expect(cardContentToTextWithReferences(content)).toBe(text);
+	});
+
+	test("escapes a pipe inside a table cell", () => {
+		const text = "Title\n| Expr |\n| --- |\n| a \\| b |";
+		expect(roundTrip(text)).toBe(text);
+	});
+
+	test("normalizes a marked-up title to the bare form", () => {
+		// `# Title` and `Title` describe the same card, so both settle on the
+		// bare form the tools document.
+		expect(roundTrip("# Title\nBody.")).toBe("Title\nBody.");
+		expect(roundTrip(roundTrip("# Title\nBody."))).toBe("Title\nBody.");
+	});
+
+	test("survives a document combining every supported block", () => {
+		const text = [
+			"Release notes",
+			"## Summary",
+			"Ships [the sync fix](contextboard:card/card-3).",
+			"",
+			"- bullet",
+			"  - nested",
+			"1. step one",
+			"2. step two",
+			"> a caveat",
+			"```sh",
+			"bun run test",
+			"```",
+			"| Field | Value |",
+			"| --- | --- |",
+			"| Size | $O(n)$ |",
+			"---",
+			"$$\\sum_{i=0}^{n} i$$",
+		].join("\n");
+		expect(roundTrip(text)).toBe(text);
+	});
+});

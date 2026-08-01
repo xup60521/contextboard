@@ -55,7 +55,7 @@ Set `CONTEXTBOARD_BRIDGE_PORT` to override port discovery.
 | `list_cards`, `search_cards`, `get_card` | Read cards, placements and backlinks |
 | `create_card`, `update_card`, `archive_card` | Write cards |
 | `list_board_items`, `place_card`, `archive_item` | Arrange cards on boards |
-| `list_relations` | Read the arrows drawn between cards |
+| `list_relations`, `create_relation`, `delete_relation` | Read and draw the arrows between cards |
 
 ## The two ways cards connect
 
@@ -70,13 +70,19 @@ This is the one to reach for when recording where a claim came from.
 **Relations** are the arrows drawn between cards on a board. They are scoped to
 that board — a card can sit on several boards, and an arrow means something in
 the context of one of them — undirected, and their meaning is whatever the
-person who drew them intended. The agent can read them with `list_relations`;
-drawing them is currently the user's job.
+person who drew them intended. Read them with `list_relations` and draw one with
+`create_relation`, which needs both cards to already be on the board. The arrow
+it draws is a real one — the user sees it on the canvas and can drag or delete
+it like any other.
 
 ## Scope
 
-Card text is plain text; the first line becomes the title. Rich markdown, image
-upload, and creating arrows are not supported yet.
+Card text is markdown: headings, lists, blockquotes, fenced code, pipe tables
+and `$…$` math round trip through `get_card` and `update_card`. The first line
+becomes the title. Image upload is not supported yet.
+
+`update_card` replaces the whole card, so read it with `get_card` first and send
+the full text back — anything you leave out is removed.
 
 Conventions for how your workspace should be organised belong in your project's
 `CLAUDE.md` or `AGENTS.md`, not in these tools — the tools describe what is

@@ -7,6 +7,10 @@
  * the shared UI.
  */
 
+import type { CardRelationKind } from "@contextboard/domain";
+
+export type { CardRelationKind };
+
 export type CardSortOrder =
 	| "updated_desc"
 	| "updated_asc"
@@ -144,14 +148,6 @@ export interface CardsService {
 	subscribe(listener: () => void): () => void;
 }
 
-export type CardRelationKind =
-	| "related"
-	| "next"
-	| "explains"
-	| "supports"
-	| "cites"
-	| "summarizes";
-
 export type CardRelationSummary = {
 	id: string;
 	whiteboardId: string;
@@ -170,6 +166,25 @@ export interface CardRelationsService {
 		whiteboardId?: string;
 		cardId?: string;
 	}): Promise<CardRelationSummary[]>;
+	/**
+	 * Records a relation between two cards.
+	 *
+	 * Arrows own relations, so callers that draw an arrow pass its
+	 * `arrowShapeId` and the deterministic id `reconcileCanvasRelations` would
+	 * derive, keeping this write and a later reconcile idempotent.
+	 */
+	create(input: {
+		whiteboardId: string;
+		sourceCardId: string;
+		targetCardId: string;
+		relation?: CardRelationKind;
+		ordinal?: number | null;
+		arrowShapeId?: string | null;
+	}): Promise<CardRelationSummary>;
+	archive(input: {
+		relationId: string;
+		expectedRevision?: number;
+	}): Promise<void>;
 	reconcileCanvasRelations(input: {
 		whiteboardId: string;
 		relations: Array<{

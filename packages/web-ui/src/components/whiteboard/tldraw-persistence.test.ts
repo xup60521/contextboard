@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { buildArrowRelationRecords } from "@contextboard/application/canvas";
 import type { TLStoreSnapshot } from "tldraw";
 import { describe, expect, test } from "vitest";
 import {
@@ -413,5 +414,49 @@ describe("tldraw persistence", () => {
 		expect(result.upserts).toEqual([]);
 		expect(result.removals).toEqual([]);
 		expect(result.deferredBindings).toEqual([]);
+	});
+});
+
+// The MCP gateway writes arrow records without a live Editor. A mistake there
+// would not surface until someone opened the board, so assert the records it
+// builds survive the hydration path.
+describe("agent-authored arrow records", () => {
+	test("hydrate and defer their bindings until the cards exist", () => {
+		const built = buildArrowRelationRecords({
+			sourceShapeId: "shape:card-a",
+			targetShapeId: "shape:card-b",
+			records: [
+				{ id: "page:page", typeName: "page", name: "Page", index: "a1" },
+			],
+		});
+		const store: Record<string, unknown> = {
+			"page:page": {
+				id: "page:page",
+				typeName: "page",
+				name: "Page",
+				index: "a1",
+			},
+		};
+		for (const record of built.records) {
+			store[(record as { id: string }).id] = record;
+		}
+
+		// Managed card shapes are hydrated separately, so they are absent here —
+		// exactly the situation the agent writes into.
+		const resolved = resolveHydrationSnapshot({
+			persistedSnapshot: { store } as unknown as TLStoreSnapshot,
+			currentEmptySnapshot: snapshot({}),
+		});
+		const { snapshot: loadable, deferredBindings } =
+			splitDeferredBindings(resolved);
+
+		// The arrow loads; its two bindings wait for the cards.
+		expect(records(loadable)[built.arrowShapeId]).toBeDefined();
+		expect(deferredBindings).toHaveLength(2);
+		expect(
+			(deferredBindings as Array<{ toId: string }>)
+				.map((binding) => binding.toId)
+				.sort(),
+		).toEqual(["shape:card-a", "shape:card-b"]);
 	});
 });

@@ -1,4 +1,8 @@
 import {
+	buildArrowRelationRecords,
+	collectArrowRelationRecordIds,
+} from "@contextboard/application/canvas";
+import {
 	cardContentToTextWithReferences,
 	textToCardContentWithReferences,
 } from "@contextboard/application/cards";
@@ -35,7 +39,7 @@ export type ToolDefinition = {
 	handler: (input: Record<string, unknown>) => Promise<unknown>;
 };
 
-const REFERENCE_GUIDANCE = `Card text is plain text. To cite another card, write [label](contextboard:card/<cardId>) inline, in the sentence that makes the claim; this creates a real reference and a backlink on the target card, and travels with the card to every whiteboard it appears on. Prefer citing sources this way over listing them at the end.`;
+const REFERENCE_GUIDANCE = `Card text is markdown: headings, bullet and numbered lists, blockquotes, fenced code, pipe tables and $…$ math all round trip. To cite another card, write [label](contextboard:card/<cardId>) inline, in the sentence that makes the claim; this creates a real reference and a backlink on the target card, and travels with the card to every whiteboard it appears on. Prefer citing sources this way over listing them at the end.`;
 
 function object(
 	properties: Record<string, unknown>,
@@ -363,7 +367,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		{
 			name: "list_relations",
 			description:
-				"List the arrow relations on a whiteboard, or every relation touching one card. Relations come from arrows drawn between cards on a board: they are scoped to that board, undirected, and their meaning is whatever the person who drew them intended — do not assume a semantic. This is distinct from a card reference, which lives in a card's text and is global. Arrows are currently drawn by the user in the app; this tool reads them.",
+				"List the arrow relations on a whiteboard, or every relation touching one card. Relations come from arrows drawn between cards on a board: they are scoped to that board, undirected, and their meaning is whatever the person who drew them intended — do not assume a semantic. This is distinct from a card reference, which lives in a card's text and is global. Both you and the user can draw these arrows; use create_relation to add one.",
 			inputSchema: object({
 				whiteboardId: string("Only relations on this whiteboard."),
 				cardId: string("Only relations touching this card."),
@@ -373,6 +377,123 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 					whiteboardId: optionalString(input, "whiteboardId"),
 					cardId: optionalString(input, "cardId"),
 				}),
+		},
+		{
+			name: "create_relation",
+			description:
+				"Draw an arrow between two cards on a whiteboard, linking them. Both cards must already be placed on that board — call place_card first if one is missing. The arrow is a real one: the user sees it on the canvas, can drag or delete it, and it is undirected and carries no built-in meaning, so put any explanation in the cards themselves. Relating the same pair twice returns the existing relation instead of drawing a duplicate.",
+			inputSchema: object(
+				{
+					whiteboardId: string("The whiteboard both cards are placed on."),
+					sourceCardId: string("The card the arrow starts at."),
+					targetCardId: string("The card the arrow points at."),
+				},
+				["whiteboardId", "sourceCardId", "targetCardId"],
+			),
+			handler: async (input) => {
+				const whiteboardId = requireString(input, "whiteboardId");
+				const sourceCardId = requireString(input, "sourceCardId");
+				const targetCardId = requireString(input, "targetCardId");
+				if (sourceCardId === targetCardId) {
+					throw new Error("A card cannot relate to itself");
+				}
+
+				const items = await canvas.listItems(whiteboardId);
+				const shapeIdFor = (cardId: string) => {
+					const item = items.find(
+						(row) => row.kind === "card" && row.cardId === cardId,
+					);
+					if (!item) {
+						throw new Error(
+							`Card ${cardId} is not on whiteboard ${whiteboardId}. Place it with place_card first.`,
+						);
+					}
+					return item.shapeId;
+				};
+				const sourceShapeId = shapeIdFor(sourceCardId);
+				const targetShapeId = shapeIdFor(targetCardId);
+
+				// An existing arrow between the same pair is reused, so repeating a
+				// call never litters the canvas.
+				const existing = await relations.list({
+					whiteboardId,
+					cardId: sourceCardId,
+				});
+				const duplicate = existing.find(
+					(row) =>
+						row.arrowShapeId !== null &&
+						((row.sourceCardId === sourceCardId &&
+							row.targetCardId === targetCardId) ||
+							(row.sourceCardId === targetCardId &&
+								row.targetCardId === sourceCardId)),
+				);
+				if (duplicate) return duplicate;
+
+				const document = await canvas.getDocument(whiteboardId);
+				const records = Object.values(
+					(document?.snapshot as { store?: Record<string, unknown> } | null)
+						?.store ?? {},
+				);
+				const built = buildArrowRelationRecords({
+					sourceShapeId,
+					targetShapeId,
+					records,
+				});
+				await canvas.applyRecordChanges({
+					whiteboardId,
+					added: built.records,
+					updated: [],
+					removed: [],
+				});
+				// The relation row is normally derived by the app when it has the
+				// board open. Writing it here too means the relation is readable
+				// immediately; the id matches what a later reconcile derives, so the
+				// two agree instead of duplicating.
+				return relations.create({
+					whiteboardId,
+					sourceCardId,
+					targetCardId,
+					arrowShapeId: built.arrowShapeId,
+				});
+			},
+		},
+		{
+			name: "delete_relation",
+			description:
+				"Remove a relation and the arrow that carries it. The two cards themselves are untouched and stay on the board. Pass an id from list_relations.",
+			inputSchema: object(
+				{ relationId: string("The relation to remove, from list_relations.") },
+				["relationId"],
+			),
+			handler: async (input) => {
+				const relationId = requireString(input, "relationId");
+				const relation = (await relations.list()).find(
+					(row) => row.id === relationId,
+				);
+				if (!relation) return { deleted: false };
+
+				if (relation.arrowShapeId) {
+					const document = await canvas.getDocument(relation.whiteboardId);
+					const records = Object.values(
+						(document?.snapshot as { store?: Record<string, unknown> } | null)
+							?.store ?? {},
+					);
+					await canvas.applyRecordChanges({
+						whiteboardId: relation.whiteboardId,
+						added: [],
+						updated: [],
+						removed: collectArrowRelationRecordIds(
+							relation.arrowShapeId,
+							records,
+						),
+					});
+				}
+				await relations.archive({
+					relationId,
+					expectedRevision: relation.revision,
+				});
+				return { deleted: true };
+			},
 		},
 	];
 }

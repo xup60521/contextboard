@@ -16,15 +16,23 @@ import { createTools, type ToolDefinition } from "./tools";
 const databases: Array<ReturnType<typeof createContextboardDatabase>> = [];
 const WORKSPACE_ID = "workspace-under-test";
 
+/** The part of a tldraw arrow binding these tests assert on. */
+type ArrowBinding = {
+	toId: string;
+	fromId: string;
+	props: { terminal: "start" | "end" };
+};
+
 function makeTools() {
 	const database = createContextboardDatabase(crypto.randomUUID());
 	databases.push(database);
 	const repository = new IndexedDbWorkspaceRepository(database);
 	const options = { workspaceId: WORKSPACE_ID };
+	const canvas = createRepositoryCanvasService(repository, options);
 	const tools = createTools({
 		cards: createRepositoryCardsService(repository),
 		whiteboards: createRepositoryWhiteboardsService(repository, options),
-		canvas: createRepositoryCanvasService(repository, options),
+		canvas,
 		relations: createRepositoryCardRelationsService(repository),
 	});
 	const byName = new Map<string, ToolDefinition>(
@@ -41,7 +49,13 @@ function makeTools() {
 		if (!tool) throw new Error(`missing tool ${name}`);
 		return (await tool.handler(input)) as T;
 	};
-	return { call, tools };
+	/** The raw tldraw store for a board, to assert on arrows and bindings. */
+	const store = async (whiteboardId: string) => {
+		const document = await canvas.getDocument(whiteboardId);
+		return ((document?.snapshot as { store?: Record<string, unknown> } | null)
+			?.store ?? {}) as Record<string, Record<string, unknown>>;
+	};
+	return { call, tools, store };
 }
 
 afterEach(async () => {
@@ -250,10 +264,157 @@ describe("placements", () => {
 });
 
 describe("relations", () => {
+	async function board() {
+		const { call, store } = makeTools();
+		const { whiteboardId } = await call("create_whiteboard", {});
+		const { cardId: a } = await call("create_card", {
+			text: "Cause",
+			whiteboardId,
+		});
+		const { cardId: b } = await call("create_card", {
+			text: "Effect",
+			whiteboardId,
+		});
+		return { call, store, whiteboardId, a, b };
+	}
+
 	test("reports no relations for a board with no arrows", async () => {
 		const { call } = makeTools();
 		const { whiteboardId } = await call("create_whiteboard", {});
 		expect(await call("list_relations", { whiteboardId })).toEqual([]);
+	});
+
+	test("creates a relation that is readable immediately", async () => {
+		const { call, whiteboardId, a, b } = await board();
+
+		const created = await call("create_relation", {
+			whiteboardId,
+			sourceCardId: a,
+			targetCardId: b,
+		});
+
+		expect(created).toMatchObject({
+			whiteboardId,
+			relation: "related",
+		});
+		expect(created.arrowShapeId).toMatch(/^shape:/);
+		// The id is the one reconcileCanvasRelations derives, so opening the board
+		// later reuses this row rather than creating a second one.
+		expect(created.id).toBe(
+			`card-relation:${whiteboardId}:${created.arrowShapeId}`,
+		);
+		expect(await call("list_relations", { whiteboardId })).toHaveLength(1);
+		expect(await call("list_relations", { cardId: a })).toHaveLength(1);
+	});
+
+	test("draws a real arrow bound to both cards", async () => {
+		const { call, store, whiteboardId, a, b } = await board();
+		const items = await call("list_board_items", { whiteboardId });
+		const shapeOf = (cardId: string) =>
+			items.find((item: { cardId: string }) => item.cardId === cardId).shapeId;
+
+		const created = await call("create_relation", {
+			whiteboardId,
+			sourceCardId: a,
+			targetCardId: b,
+		});
+
+		const snapshot = await store(whiteboardId);
+		expect(snapshot[created.arrowShapeId]).toMatchObject({
+			typeName: "shape",
+			type: "arrow",
+		});
+
+		const bindings = Object.values(snapshot).filter(
+			(record) =>
+				record.typeName === "binding" && record.fromId === created.arrowShapeId,
+		) as ArrowBinding[];
+		expect(bindings).toHaveLength(2);
+		expect(
+			bindings.map((binding) => [binding.props.terminal, binding.toId]),
+		).toEqual(
+			expect.arrayContaining([
+				["start", shapeOf(a)],
+				["end", shapeOf(b)],
+			]),
+		);
+	});
+
+	test("relating the same pair twice reuses the arrow", async () => {
+		const { call, whiteboardId, a, b } = await board();
+
+		const first = await call("create_relation", {
+			whiteboardId,
+			sourceCardId: a,
+			targetCardId: b,
+		});
+		// Reversed, because an arrow relation is undirected.
+		const second = await call("create_relation", {
+			whiteboardId,
+			sourceCardId: b,
+			targetCardId: a,
+		});
+
+		expect(second.id).toBe(first.id);
+		expect(await call("list_relations", { whiteboardId })).toHaveLength(1);
+	});
+
+	test("refuses to relate a card that is not on the board", async () => {
+		const { call, whiteboardId, a } = await board();
+		const { cardId: elsewhere } = await call("create_card", {
+			text: "Off board",
+		});
+
+		await expect(
+			call("create_relation", {
+				whiteboardId,
+				sourceCardId: a,
+				targetCardId: elsewhere,
+			}),
+		).rejects.toThrow(/not on whiteboard .*place_card/s);
+	});
+
+	test("refuses to relate a card to itself", async () => {
+		const { call, whiteboardId, a } = await board();
+		await expect(
+			call("create_relation", {
+				whiteboardId,
+				sourceCardId: a,
+				targetCardId: a,
+			}),
+		).rejects.toThrow(/cannot relate to itself/);
+	});
+
+	test("deleting a relation removes the arrow and its bindings", async () => {
+		const { call, store, whiteboardId, a, b } = await board();
+		const created = await call("create_relation", {
+			whiteboardId,
+			sourceCardId: a,
+			targetCardId: b,
+		});
+
+		expect(await call("delete_relation", { relationId: created.id })).toEqual({
+			deleted: true,
+		});
+
+		expect(await call("list_relations", { whiteboardId })).toEqual([]);
+		const snapshot = await store(whiteboardId);
+		expect(snapshot[created.arrowShapeId]).toBeUndefined();
+		expect(
+			Object.values(snapshot).filter(
+				(record) => record.fromId === created.arrowShapeId,
+			),
+		).toEqual([]);
+		// The cards themselves survive.
+		expect(await call("get_card", { cardId: a })).not.toBeNull();
+		expect(await call("get_card", { cardId: b })).not.toBeNull();
+	});
+
+	test("deleting an unknown relation is a no-op", async () => {
+		const { call } = makeTools();
+		expect(
+			await call("delete_relation", { relationId: "card-relation:nope" }),
+		).toEqual({ deleted: false });
 	});
 });
 

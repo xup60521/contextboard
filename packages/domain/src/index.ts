@@ -85,13 +85,30 @@ export type CardReference = EntityBase<CardReferenceId> & {
 	targetCardId: CardId;
 };
 
-export type CardRelationKind =
-	| "related"
-	| "next"
-	| "explains"
-	| "supports"
-	| "cites"
-	| "summarizes";
+/**
+ * The relation kinds a `cardRelation` may carry.
+ *
+ * Single source of truth: the application service and the local command layer
+ * both validate against this, so a kind can never be accepted by one write path
+ * and rejected by another.
+ */
+export const CARD_RELATION_KINDS = [
+	"related",
+	"next",
+	"explains",
+	"supports",
+	"cites",
+	"summarizes",
+] as const;
+
+export type CardRelationKind = (typeof CARD_RELATION_KINDS)[number];
+
+export function isCardRelationKind(value: unknown): value is CardRelationKind {
+	return (
+		typeof value === "string" &&
+		(CARD_RELATION_KINDS as readonly string[]).includes(value)
+	);
+}
 
 /** A semantic knowledge-graph edge, distinct from a link embedded in TipTap. */
 export type CardRelation = EntityBase<CardRelationId> & {

@@ -20,13 +20,16 @@
   },
   "dependencies": {
     "@contextboard/client-core": "workspace:*",
+    "@contextboard/domain": "workspace:*",
     "@contextboard/editor": "workspace:*",
     "@contextboard/sync-protocol": "workspace:*",
+    "@tldraw/utils": "3.15.6",
     "katex": "^0.16.22",
     "react": "^19.2.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
+    "@tldraw/tlschema": "3.15.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "jsdom": "^28.1.0",
