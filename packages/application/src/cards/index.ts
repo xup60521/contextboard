@@ -11,6 +11,12 @@ export {
 	deriveCardMetadata,
 	textToCardContent,
 } from "./card-content";
+export {
+	CARD_REFERENCE_SCHEME,
+	cardContentToTextWithReferences,
+	referencedCardIds,
+	textToCardContentWithReferences,
+} from "./card-reference-text";
 export { type ConformanceCase, cardsServiceConformance } from "./conformance";
 export {
 	type CardEntity,

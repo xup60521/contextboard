@@ -8,6 +8,8 @@
     "./cards": "./src/cards/index.ts",
     "./workspace": "./src/workspace/index.ts",
     "./canvas": "./src/canvas/index.ts",
+    "./relations": "./src/relations/repository-card-relations-service.ts",
+    "./runtime": "./src/runtime.ts",
     "./testing": "./src/testing.ts",
     "./application.css": "./src/application.css"
   },

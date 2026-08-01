@@ -6,6 +6,7 @@ import {
 import { useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useDesktopSync } from "../runtime/DesktopSyncProvider";
+import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 
 function useDesktopRouteState() {
 	return useRouterState({
@@ -49,6 +50,7 @@ export function DesktopSidebar() {
 		syncNow: signedIn ? sync.syncNow : undefined,
 		createWorkspace: signedIn ? sync.createWorkspace : undefined,
 		workspaceSelectionRequired: sync.workspaceSelectionRequired,
+		settings: <DesktopSettingsDialog />,
 	};
 	return <AppSidebar footer={footer} />;
 }

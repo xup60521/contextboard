@@ -945,7 +945,10 @@ fn validate_id(value: &str, name: &str) -> Result<(), StorageError> {
     Ok(())
 }
 fn validate_setting_key(value: &str) -> Result<(), StorageError> {
-    if value != "workspaceId" {
+    if !matches!(
+        value,
+        "workspaceId" | "agentBridgeEnabled" | "agentBridgePort"
+    ) {
         return Err(StorageError::Invalid("Unknown setting".into()));
     }
     Ok(())

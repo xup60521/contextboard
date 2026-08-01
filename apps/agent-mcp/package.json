@@ -1,0 +1,27 @@
+{
+  "name": "@contextboard/agent-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": { "contextboard-mcp": "./src/index.ts" },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "tsc --noEmit",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@contextboard/application": "workspace:*",
+    "@contextboard/client-core": "workspace:*",
+    "@contextboard/storage-bridge": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.22.0"
+  },
+  "devDependencies": {
+    "@contextboard/storage-indexeddb": "workspace:*",
+    "@types/bun": "latest",
+    "fake-indexeddb": "^6.2.4",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.5"
+  }
+}

@@ -114,6 +114,17 @@ function createNativeStub() {
 		if (command === "desktop_auth_token") return null;
 		if (command === "desktop_auth_clear" || command === "desktop_auth_cancel")
 			return null;
+		if (command === "desktop_bridge_status")
+			return {
+				enabled: settings.get("agentBridgeEnabled") === "true",
+				port: settings.get("agentBridgeEnabled") === "true" ? 8787 : null,
+				configuredPort: 8787,
+			};
+		if (command === "desktop_bridge_set_enabled") {
+			const enabled = args.enabled === true;
+			settings.set("agentBridgeEnabled", enabled ? "true" : "false");
+			return { enabled, port: enabled ? 8787 : null, configuredPort: 8787 };
+		}
 		if (args.workspaceId !== "contextboard-desktop")
 			throw { code: "INVALID_ARGUMENT", message: "workspaceId is invalid" };
 
@@ -352,6 +363,39 @@ describe("Desktop application shell", () => {
 		mount(native.invoke, "/whiteboard/board-7");
 		const canvas = await screen.findByTestId("whiteboard-canvas");
 		expect(canvas.getAttribute("data-whiteboard-id")).toBe("board-7");
+	});
+
+	// The settings entry point must live *inside* the sidebar footer. Rendering
+	// it as a sibling of the sidebar makes it a second column of the shell's
+	// flex row, which visibly breaks the layout.
+	test("puts the settings control in the sidebar footer", async () => {
+		const native = createNativeStub();
+		mount(native.invoke);
+		const settings = await screen.findByLabelText("Settings");
+		expect(settings.closest("footer")).not.toBeNull();
+	});
+
+	test("agent access is off until it is switched on, and the choice sticks", async () => {
+		const native = createNativeStub();
+		mount(native.invoke);
+		fireEvent.click(await screen.findByLabelText("Settings"));
+
+		const toggle = await screen.findByRole("button", { name: "Off" });
+		expect(toggle.getAttribute("aria-pressed")).toBe("false");
+		expect(screen.getByText(/not reachable from anywhere else/i)).toBeTruthy();
+
+		fireEvent.click(toggle);
+		const enabled = await screen.findByRole("button", { name: "On" });
+		expect(enabled.getAttribute("aria-pressed")).toBe("true");
+		// Stated plainly, because turning this on is a real grant.
+		expect(
+			screen.getByText(/any program running on this computer/i),
+		).toBeTruthy();
+		await waitFor(() =>
+			expect(
+				native.invoke("desktop_setting", { key: "agentBridgeEnabled" }),
+			).resolves.toBe("true"),
+		);
 	});
 
 	test("rejects domain operations outside the native allowlist", async () => {

@@ -1,4 +1,5 @@
 mod auth;
+mod bridge;
 mod commands;
 mod storage;
 
@@ -9,6 +10,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(auth::AuthHandoffState::default())
+        .manage(bridge::BridgeState::default())
         .setup(|app| {
             let root = app
                 .path()
@@ -16,7 +18,20 @@ pub fn run() {
                 .map_err(|error| format!("Unable to resolve desktop app data: {error}"))?;
             let storage = storage::Storage::open(root)
                 .map_err(|error| format!("Unable to initialize desktop storage: {error:?}"))?;
+            let enabled = bridge::is_enabled(&storage).unwrap_or(false);
+            let port = bridge::configured_port(&storage).unwrap_or(bridge::DEFAULT_PORT);
             app.manage(storage);
+            // Only resumes a bridge the user previously switched on. A failure
+            // to bind must not stop the app from starting; the settings panel
+            // reports the bridge as off and the user can retry on another port.
+            if enabled {
+                if let Err(error) = app
+                    .state::<bridge::BridgeState>()
+                    .start(port, app.handle().clone())
+                {
+                    eprintln!("Agent bridge did not start: {}", error.message);
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -40,6 +55,8 @@ pub fn run() {
             commands::workspace_adopt,
             commands::desktop_setting,
             commands::desktop_set_setting,
+            commands::desktop_bridge_status,
+            commands::desktop_bridge_set_enabled,
             commands::desktop_auth_start,
             commands::desktop_auth_wait,
             commands::desktop_auth_cancel,

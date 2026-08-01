@@ -1,8 +1,8 @@
 import type { SyncRuntimeState } from "@contextboard/application";
 import { Cloud, CloudOff, Github, LogOut, RefreshCw } from "lucide-react";
-import { useState } from "react";
-import { AppSidebarFrame } from "../whiteboard/AppSidebarFrame";
+import { type ReactNode, useState } from "react";
 import { Button } from "../ui/button";
+import { AppSidebarFrame } from "../whiteboard/AppSidebarFrame";
 import { SidebarTabs } from "./SidebarTabs";
 
 export type AccountSummary = {
@@ -22,6 +22,13 @@ export type SidebarFooterRuntime = {
 	syncNow?: () => Promise<void>;
 	createWorkspace?: () => Promise<void>;
 	workspaceSelectionRequired?: boolean;
+	/**
+	 * Platform-specific settings entry point, rendered beside the account row.
+	 * The desktop shell has local settings (the agent bridge) that the web build
+	 * has no equivalent for, so the slot stays empty rather than the shared
+	 * footer knowing about them.
+	 */
+	settings?: ReactNode;
 };
 
 export function AppSidebar({ footer }: { footer: SidebarFooterRuntime }) {
@@ -112,6 +119,7 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 							</Button>
 						) : null}
 					</div>
+					{runtime.settings}
 					{runtime.syncNow ? (
 						<Button
 							type="button"
@@ -139,16 +147,21 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 				</div>
 			) : runtime.signIn ? (
 				<div className="space-y-1">
-					<Button
-						type="button"
-						variant="outline"
-						className="w-full justify-start"
-						disabled={pending !== null}
-						onClick={() => run("in", runtime.signIn)}
-					>
-						<Github />
-						{pending === "in" ? "Signing in…" : "Sign in with GitHub"}
-					</Button>
+					<div className="flex items-center gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							className="min-w-0 flex-1 justify-start"
+							disabled={pending !== null}
+							onClick={() => run("in", runtime.signIn)}
+						>
+							<Github />
+							{pending === "in" ? "Signing in…" : "Sign in with GitHub"}
+						</Button>
+						{/* Settings must stay reachable signed out: local-only is a
+						    supported way to use the app, not a degraded state. */}
+						{runtime.settings}
+					</div>
 					{error ? (
 						<p className="px-1 text-[10px] text-destructive" title={error}>
 							{error}

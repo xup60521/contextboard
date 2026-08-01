@@ -1,8 +1,9 @@
 use crate::auth::{self, AuthError, AuthHandoff, AuthHandoffState};
+use crate::bridge::{self, BridgeError, BridgeState};
 use crate::storage::{BlobDescriptor, Storage, StorageError};
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +42,15 @@ impl From<StorageError> for CommandError {
                 code: "INVALID_ARGUMENT",
                 message: format!("Invalid JSON payload: {error}"),
             },
+        }
+    }
+}
+
+impl From<BridgeError> for CommandError {
+    fn from(value: BridgeError) -> Self {
+        Self {
+            code: "BRIDGE_FAILED",
+            message: value.message,
         }
     }
 }
@@ -227,6 +237,55 @@ pub fn desktop_set_setting(
         .set_setting(&key, &value)
         .map(|_| Value::Null)
         .map_err(Into::into)
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeStatus {
+    pub enabled: bool,
+    pub port: Option<u16>,
+    /// The port that would be used on the next start, so the settings panel can
+    /// show an address before the bridge is switched on.
+    pub configured_port: u16,
+}
+
+fn bridge_status(storage: &Storage, state: &BridgeState) -> Result<BridgeStatus, CommandError> {
+    Ok(BridgeStatus {
+        enabled: state.port().is_some(),
+        port: state.port(),
+        configured_port: bridge::configured_port(storage)?,
+    })
+}
+
+#[tauri::command]
+pub fn desktop_bridge_status(
+    storage: State<'_, Storage>,
+    state: State<'_, BridgeState>,
+) -> Result<BridgeStatus, CommandError> {
+    bridge_status(&storage, &state)
+}
+
+/// Turning the bridge on lets any program on this machine read and write the
+/// workspace, so it is off until the user asks for it and the choice is
+/// persisted rather than inferred.
+#[tauri::command]
+pub fn desktop_bridge_set_enabled(
+    app: AppHandle,
+    storage: State<'_, Storage>,
+    state: State<'_, BridgeState>,
+    enabled: bool,
+) -> Result<BridgeStatus, CommandError> {
+    if enabled {
+        let port = bridge::configured_port(&storage)?;
+        state.start(port, app)?;
+    } else {
+        state.stop();
+    }
+    storage.set_setting(
+        bridge::ENABLED_SETTING_KEY,
+        if enabled { "true" } else { "false" },
+    )?;
+    bridge_status(&storage, &state)
 }
 
 /// Binds the loopback listener and hands the sign-in page to the user's real

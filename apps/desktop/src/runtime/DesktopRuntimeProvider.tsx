@@ -25,6 +25,18 @@ export const DEFAULT_DESKTOP_WORKSPACE_ID = "contextboard-desktop";
 const DesktopRuntimeContext = createContext<DesktopRuntimeState | null>(null);
 
 /**
+ * The native bridge this app was built with. Components rendered inside the
+ * router cannot receive the `invoke` prop, but they still must not fall back to
+ * the real Tauri IPC when a stub was injected — that silently bypasses the
+ * harness under test and the shell under Storybook-style rendering.
+ */
+const DesktopInvokeContext = createContext<Invoke | undefined>(undefined);
+
+export function useDesktopInvoke(): Invoke | undefined {
+	return useContext(DesktopInvokeContext);
+}
+
+/**
  * Storage state as bootstrap produces it. `adoptWorkspaceId` is a provider
  * concern, so it is attached on the way out rather than stored.
  */
@@ -112,9 +124,11 @@ export function DesktopRuntimeProvider({
 	);
 
 	return (
-		<DesktopRuntimeContext.Provider value={value}>
-			{children}
-		</DesktopRuntimeContext.Provider>
+		<DesktopInvokeContext.Provider value={invoke}>
+			<DesktopRuntimeContext.Provider value={value}>
+				{children}
+			</DesktopRuntimeContext.Provider>
+		</DesktopInvokeContext.Provider>
 	);
 }
 
