@@ -144,6 +144,42 @@ export interface CardsService {
 	subscribe(listener: () => void): () => void;
 }
 
+export type CardRelationKind =
+	| "related"
+	| "next"
+	| "explains"
+	| "supports"
+	| "cites"
+	| "summarizes";
+
+export type CardRelationSummary = {
+	id: string;
+	whiteboardId: string;
+	sourceCardId: string;
+	targetCardId: string;
+	relation: CardRelationKind;
+	ordinal: number | null;
+	arrowShapeId: string | null;
+	revision: number;
+	createdAt: number;
+	updatedAt: number;
+};
+
+export interface CardRelationsService {
+	list(input?: {
+		whiteboardId?: string;
+		cardId?: string;
+	}): Promise<CardRelationSummary[]>;
+	reconcileCanvasRelations(input: {
+		whiteboardId: string;
+		relations: Array<{
+			arrowShapeId: string;
+			cardIds: readonly [string, string];
+		}>;
+	}): Promise<void>;
+	subscribe(listener: () => void): () => void;
+}
+
 export type WhiteboardSummary = {
 	id: string;
 	title: string;
@@ -364,6 +400,7 @@ export interface ApplicationRuntime {
 	platform: ApplicationPlatform;
 	workspaceId: string;
 	cards: CardsService;
+	relations: CardRelationsService;
 	whiteboards?: WhiteboardsService;
 	canvas?: CanvasService;
 	files?: FileRuntime;

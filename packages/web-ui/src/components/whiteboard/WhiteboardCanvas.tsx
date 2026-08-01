@@ -20,6 +20,7 @@ import type { SequencedFrame } from "./frame-sync";
 import { useCameraReset } from "./hooks/useCameraReset";
 import { useCanvasEvents } from "./hooks/useCanvasEvents";
 import { useCardDeleteShortcut } from "./hooks/useCardDeleteShortcut";
+import { useCardRelationSync } from "./hooks/useCardRelationSync";
 import { useDrawingHydration } from "./hooks/useDrawingHydration";
 import { useDrawingSync } from "./hooks/useDrawingSync";
 import { useFocusShape } from "./hooks/useFocusShape";
@@ -237,6 +238,15 @@ export function WhiteboardCanvas({
 		hydratingRef,
 		protectedPasteShapeIdsRef,
 		reconciliationGeneration,
+	});
+
+	useCardRelationSync({
+		editor,
+		whiteboardId,
+		whiteboardKey,
+		loadedDrawingKey,
+		reconciliationGeneration,
+		hydratingRef,
 	});
 
 	const { pendingCameraResetRef } = useCameraReset({

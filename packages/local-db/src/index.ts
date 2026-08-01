@@ -105,6 +105,10 @@ export class ContextboardDatabase extends Dexie {
 			appliedChangeBatches:
 				"changeId, &[workspaceId+deviceId+deviceSequence], appliedAt",
 		});
+		this.version(4).stores({
+			cardRelations:
+				"id, whiteboardId, sourceCardId, targetCardId, arrowShapeId, [sourceCardId+targetCardId], deletedAt",
+		});
 	}
 }
 

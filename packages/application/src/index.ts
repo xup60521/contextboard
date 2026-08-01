@@ -5,6 +5,7 @@ export {
 	useApplicationRuntime,
 	useApplicationValue,
 } from "./ApplicationRuntimeProvider";
+export * from "./canvas";
 export {
 	type CardMetadata,
 	cardContentToText,
@@ -21,6 +22,20 @@ export {
 	type CardEntity,
 	createRepositoryCardsService,
 } from "./cards/repository-cards-service";
+export {
+	fileSrc,
+	normalizeImageSources,
+	parseFileSrc,
+} from "./files/fileUrl";
+export { createRepositoryCardRelationsService } from "./relations/repository-card-relations-service";
+export {
+	applyWrites,
+	type EntityRow,
+	getRow,
+	isActiveRow,
+	listActiveRows,
+	listRows,
+} from "./repository/entities";
 export type {
 	AppendCardPlacement,
 	ApplicationPlatform,
@@ -32,6 +47,9 @@ export type {
 	CardBacklink,
 	CardDetail,
 	CardPlacement,
+	CardRelationKind,
+	CardRelationSummary,
+	CardRelationsService,
 	CardSearchResult,
 	CardSortOrder,
 	CardSummary,
@@ -50,26 +68,12 @@ export type {
 	TldrawDocument,
 	TldrawSaveResult,
 	UpdateCardContentInput,
-	WhiteboardBreadcrumb,
 	WhiteboardArchiveOptions,
+	WhiteboardBreadcrumb,
 	WhiteboardDetail,
-	WhiteboardSummary,
 	WhiteboardSearchResult,
+	WhiteboardSummary,
 	WhiteboardsService,
 } from "./runtime";
 export { createRepositorySearchService } from "./search/repository-search-service";
-export {
-	type EntityRow,
-	applyWrites,
-	getRow,
-	isActiveRow,
-	listActiveRows,
-	listRows,
-} from "./repository/entities";
-export {
-	fileSrc,
-	normalizeImageSources,
-	parseFileSrc,
-} from "./files/fileUrl";
 export * from "./workspace";
-export * from "./canvas";

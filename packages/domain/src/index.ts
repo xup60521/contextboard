@@ -86,6 +86,7 @@ export type CardReference = EntityBase<CardReferenceId> & {
 };
 
 export type CardRelationKind =
+	| "related"
 	| "next"
 	| "explains"
 	| "supports"
@@ -99,6 +100,8 @@ export type CardRelation = EntityBase<CardRelationId> & {
 	targetCardId: CardId;
 	relation: CardRelationKind;
 	ordinal: number | null;
+	/** The native tldraw arrow that owns this relation, or null for semantic edges. */
+	arrowShapeId: string | null;
 	clock: string;
 };
 

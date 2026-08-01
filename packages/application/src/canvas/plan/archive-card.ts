@@ -1,5 +1,5 @@
 import type { EntityWrite } from "../../workspace";
-import { type Plan, upsertWrite } from "../planner";
+import { type Plan, tombstoneWrite, upsertWrite } from "../planner";
 
 type Placement = Record<string, unknown> & {
 	id: string;
@@ -17,6 +17,7 @@ type Card = Record<string, unknown> & {
 export type ArchiveCardSnapshot = {
 	card: Card;
 	placements: Placement[];
+	relations?: Array<{ id: string; revision: number }>;
 };
 
 export function planArchiveCard(
@@ -28,6 +29,11 @@ export function planArchiveCard(
 			"boardItem",
 			{ ...placement, archivedAt: context.now },
 			placement.revision,
+		),
+	);
+	writes.push(
+		...(snapshot.relations ?? []).map((relation) =>
+			tombstoneWrite("cardRelation", relation),
 		),
 	);
 	writes.push(
@@ -48,10 +54,17 @@ export function planArchiveCards(
 	snapshots: ArchiveCardSnapshot[],
 	context: { now: number },
 ): Plan<null> {
+	const writes = snapshots.flatMap(
+		(snapshot) => planArchiveCard(snapshot, context).writes,
+	);
+	const seenRelations = new Set<string>();
 	return {
-		writes: snapshots.flatMap(
-			(snapshot) => planArchiveCard(snapshot, context).writes,
-		),
+		writes: writes.filter((write) => {
+			if (write.entity !== "cardRelation") return true;
+			if (seenRelations.has(write.id)) return false;
+			seenRelations.add(write.id);
+			return true;
+		}),
 		result: null,
 	};
 }

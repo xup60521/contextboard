@@ -5,13 +5,13 @@ import {
 	planArchiveCards,
 } from "../canvas/plan/archive-card";
 import { planReferences } from "../canvas/plan/references";
+import { normalizeImageSources } from "../files/fileUrl";
 import {
 	applyWrites,
 	type EntityRow,
 	isActiveRow,
 	listRows,
 } from "../repository/entities";
-import { withRetry } from "../workspace";
 import type {
 	AppendCardPlacement,
 	CardDetail,
@@ -23,13 +23,13 @@ import type {
 	ListCardsOptions,
 	UpdateCardContentInput,
 } from "../runtime";
+import { withRetry } from "../workspace";
 import {
 	DEFAULT_CARD_CONTENT,
 	DEFAULT_CARD_TITLE,
 	deriveCardMetadata,
 	normalizeCardContent,
 } from "./card-content";
-import { normalizeImageSources } from "../files/fileUrl";
 
 /**
  * The card entity as it is materialized by every backend's generic entity
@@ -135,9 +135,7 @@ function toPlacement(item: EntityRow): CardPlacement {
  */
 function preferPlacement(placements: EntityRow[], preferred?: string | null) {
 	return (
-		placements.find(
-			(row) => preferred && row.whiteboardId === preferred,
-		) ??
+		placements.find((row) => preferred && row.whiteboardId === preferred) ??
 		[...placements].sort((a, b) => b.updatedAt - a.updatedAt)[0] ??
 		null
 	);
@@ -208,9 +206,10 @@ export function createRepositoryCardsService(
 
 	async function archive(cardIds: string[], commandType: string) {
 		if (cardIds.length === 0) return;
-		const [cards, items] = await Promise.all([
+		const [cards, items, relations] = await Promise.all([
 			listCards(),
 			listRows(repository, "items"),
+			listRows(repository, "cardRelations"),
 		]);
 		const cardById = new Map(cards.map((card) => [card.id, card]));
 		const snapshots: ArchiveCardSnapshot[] = [];
@@ -221,6 +220,12 @@ export function createRepositoryCardsService(
 				card: card as never,
 				placements: items.filter(
 					(item) => isActiveRow(item) && item.cardId === cardId,
+				) as never[],
+				relations: relations.filter(
+					(relation) =>
+						isActiveRow(relation) &&
+						(relation.sourceCardId === cardId ||
+							relation.targetCardId === cardId),
 				) as never[],
 			});
 		}
