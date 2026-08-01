@@ -134,6 +134,10 @@ Three settings must line up for this to work:
   `http://localhost:1420` in development and `http://tauri.localhost` for a
   packaged Windows build (`useHttpsScheme` defaults to false; the
   `tauri://localhost` form is macOS and Linux only).
+- `CONTEXTBOARD_ALLOWED_EMAILS` in `apps/sync-server/.env.*` — a
+  comma-separated list of exact, case-insensitive, verified email addresses
+  allowed to sync. The sync service rejects startup when this list is missing
+  or empty; changes take effect after restarting the service.
 - `app.security.csp` in `apps/desktop/src-tauri/tauri.conf.json` — `connect-src`
   lists the sync origin explicitly. Add the production origin there before
   shipping a build, since CSP is enforced in a packaged build but not in dev.

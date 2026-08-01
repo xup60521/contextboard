@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { createContextboardAuth } from "@contextboard/auth";
+import { parseAllowedEmails } from "./access";
 
 export const dataRoot = process.env.CONTEXTBOARD_DATA_DIR ?? "/data";
 
@@ -18,6 +19,10 @@ export function desktopOrigins() {
 		.split(",")
 		.map((origin) => origin.trim())
 		.filter(Boolean);
+}
+
+export function allowedEmails() {
+	return parseAllowedEmails(required("CONTEXTBOARD_ALLOWED_EMAILS"));
 }
 
 export function createServerAuth() {

@@ -1,4 +1,5 @@
 import type { ContextboardAuth } from "@contextboard/auth";
+import { type AllowedEmailSet, isAllowedUser } from "./access";
 import type { SyncStore } from "./store";
 
 export class SessionAccessError extends Error {
@@ -25,8 +26,9 @@ export async function requireWorkspaceSession(
 	store: SyncStore,
 	request: Request,
 	workspaceId: string,
+	allowedEmails?: AllowedEmailSet,
 ) {
-	const session = await requireSession(auth, request);
+	const session = await requireSession(auth, request, allowedEmails);
 	const redirect = store.getWorkspaceRedirect(workspaceId, session.user.id);
 	if (redirect) throw new WorkspaceRedirectError(redirect.toWorkspaceId);
 	if (!store.isWorkspaceMember(workspaceId, session.user.id)) {
@@ -35,8 +37,14 @@ export async function requireWorkspaceSession(
 	return session;
 }
 
-export async function requireSession(auth: ContextboardAuth, request: Request) {
+export async function requireSession(
+	auth: ContextboardAuth,
+	request: Request,
+	allowedEmails?: AllowedEmailSet,
+) {
 	const session = await auth.api.getSession({ headers: request.headers });
 	if (!session) throw new SessionAccessError(401, "Unauthorized");
+	if (allowedEmails && !isAllowedUser(session.user, allowedEmails))
+		throw new SessionAccessError(403, "Forbidden");
 	return session;
 }

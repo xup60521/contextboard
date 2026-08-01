@@ -1,16 +1,23 @@
 import { join } from "node:path";
 import { createSyncApp } from "./app";
-import { createServerAuth, dataRoot, desktopOrigins } from "./configuration";
+import {
+	allowedEmails,
+	createServerAuth,
+	dataRoot,
+	desktopOrigins,
+} from "./configuration";
 import { SyncStore } from "./store";
 
 const store = new SyncStore(
 	join(dataRoot, "sync.sqlite"),
 	join(dataRoot, "blobs"),
 );
+const emailAllowlist = allowedEmails();
 const auth = createServerAuth();
 const port = Number(process.env.PORT ?? 8788);
 const app = createSyncApp(store, auth, {
 	crossOriginAllowlist: desktopOrigins(),
+	allowedEmails: emailAllowlist,
 });
 
 Bun.serve({
