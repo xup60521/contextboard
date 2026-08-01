@@ -14,6 +14,7 @@ import {
 } from "@contextboard/sync-protocol";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { type AllowedEmailSet, isAllowedUser } from "./access";
 import {
 	requireSession,
 	requireWorkspaceSession,
@@ -52,6 +53,7 @@ export type SyncAppOptions = {
 	 * this: the Web client is same-origin behind the Cloudflare Worker.
 	 */
 	crossOriginAllowlist?: string[];
+	allowedEmails?: AllowedEmailSet;
 };
 
 export function createSyncApp(
@@ -62,6 +64,7 @@ export function createSyncApp(
 	const app = new Hono();
 
 	const allowedOrigins = new Set(options?.crossOriginAllowlist ?? []);
+	const allowedEmails = options?.allowedEmails;
 	if (allowedOrigins.size) {
 		// Desktop authenticates with a bearer token, never a cookie, so
 		// credentials stay off and no CSRF surface is opened here.
@@ -100,6 +103,37 @@ export function createSyncApp(
 		context.html(popupCompleteDocument()),
 	);
 
+	app.get("/api/auth/get-session", async (context) => {
+		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
+		const response = await auth.handler(context.req.raw);
+		if (!allowedEmails || !response.ok) return response;
+		const payload = (await response.clone().json().catch(() => null)) as {
+			user?: { email?: string | null; emailVerified?: boolean };
+		} | null;
+		if (payload?.user && !isAllowedUser(payload.user, allowedEmails))
+			return context.json({ error: "Forbidden" }, 403);
+		return response;
+	});
+
+	app.get("/api/auth/one-time-token/generate", async (context) => {
+		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
+		if (allowedEmails)
+			await requireSession(auth, context.req.raw, allowedEmails);
+		return auth.handler(context.req.raw);
+	});
+
+	app.post("/api/auth/one-time-token/verify", async (context) => {
+		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
+		const response = await auth.handler(context.req.raw);
+		if (!allowedEmails || !response.ok) return response;
+		const payload = (await response.clone().json().catch(() => null)) as {
+			user?: { email?: string | null; emailVerified?: boolean };
+		} | null;
+		if (payload?.user && !isAllowedUser(payload.user, allowedEmails))
+			return context.json({ error: "Forbidden" }, 403);
+		return response;
+	});
+
 	app.on(["POST", "GET"], "/api/auth/*", (context) =>
 		auth
 			? auth.handler(context.req.raw)
@@ -115,14 +149,22 @@ export function createSyncApp(
 
 	app.get("/api/sync/v1/workspaces", async (context) => {
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
-		const session = await requireSession(auth, context.req.raw);
+		const session = await requireSession(
+			auth,
+			context.req.raw,
+			allowedEmails,
+		);
 		return context.json(store.listWorkspaces(session.user.id));
 	});
 
 	app.post("/api/sync/v1/workspaces/select", async (context) => {
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
 		const input = parseSelectWorkspaceRequest(await context.req.json());
-		const session = await requireSession(auth, context.req.raw);
+		const session = await requireSession(
+			auth,
+			context.req.raw,
+			allowedEmails,
+		);
 		const redirect = store.getWorkspaceRedirect(
 			input.workspaceId,
 			session.user.id,
@@ -136,7 +178,11 @@ export function createSyncApp(
 	app.post("/api/sync/v1/workspaces/claim", async (context) => {
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
 		const input = parseClaimWorkspaceRequest(await context.req.json());
-		const session = await requireSession(auth, context.req.raw);
+		const session = await requireSession(
+			auth,
+			context.req.raw,
+			allowedEmails,
+		);
 		return context.json(
 			store.claimWorkspace(input.workspaceId, input.deviceId, session.user.id),
 		);
@@ -150,6 +196,7 @@ export function createSyncApp(
 				store,
 				context.req.raw,
 				input.workspaceId,
+				allowedEmails,
 			);
 		return context.json(store.push(input.workspaceId, input.batches));
 	});
@@ -162,6 +209,7 @@ export function createSyncApp(
 				store,
 				context.req.raw,
 				input.workspaceId,
+				allowedEmails,
 			);
 		return context.json(
 			store.pull(input.workspaceId, input.cursor, input.limit),
@@ -179,6 +227,7 @@ export function createSyncApp(
 				store,
 				context.req.raw,
 				headers.workspaceId,
+				allowedEmails,
 			);
 		const descriptor: BlobDescriptor = {
 			hash,
@@ -194,7 +243,13 @@ export function createSyncApp(
 			context.req.header("x-contextboard-workspace"),
 		);
 		if (auth)
-			await requireWorkspaceSession(auth, store, context.req.raw, workspaceId);
+			await requireWorkspaceSession(
+				auth,
+				store,
+				context.req.raw,
+				workspaceId,
+				allowedEmails,
+			);
 		const hash = parseBlobHash(context.req.param("hash"));
 		const descriptor = store.getBlobDescriptor(workspaceId, hash);
 		if (!descriptor) return context.json({ error: "Not found" }, 404);
@@ -216,6 +271,7 @@ export function createSyncApp(
 				store,
 				context.req.raw,
 				input.workspaceId,
+				allowedEmails,
 			);
 		store.addCheckpoint(input);
 		return context.body(null, 204);
@@ -224,7 +280,13 @@ export function createSyncApp(
 	app.get("/api/sync/v1/checkpoints/latest", async (context) => {
 		const workspaceId = parseWorkspaceId(context.req.query("workspaceId"));
 		if (auth)
-			await requireWorkspaceSession(auth, store, context.req.raw, workspaceId);
+			await requireWorkspaceSession(
+				auth,
+				store,
+				context.req.raw,
+				workspaceId,
+				allowedEmails,
+			);
 		const checkpoint = store.latestCheckpoint(workspaceId);
 		return checkpoint ? context.json(checkpoint) : context.body(null, 204);
 	});
