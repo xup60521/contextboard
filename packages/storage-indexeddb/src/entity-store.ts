@@ -119,6 +119,9 @@ const BINDINGS: Record<string, EntityBinding> = {
 			whiteboardId: null,
 			sourceCardId: null,
 			targetCardId: null,
+			arrowShapeId: null,
+			ordinal: null,
+			clock: "",
 		}),
 	},
 };
@@ -205,7 +208,8 @@ export async function executeEntityCommand(
 	const multiWrite = Array.isArray(input?.writes);
 	const legacyResolved = multiWrite ? null : resolve(request.type);
 	const legacyBinding = legacyResolved?.binding ?? BINDINGS.cards;
-	const action = legacyResolved?.action ?? request.type.split(".")[1] ?? "execute";
+	const action =
+		legacyResolved?.action ?? request.type.split(".")[1] ?? "execute";
 	const legacyOperation = multiWrite ? "upsert" : COMMAND_ACTIONS[action];
 	if (!legacyOperation) throw new UnknownDomainOperationError(request.type);
 	if (
@@ -231,7 +235,9 @@ export async function executeEntityCommand(
 				if (write.operation === "upsert" && !write.value)
 					throw new InvalidDomainArgumentError("Upserts require a value");
 				if (write.operation === "delete" && write.value !== undefined)
-					throw new InvalidDomainArgumentError("Deletes cannot include a value");
+					throw new InvalidDomainArgumentError(
+						"Deletes cannot include a value",
+					);
 				if (
 					write.expectedRevision !== undefined &&
 					(typeof write.expectedRevision !== "number" ||
@@ -258,7 +264,9 @@ export async function executeEntityCommand(
 				},
 			];
 	if (writes.length < 1)
-		throw new InvalidDomainArgumentError("writes must contain at least 1 entry");
+		throw new InvalidDomainArgumentError(
+			"writes must contain at least 1 entry",
+		);
 	const keys = new Set<string>();
 	for (const write of writes) {
 		if (!write.id)
@@ -277,7 +285,9 @@ export async function executeEntityCommand(
 		clock = new HybridLogicalClock(identity.deviceId);
 		clocks.set(identity.deviceId, clock);
 	}
-	const tables = [...new Set(writes.map((write) => write.binding.table(database)))];
+	const tables = [
+		...new Set(writes.map((write) => write.binding.table(database))),
+	];
 
 	return runLocalCommand(
 		database,

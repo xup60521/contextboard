@@ -2,16 +2,17 @@ import {
 	type ApplicationRuntime,
 	ApplicationRuntimeProvider,
 	createRepositoryCanvasService,
+	createRepositoryCardRelationsService,
 	createRepositoryCardsService,
-	createRepositoryWhiteboardsService,
 	createRepositorySearchService,
+	createRepositoryWhiteboardsService,
 } from "@contextboard/application";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";
 import { useLocalDatabase } from "../local/provider";
 import { useSyncRuntime } from "../sync/provider";
-import { createWebFileRuntime } from "./webFileRuntime";
 import { getWebWorkspaceRepository } from "./repository";
+import { createWebFileRuntime } from "./webFileRuntime";
 
 export function WebApplicationRuntime({ children }: { children: ReactNode }) {
 	const local = useLocalDatabase();
@@ -25,6 +26,9 @@ export function WebApplicationRuntime({ children }: { children: ReactNode }) {
 			platform: "web",
 			workspaceId: local.workspaceId,
 			cards: createRepositoryCardsService(repository, {
+				deviceId: local.deviceId,
+			}),
+			relations: createRepositoryCardRelationsService(repository, {
 				deviceId: local.deviceId,
 			}),
 			whiteboards: createRepositoryWhiteboardsService(repository, {
@@ -42,9 +46,7 @@ export function WebApplicationRuntime({ children }: { children: ReactNode }) {
 				rootWhiteboardHref: () => "/whiteboard",
 				whiteboardHref: (id, options) =>
 					`/whiteboard/${encodeURIComponent(id)}${
-						options?.focus
-							? `?focus=${encodeURIComponent(options.focus)}`
-							: ""
+						options?.focus ? `?focus=${encodeURIComponent(options.focus)}` : ""
 					}`,
 				navigate: (href) => router.history.push(href),
 				replace: (href) => router.history.replace(href),

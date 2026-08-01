@@ -477,8 +477,8 @@ export function createRepositoryCanvasService(
 				const existing =
 					items.find(
 						(item) =>
-						(item.whiteboardId ?? null) === whiteboardId &&
-						item.shapeId === input.shapeId,
+							(item.whiteboardId ?? null) === whiteboardId &&
+							item.shapeId === input.shapeId,
 					) ?? null;
 				const placement = input.placement ?? "auto";
 				const sourceIsTrusted =
@@ -561,12 +561,18 @@ export function createRepositoryCanvasService(
 					);
 					if (archived) return;
 				}
-				const card =
+				const [card, relations] = await Promise.all([
 					typeof row.cardId === "string"
-						? await getRow(repository, "cards", row.cardId)
-						: null;
+						? getRow(repository, "cards", row.cardId)
+						: Promise.resolve(null),
+					listRows(repository, "cardRelations"),
+				]);
 				const plan = planArchiveItem(
-					{ item: row as never, card: card as never },
+					{
+						item: row as never,
+						card: card as never,
+						relations: relations.filter(isActiveRow) as never[],
+					},
 					{ deleteCards },
 					{ now: now() },
 				);

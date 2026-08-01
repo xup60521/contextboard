@@ -1,18 +1,3 @@
-import type {
-	BoardItem,
-	Card,
-	CardId,
-	CardReference,
-	CardRelationKind,
-	FileReference,
-	LocalFile,
-	Whiteboard,
-	WhiteboardId,
-} from "@contextboard/domain";
-import {
-	DEFAULT_CARD_CONTENT,
-	deriveCardMetadata,
-} from "@contextboard/application/cards";
 import {
 	type ArchiveCardSnapshot,
 	planAppendCard,
@@ -23,6 +8,22 @@ import {
 	planReferences,
 	planRestoreOrAdoptCardItem,
 } from "@contextboard/application/canvas";
+import {
+	DEFAULT_CARD_CONTENT,
+	deriveCardMetadata,
+} from "@contextboard/application/cards";
+import type {
+	BoardItem,
+	Card,
+	CardId,
+	CardReference,
+	CardRelation,
+	CardRelationKind,
+	FileReference,
+	LocalFile,
+	Whiteboard,
+	WhiteboardId,
+} from "@contextboard/domain";
 import {
 	type ContextboardDatabase,
 	runLocalCommand,
@@ -82,10 +83,7 @@ async function reconcileReferences(
 	const allFileReferences = await db.fileReferences.toArray();
 	const currentCards =
 		targetType === "card"
-			? await db.cardReferences
-			.where("sourceCardId")
-			.equals(targetId)
-			.toArray()
+			? await db.cardReferences.where("sourceCardId").equals(targetId).toArray()
 			: [];
 	const plan = planReferences(
 		{
@@ -374,38 +372,38 @@ export async function localQuery(
 			const activeBoards = allWhiteboards.filter(active);
 			const boardById = new Map(activeBoards.map((board) => [board.id, board]));
 			return rows.map((row) => {
-					const card = row.cardId ? cardById.get(row.cardId) : null;
-					const child = row.childWhiteboardId
-						? boardById.get(row.childWhiteboardId)
-						: null;
-					return {
-						...publicRow(row),
-						card: card
-								? {
-										_id: card.id,
-										derivedTitle: card.derivedTitle,
-										preview: card.preview,
-										version: card.contentVersion,
-									}
-								: null,
-						childWhiteboard: child
-								? {
-										_id: child.id,
-										title: child.title,
-										depth: child.depth,
-										cardCount: allItems.filter(
-											(item) =>
-												active(item) &&
-												item.whiteboardId === child.id &&
-												item.kind === "card",
-										).length,
-										childWhiteboardCount: activeBoards.filter(
-											(board) => board.parentWhiteboardId === child.id,
-										).length,
-									}
-								: null,
-					};
-				});
+				const card = row.cardId ? cardById.get(row.cardId) : null;
+				const child = row.childWhiteboardId
+					? boardById.get(row.childWhiteboardId)
+					: null;
+				return {
+					...publicRow(row),
+					card: card
+						? {
+								_id: card.id,
+								derivedTitle: card.derivedTitle,
+								preview: card.preview,
+								version: card.contentVersion,
+							}
+						: null,
+					childWhiteboard: child
+						? {
+								_id: child.id,
+								title: child.title,
+								depth: child.depth,
+								cardCount: allItems.filter(
+									(item) =>
+										active(item) &&
+										item.whiteboardId === child.id &&
+										item.kind === "card",
+								).length,
+								childWhiteboardCount: activeBoards.filter(
+									(board) => board.parentWhiteboardId === child.id,
+								).length,
+							}
+						: null,
+				};
+			});
 		}
 		case "tldrawDocuments.get": {
 			const target = args.whiteboardId ?? null;
@@ -649,8 +647,7 @@ async function executeMutation(
 			const boardId = id() as WhiteboardId;
 			const activeChildCount = parentId
 				? (await db.whiteboards.toArray()).filter(
-						(board) =>
-							active(board) && board.parentWhiteboardId === parentId,
+						(board) => active(board) && board.parentWhiteboardId === parentId,
 					).length
 				: 0;
 			const itemId = id();
@@ -798,8 +795,16 @@ async function executeMutation(
 			const row = await db.boardItems.get(String(args.itemId));
 			if (!row || !active(row)) return null;
 			const card = row.cardId ? await db.cards.get(row.cardId) : null;
+			const relations = row.cardId
+				? (
+						await db.cardRelations
+							.where("whiteboardId")
+							.equals(String(row.whiteboardId))
+							.toArray()
+					).filter(active)
+				: [];
 			const plan = planArchiveItem(
-				{ item: row, card: card ?? null },
+				{ item: row, card: card ?? null, relations },
 				{ deleteCards: Boolean(args.deleteCards) },
 				{ now },
 			);
@@ -818,6 +823,13 @@ async function executeMutation(
 						revision: (write.expectedRevision ?? 0) + 1,
 						updatedByDeviceId: deviceId,
 					});
+				else if (write.entity === "cardRelation")
+					await db.cardRelations.update(write.id, {
+						deletedAt: now,
+						updatedAt: now,
+						revision: (write.expectedRevision ?? 0) + 1,
+						updatedByDeviceId: deviceId,
+					});
 			}
 			return null;
 		}
@@ -832,6 +844,7 @@ async function executeMutation(
 				"rw",
 				db.cards,
 				db.boardItems,
+				db.cardRelations,
 				async () => {
 					const snapshots: ArchiveCardSnapshot[] = [];
 					for (const cardId of ids) {
@@ -840,7 +853,13 @@ async function executeMutation(
 						const placements = (
 							await db.boardItems.where("cardId").equals(cardId).toArray()
 						).filter(active);
-						snapshots.push({ card, placements });
+						const relations = (await db.cardRelations.toArray()).filter(
+							(relation) =>
+								active(relation) &&
+								(relation.sourceCardId === cardId ||
+									relation.targetCardId === cardId),
+						);
+						snapshots.push({ card, placements, relations });
 					}
 					const plan = planArchiveCards(snapshots, { now });
 					for (const write of plan.writes) {
@@ -858,6 +877,13 @@ async function executeMutation(
 								revision: (write.expectedRevision ?? 0) + 1,
 								updatedByDeviceId: deviceId,
 							});
+						else if (write.entity === "cardRelation")
+							await db.cardRelations.update(write.id, {
+								deletedAt: now,
+								updatedAt: now,
+								revision: (write.expectedRevision ?? 0) + 1,
+								updatedByDeviceId: deviceId,
+							} satisfies Partial<CardRelation>);
 					}
 				},
 			);
@@ -920,11 +946,12 @@ async function executeMutation(
 							updatedByDeviceId: deviceId,
 						});
 				}
-				if (plan.result) results.push({
-					...plan.result,
-					cardId,
-					whiteboardId,
-				});
+				if (plan.result)
+					results.push({
+						...plan.result,
+						cardId,
+						whiteboardId,
+					});
 			}
 			return single ? results[0] : { whiteboardId, placements: results };
 		}
@@ -956,10 +983,9 @@ async function executeMutation(
 			const plan = planRestoreOrAdoptCardItem(
 				{
 					existingPlacement: existing ?? null,
-					existingCard:
-						existing?.cardId
-							? ((await db.cards.get(existing.cardId)) ?? null)
-							: null,
+					existingCard: existing?.cardId
+						? ((await db.cards.get(existing.cardId)) ?? null)
+						: null,
 					sourceCard: source ?? null,
 				},
 				{
@@ -1093,6 +1119,7 @@ async function executeMutation(
 			const targetCardId = String(args.targetCardId);
 			const relation = String(args.relation) as CardRelationKind;
 			const allowed: CardRelationKind[] = [
+				"related",
 				"next",
 				"explains",
 				"supports",
@@ -1129,6 +1156,7 @@ async function executeMutation(
 				targetCardId: targetCardId as never,
 				relation,
 				ordinal,
+				arrowShapeId: null,
 				clock: relationClock,
 			});
 			return relationId;
