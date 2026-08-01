@@ -12,7 +12,7 @@
     "dev:web": "turbo run dev --filter=@contextboard/web --filter=@contextboard/sync-server",
     "dev:sync": "turbo run dev --filter=@contextboard/sync-server",
     "dev:desktop": "turbo run dev --filter=@contextboard/desktop --filter=@contextboard/sync-server",
-    "build:desktop": "bun run --filter @contextboard/desktop tauri:build",
+    "build:desktop": "bun tools/build-desktop.ts",
     "test:desktop": "bun run --filter @contextboard/desktop test && bun run --filter @contextboard/desktop rust:test",
     "build": "turbo run build",
     "test": "turbo run test",
