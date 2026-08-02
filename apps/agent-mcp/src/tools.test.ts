@@ -236,6 +236,90 @@ describe("placements", () => {
 		expect(await call("list_cards", {})).toHaveLength(1);
 	});
 
+	test("auto-places cards clear of each other when no position is given", async () => {
+		const { call } = makeTools();
+		const { whiteboardId } = await call("create_whiteboard", {});
+		for (const text of ["One", "Two", "Three"]) {
+			await call("create_card", { text, whiteboardId });
+		}
+		const items = await call<
+			Array<{ x: number; y: number; w: number; h: number }>
+		>("list_board_items", { whiteboardId });
+		expect(items).toHaveLength(3);
+		for (const a of items) {
+			for (const b of items) {
+				if (a === b) continue;
+				const overlaps =
+					a.x < b.x + b.w &&
+					b.x < a.x + a.w &&
+					a.y < b.y + b.h &&
+					b.y < a.y + a.h;
+				expect(overlaps).toBe(false);
+			}
+		}
+	});
+
+	// The escape hatch: auto-placement must not swallow a deliberate origin.
+	test("treats an explicit 0,0 as a position, not as auto-placement", async () => {
+		const { call } = makeTools();
+		const { whiteboardId } = await call("create_whiteboard", {});
+		await call("create_card", { text: "First", whiteboardId, x: 0, y: 0 });
+		const { cardId } = await call("create_card", { text: "Second" });
+		await call("place_card", { cardId, whiteboardId, x: 0, y: 0 });
+		const items = await call<Array<{ x: number; y: number }>>(
+			"list_board_items",
+			{ whiteboardId },
+		);
+		expect(items).toHaveLength(2);
+		expect(items.every((item) => item.x === 0 && item.y === 0)).toBe(true);
+	});
+
+	test("places a card at an explicit size", async () => {
+		const { call } = makeTools();
+		const { whiteboardId } = await call("create_whiteboard", {});
+		await call("create_card", { text: "Wide", whiteboardId, w: 800, h: 400 });
+		const items = await call<Array<{ w: number; h: number }>>(
+			"list_board_items",
+			{ whiteboardId },
+		);
+		expect(items[0]).toMatchObject({ w: 800, h: 400 });
+	});
+
+	test("moves an item, keeping the fields that were not passed", async () => {
+		const { call } = makeTools();
+		const { whiteboardId } = await call("create_whiteboard", {});
+		const { placement } = await call("create_card", {
+			text: "Movable",
+			whiteboardId,
+			x: 10,
+			y: 20,
+			w: 500,
+			h: 300,
+		});
+		await call("move_item", { whiteboardId, itemId: placement.itemId, x: 900 });
+		const items = await call<
+			Array<{ x: number; y: number; w: number; h: number }>
+		>("list_board_items", { whiteboardId });
+		expect(items[0]).toMatchObject({ x: 900, y: 20, w: 500, h: 300 });
+	});
+
+	test("refuses to move an item that is not on the given board", async () => {
+		const { call } = makeTools();
+		const first = await call("create_whiteboard", {});
+		const second = await call("create_whiteboard", {});
+		const { placement } = await call("create_card", {
+			text: "Elsewhere",
+			whiteboardId: first.whiteboardId,
+		});
+		await expect(
+			call("move_item", {
+				whiteboardId: second.whiteboardId,
+				itemId: placement.itemId,
+				x: 1,
+			}),
+		).rejects.toThrow(/not on this whiteboard/);
+	});
+
 	test("removing a placement keeps the card and its other placements", async () => {
 		const { call } = makeTools();
 		const first = await call("create_whiteboard", {});

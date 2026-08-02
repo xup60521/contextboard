@@ -1,5 +1,6 @@
 import {
 	type ArchiveCardSnapshot,
+	findFreeFrame,
 	planAppendCard,
 	planArchiveCards,
 	planArchiveItem,
@@ -913,6 +914,21 @@ async function executeMutation(
 					typeof args.shapeId === "string"
 						? args.shapeId
 						: `shape:card-${cardId}-${now}-${results.length}`;
+				const size = {
+					w: Number(args.w ?? DEFAULT_CARD_WIDTH),
+					h: Number(args.h ?? 180),
+				};
+				// Neither coordinate given means "put it somewhere sensible"; an
+				// explicit `0, 0` still means the origin.
+				const position =
+					args.x === undefined && args.y === undefined
+						? findFreeFrame(
+								(await db.boardItems.toArray()).filter(
+									(row) => active(row) && row.whiteboardId === whiteboardId,
+								),
+								size,
+							)
+						: { x: Number(args.x ?? 0), y: Number(args.y ?? 0) };
 				const plan = planAppendCard(
 					{
 						card: existing ? null : ((await db.cards.get(cardId)) ?? null),
@@ -922,10 +938,10 @@ async function executeMutation(
 						whiteboardId,
 						itemId,
 						shapeId,
-						x: Number(args.x ?? 0),
-						y: Number(args.y ?? 0),
-						w: Number(args.w ?? DEFAULT_CARD_WIDTH),
-						h: Number(args.h ?? 180),
+						x: position.x,
+						y: position.y,
+						w: size.w,
+						h: size.h,
 						rotation: Number(args.rotation ?? 0),
 						zIndex: now + results.length,
 					},

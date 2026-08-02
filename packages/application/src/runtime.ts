@@ -74,6 +74,18 @@ export type UpdateCardContentInput = {
 	expectedVersion?: number;
 };
 
+/**
+ * Optional geometry for a card being placed on a board. Omitting both `x` and
+ * `y` asks for auto-placement in free space; passing them — including `0, 0` —
+ * is a literal position.
+ */
+export type AppendCardFrame = {
+	x?: number;
+	y?: number;
+	w?: number;
+	h?: number;
+};
+
 export type AppendCardPlacement = {
 	cardId: string;
 	itemId: string;
@@ -125,14 +137,12 @@ export interface CardsService {
 	updateContent(input: UpdateCardContentInput): Promise<number>;
 	delete(cardId: string): Promise<void>;
 	deleteMany(cardIds: string[]): Promise<void>;
-	appendToWhiteboard(input: {
-		cardId: string;
-		whiteboardId: string;
-	}): Promise<AppendCardPlacement | null>;
-	appendManyToWhiteboard(input: {
-		cardIds: string[];
-		whiteboardId: string;
-	}): Promise<AppendCardPlacement[]>;
+	appendToWhiteboard(
+		input: { cardId: string; whiteboardId: string } & AppendCardFrame,
+	): Promise<AppendCardPlacement | null>;
+	appendManyToWhiteboard(
+		input: { cardIds: string[]; whiteboardId: string } & AppendCardFrame,
+	): Promise<AppendCardPlacement[]>;
 	search(input: {
 		query: string;
 		limit?: number;

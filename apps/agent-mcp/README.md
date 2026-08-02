@@ -54,8 +54,20 @@ Set `CONTEXTBOARD_BRIDGE_PORT` to override port discovery.
 | `rename_whiteboard`, `archive_whiteboard` | Maintain board structure |
 | `list_cards`, `search_cards`, `get_card` | Read cards, placements and backlinks |
 | `create_card`, `update_card`, `archive_card` | Write cards |
-| `list_board_items`, `place_card`, `archive_item` | Arrange cards on boards |
+| `list_board_items`, `place_card`, `move_item`, `archive_item` | Arrange cards on boards |
 | `list_relations`, `create_relation`, `delete_relation` | Read and draw the arrows between cards |
+
+## Placement
+
+`create_card` and `place_card` take an optional `x`, `y`, `w` and `h`. Leave `x`
+and `y` out and the card is placed automatically in free space beside the board's
+existing cards — a row-major grid that wraps every four columns — so an agent
+that does not care about layout never stacks cards on the origin.
+
+Passing coordinates overrides that, and `x: 0, y: 0` is a literal position rather
+than a request for auto-placement. Read the current layout with
+`list_board_items` before choosing them, and use `move_item` to move or resize
+something already on the board.
 
 ## The two ways cards connect
 

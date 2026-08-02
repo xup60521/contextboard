@@ -4,6 +4,7 @@ import {
 	type ArchiveCardSnapshot,
 	planArchiveCards,
 } from "../canvas/plan/archive-card";
+import { type Frame, findFreeFrame } from "../canvas/plan/place-card-frame";
 import { planReferences } from "../canvas/plan/references";
 import { normalizeImageSources } from "../files/fileUrl";
 import {
@@ -13,6 +14,7 @@ import {
 	listRows,
 } from "../repository/entities";
 import type {
+	AppendCardFrame,
 	AppendCardPlacement,
 	CardDetail,
 	CardPlacement,
@@ -233,9 +235,15 @@ export function createRepositoryCardsService(
 		await applyWrites(repository, commandType, plan.writes);
 	}
 
-	async function append(cardIds: string[], whiteboardId: string) {
+	async function append(
+		cardIds: string[],
+		whiteboardId: string,
+		frame: AppendCardFrame = {},
+	) {
 		const results: AppendCardPlacement[] = [];
 		for (const cardId of cardIds) {
+			// Re-read on every iteration so a batch append sees the placements it
+			// just made and auto-placement does not collide with itself.
 			const [card, items] = await Promise.all([
 				read(cardId),
 				listRows(repository, "items"),
@@ -247,6 +255,22 @@ export function createRepositoryCardsService(
 					item.whiteboardId === whiteboardId,
 			);
 			const timestamp = now();
+			const size = {
+				w: frame.w ?? DEFAULT_CARD_WIDTH,
+				h: frame.h ?? DEFAULT_CARD_HEIGHT,
+			};
+			// Only a caller that gives neither coordinate wants auto-placement;
+			// `x: 0, y: 0` is a literal request for the origin.
+			const position =
+				frame.x === undefined && frame.y === undefined
+					? findFreeFrame(
+							items.filter(
+								(item) =>
+									isActiveRow(item) && item.whiteboardId === whiteboardId,
+							) as unknown as Frame[],
+							size,
+						)
+					: { x: frame.x ?? 0, y: frame.y ?? 0 };
 			const plan = planAppendCard(
 				{
 					card: existing ? null : (card as never),
@@ -256,10 +280,10 @@ export function createRepositoryCardsService(
 					whiteboardId,
 					itemId: createId(),
 					shapeId: `shape:card-${cardId}-${timestamp}-${results.length}`,
-					x: 0,
-					y: 0,
-					w: DEFAULT_CARD_WIDTH,
-					h: DEFAULT_CARD_HEIGHT,
+					x: position.x,
+					y: position.y,
+					w: size.w,
+					h: size.h,
 					rotation: 0,
 					zIndex: timestamp + results.length,
 				},
@@ -441,12 +465,12 @@ export function createRepositoryCardsService(
 			await archive(cardIds, "cards.deleteMany");
 		},
 
-		async appendToWhiteboard({ cardId, whiteboardId }) {
-			return (await append([cardId], whiteboardId))[0] ?? null;
+		async appendToWhiteboard({ cardId, whiteboardId, ...frame }) {
+			return (await append([cardId], whiteboardId, frame))[0] ?? null;
 		},
 
-		async appendManyToWhiteboard({ cardIds, whiteboardId }) {
-			return append(cardIds, whiteboardId);
+		async appendManyToWhiteboard({ cardIds, whiteboardId, ...frame }) {
+			return append(cardIds, whiteboardId, frame);
 		},
 
 		async search({

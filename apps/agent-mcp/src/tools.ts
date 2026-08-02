@@ -78,6 +78,25 @@ function optionalNumber(
 		: undefined;
 }
 
+const PLACEMENT_GUIDANCE = `Leave x and y out and the card is placed automatically in free space beside the board's existing cards, which is usually what you want. Pass them only when the layout carries meaning — read the current layout with list_board_items first. Note that x: 0, y: 0 is a literal position, not "auto". Cards default to 576 wide by 180 tall.`;
+
+/** The frame arguments shared by the tools that put a card on a board. */
+const frameProperties = {
+	x: number("Canvas x position. Omit for automatic placement."),
+	y: number("Canvas y position. Omit for automatic placement."),
+	w: number("Card width in canvas units. Defaults to 576."),
+	h: number("Card height in canvas units. Defaults to 180."),
+};
+
+function readFrame(input: Record<string, unknown>) {
+	return {
+		x: optionalNumber(input, "x"),
+		y: optionalNumber(input, "y"),
+		w: optionalNumber(input, "w"),
+		h: optionalNumber(input, "h"),
+	};
+}
+
 /** tldraw shape ids are opaque, but must carry the `shape:` prefix. */
 function newShapeId(): string {
 	return `shape:${crypto.randomUUID()}`;
@@ -224,7 +243,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		},
 		{
 			name: "create_card",
-			description: `Create a card. The first line becomes its title, so make it a specific claim or topic rather than a generic label. Pass whiteboardId to place it on a board at the same time. ${REFERENCE_GUIDANCE}`,
+			description: `Create a card. The first line becomes its title, so make it a specific claim or topic rather than a generic label. Pass whiteboardId to place it on a board at the same time. ${PLACEMENT_GUIDANCE} ${REFERENCE_GUIDANCE}`,
 			inputSchema: object(
 				{
 					text: string(
@@ -233,6 +252,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 					whiteboardId: string(
 						"Place the new card on this whiteboard. Omit to leave it unplaced.",
 					),
+					...frameProperties,
 				},
 				["text"],
 			),
@@ -242,8 +262,13 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 					content: textToCardContentWithReferences(text),
 				});
 				const whiteboardId = optionalString(input, "whiteboardId");
+				// The frame is meaningless without a board to place the card on.
 				const placement = whiteboardId
-					? await cards.appendToWhiteboard({ cardId, whiteboardId })
+					? await cards.appendToWhiteboard({
+							cardId,
+							whiteboardId,
+							...readFrame(input),
+						})
 					: null;
 				return { cardId, placement };
 			},
@@ -301,46 +326,63 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		},
 		{
 			name: "place_card",
-			description:
-				"Place an existing card on a whiteboard. A card can appear on several whiteboards at once, and each placement is independent. Give x and y to control layout; otherwise the card is appended in the board's default flow.",
+			description: `Place an existing card on a whiteboard. A card can appear on several whiteboards at once, and each placement is independent. ${PLACEMENT_GUIDANCE}`,
 			inputSchema: object(
 				{
 					cardId: string("The card to place."),
 					whiteboardId: string("The whiteboard to place it on."),
-					x: number("Canvas x position."),
-					y: number("Canvas y position."),
+					...frameProperties,
 				},
 				["cardId", "whiteboardId"],
 			),
+			handler: async (input) =>
+				// The frame goes in with the append, so the card is never briefly
+				// visible at the origin. Going through restoreOrAdoptCardItem
+				// instead would be paste-resolution semantics: it only links an
+				// existing card when the source workspace matches, and silently
+				// creates a duplicate otherwise.
+				(await cards.appendToWhiteboard({
+					cardId: requireString(input, "cardId"),
+					whiteboardId: requireString(input, "whiteboardId"),
+					...readFrame(input),
+				})) ?? null,
+		},
+		{
+			name: "move_item",
+			description:
+				"Move or resize something already placed on a whiteboard — a card or a sub-whiteboard link. Get itemId and the current layout from list_board_items. Anything you leave out keeps its current value, so passing only x and y moves the item without resizing it. This edits the user's board directly, so keep changes purposeful.",
+			inputSchema: object(
+				{
+					whiteboardId: string(
+						"The whiteboard the item is on. Pass null for the root board.",
+					),
+					itemId: string("The placement to move, from list_board_items."),
+					x: number("New canvas x position."),
+					y: number("New canvas y position."),
+					w: number("New width in canvas units."),
+					h: number("New height in canvas units."),
+					rotation: number("New rotation in radians."),
+				},
+				["whiteboardId", "itemId"],
+			),
 			handler: async (input) => {
-				const cardId = requireString(input, "cardId");
-				const whiteboardId = requireString(input, "whiteboardId");
-				const placement = await cards.appendToWhiteboard({
-					cardId,
-					whiteboardId,
-				});
-				if (!placement) return null;
-				const x = optionalNumber(input, "x");
-				const y = optionalNumber(input, "y");
-				if (x === undefined && y === undefined) return placement;
-				// Move the placement the append just made. Going through
-				// restoreOrAdoptCardItem instead would be paste-resolution
-				// semantics: it only links an existing card when the source
-				// workspace matches, and silently creates a duplicate otherwise.
-				const items = await canvas.listItems(whiteboardId);
-				const item = items.find((row) => row.id === placement.itemId);
-				if (item) {
-					await canvas.updateItemFrame({
-						itemId: item.id,
-						x: x ?? item.x,
-						y: y ?? item.y,
-						w: item.w,
-						h: item.h,
-						rotation: item.rotation,
-						zIndex: item.zIndex,
-					});
-				}
-				return placement;
+				const itemId = requireString(input, "itemId");
+				const items = await canvas.listItems(
+					optionalString(input, "whiteboardId") ?? null,
+				);
+				const item = items.find((row) => row.id === itemId);
+				if (!item) throw new Error(`item ${itemId} is not on this whiteboard`);
+				const frame = {
+					itemId,
+					x: optionalNumber(input, "x") ?? item.x,
+					y: optionalNumber(input, "y") ?? item.y,
+					w: optionalNumber(input, "w") ?? item.w,
+					h: optionalNumber(input, "h") ?? item.h,
+					rotation: optionalNumber(input, "rotation") ?? item.rotation,
+					zIndex: item.zIndex,
+				};
+				await canvas.updateItemFrame(frame);
+				return frame;
 			},
 		},
 		{

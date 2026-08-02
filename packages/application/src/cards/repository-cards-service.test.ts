@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { createRepositoryWhiteboardsService } from "../canvas/services";
+import { listRows } from "../repository/entities";
 import { createMemoryWorkspaceRepository } from "../testing";
 import { deriveCardMetadata, textToCardContent } from "./card-content";
 import { cardsServiceConformance } from "./conformance";
@@ -148,7 +149,9 @@ describe("card metadata derivation", () => {
 });
 
 describe("card placement and reference capabilities", () => {
-	const board = async (repository: ReturnType<typeof service>["repository"]) => {
+	const board = async (
+		repository: ReturnType<typeof service>["repository"],
+	) => {
 		const whiteboards = createRepositoryWhiteboardsService(repository, {
 			createId: () => "board-1",
 		});
@@ -185,6 +188,40 @@ describe("card placement and reference capabilities", () => {
 		expect(new Set(placements.map((row) => row.shapeId)).size).toBe(2);
 	});
 
+	test("honours an explicit frame, including the origin", async () => {
+		const { cards, repository } = service();
+		const whiteboardId = await board(repository);
+		const cardId = await cards.create();
+		await cards.appendToWhiteboard({
+			cardId,
+			whiteboardId,
+			x: 0,
+			y: 0,
+			w: 320,
+			h: 240,
+		});
+		const items = await listRows(repository, "items");
+		expect(items[0]).toMatchObject({ x: 0, y: 0, w: 320, h: 240 });
+	});
+
+	test("auto-places appended cards clear of one another", async () => {
+		const { cards, repository } = service();
+		const whiteboardId = await board(repository);
+		const first = await cards.create();
+		const second = await cards.create();
+		await cards.appendManyToWhiteboard({
+			cardIds: [first, second],
+			whiteboardId,
+		});
+		const items = (await listRows(repository, "items")) as unknown as Array<{
+			x: number;
+			y: number;
+		}>;
+		expect(items).toHaveLength(2);
+		// Whatever the layout picks, the two must not share a position.
+		expect(items[0].x !== items[1].x || items[0].y !== items[1].y).toBe(true);
+	});
+
 	test("deleteMany archives every card and its placements", async () => {
 		const { cards, repository } = service();
 		const whiteboardId = await board(repository);
@@ -219,9 +256,9 @@ describe("card placement and reference capabilities", () => {
 		const target = await cards.create({
 			content: textToCardContent("Target card"),
 		});
-		expect((await cards.search({ query: "card" })).map((row) => row.id)).toEqual(
-			[target, source],
-		);
+		expect(
+			(await cards.search({ query: "card" })).map((row) => row.id),
+		).toEqual([target, source]);
 		expect(
 			(await cards.search({ query: "card", excludeCardId: source })).map(
 				(row) => row.id,
@@ -248,18 +285,16 @@ describe("card placement and reference capabilities", () => {
 							{
 								type: "text",
 								text: "Target card",
-								marks: [
-									{ type: "cardReference", attrs: { cardId: target } },
-								],
+								marks: [{ type: "cardReference", attrs: { cardId: target } }],
 							},
 						],
 					},
 				],
 			},
 		});
-		expect((await cards.get(target))?.backlinks.map((row) => row.cardId)).toEqual(
-			[source],
-		);
+		expect(
+			(await cards.get(target))?.backlinks.map((row) => row.cardId),
+		).toEqual([source]);
 
 		// Removing the reference removes the backlink.
 		await cards.updateContent({
