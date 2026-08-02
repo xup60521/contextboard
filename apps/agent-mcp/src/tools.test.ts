@@ -125,6 +125,38 @@ describe("whiteboards and cards", () => {
 		expect(card.placements).toHaveLength(1);
 	});
 
+	// An agent has no DOM to measure with, so a flat default height fits almost
+	// no card it is given to; the placement height has to follow the content.
+	test("sizes a created card from its content", async () => {
+		const { call } = makeTools();
+		const { whiteboardId } = await call("create_whiteboard", {});
+		const short = await call("create_card", { text: "Short", whiteboardId });
+		const long = await call("create_card", {
+			text: `Long\n${"The refill rate dominates burst size.\n".repeat(12)}`,
+			whiteboardId,
+		});
+		const heights = new Map(
+			(
+				await call<Array<{ cardId: string; h: number }>>("list_board_items", {
+					whiteboardId,
+				})
+			).map((item) => [item.cardId, item.h]),
+		);
+		expect(heights.get(long.cardId)).toBeGreaterThan(
+			heights.get(short.cardId) as number,
+		);
+	});
+
+	test("an explicit height wins over the estimate", async () => {
+		const { call } = makeTools();
+		const { whiteboardId } = await call("create_whiteboard", {});
+		await call("create_card", { text: "Fixed size\nbody", whiteboardId, h: 333 });
+		const [item] = await call<Array<{ h: number }>>("list_board_items", {
+			whiteboardId,
+		});
+		expect(item.h).toBe(333);
+	});
+
 	test("round trips text through update_card", async () => {
 		const { call } = makeTools();
 		const { cardId } = await call("create_card", { text: "One\nTwo" });

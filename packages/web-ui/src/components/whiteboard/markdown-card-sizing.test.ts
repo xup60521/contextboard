@@ -12,7 +12,6 @@ describe("markdown card sizing", () => {
 			resolveMarkdownCardHeight({
 				currentHeight: 420,
 				measuredScrollHeight: 820,
-				headerHeight: 28,
 				minHeight: 96,
 				isContentReady: true,
 				isVisible: false,
@@ -25,7 +24,6 @@ describe("markdown card sizing", () => {
 			resolveMarkdownCardHeight({
 				currentHeight: 420,
 				measuredScrollHeight: 820,
-				headerHeight: 28,
 				minHeight: 96,
 				isContentReady: false,
 				isVisible: true,
@@ -38,7 +36,6 @@ describe("markdown card sizing", () => {
 			resolveMarkdownCardHeight({
 				currentHeight: 96,
 				measuredScrollHeight: 520,
-				headerHeight: 28,
 				minHeight: 96,
 				isContentReady: true,
 				isVisible: true,
@@ -51,7 +48,6 @@ describe("markdown card sizing", () => {
 			resolveMarkdownCardHeight({
 				currentHeight: 520,
 				measuredScrollHeight: 132,
-				headerHeight: 28,
 				minHeight: 96,
 				isContentReady: true,
 				isVisible: true,

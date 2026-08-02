@@ -8,6 +8,7 @@ import type { Editor, TLShapeId } from "tldraw";
 import type { MarkdownCardShape } from "../custom-shapes";
 import type { WhiteboardFrame } from "../frame-sync";
 import type { Id } from "../ids";
+import { forgetMeasuredCardHeight } from "../measured-card-heights";
 import {
 	hasManagedShapeFrameChanged,
 	hasPersistableDrawingChange,
@@ -85,6 +86,7 @@ export function useStoreListener({
 
 				for (const shape of Object.values(changes.removed)) {
 					if (!isManagedWhiteboardShape(shape)) continue;
+					forgetMeasuredCardHeight(shape.id);
 
 					const itemId = itemIdByShapeIdRef.current.get(shape.id);
 					if (itemId) {

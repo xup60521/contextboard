@@ -11,7 +11,6 @@ import {
 } from "./MarkdownCardShell";
 import { useMarkdownCardAutoHeight } from "./useMarkdownCardAutoHeight";
 
-const HEADER_HEIGHT = 28;
 const MIN_HEIGHT = 64;
 
 export function LocalMarkdownCardComponent({
@@ -29,7 +28,6 @@ export function LocalMarkdownCardComponent({
 	const { cardRef, setIsContentReady, latestPropsRef, measureNextHeight } =
 		useMarkdownCardAutoHeight({
 			shape,
-			headerHeight: HEADER_HEIGHT,
 			minHeight: MIN_HEIGHT,
 			isEditing,
 		});

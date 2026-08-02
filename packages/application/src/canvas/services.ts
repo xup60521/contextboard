@@ -3,6 +3,7 @@ import {
 	DEFAULT_CARD_CONTENT,
 	normalizeCardContent,
 } from "../cards/card-content";
+import { estimateCardHeight } from "../cards/estimate-card-height";
 import { normalizeImageSources } from "../files/fileUrl";
 import {
 	applyWrites,
@@ -432,6 +433,7 @@ export function createRepositoryCanvasService(
 			const content = normalizeImageSources(
 				input.content ?? DEFAULT_CARD_CONTENT,
 			);
+			const width = input.w ?? DEFAULT_CARD_WIDTH;
 			const plan = planCreateCardItem(
 				{
 					whiteboardId: input.whiteboardId,
@@ -441,8 +443,8 @@ export function createRepositoryCanvasService(
 					content,
 					x: input.x ?? 0,
 					y: input.y ?? 0,
-					w: input.w ?? DEFAULT_CARD_WIDTH,
-					h: input.h ?? DEFAULT_CARD_HEIGHT,
+					w: width,
+					h: input.h ?? estimateCardHeight(content, width),
 					rotation: input.rotation ?? 0,
 				},
 				{ now: now(), deviceId },
@@ -468,6 +470,7 @@ export function createRepositoryCanvasService(
 			const content = normalizeImageSources(
 				normalizeCardContent(input.content),
 			);
+			const restoredWidth = input.w ?? DEFAULT_CARD_WIDTH;
 			const result = await withRetry(async () => {
 				const [items, cards] = await Promise.all([
 					listRows(repository, "items"),
@@ -505,8 +508,8 @@ export function createRepositoryCanvasService(
 						content,
 						x: input.x ?? 0,
 						y: input.y ?? 0,
-						w: input.w ?? DEFAULT_CARD_WIDTH,
-						h: input.h ?? DEFAULT_CARD_HEIGHT,
+						w: restoredWidth,
+						h: input.h ?? estimateCardHeight(content, restoredWidth),
 						rotation: input.rotation ?? 0,
 					},
 					{ now: now(), deviceId },

@@ -32,6 +32,7 @@ import {
 	deriveCardMetadata,
 	normalizeCardContent,
 } from "./card-content";
+import { estimateCardHeight } from "./estimate-card-height";
 
 /**
  * The card entity as it is materialized by every backend's generic entity
@@ -255,9 +256,14 @@ export function createRepositoryCardsService(
 					item.whiteboardId === whiteboardId,
 			);
 			const timestamp = now();
+			// A caller that names a height means it; otherwise derive one from the
+			// content, because the flat default fits almost no card it is given to.
+			const width = frame.w ?? DEFAULT_CARD_WIDTH;
 			const size = {
-				w: frame.w ?? DEFAULT_CARD_WIDTH,
-				h: frame.h ?? DEFAULT_CARD_HEIGHT,
+				w: width,
+				h:
+					frame.h ??
+					(card ? estimateCardHeight(card.content, width) : DEFAULT_CARD_HEIGHT),
 			};
 			// Only a caller that gives neither coordinate wants auto-placement;
 			// `x: 0, y: 0` is a literal request for the origin.

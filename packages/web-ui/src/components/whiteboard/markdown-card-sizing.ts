@@ -1,7 +1,6 @@
 export type ResolveMarkdownCardHeightInput = {
 	currentHeight: number;
 	measuredScrollHeight: number | null;
-	headerHeight: number;
 	minHeight: number;
 	isContentReady: boolean;
 	isVisible: boolean;
@@ -17,10 +16,13 @@ export function getHydratedMarkdownCardHeight({
 	return Math.max(minHeight, serverHeight);
 }
 
+/**
+ * The measured element is the shell's content wrapper, which already contains
+ * the card header — so the header needs no separate allowance here.
+ */
 export function resolveMarkdownCardHeight({
 	currentHeight,
 	measuredScrollHeight,
-	headerHeight,
 	minHeight,
 	isContentReady,
 	isVisible,
@@ -34,10 +36,5 @@ export function resolveMarkdownCardHeight({
 		return currentHeight;
 	}
 
-	const nextHeight = Math.max(
-		minHeight,
-		Math.ceil(measuredScrollHeight) - headerHeight + headerHeight,
-	);
-
-	return Math.ceil(nextHeight);
+	return Math.max(minHeight, Math.ceil(measuredScrollHeight));
 }

@@ -8,19 +8,28 @@ import {
 import { useEditor } from "tldraw";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
+import {
+	hasMeasuredCardHeight,
+	markCardHeightMeasured,
+} from "./measured-card-heights";
 
 function isMarkdownCardVisible(card: HTMLDivElement | null) {
 	return Boolean(card && card.getClientRects().length > 0);
 }
 
+/**
+ * A card created without a DOM only ever had an estimated height, so the first
+ * real render is worth one correction. Anything below this is rounding noise
+ * between devices and not worth the frame-sync traffic on every board load.
+ */
+const ONE_SHOT_MIN_DELTA = 4;
+
 export function useMarkdownCardAutoHeight({
 	shape,
-	headerHeight,
 	minHeight,
 	isEditing,
 }: {
 	shape: MarkdownCardShape;
-	headerHeight: number;
 	minHeight: number;
 	isEditing: boolean;
 }) {
@@ -38,19 +47,37 @@ export function useMarkdownCardAutoHeight({
 		return resolveMarkdownCardHeight({
 			currentHeight: latestProps.h,
 			measuredScrollHeight: card ? Math.ceil(card.scrollHeight) : null,
-			headerHeight,
 			minHeight,
 			isContentReady,
 			isVisible: isMarkdownCardVisible(card),
 		});
-	}, [headerHeight, isContentReady, minHeight]);
+	}, [isContentReady, minHeight]);
+
+	// A card whose content has not been hydrated yet renders empty, and measuring
+	// that would shrink the shape to its minimum. Local cards carry no
+	// `contentLoaded` flag because their content is always present.
+	const canMeasureOnce =
+		isContentReady &&
+		shape.props.contentLoaded !== false &&
+		!hasMeasuredCardHeight(shape.id);
 
 	const syncHeight = useCallback(() => {
 		syncFrameRef.current = null;
 		const latestProps = latestPropsRef.current;
 		const nextHeight = measureNextHeight();
+		const isOneShot = !isEditing;
+		if (isOneShot) {
+			// An off-screen card measures as nothing, so that attempt does not count
+			// — the shot stays available for when the card is actually on screen.
+			if (!isMarkdownCardVisible(cardRef.current)) return;
+			// Otherwise claim it before writing, so the re-render caused by the write
+			// itself cannot schedule a second measurement.
+			markCardHeightMeasured(shape.id);
+		}
 
-		if (Math.abs(nextHeight - latestProps.h) < 1) {
+		if (
+			Math.abs(nextHeight - latestProps.h) < (isOneShot ? ONE_SHOT_MIN_DELTA : 1)
+		) {
 			return;
 		}
 
@@ -62,17 +89,19 @@ export function useMarkdownCardAutoHeight({
 				h: nextHeight,
 			},
 		});
-	}, [editor, measureNextHeight, shape.id]);
+	}, [editor, isEditing, measureNextHeight, shape.id]);
 
 	const scheduleSyncHeight = useCallback(() => {
-		// Only the editing card drives its own height. After blur the editor is
-		// swapped for the static renderer; letting the ResizeObserver keep writing
-		// `h` here re-fires the content-hydration reactive on every frame, which
-		// (combined with the other shape writers) never settles and freezes the app.
-		if (!isEditing) return;
+		// The editing card drives its own height continuously. A non-editing card
+		// gets exactly one measurement, to replace the height an agent could only
+		// estimate: after blur the editor is swapped for the static renderer, and
+		// letting the ResizeObserver keep writing `h` here re-fires the
+		// content-hydration reactive on every frame, which (combined with the other
+		// shape writers) never settles and freezes the app.
+		if (!isEditing && !canMeasureOnce) return;
 		if (syncFrameRef.current !== null) return;
 		syncFrameRef.current = window.requestAnimationFrame(syncHeight);
-	}, [isEditing, syncHeight]);
+	}, [canMeasureOnce, isEditing, syncHeight]);
 
 	useLayoutEffect(() => {
 		const card = cardRef.current;
@@ -96,6 +125,18 @@ export function useMarkdownCardAutoHeight({
 		if (!isContentReady) return;
 		scheduleSyncHeight();
 	}, [isContentReady, scheduleSyncHeight]);
+
+	// The one-shot measurement can be in flight while the card is not editing, so
+	// it is not covered by the observer effect's cleanup above.
+	useEffect(
+		() => () => {
+			if (syncFrameRef.current !== null) {
+				window.cancelAnimationFrame(syncFrameRef.current);
+				syncFrameRef.current = null;
+			}
+		},
+		[],
+	);
 
 	return {
 		cardRef,

@@ -11,6 +11,7 @@ export {
 	deriveCardMetadata,
 	textToCardContent,
 } from "./card-content";
+export { estimateCardHeight } from "./estimate-card-height";
 export {
 	CARD_REFERENCE_SCHEME,
 	cardContentToTextWithReferences,

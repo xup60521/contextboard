@@ -78,14 +78,16 @@ function optionalNumber(
 		: undefined;
 }
 
-const PLACEMENT_GUIDANCE = `Leave x and y out and the card is placed automatically in free space beside the board's existing cards, which is usually what you want. Pass them only when the layout carries meaning — read the current layout with list_board_items first. Note that x: 0, y: 0 is a literal position, not "auto". Cards default to 576 wide by 180 tall.`;
+const PLACEMENT_GUIDANCE = `Leave x and y out and the card is placed automatically in free space beside the board's existing cards, which is usually what you want. Pass them only when the layout carries meaning — read the current layout with list_board_items first. Note that x: 0, y: 0 is a literal position, not "auto". Cards default to 576 wide, and their height is estimated from the content unless you pass h — leave h out unless you specifically need a fixed size.`;
 
 /** The frame arguments shared by the tools that put a card on a board. */
 const frameProperties = {
 	x: number("Canvas x position. Omit for automatic placement."),
 	y: number("Canvas y position. Omit for automatic placement."),
 	w: number("Card width in canvas units. Defaults to 576."),
-	h: number("Card height in canvas units. Defaults to 180."),
+	h: number(
+		"Card height in canvas units. Omit to have it estimated from the card's content.",
+	),
 };
 
 function readFrame(input: Record<string, unknown>) {

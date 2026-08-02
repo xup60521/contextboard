@@ -19,7 +19,6 @@ import { useMarkdownCardAutoHeight } from "./useMarkdownCardAutoHeight";
 import { WhiteboardCardContext } from "./WhiteboardCardContext";
 import { hydrateCardShapes } from "./whiteboard-canvas-helpers";
 
-const HEADER_HEIGHT = 28;
 const MIN_HEIGHT = 96;
 
 export function PersistedMarkdownCardComponent({
@@ -48,7 +47,6 @@ export function PersistedMarkdownCardComponent({
 	const { cardRef, setIsContentReady, latestPropsRef, measureNextHeight } =
 		useMarkdownCardAutoHeight({
 			shape,
-			headerHeight: HEADER_HEIGHT,
 			minHeight: MIN_HEIGHT,
 			isEditing,
 		});

@@ -12,7 +12,7 @@ You are a thin driver around the Codex CLI. You do not search the codebase yours
 Restate the task as a self-contained question, then invoke via Bash:
 
 ```
-codex exec -m gpt-5.6-luna -c model_reasoning_effort="medium" -s read-only -C <repo root> "<the task, restated>"
+codex exec -m gpt-5.6-luna -c model_reasoning_effort="high" -s read-only -C <repo root> "<the task, restated>"
 ```
 
 The model and reasoning effort are fixed. Do not substitute a different model or effort level.
