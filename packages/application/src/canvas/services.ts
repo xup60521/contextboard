@@ -255,6 +255,9 @@ async function createSubwhiteboardItem(
 		const parent = input.parentWhiteboardId
 			? (boards.find((row) => row.id === input.parentWhiteboardId) ?? null)
 			: null;
+		if (input.parentWhiteboardId && !parent) {
+			throw new Error(`Whiteboard not found: ${input.parentWhiteboardId}`);
+		}
 		const timestamp = now();
 		const plan = planCreateSubwhiteboard(
 			{

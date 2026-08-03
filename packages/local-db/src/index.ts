@@ -23,7 +23,63 @@ import {
 	SYNC_SCHEMA_VERSION,
 	type SyncEntityType,
 } from "@contextboard/sync-protocol";
-import Dexie, { type EntityTable, type Table, type Transaction } from "dexie";
+import Dexie, { type EntityTable } from "dexie";
+
+/**
+ * The small table surface shared by the browser and headless SQLite stores.
+ *
+ * Dexie exposes a much larger API, but the local command/sync layer only needs
+ * these operations. Queries intentionally return a tiny, backend-neutral
+ * collection shape; the SQLite adapter implements indexed lookups by scanning
+ * its compact replica tables, which is appropriate for a single agent box.
+ */
+export interface RowCollection<T> {
+	first(): Promise<T | undefined>;
+	toArray(): Promise<T[]>;
+	count(): Promise<number>;
+}
+
+export interface RowWhereClause<T> {
+	equals(value: any): RowCollection<T>;
+}
+
+export interface RowTable<T = any> {
+	get(key: any): Promise<T | undefined>;
+	put(value: T): Promise<any>;
+	add(value: T): Promise<any>;
+	bulkPut(values: T[]): Promise<any>;
+	bulkAdd(values: T[]): Promise<any>;
+	bulkDelete(keys: any[]): Promise<any>;
+	delete(key: any): Promise<any>;
+	update(key: any, changes: Partial<T>): Promise<any>;
+	clear(): Promise<any>;
+	toArray(): Promise<T[]>;
+	count(): Promise<number>;
+	where(index: string): RowWhereClause<T>;
+	orderBy(index: string): RowCollection<T>;
+}
+
+export type LocalTransaction = unknown;
+
+/** Platform-neutral database boundary used by commands, sync, and replicas. */
+export interface ContextboardDatabaseLike {
+	whiteboards: RowTable<Whiteboard>;
+	cards: RowTable<Card>;
+	boardItems: RowTable<BoardItem>;
+	tldrawDocuments: RowTable<TldrawDocument>;
+	files: RowTable<LocalFile>;
+	fileReferences: RowTable<FileReference>;
+	cardReferences: RowTable<CardReference>;
+	cardRelations: RowTable<CardRelation>;
+	canvasRecords: RowTable<CanvasRecord>;
+	settings: RowTable<Setting>;
+	changeLog: RowTable<ChangeBatch>;
+	syncPeers: RowTable<SyncPeer>;
+	conflicts: RowTable<ConflictRecord>;
+	appliedChangeBatches: RowTable<AppliedChangeBatch>;
+	todos: RowTable<Todo>;
+	transaction(...args: any[]): Promise<any>;
+}
 
 export type ApplyRemoteResult = { applied: number; conflicts: number };
 
@@ -119,18 +175,18 @@ export type CommandContext = {
 };
 
 export async function runLocalCommand<T>(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	context: CommandContext,
 	command: string,
-	tables: Table[],
+	tables: RowTable[],
 	execute: (
-		transaction: Transaction,
+		transaction: LocalTransaction,
 	) => Promise<{ result: T; changes: EntityChange[] }>,
 ): Promise<T> {
 	return db.transaction(
 		"rw",
 		[...tables, db.changeLog, db.settings, db.appliedChangeBatches],
-		async (transaction) => {
+		async (transaction: LocalTransaction) => {
 			const sequenceSetting = await db.settings.get("deviceSequence");
 			const sequence =
 				typeof sequenceSetting?.value === "number"
@@ -191,7 +247,7 @@ export function waitForExternal<T>(promise: PromiseLike<T>): Promise<T> {
 	return Dexie.waitFor(promise);
 }
 
-export async function ensureLocalIdentity(db: ContextboardDatabase) {
+export async function ensureLocalIdentity(db: ContextboardDatabaseLike) {
 	return db.transaction("rw", db.settings, async () => {
 		const existingWorkspace = await db.settings.get("workspaceId");
 		const existingDevice = await db.settings.get("deviceId");
@@ -216,7 +272,7 @@ export const createContextboardDatabase = (name?: string) =>
 	new ContextboardDatabase(name);
 
 export async function cleanupOrphanedFiles(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	now = Date.now(),
 	graceMs = 24 * 60 * 60 * 1000,
 ) {
@@ -239,7 +295,7 @@ export async function cleanupOrphanedFiles(
 }
 
 export async function getPendingBatches(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	limit: number,
 ) {
 	const pending = await db.changeLog.orderBy("createdAt").toArray();
@@ -264,7 +320,7 @@ export async function getPendingBatches(
  * offline user data is discarded.
  */
 async function rebuildLegacyPendingBatches(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 ): Promise<ChangeBatch[]> {
 	const transactionTables = [
 		db.whiteboards,
@@ -372,7 +428,7 @@ async function rebuildLegacyPendingBatches(
 			}
 		}
 
-		const sources: Array<[SyncEntityType, Table]> = [
+		const sources: Array<[SyncEntityType, RowTable]> = [
 			["whiteboard", db.whiteboards],
 			["card", db.cards],
 			["boardItem", db.boardItems],
@@ -444,16 +500,16 @@ async function rebuildLegacyPendingBatches(
 }
 
 export async function acknowledgeBatches(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	changeIds: string[],
 ) {
 	await db.changeLog.bulkDelete(changeIds);
 }
 
 const remoteTable = (
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	entityType: string,
-): Table | null =>
+): RowTable | null =>
 	entityType === "whiteboard"
 		? db.whiteboards
 		: entityType === "card"
@@ -480,7 +536,7 @@ const remoteTable = (
 
 /** Applies server batches without creating a new local batch. */
 export async function applyRemoteBatches(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	batches: ChangeBatch[],
 	peerId = "contextboard-cloud",
 	nextCursor?: string,
@@ -725,7 +781,7 @@ export async function applyRemoteBatches(
 }
 
 export async function getSyncState(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	peerId = "contextboard-cloud",
 ) {
 	const existing = await db.syncPeers.get(peerId);
@@ -741,7 +797,7 @@ export async function getSyncState(
 	);
 }
 
-export async function hasWorkspaceData(db: ContextboardDatabase) {
+export async function hasWorkspaceData(db: ContextboardDatabaseLike) {
 	const counts = await Promise.all([
 		db.whiteboards.count(),
 		db.cards.count(),
@@ -759,7 +815,7 @@ export async function hasWorkspaceData(db: ContextboardDatabase) {
 }
 
 export async function adoptWorkspaceId(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	workspaceId: string,
 ) {
 	if (await hasWorkspaceData(db))
@@ -774,7 +830,7 @@ export async function adoptWorkspaceId(
  * local data.
  */
 export async function rebindWorkspaceId(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	fromWorkspaceId: string,
 	toWorkspaceId: string,
 ) {
@@ -815,7 +871,7 @@ export async function rebindWorkspaceId(
 	);
 }
 
-export async function getLocalBlob(db: ContextboardDatabase, hash: string) {
+export async function getLocalBlob(db: ContextboardDatabaseLike, hash: string) {
 	const file = await db.files.where("sha256").equals(hash).first();
 	if (!file?.blob) return null;
 	return {
@@ -829,7 +885,7 @@ export async function getLocalBlob(db: ContextboardDatabase, hash: string) {
 }
 
 export async function storeRemoteBlob(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	descriptor: BlobDescriptor,
 	blob: Blob,
 ) {
@@ -842,7 +898,7 @@ export async function storeRemoteBlob(
 	});
 }
 
-export async function getMissingBlobs(db: ContextboardDatabase) {
+export async function getMissingBlobs(db: ContextboardDatabaseLike) {
 	return (await db.files.toArray())
 		.filter((file) => file.blob === null && file.deletedAt === null)
 		.map((file) => ({
@@ -852,7 +908,7 @@ export async function getMissingBlobs(db: ContextboardDatabase) {
 		}));
 }
 
-export async function exportCheckpointEntities(db: ContextboardDatabase) {
+export async function exportCheckpointEntities(db: ContextboardDatabaseLike) {
 	const [
 		whiteboards,
 		cards,
@@ -891,7 +947,7 @@ export async function exportCheckpointEntities(db: ContextboardDatabase) {
 }
 
 export async function importCheckpointEntities(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	workspaceId: string,
 	entities: Record<string, unknown[]>,
 	coveredCursor: string,
@@ -948,7 +1004,7 @@ export async function importCheckpointEntities(
 	);
 }
 
-export async function checkpointThresholdReached(db: ContextboardDatabase) {
+export async function checkpointThresholdReached(db: ContextboardDatabaseLike) {
 	const [count, bytes] = await Promise.all([
 		db.settings.get("checkpointChangeCount"),
 		db.settings.get("checkpointChangeBytes"),
@@ -960,7 +1016,7 @@ export async function checkpointThresholdReached(db: ContextboardDatabase) {
 }
 
 export async function markCheckpointCreated(
-	db: ContextboardDatabase,
+	db: ContextboardDatabaseLike,
 	coveredCursor: string,
 ) {
 	await db.settings.bulkPut([

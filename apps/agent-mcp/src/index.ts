@@ -3,14 +3,12 @@
  * ContextBoard agent gateway.
  *
  * An MCP server that lets a coding agent read and write a ContextBoard
- * workspace. It holds no credentials: it talks to the running desktop app over
- * its loopback bridge, and the desktop app owns authentication and
- * synchronization. A write here lands in the desktop's local store and is
- * pushed to the sync server by the app's own coordinator, so it reaches every
- * other device the same way a hand-made edit would.
+ * workspace. In bridge mode it talks to the running desktop app over its
+ * loopback bridge. In replica mode it owns a persistent SQLite replica and
+ * synchronizes with the cloud using a headless agent token.
  *
- * The server therefore only works while the desktop app is running with the
- * agent bridge enabled in its settings.
+ * Bridge mode remains the default so existing laptop installations are
+ * unchanged; remote boxes opt into replica mode explicitly.
  */
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -21,6 +19,7 @@ import {
 } from "@contextboard/application/canvas";
 import { createRepositoryCardsService } from "@contextboard/application/cards";
 import { createRepositoryCardRelationsService } from "@contextboard/application/relations";
+import type { WorkspaceRepository } from "@contextboard/client-core";
 import {
 	connectBridgeRepository,
 	DEFAULT_BRIDGE_PORT,
@@ -32,6 +31,18 @@ import {
 	ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createTools, type ToolDefinition } from "./tools";
+
+export type AgentMode = "bridge" | "replica";
+
+export function resolveAgentMode(
+	env: Record<string, string | undefined> = process.env,
+): AgentMode {
+	const mode = env.CONTEXTBOARD_AGENT_MODE?.trim().toLowerCase() || "bridge";
+	if (mode === "bridge" || mode === "replica") return mode;
+	throw new Error(
+		`Invalid CONTEXTBOARD_AGENT_MODE "${mode}"; expected bridge or replica`,
+	);
+}
 
 /**
  * The desktop app publishes its live port here on start, so the common case
@@ -63,9 +74,23 @@ export async function resolveBridgePort(
 }
 
 async function main() {
-	const port = await resolveBridgePort();
-	const { repository, status } = await connectBridgeRepository({ port });
-	const workspaceId = status.workspaceId;
+	const mode = resolveAgentMode();
+	let repository: WorkspaceRepository;
+	let workspaceId: string;
+	let cleanup: () => Promise<void> = async () => undefined;
+	let bridgePort: number | null = null;
+	if (mode === "replica") {
+		const { createReplicaRuntime } = await import("./replica");
+		const runtime = await createReplicaRuntime();
+		repository = runtime.repository;
+		workspaceId = runtime.workspaceId;
+		cleanup = runtime.close;
+	} else {
+		bridgePort = await resolveBridgePort();
+		const connected = await connectBridgeRepository({ port: bridgePort });
+		repository = connected.repository;
+		workspaceId = connected.status.workspaceId;
+	}
 	// The canvas services need the workspace the desktop app has adopted: it is
 	// what marks a card as belonging here rather than to a paste from elsewhere.
 	const tools = createTools({
@@ -127,10 +152,50 @@ async function main() {
 		}
 	});
 
-	await server.connect(new StdioServerTransport());
+	const transport = new StdioServerTransport();
+	let closed = false;
+	const shutdown = async (exit: boolean) => {
+		if (closed) {
+			if (exit) process.exit(0);
+			return;
+		}
+		closed = true;
+		try {
+			await cleanup();
+		} catch (error) {
+			process.stderr.write(
+				`ContextBoard flush failed: ${error instanceof Error ? error.message : String(error)}\n`,
+			);
+		}
+		await transport.close().catch(() => undefined);
+		if (exit) process.exit(0);
+	};
+	transport.onclose = () => {
+		void shutdown(false);
+	};
+	process.once("SIGINT", () => {
+		void shutdown(true);
+	});
+	process.once("SIGTERM", () => {
+		void shutdown(true);
+	});
+	process.stdin.once("end", () => {
+		void shutdown(false);
+	});
+	process.stdin.once("close", () => {
+		void shutdown(false);
+	});
+	try {
+		await server.connect(transport);
+	} catch (error) {
+		await shutdown(false);
+		throw error;
+	}
 	// stdout carries the protocol, so status goes to stderr.
 	process.stderr.write(
-		`ContextBoard MCP ready on workspace ${workspaceId} (bridge port ${port})\n`,
+		`ContextBoard MCP ready on workspace ${workspaceId} (${mode}${
+			bridgePort ? ` port ${bridgePort}` : ""
+		})\n`,
 	);
 }
 

@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type {
@@ -9,6 +10,11 @@ import type {
 	PushChangesResponse,
 	WorkspaceRedirect,
 } from "@contextboard/sync-protocol";
+import {
+	generateAgentToken,
+	hashAgentToken,
+	hashesMatch,
+} from "./agent-tokens";
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -69,6 +75,18 @@ CREATE TABLE IF NOT EXISTS workspace_redirects (
   to_workspace_id TEXT NOT NULL,
   merged_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_tokens (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  user_id TEXT NOT NULL,
+  user_email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS agent_tokens_user
+  ON agent_tokens(user_id, created_at DESC);
 `;
 
 const cursorNumber = (cursor: string | null) => {
@@ -763,6 +781,83 @@ export class SyncStore {
 			throw error;
 		}
 		return { ...report, applied: true };
+	}
+
+	/**
+	 * Issues a headless agent credential. The email is denormalized because
+	 * Better Auth owns a separate SQLite file, so there is no join available at
+	 * verification time. Authorization still re-checks the live allowlist on
+	 * every request, so a denormalized address can never widen access.
+	 */
+	createAgentToken(userId: string, userEmail: string, name: string) {
+		const token = generateAgentToken();
+		const id = randomUUID();
+		const createdAt = Date.now();
+		this.db
+			.prepare(
+				`INSERT INTO agent_tokens
+				 (id, token_hash, user_id, user_email, name, created_at, last_used_at, revoked_at)
+				 VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`,
+			)
+			.run(id, hashAgentToken(token), userId, userEmail, name, createdAt);
+		// The only time the plaintext exists; it is never recoverable after this.
+		return { id, token, name, createdAt };
+	}
+
+	listAgentTokens(userId: string) {
+		return this.db
+			.prepare(
+				`SELECT id, name, created_at createdAt, last_used_at lastUsedAt,
+				        revoked_at revokedAt
+				 FROM agent_tokens WHERE user_id = ? ORDER BY created_at DESC`,
+			)
+			.all(userId) as Array<{
+			id: string;
+			name: string;
+			createdAt: number;
+			lastUsedAt: number | null;
+			revokedAt: number | null;
+		}>;
+	}
+
+	/** Scoped by user so one account cannot revoke another's credentials. */
+	revokeAgentToken(userId: string, id: string) {
+		const result = this.db
+			.prepare(
+				"UPDATE agent_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
+			)
+			.run(Date.now(), id, userId);
+		return result.changes > 0;
+	}
+
+	/** Revoked tokens are simply absent, so callers fail closed with a 401. */
+	findActiveAgentToken(token: string) {
+		const hash = hashAgentToken(token);
+		const row = this.db
+			.prepare(
+				`SELECT id, token_hash tokenHash, user_id userId, user_email userEmail
+				 FROM agent_tokens WHERE token_hash = ? AND revoked_at IS NULL`,
+			)
+			.get(hash) as {
+			id: string;
+			tokenHash: string;
+			userId: string;
+			userEmail: string;
+		} | null;
+		if (!row || !hashesMatch(row.tokenHash, hash)) return null;
+		return { id: row.id, userId: row.userId, userEmail: row.userEmail };
+	}
+
+	/**
+	 * Records usage at most once a minute. Sync clients poll continuously, so an
+	 * unconditional write here would add a database write to every poll.
+	 */
+	touchAgentToken(id: string, now = Date.now()) {
+		this.db
+			.prepare(
+				"UPDATE agent_tokens SET last_used_at = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)",
+			)
+			.run(now, id, now - 60_000);
 	}
 
 	private membersForWorkspace(workspaceId: string) {

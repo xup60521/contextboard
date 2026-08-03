@@ -7,13 +7,13 @@ import type {
 import {
 	acknowledgeBatches,
 	applyRemoteBatches,
-	type ContextboardDatabase,
 	getLocalBlob,
 	getMissingBlobs,
 	getPendingBatches,
 	getSyncState,
 	storeRemoteBlob,
 } from "@contextboard/local-db";
+import type { ContextboardDatabaseLike } from "@contextboard/local-db";
 import { executeEntityCommand, queryEntities } from "./entity-store";
 
 /**
@@ -22,11 +22,12 @@ import { executeEntityCommand, queryEntities } from "./entity-store";
  * synchronization surface. Rich Web-only operations still live in the Web
  * application adapter.
  */
-export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
+/** Repository adapter for any local database implementing the shared table API. */
+export class LocalWorkspaceRepository implements WorkspaceRepository {
 	#listeners = new Set<WorkspaceChangeListener>();
 	#localListeners = new Set<WorkspaceChangeListener>();
 
-	constructor(private readonly database: ContextboardDatabase) {}
+	constructor(private readonly database: ContextboardDatabaseLike) {}
 
 	query<T>(query: DomainQuery<T>): Promise<T> {
 		return queryEntities(this.database, query) as Promise<T>;
@@ -98,6 +99,12 @@ export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
 		return storeRemoteBlob(this.database, descriptor, blob);
 	}
 }
+
+/** Compatibility name retained for the browser IndexedDB integration. */
+export class IndexedDbWorkspaceRepository extends LocalWorkspaceRepository {}
+
+/** Explicit name for the headless SQLite replica integration. */
+export class SqliteWorkspaceRepository extends LocalWorkspaceRepository {}
 
 export * from "@contextboard/local-db";
 export {

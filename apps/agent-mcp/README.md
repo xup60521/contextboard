@@ -1,41 +1,38 @@
 # ContextBoard agent gateway (MCP)
 
-An MCP server that lets a coding agent — Claude Code, Codex — read and write a
-ContextBoard workspace: create whiteboards, write cards with their sources, and
-cite one card from another so the result is a structured body of knowledge
-rather than a chat summary that disappears.
+An MCP server that lets Claude Code or Codex read and write a ContextBoard
+workspace: create whiteboards, write cards with their sources, and connect
+cards with references and relations.
 
-## How it works
+## Modes
 
-The MCP server holds **no credentials**. It talks to the running desktop app
-over a loopback HTTP bridge, and the desktop app owns authentication and
-synchronization. A write here lands in the desktop's local SQLite store and is
-pushed to the sync server by the app's own coordinator, so it reaches your other
-devices exactly like an edit you made by hand.
+The mode is selected at startup with `CONTEXTBOARD_AGENT_MODE`:
 
+- `bridge` (the default) talks to the running desktop app over its loopback
+  bridge. Reads include the desktop's live, possibly unsynced replica.
+- `replica` runs without the desktop app, keeps a persistent SQLite replica at
+  `~/.contextboard/replica.sqlite`, and syncs with the cloud using a revocable
+  agent token. Its device id is stable in `~/.contextboard/device.json`.
+
+```text
+agent --stdio--> agent-mcp --loopback--> desktop app --> sync server
+agent --stdio--> agent-mcp --HTTPS + token----------------> sync server
 ```
-agent  ──stdio──>  agent-mcp  ──127.0.0.1──>  desktop app  ──>  sync server
-```
 
-The agent and this server must run **on the same machine as the desktop app**.
-There is no remote access, no tunnel, and no exposed port. A standalone CLI that
-carries its own session and needs no desktop app is a separate, later thing.
+Replica mode performs a pull before the first read, flushes after every write,
+and flushes again when the MCP process exits.
 
-## Setup
+## Bridge setup
 
 1. Open the desktop app and sign in.
-2. Turn on **Allow local AI agents to use this workspace** in the sidebar. It is
-   off by default. The app then listens on `127.0.0.1:8787` and publishes the
-   live port to `~/.contextboard/bridge.json`, so nothing else needs configuring.
-3. Register the server with your agent.
-
-Claude Code:
+2. Turn on **Allow local AI agents to use this workspace** in the sidebar. The
+   app listens on `127.0.0.1:8787` and publishes its live port to
+   `~/.contextboard/bridge.json`.
+3. Register the server with your agent:
 
 ```sh
 claude mcp add contextboard -- bun run /path/to/contextboard/apps/agent-mcp/src/index.ts
 ```
-
-Codex (`~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.contextboard]
@@ -45,69 +42,84 @@ args = ["run", "/path/to/contextboard/apps/agent-mcp/src/index.ts"]
 
 Set `CONTEXTBOARD_BRIDGE_PORT` to override port discovery.
 
+Bridge mode must run on the same machine as the desktop app. The loopback
+bridge is never exposed off-machine.
+
+## Remote replica setup
+
+1. Issue an agent token from the Web app's agent-token settings page. The
+   plaintext is shown only once.
+2. On the remote box, create `~/.contextboard/credentials.json` with mode
+   `0600`:
+
+```json
+{
+  "token": "cbat_...",
+  "serverUrl": "https://your-contextboard-worker.example"
+}
+```
+
+3. Register the MCP server using replica mode:
+
+```sh
+CONTEXTBOARD_AGENT_MODE=replica bun run /path/to/contextboard/apps/agent-mcp/src/index.ts
+```
+
+The first run joins the account's default workspace and pulls it before serving
+the first read. Set `CONTEXTBOARD_WORKSPACE_ID` when the account has multiple
+workspaces. For containers or service managers, `CONTEXTBOARD_AGENT_TOKEN` plus
+`CONTEXTBOARD_SYNC_URL` can replace the credentials file.
+
 ## Tools
 
 | Tool | Purpose |
 | --- | --- |
 | `list_whiteboards`, `get_whiteboard` | Find where existing work lives |
-| `create_whiteboard` | New board, or a sub-board nested in one |
+| `create_whiteboard` | Create a root or nested board |
 | `rename_whiteboard`, `archive_whiteboard` | Maintain board structure |
 | `list_cards`, `search_cards`, `get_card` | Read cards, placements and backlinks |
 | `create_card`, `update_card`, `archive_card` | Write cards |
-| `list_board_items`, `place_card`, `move_item`, `archive_item` | Arrange cards on boards |
-| `list_relations`, `create_relation`, `delete_relation` | Read and draw the arrows between cards |
+| `list_board_items`, `place_card`, `move_item`, `archive_item` | Arrange cards |
+| `list_relations`, `create_relation`, `delete_relation` | Read and draw card relations |
+
+Card text is markdown. `update_card` replaces the whole card, so read it first
+and send the complete text back.
 
 ## Placement
 
 `create_card` and `place_card` take an optional `x`, `y`, `w` and `h`. Leave `x`
-and `y` out and the card is placed automatically in free space beside the board's
-existing cards — a row-major grid that wraps every four columns — so an agent
-that does not care about layout never stacks cards on the origin.
-
-Passing coordinates overrides that, and `x: 0, y: 0` is a literal position rather
-than a request for auto-placement. Read the current layout with
-`list_board_items` before choosing them, and use `move_item` to move or resize
-something already on the board.
+and `y` out and the card is placed automatically in free space beside the
+board's existing cards. Passing coordinates overrides that, and `x: 0, y: 0`
+is a literal position rather than a request for auto-placement. Read the
+current layout with `list_board_items` before choosing coordinates, and use
+`move_item` to move or resize an existing item.
 
 ## The two ways cards connect
 
-Both exist, and they are not redundant.
-
 **References** live in a card's text. Write
 `[label](contextboard:card/<cardId>)` inline, in the sentence that makes the
-claim. This is a real link: it produces a backlink on the target, it is global
-(it travels with the card to every board it appears on), and it is directional.
-This is the one to reach for when recording where a claim came from.
+claim. This produces a backlink on the target, travels with the card to every
+board it appears on, and is directional.
 
 **Relations** are the arrows drawn between cards on a board. They are scoped to
-that board — a card can sit on several boards, and an arrow means something in
-the context of one of them — undirected, and their meaning is whatever the
-person who drew them intended. Read them with `list_relations` and draw one with
-`create_relation`, which needs both cards to already be on the board. The arrow
-it draws is a real one — the user sees it on the canvas and can drag or delete
-it like any other.
+that board, undirected, and their meaning is whatever the person who drew them
+intended. Read them with `list_relations` and draw one with `create_relation`,
+which needs both cards to already be on the board.
 
 ## Scope
 
 Card text is markdown: headings, lists, blockquotes, fenced code, pipe tables
-and `$…$` math round trip through `get_card` and `update_card`. The first line
-becomes the title. Image upload is not supported yet.
+and `$…$` math round trip through `get_card` and `update_card`. Image upload is
+not supported yet.
 
-`update_card` replaces the whole card, so read it with `get_card` first and send
-the full text back — anything you leave out is removed.
-
-Conventions for how your workspace should be organised belong in your project's
-`CLAUDE.md` or `AGENTS.md`, not in these tools — the tools describe what is
-possible and leave the judgement to you.
+Conventions for how a workspace should be organised belong in a project's
+`CLAUDE.md` or `AGENTS.md`, not in these tools.
 
 ## Security
 
-The bridge has no token. It is protected by being unreachable from anywhere
-except this machine, and by rules that stop a web page you happen to be visiting
-from reaching it: requests carrying an `Origin` header are rejected, a JSON
-content type is required (so cross-origin requests must preflight, and no CORS
-headers are ever returned), the `Host` must name loopback, and `GET` is refused.
+The bridge has no token; its safety depends on being reachable only from
+loopback. Any program running as the local user can use it while enabled, so
+never expose that endpoint beyond the machine.
 
-While the toggle is on, **any program running as you on this computer can read
-and write your boards.** If this endpoint is ever exposed beyond the local
-machine, it will need a token first.
+Replica mode uses a bearer token. Keep `credentials.json` owner-readable and
+revoke the token in the Web app if the remote box is lost.

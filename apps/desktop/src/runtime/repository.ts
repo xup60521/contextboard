@@ -1,5 +1,6 @@
 import { DesktopWorkspaceRepository } from "@contextboard/storage-desktop";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { listen as tauriListen } from "@tauri-apps/api/event";
 import type {
 	DesktopBootstrap,
 	DesktopCommandError,
@@ -12,6 +13,15 @@ export type Invoke = (
 ) => Promise<unknown>;
 
 const defaultInvoke: Invoke = (command, args) => tauriInvoke(command, args);
+
+/** Native event subscription, injectable so tests need no Tauri host. */
+export type Listen = (
+	event: string,
+	listener: () => void,
+) => Promise<() => void>;
+
+const defaultListen: Listen = (event, listener) =>
+	tauriListen(event, () => listener());
 
 const ERROR_CODES = new Set<DesktopCommandErrorCode>([
 	"INVALID_ARGUMENT",
@@ -73,9 +83,15 @@ export async function bootstrapDesktop(invoke?: Invoke) {
 	return bootstrap;
 }
 
-export function createDesktopRepository(workspaceId: string, invoke?: Invoke) {
-	return new DesktopWorkspaceRepository(workspaceId, (command, args) =>
-		invokeDesktop(command, args, invoke),
+export function createDesktopRepository(
+	workspaceId: string,
+	invoke?: Invoke,
+	listen: Listen = defaultListen,
+) {
+	return new DesktopWorkspaceRepository(
+		workspaceId,
+		(command, args) => invokeDesktop(command, args, invoke),
+		listen,
 	);
 }
 

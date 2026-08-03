@@ -15,8 +15,10 @@ import {
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { type AllowedEmailSet, isAllowedUser } from "./access";
+import { AgentTokenError, parseAgentTokenName } from "./agent-tokens";
 import {
 	requireSession,
+	requireUserSession,
 	requireWorkspaceSession,
 	SessionAccessError,
 	WorkspaceRedirectError,
@@ -29,6 +31,11 @@ import {
 } from "./store";
 
 const POPUP_COMPLETE_PATH = "/api/auth/popup-complete";
+/**
+ * Lives under the sync prefix because the Cloudflare Worker only proxies
+ * `/api/sync/*` and `/api/auth/*`; a top-level path would not reach this server.
+ */
+const AGENT_TOKENS_PATH = "/api/sync/v1/agent-tokens";
 
 function popupCompleteDocument() {
 	return `<!doctype html>
@@ -118,7 +125,7 @@ export function createSyncApp(
 	app.get("/api/auth/one-time-token/generate", async (context) => {
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
 		if (allowedEmails)
-			await requireSession(auth, context.req.raw, allowedEmails);
+			await requireSession(auth, store, context.req.raw, allowedEmails);
 		return auth.handler(context.req.raw);
 	});
 
@@ -143,7 +150,13 @@ export function createSyncApp(
 	app.get("/api/sync/v1/health", (context) => context.json({ ok: true }));
 
 	app.use("/api/sync/v1/*", async (context, next) => {
-		parseSyncVersionHeaders(context.req.raw.headers);
+		// Agent token management is an account API that merely shares the proxied
+		// path prefix. Gating it on the sync protocol version would make a version
+		// bump lock the user out of revoking credentials, which is precisely when
+		// they are most likely to need it.
+		if (!context.req.path.startsWith(AGENT_TOKENS_PATH)) {
+			parseSyncVersionHeaders(context.req.raw.headers);
+		}
 		await next();
 	});
 
@@ -151,6 +164,7 @@ export function createSyncApp(
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
 		const session = await requireSession(
 			auth,
+			store,
 			context.req.raw,
 			allowedEmails,
 		);
@@ -162,6 +176,7 @@ export function createSyncApp(
 		const input = parseSelectWorkspaceRequest(await context.req.json());
 		const session = await requireSession(
 			auth,
+			store,
 			context.req.raw,
 			allowedEmails,
 		);
@@ -180,6 +195,7 @@ export function createSyncApp(
 		const input = parseClaimWorkspaceRequest(await context.req.json());
 		const session = await requireSession(
 			auth,
+			store,
 			context.req.raw,
 			allowedEmails,
 		);
@@ -291,6 +307,56 @@ export function createSyncApp(
 		return checkpoint ? context.json(checkpoint) : context.body(null, 204);
 	});
 
+	app.post(AGENT_TOKENS_PATH, async (context) => {
+		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
+		const session = await requireUserSession(
+			auth,
+			store,
+			context.req.raw,
+			allowedEmails,
+		);
+		const body = (await context.req.json().catch(() => null)) as {
+			name?: unknown;
+		} | null;
+		const name = parseAgentTokenName(body?.name);
+		if (!session.user.email)
+			return context.json({ error: "Account has no email address" }, 403);
+		const created = store.createAgentToken(
+			session.user.id,
+			session.user.email,
+			name,
+		);
+		// `token` appears in this response and nowhere else, ever.
+		return context.json(created, 201);
+	});
+
+	app.get(AGENT_TOKENS_PATH, async (context) => {
+		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
+		const session = await requireUserSession(
+			auth,
+			store,
+			context.req.raw,
+			allowedEmails,
+		);
+		return context.json(store.listAgentTokens(session.user.id));
+	});
+
+	app.delete(`${AGENT_TOKENS_PATH}/:id`, async (context) => {
+		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
+		const session = await requireUserSession(
+			auth,
+			store,
+			context.req.raw,
+			allowedEmails,
+		);
+		const revoked = store.revokeAgentToken(
+			session.user.id,
+			context.req.param("id"),
+		);
+		if (!revoked) return context.json({ error: "Not found" }, 404);
+		return context.body(null, 204);
+	});
+
 	app.notFound((context) => context.json({ error: "Not found" }, 404));
 
 	app.onError((error, context) => {
@@ -306,6 +372,8 @@ export function createSyncApp(
 			return context.json({ error: error.message }, error.status);
 		if (error instanceof WorkspaceMembershipError)
 			return context.json({ error: error.message }, 403);
+		if (error instanceof AgentTokenError)
+			return context.json({ error: error.message }, 400);
 		if (
 			error instanceof SequenceConflictError ||
 			error instanceof WorkspaceClaimConflictError

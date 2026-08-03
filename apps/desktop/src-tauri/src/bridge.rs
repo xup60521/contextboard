@@ -32,7 +32,7 @@ use std::{
     sync::{Arc, Mutex},
     thread,
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tiny_http::{Header, Request, Response, Server};
 
 /// Persisted as a desktop setting so the bridge stays off across restarts
@@ -190,6 +190,12 @@ pub fn dispatch(storage: &Storage, body: &Value) -> Result<Value, BridgeError> {
     }
 }
 
+/// True when this request body would change the workspace. Mirrors how
+/// [`dispatch`] reads the op so the two cannot disagree about what a write is.
+pub fn is_write_op(body: &Value) -> bool {
+    body.get("op").and_then(Value::as_str) == Some("execute")
+}
+
 /// The port the bridge should bind, honouring an override the user set.
 pub fn configured_port(storage: &Storage) -> Result<u16, BridgeError> {
     Ok(storage
@@ -267,7 +273,13 @@ impl BridgeState {
                 // `recv` returns Err once the server is unblocked on stop.
                 while let Ok(request) = worker.recv() {
                     let storage = app.state::<Storage>();
-                    serve(&storage, request, bound);
+                    // A bridge write is another *local* writer changing this
+                    // workspace's SQLite, so the renderer both repaints and
+                    // pushes. A renderer that isn't listening must not fail the
+                    // agent's write — the sync poll timer stays the backstop.
+                    serve(&storage, request, bound, || {
+                        let _ = app.emit("contextboard://workspace-changed", ());
+                    });
                 }
             })
             .map_err(|error| {
@@ -299,7 +311,7 @@ impl BridgeState {
     }
 }
 
-fn serve(storage: &Storage, mut request: Request, port: u16) {
+fn serve(storage: &Storage, mut request: Request, port: u16, notify: impl Fn()) {
     let header = |name: &str| {
         request
             .headers()
@@ -318,6 +330,7 @@ fn serve(storage: &Storage, mut request: Request, port: u16) {
         content_type: content_type.as_deref(),
     };
 
+    let mut was_write = false;
     let outcome = guard(&head, port).and_then(|_| {
         let mut body = String::new();
         request
@@ -327,8 +340,14 @@ fn serve(storage: &Storage, mut request: Request, port: u16) {
             .map_err(|_| BridgeError::new(400, "INVALID_ARGUMENT", "Unable to read the request"))?;
         let parsed: Value = serde_json::from_str(&body)
             .map_err(|_| BridgeError::new(400, "INVALID_ARGUMENT", "Request body must be JSON"))?;
+        was_write = is_write_op(&parsed);
         dispatch(storage, &parsed)
     });
+
+    // Only a write that actually landed is worth waking the renderer for.
+    if was_write && outcome.is_ok() {
+        notify();
+    }
 
     let (status, payload) = match outcome {
         Ok(result) => (200, json!({ "ok": true, "result": result })),
@@ -573,6 +592,17 @@ mod tests {
         )
         .expect_err("must reject");
         assert_eq!(error.code, "UNKNOWN_DOMAIN_OPERATION");
+    }
+
+    // Only a write may wake the renderer; a read or a malformed body must not.
+    #[test]
+    fn only_execute_counts_as_a_write() {
+        assert!(is_write_op(&json!({ "op": "execute", "payload": {} })));
+        assert!(!is_write_op(&json!({ "op": "query", "payload": {} })));
+        assert!(!is_write_op(&json!({ "op": "status" })));
+        assert!(!is_write_op(&json!({ "op": 7 })));
+        assert!(!is_write_op(&json!({})));
+        assert!(!is_write_op(&json!("execute")));
     }
 
     #[test]

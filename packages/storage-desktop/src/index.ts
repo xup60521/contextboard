@@ -40,10 +40,19 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 		if (!workspaceId) throw new Error("workspaceId is required");
 	}
 
+	/**
+	 * Listens for another local writer — today the agent bridge — changing this
+	 * workspace's SQLite. That is this device changing its own store, exactly
+	 * like a write from the renderer, so it fires the local listeners too and
+	 * the change is pushed rather than waiting for the next sync poll. A native
+	 * remote-apply path that needs a repaint without a push must emit a distinct
+	 * event rather than overloading this one.
+	 */
 	async connect(): Promise<() => void> {
 		if (!this.listen) return () => undefined;
 		return this.listen("contextboard://workspace-changed", () => {
 			for (const listener of this.#listeners) listener();
+			for (const listener of this.#localListeners) listener();
 		});
 	}
 

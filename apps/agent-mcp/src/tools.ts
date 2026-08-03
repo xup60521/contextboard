@@ -49,6 +49,10 @@ function object(
 }
 
 const string = (description: string) => ({ type: "string", description });
+const stringOrNull = (description: string) => ({
+	type: ["string", "null"],
+	description,
+});
 const number = (description: string) => ({ type: "number", description });
 const boolean = (description: string) => ({ type: "boolean", description });
 
@@ -128,7 +132,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		{
 			name: "create_whiteboard",
 			description:
-				"Create a whiteboard. Omit parentWhiteboardId for a top-level board, or pass one to nest a sub-whiteboard inside it (which also places a link shape on the parent). Whiteboards are how a body of research is grouped; prefer a sub-whiteboard over a sprawling flat board.",
+				"Create a whiteboard and a clickable link shape to it. Omit parentWhiteboardId to place the link on the virtual root board, or pass one to nest the link inside that whiteboard. Whiteboards are how a body of research is grouped; prefer a sub-whiteboard over a sprawling flat board.",
 			inputSchema: object({
 				title: string("Title for the new whiteboard."),
 				parentWhiteboardId: string(
@@ -138,20 +142,13 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 			handler: async (input) => {
 				const title = optionalString(input, "title");
 				const parentWhiteboardId = optionalString(input, "parentWhiteboardId");
-				let whiteboardId: string;
-				let itemId: string | null = null;
-				if (parentWhiteboardId) {
-					const created = await whiteboards.createSubwhiteboard({
-						parentWhiteboardId,
-						shapeId: newShapeId(),
-					});
-					whiteboardId = created.childWhiteboardId;
-					itemId = created.itemId;
-				} else {
-					whiteboardId = await whiteboards.createRoot();
-				}
+				const created = await whiteboards.createSubwhiteboard({
+					parentWhiteboardId: parentWhiteboardId ?? null,
+					shapeId: newShapeId(),
+				});
+				const whiteboardId = created.childWhiteboardId;
 				if (title) await whiteboards.rename({ whiteboardId, title });
-				return { whiteboardId, itemId, title: title ?? null };
+				return { whiteboardId, itemId: created.itemId, title: title ?? null };
 			},
 		},
 		{
@@ -317,7 +314,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 				"List what is placed on a whiteboard — cards and sub-whiteboard links — with their positions and sizes. Use this to see a board's layout before adding to it.",
 			inputSchema: object(
 				{
-					whiteboardId: string(
+					whiteboardId: stringOrNull(
 						"The whiteboard to inspect. Pass null for the root board.",
 					),
 				},
@@ -355,7 +352,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 				"Move or resize something already placed on a whiteboard — a card or a sub-whiteboard link. Get itemId and the current layout from list_board_items. Anything you leave out keeps its current value, so passing only x and y moves the item without resizing it. This edits the user's board directly, so keep changes purposeful.",
 			inputSchema: object(
 				{
-					whiteboardId: string(
+					whiteboardId: stringOrNull(
 						"The whiteboard the item is on. Pass null for the root board.",
 					),
 					itemId: string("The placement to move, from list_board_items."),

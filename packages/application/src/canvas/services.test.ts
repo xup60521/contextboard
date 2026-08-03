@@ -26,6 +26,41 @@ function setup() {
 }
 
 describe("repository whiteboards capability", () => {
+	test("creates a top-level subwhiteboard link on the virtual root", async () => {
+		const { whiteboards, canvas } = setup();
+		const created = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: null,
+			shapeId: "shape:top-level",
+		});
+
+		expect(await whiteboards.get(created.childWhiteboardId)).toMatchObject({
+			parentWhiteboardId: null,
+			depth: 0,
+		});
+		expect(await canvas.listItems(null)).toContainEqual(
+			expect.objectContaining({
+				id: created.itemId,
+				whiteboardId: null,
+				kind: "subwhiteboard",
+				childWhiteboardId: created.childWhiteboardId,
+				shapeId: "shape:top-level",
+			}),
+		);
+	});
+
+	test("rejects a missing parent without writing a board or link", async () => {
+		const { whiteboards, canvas } = setup();
+
+		await expect(
+			whiteboards.createSubwhiteboard({
+				parentWhiteboardId: "missing-parent",
+				shapeId: "shape:orphan",
+			}),
+		).rejects.toThrow(/Whiteboard not found: missing-parent/);
+		expect(await whiteboards.list()).toEqual([]);
+		expect(await canvas.listItems(null)).toEqual([]);
+	});
+
 	test("creates a root board, renames it and reads it back with counts", async () => {
 		const { whiteboards, canvas } = setup();
 		const rootId = await whiteboards.createRoot();

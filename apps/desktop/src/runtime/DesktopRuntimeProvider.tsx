@@ -5,6 +5,7 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import {
@@ -49,6 +50,22 @@ export type DesktopRuntimeProviderProps = {
 	invoke?: Invoke;
 };
 
+/**
+ * Subscribing to native events is an optimization: it turns a bridge write into
+ * an immediate repaint and push. Where there is no event host — tests, a stubbed
+ * repository — the sync poll timer remains the backstop, so a failure here must
+ * never fail startup.
+ */
+async function connectQuietly(repository: {
+	connect?: () => Promise<() => void>;
+}): Promise<() => void> {
+	try {
+		return (await repository.connect?.()) ?? (() => undefined);
+	} catch {
+		return () => undefined;
+	}
+}
+
 export function DesktopRuntimeProvider({
 	children,
 	invoke,
@@ -56,6 +73,13 @@ export function DesktopRuntimeProvider({
 	const [state, setState] = useState<DesktopStorageState>({
 		status: "starting",
 	});
+
+	/**
+	 * Unsubscribes the current repository from native workspace-changed events.
+	 * Held here because the repository is built — and rebuilt on adoption — by
+	 * this provider, and a leaked listener would repaint against the old store.
+	 */
+	const disconnect = useRef<(() => void) | null>(null);
 
 	useEffect(() => {
 		let active = true;
@@ -68,6 +92,14 @@ export function DesktopRuntimeProvider({
 					DEFAULT_DESKTOP_WORKSPACE_ID;
 				if (!active) return;
 				const repository = createDesktopRepository(workspaceId, invoke);
+				const stop = await connectQuietly(repository);
+				// The awaits above can resolve after teardown, so the listener has
+				// to be dropped here rather than left for the cleanup to find.
+				if (!active) {
+					stop();
+					return;
+				}
+				disconnect.current = stop;
 				setState(
 					bootstrap.storageAvailable
 						? { status: "ready", repository, workspaceId, bootstrap }
@@ -92,6 +124,8 @@ export function DesktopRuntimeProvider({
 
 		return () => {
 			active = false;
+			disconnect.current?.();
+			disconnect.current = null;
 		};
 	}, [invoke]);
 
@@ -105,13 +139,13 @@ export function DesktopRuntimeProvider({
 				return;
 			await state.repository.adopt(nextWorkspaceId);
 			await writeDesktopSetting("workspaceId", nextWorkspaceId, invoke);
+			disconnect.current?.();
+			disconnect.current = null;
+			const repository = createDesktopRepository(nextWorkspaceId, invoke);
+			disconnect.current = await connectQuietly(repository);
 			setState((current) =>
 				current.status === "ready"
-					? {
-							...current,
-							workspaceId: nextWorkspaceId,
-							repository: createDesktopRepository(nextWorkspaceId, invoke),
-						}
+					? { ...current, workspaceId: nextWorkspaceId, repository }
 					: current,
 			);
 		},

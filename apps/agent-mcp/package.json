@@ -14,11 +14,14 @@
   "dependencies": {
     "@contextboard/application": "workspace:*",
     "@contextboard/client-core": "workspace:*",
+    "@contextboard/local-db": "workspace:*",
     "@contextboard/storage-bridge": "workspace:*",
+    "@contextboard/storage-indexeddb": "workspace:*",
+    "@contextboard/sync-protocol": "workspace:*",
+    "fflate": "^0.8.2",
     "@modelcontextprotocol/sdk": "^1.22.0"
   },
   "devDependencies": {
-    "@contextboard/storage-indexeddb": "workspace:*",
     "@types/bun": "latest",
     "fake-indexeddb": "^6.2.4",
     "typescript": "^6.0.2",

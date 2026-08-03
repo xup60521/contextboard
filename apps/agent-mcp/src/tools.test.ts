@@ -82,14 +82,35 @@ describe("tool surface", () => {
 describe("whiteboards and cards", () => {
 	test("creates a titled whiteboard and lists it", async () => {
 		const { call } = makeTools();
-		const { whiteboardId } = await call("create_whiteboard", {
+		const created = await call("create_whiteboard", {
 			title: "Rate limiting",
 		});
-		expect(whiteboardId).toBeTruthy();
+		expect(created.whiteboardId).toBeTruthy();
+		expect(created.itemId).toBeTruthy();
 		const boards =
 			await call<Array<{ id: string; title: string }>>("list_whiteboards");
-		expect(boards.find((board) => board.id === whiteboardId)?.title).toBe(
-			"Rate limiting",
+		expect(
+			boards.find((board) => board.id === created.whiteboardId)?.title,
+		).toBe("Rate limiting");
+		const rootItems = await call<
+			Array<{
+				id: string;
+				whiteboardId: string | null;
+				kind: string;
+				childWhiteboardId: string | null;
+				shapeId: string;
+				childWhiteboard: { title: string } | null;
+			}>
+		>("list_board_items", { whiteboardId: null });
+		expect(rootItems).toContainEqual(
+			expect.objectContaining({
+				id: created.itemId,
+				whiteboardId: null,
+				kind: "subwhiteboard",
+				childWhiteboardId: created.whiteboardId,
+				shapeId: expect.stringMatching(/^shape:/),
+				childWhiteboard: expect.objectContaining({ title: "Rate limiting" }),
+			}),
 		);
 	});
 
@@ -105,6 +126,43 @@ describe("whiteboards and cards", () => {
 		});
 		expect(detail.parentWhiteboardId).toBe(parent.whiteboardId);
 		expect(child.itemId).toBeTruthy();
+		const parentItems = await call<
+			Array<{ id: string; kind: string; childWhiteboardId: string | null }>
+		>("list_board_items", { whiteboardId: parent.whiteboardId });
+		expect(parentItems).toContainEqual(
+			expect.objectContaining({
+				id: child.itemId,
+				kind: "subwhiteboard",
+				childWhiteboardId: child.whiteboardId,
+			}),
+		);
+		const rootItems = await call<Array<{ childWhiteboardId: string | null }>>(
+			"list_board_items",
+			{ whiteboardId: null },
+		);
+		expect(
+			rootItems.some((item) => item.childWhiteboardId === child.whiteboardId),
+		).toBe(false);
+	});
+
+	test("rejects a missing parent without creating a board or link", async () => {
+		const { call } = makeTools();
+		const beforeBoards = await call("list_whiteboards");
+		const beforeRootItems = await call("list_board_items", {
+			whiteboardId: null,
+		});
+
+		await expect(
+			call("create_whiteboard", {
+				title: "Orphan",
+				parentWhiteboardId: "missing-parent",
+			}),
+		).rejects.toThrow(/Whiteboard not found: missing-parent/);
+
+		expect(await call("list_whiteboards")).toEqual(beforeBoards);
+		expect(await call("list_board_items", { whiteboardId: null })).toEqual(
+			beforeRootItems,
+		);
 	});
 
 	test("creates a card, placing it and deriving its title from line one", async () => {
@@ -150,7 +208,11 @@ describe("whiteboards and cards", () => {
 	test("an explicit height wins over the estimate", async () => {
 		const { call } = makeTools();
 		const { whiteboardId } = await call("create_whiteboard", {});
-		await call("create_card", { text: "Fixed size\nbody", whiteboardId, h: 333 });
+		await call("create_card", {
+			text: "Fixed size\nbody",
+			whiteboardId,
+			h: 333,
+		});
 		const [item] = await call<Array<{ h: number }>>("list_board_items", {
 			whiteboardId,
 		});

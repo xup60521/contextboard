@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as AgentTokensRouteImport } from './routes/agent-tokens'
 import { Route as CardsRouteRouteImport } from './routes/cards/route'
 import { Route as DataRouteImport } from './routes/data'
 import { Route as DesktopAuthRouteImport } from './routes/desktop-auth'
@@ -30,6 +31,11 @@ const IndexRoute = IndexRouteImport.update({
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentTokensRoute = AgentTokensRouteImport.update({
+  id: '/agent-tokens',
+  path: '/agent-tokens',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CardsRouteRoute = CardsRouteRouteImport.update({
@@ -88,6 +94,7 @@ export interface FileRoutesByFullPath {
   '/cards': typeof CardsRouteRouteWithChildren
   '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
+  '/agent-tokens': typeof AgentTokensRoute
   '/data': typeof DataRoute
   '/desktop-auth': typeof DesktopAuthRoute
   '/cards/$cardId': typeof CardsCardIdRoute
@@ -100,6 +107,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/agent-tokens': typeof AgentTokensRoute
   '/data': typeof DataRoute
   '/desktop-auth': typeof DesktopAuthRoute
   '/cards/$cardId': typeof CardsCardIdRoute
@@ -115,6 +123,7 @@ export interface FileRoutesById {
   '/cards': typeof CardsRouteRouteWithChildren
   '/whiteboard': typeof WhiteboardRouteRouteWithChildren
   '/about': typeof AboutRoute
+  '/agent-tokens': typeof AgentTokensRoute
   '/data': typeof DataRoute
   '/desktop-auth': typeof DesktopAuthRoute
   '/cards/$cardId': typeof CardsCardIdRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/cards'
     | '/whiteboard'
     | '/about'
+    | '/agent-tokens'
     | '/data'
     | '/desktop-auth'
     | '/cards/$cardId'
@@ -143,6 +153,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/agent-tokens'
     | '/data'
     | '/desktop-auth'
     | '/cards/$cardId'
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | '/cards'
     | '/whiteboard'
     | '/about'
+    | '/agent-tokens'
     | '/data'
     | '/desktop-auth'
     | '/cards/$cardId'
@@ -172,6 +184,7 @@ export interface RootRouteChildren {
   CardsRouteRoute: typeof CardsRouteRouteWithChildren
   WhiteboardRouteRoute: typeof WhiteboardRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
+  AgentTokensRoute: typeof AgentTokensRoute
   DataRoute: typeof DataRoute
   DesktopAuthRoute: typeof DesktopAuthRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
@@ -191,6 +204,13 @@ declare module '@tanstack/react-router' {
       path: '/about'
       fullPath: '/about'
       preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agent-tokens': {
+      id: '/agent-tokens'
+      path: '/agent-tokens'
+      fullPath: '/agent-tokens'
+      preLoaderRoute: typeof AgentTokensRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cards': {
@@ -301,6 +321,7 @@ const rootRouteChildren: RootRouteChildren = {
   CardsRouteRoute: CardsRouteRouteWithChildren,
   WhiteboardRouteRoute: WhiteboardRouteRouteWithChildren,
   AboutRoute: AboutRoute,
+  AgentTokensRoute: AgentTokensRoute,
   DataRoute: DataRoute,
   DesktopAuthRoute: DesktopAuthRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,

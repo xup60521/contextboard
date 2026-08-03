@@ -1,6 +1,7 @@
 import {
-	type ContextboardDatabase,
+	type ContextboardDatabaseLike,
 	ensureLocalIdentity,
+	type RowTable,
 	runLocalCommand,
 } from "@contextboard/local-db";
 import {
@@ -8,7 +9,6 @@ import {
 	HybridLogicalClock,
 	type SyncEntityType,
 } from "@contextboard/sync-protocol";
-import type { Table } from "dexie";
 
 type Row = Record<string, unknown> & {
 	id: string;
@@ -18,8 +18,8 @@ type Row = Record<string, unknown> & {
 
 type EntityBinding = {
 	entityType: SyncEntityType;
-	/** Dexie tables are entity-typed; generic writes go through a Row view. */
-	table: (db: ContextboardDatabase) => Table<Row, string>;
+	/** Entity writes use the backend-neutral local table contract. */
+	table: (db: ContextboardDatabaseLike) => RowTable<Row>;
 	/** Keeps generic writes compatible with the Web schema's indexes. */
 	defaults: () => Record<string, unknown>;
 };
@@ -39,7 +39,7 @@ type NormalizedWrite = {
 const BINDINGS: Record<string, EntityBinding> = {
 	cards: {
 		entityType: "card",
-		table: (db) => db.cards as unknown as Table<Row, string>,
+		table: (db) => db.cards as RowTable<Row>,
 		defaults: () => ({
 			content: null,
 			derivedTitle: "Untitled card",
@@ -52,7 +52,7 @@ const BINDINGS: Record<string, EntityBinding> = {
 	},
 	whiteboards: {
 		entityType: "whiteboard",
-		table: (db) => db.whiteboards as unknown as Table<Row, string>,
+		table: (db) => db.whiteboards as RowTable<Row>,
 		defaults: () => ({
 			title: "Untitled whiteboard",
 			parentWhiteboardId: null,
@@ -65,7 +65,7 @@ const BINDINGS: Record<string, EntityBinding> = {
 	},
 	items: {
 		entityType: "boardItem",
-		table: (db) => db.boardItems as unknown as Table<Row, string>,
+		table: (db) => db.boardItems as RowTable<Row>,
 		defaults: () => ({
 			whiteboardId: null,
 			kind: "card",
@@ -83,7 +83,7 @@ const BINDINGS: Record<string, EntityBinding> = {
 	},
 	records: {
 		entityType: "canvasRecord",
-		table: (db) => db.canvasRecords as unknown as Table<Row, string>,
+		table: (db) => db.canvasRecords as RowTable<Row>,
 		defaults: () => ({
 			whiteboardId: null,
 			recordId: "",
@@ -94,27 +94,27 @@ const BINDINGS: Record<string, EntityBinding> = {
 	},
 	tldrawDocuments: {
 		entityType: "tldrawDocument",
-		table: (db) => db.tldrawDocuments as unknown as Table<Row, string>,
+		table: (db) => db.tldrawDocuments as RowTable<Row>,
 		defaults: () => ({ whiteboardId: null, documentVersion: 1 }),
 	},
 	files: {
 		entityType: "file",
-		table: (db) => db.files as unknown as Table<Row, string>,
+		table: (db) => db.files as RowTable<Row>,
 		defaults: () => ({ status: "pending", pendingDeleteAt: null }),
 	},
 	fileReferences: {
 		entityType: "fileReference",
-		table: (db) => db.fileReferences as unknown as Table<Row, string>,
+		table: (db) => db.fileReferences as RowTable<Row>,
 		defaults: () => ({ targetKey: "", fileId: null }),
 	},
 	cardReferences: {
 		entityType: "cardReference",
-		table: (db) => db.cardReferences as unknown as Table<Row, string>,
+		table: (db) => db.cardReferences as RowTable<Row>,
 		defaults: () => ({ sourceCardId: null, targetCardId: null }),
 	},
 	cardRelations: {
 		entityType: "cardRelation",
-		table: (db) => db.cardRelations as unknown as Table<Row, string>,
+		table: (db) => db.cardRelations as RowTable<Row>,
 		defaults: () => ({
 			whiteboardId: null,
 			sourceCardId: null,
@@ -169,7 +169,7 @@ const isActive = (row: Row | undefined): row is Row =>
 	!!row && row.deletedAt === null;
 
 export async function queryEntities(
-	database: ContextboardDatabase,
+	database: ContextboardDatabaseLike,
 	request: { type: string; input?: unknown },
 ): Promise<unknown> {
 	const { binding, action } = resolve(request.type);
@@ -190,7 +190,7 @@ export async function queryEntities(
 const clocks = new Map<string, HybridLogicalClock>();
 
 export async function executeEntityCommand(
-	database: ContextboardDatabase,
+	database: ContextboardDatabaseLike,
 	request: { type: string; input?: unknown },
 ): Promise<unknown> {
 	const input = request.input as
