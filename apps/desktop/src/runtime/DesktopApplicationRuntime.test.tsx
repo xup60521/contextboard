@@ -15,6 +15,10 @@ const syncState: { current: DesktopSyncRuntime } = {
 		signOut: async () => undefined,
 		syncNow: async () => undefined,
 		createWorkspace: async () => undefined,
+		workspaces: [],
+		switchWorkspace: async () => undefined,
+		mergeIntoActiveWorkspace: async () => undefined,
+		deleteLocalWorkspace: async () => undefined,
 		workspaceSelectionRequired: false,
 	},
 };

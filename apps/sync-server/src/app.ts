@@ -17,6 +17,11 @@ import { cors } from "hono/cors";
 import { type AllowedEmailSet, isAllowedUser } from "./access";
 import { AgentTokenError, parseAgentTokenName } from "./agent-tokens";
 import {
+	DeviceFlowError,
+	formatUserCode,
+	normalizeUserCode,
+} from "./device-codes";
+import {
 	requireSession,
 	requireUserSession,
 	requireWorkspaceSession,
@@ -36,6 +41,8 @@ const POPUP_COMPLETE_PATH = "/api/auth/popup-complete";
  * `/api/sync/*` and `/api/auth/*`; a top-level path would not reach this server.
  */
 const AGENT_TOKENS_PATH = "/api/sync/v1/agent-tokens";
+const DEVICE_PATH = "/api/sync/v1/device";
+const UNVERSIONED_PATHS = [AGENT_TOKENS_PATH, DEVICE_PATH];
 
 function popupCompleteDocument() {
 	return `<!doctype html>
@@ -61,6 +68,7 @@ export type SyncAppOptions = {
 	 */
 	crossOriginAllowlist?: string[];
 	allowedEmails?: AllowedEmailSet;
+	publicAppUrl?: string;
 };
 
 export function createSyncApp(
@@ -72,6 +80,9 @@ export function createSyncApp(
 
 	const allowedOrigins = new Set(options?.crossOriginAllowlist ?? []);
 	const allowedEmails = options?.allowedEmails;
+	const configuredPublicAppUrl = options?.publicAppUrl
+		? new URL(options.publicAppUrl).origin
+		: null;
 	if (allowedOrigins.size) {
 		// Desktop authenticates with a bearer token, never a cookie, so
 		// credentials stay off and no CSRF surface is opened here.
@@ -153,8 +164,15 @@ export function createSyncApp(
 		// Agent token management is an account API that merely shares the proxied
 		// path prefix. Gating it on the sync protocol version would make a version
 		// bump lock the user out of revoking credentials, which is precisely when
-		// they are most likely to need it.
-		if (!context.req.path.startsWith(AGENT_TOKENS_PATH)) {
+		// they are most likely to need it. Device authorization is likewise
+		// deliberately unversioned: a first-time-login CLI has no protocol version,
+		// and a bump must not lock a user out of obtaining credentials any more than
+		// out of revoking them.
+		if (
+			!UNVERSIONED_PATHS.some((path) =>
+				context.req.path.startsWith(path),
+			)
+		) {
 			parseSyncVersionHeaders(context.req.raw.headers);
 		}
 		await next();
@@ -307,6 +325,172 @@ export function createSyncApp(
 		return checkpoint ? context.json(checkpoint) : context.body(null, 204);
 	});
 
+	app.post(`${DEVICE_PATH}/code`, async (context) => {
+		let body: {
+			clientName?: unknown;
+			deviceName?: unknown;
+		} | null = {};
+		if (context.req.raw.body) {
+			try {
+				body = (await context.req.json()) as typeof body;
+			} catch {
+				throw new DeviceFlowError(400, {
+					error: "invalid_request",
+					error_description: "Request body must be valid JSON",
+				});
+			}
+		}
+		if (body === null || typeof body !== "object" || Array.isArray(body))
+			throw new DeviceFlowError(400, {
+				error: "invalid_request",
+				error_description: "Request body must be an object",
+			});
+		const clientName = body?.clientName;
+		const deviceName = body?.deviceName;
+		if (
+			(clientName !== undefined && typeof clientName !== "string") ||
+			(deviceName !== undefined && deviceName !== null && typeof deviceName !== "string")
+		)
+			throw new DeviceFlowError(400, {
+				error: "invalid_request",
+				error_description: "clientName and deviceName must be strings",
+			});
+
+		const created = store.createDeviceCode({
+			clientName: clientName ?? "contextboard-cli",
+			deviceName: deviceName ?? null,
+		});
+		const publicOrigin =
+			configuredPublicAppUrl ?? new URL(context.req.url).origin;
+		const verificationUri = new URL("/device", publicOrigin);
+		const verificationUriComplete = new URL(verificationUri);
+		verificationUriComplete.searchParams.set(
+			"user_code",
+			formatUserCode(created.userCode),
+		);
+		return context.json(
+			{
+				deviceCode: created.deviceCode,
+				userCode: formatUserCode(created.userCode),
+				verificationUri: verificationUri.toString(),
+				verificationUriComplete: verificationUriComplete.toString(),
+				expiresIn: Math.ceil((created.expiresAt - Date.now()) / 1000),
+				interval: created.intervalSeconds,
+			},
+			201,
+		);
+	});
+
+	app.post(`${DEVICE_PATH}/token`, async (context) => {
+		const body = (await context.req.json().catch(() => null)) as {
+			deviceCode?: unknown;
+		} | null;
+		if (!body || typeof body.deviceCode !== "string" || !body.deviceCode)
+			throw new DeviceFlowError(400, {
+				error: "invalid_request",
+				error_description: "deviceCode is required",
+			});
+
+		const result = store.pollDeviceCode(body.deviceCode);
+		if (result.status === "pending")
+			throw new DeviceFlowError(400, {
+				error: "authorization_pending",
+				error_description: "The user has not approved this device yet",
+			});
+		if (result.status === "slow_down")
+			throw new DeviceFlowError(429, {
+				error: "slow_down",
+				error_description: "Poll less frequently",
+				interval: result.intervalSeconds,
+			});
+		if (result.status === "denied")
+			throw new DeviceFlowError(400, {
+				error: "access_denied",
+				error_description: "The user denied this device authorization",
+			});
+		if (result.status === "expired")
+			throw new DeviceFlowError(400, {
+				error: "expired_token",
+				error_description: "The device authorization is no longer valid",
+			});
+
+		return context.json({
+			token: result.token,
+			tokenId: result.tokenId,
+			name: result.name,
+			serverUrl: configuredPublicAppUrl ?? new URL(context.req.url).origin,
+		});
+	});
+
+	app.get(`${DEVICE_PATH}/authorization`, async (context) => {
+		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
+		await requireUserSession(
+			auth,
+			store,
+			context.req.raw,
+			allowedEmails,
+		);
+		const rawUserCode = context.req.query("user_code");
+		if (!rawUserCode) return context.json({ error: "Not found" }, 404);
+		let userCode: string;
+		try {
+			userCode = normalizeUserCode(rawUserCode);
+		} catch {
+			return context.json({ error: "Not found" }, 404);
+		}
+		const found = store.findDeviceCodeByUserCode(userCode);
+		if (!found) return context.json({ error: "Not found" }, 404);
+		return context.json({
+			userCode: formatUserCode(userCode),
+			clientName: found.clientName,
+			deviceName: found.deviceName,
+			expiresAt: found.expiresAt,
+			status: found.status,
+		});
+	});
+
+	app.post(`${DEVICE_PATH}/authorization`, async (context) => {
+		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
+		const session = await requireUserSession(
+			auth,
+			store,
+			context.req.raw,
+			allowedEmails,
+		);
+		if (!session.user.email)
+			return context.json({ error: "Account has no email address" }, 403);
+		const body = (await context.req.json().catch(() => null)) as {
+			userCode?: unknown;
+			action?: unknown;
+		} | null;
+		if (
+			!body ||
+			typeof body.userCode !== "string" ||
+			(body.action !== "approve" && body.action !== "deny")
+		)
+			throw new DeviceFlowError(400, {
+				error: "invalid_request",
+				error_description: "userCode and a valid action are required",
+			});
+		let userCode: string;
+		try {
+			userCode = normalizeUserCode(body.userCode);
+		} catch {
+			throw new DeviceFlowError(400, {
+				error: "invalid_request",
+				error_description: "userCode is invalid",
+			});
+		}
+		const decided = store.decideDeviceCode(
+			userCode,
+			session.user.id,
+			session.user.email,
+			body.action,
+		);
+		if (!decided) return context.json({ error: "Not found" }, 404);
+		return context.body(null, 204);
+	});
+
 	app.post(AGENT_TOKENS_PATH, async (context) => {
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
 		const session = await requireUserSession(
@@ -372,6 +556,11 @@ export function createSyncApp(
 			return context.json({ error: error.message }, error.status);
 		if (error instanceof WorkspaceMembershipError)
 			return context.json({ error: error.message }, 403);
+		if (error instanceof DeviceFlowError) {
+			if (error.body.error === "slow_down" && error.body.interval !== undefined)
+				context.header("retry-after", String(error.body.interval));
+			return context.json(error.body, error.status as 400 | 429);
+		}
 		if (error instanceof AgentTokenError)
 			return context.json({ error: error.message }, 400);
 		if (

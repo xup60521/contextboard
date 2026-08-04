@@ -41,7 +41,7 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 	}
 
 	/**
-	 * Listens for another local writer — today the agent bridge — changing this
+	 * Listens for another local writer changing this
 	 * workspace's SQLite. That is this device changing its own store, exactly
 	 * like a write from the renderer, so it fires the local listeners too and
 	 * the change is pushed rather than waiting for the next sync poll. A native

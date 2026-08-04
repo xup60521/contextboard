@@ -25,6 +25,7 @@ const ENTITY_TYPES: &[&str] = &[
     "conflict",
     "todo",
 ];
+const MERGE_BATCH_SIZE: usize = 200;
 
 #[derive(Debug)]
 pub enum StorageError {
@@ -137,9 +138,9 @@ impl Storage {
         let legacy = !input.contains_key("writes");
         let writes: Vec<(String, String, String, Option<Value>, Option<i64>)> =
             if let Some(values) = input.get("writes") {
-                let values = values.as_array().ok_or_else(|| {
-                    StorageError::Invalid("writes must be an array".into())
-                })?;
+                let values = values
+                    .as_array()
+                    .ok_or_else(|| StorageError::Invalid("writes must be an array".into()))?;
                 if values.is_empty() {
                     return Err(StorageError::Invalid(
                         "writes must contain at least 1 entry".into(),
@@ -158,19 +159,19 @@ impl Storage {
                         if !ENTITY_TYPES.contains(&entity) {
                             return Err(StorageError::Invalid("Invalid entity type".into()));
                         }
-                        let action = object
-                            .get("operation")
-                            .and_then(Value::as_str)
-                            .ok_or_else(|| StorageError::Invalid("Invalid write operation".into()))?;
+                        let action =
+                            object
+                                .get("operation")
+                                .and_then(Value::as_str)
+                                .ok_or_else(|| {
+                                    StorageError::Invalid("Invalid write operation".into())
+                                })?;
                         if action != "upsert" && action != "delete" {
                             return Err(StorageError::Invalid("Invalid write operation".into()));
                         }
-                        let id = object
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .ok_or_else(|| {
-                                StorageError::Invalid("A valid entity ID is required".into())
-                            })?;
+                        let id = object.get("id").and_then(Value::as_str).ok_or_else(|| {
+                            StorageError::Invalid("A valid entity ID is required".into())
+                        })?;
                         validate_id(id, "entityId")?;
                         let value = object.get("value").cloned();
                         if action == "upsert" && value.is_none() {
@@ -181,13 +182,16 @@ impl Storage {
                                 "Deletes cannot include a value".into(),
                             ));
                         }
-                        let expected = object.get("expectedRevision").map(|revision| {
-                            revision.as_i64().ok_or_else(|| {
-                                StorageError::Invalid(
-                                    "expectedRevision must be an integer".into(),
-                                )
+                        let expected = object
+                            .get("expectedRevision")
+                            .map(|revision| {
+                                revision.as_i64().ok_or_else(|| {
+                                    StorageError::Invalid(
+                                        "expectedRevision must be an integer".into(),
+                                    )
+                                })
                             })
-                        }).transpose()?;
+                            .transpose()?;
                         Ok((
                             entity.to_owned(),
                             action.to_owned(),
@@ -208,18 +212,10 @@ impl Storage {
                     .get("id")
                     .or_else(|| input.get("id"))
                     .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        StorageError::Invalid("A valid entity ID is required".into())
-                    })?
+                    .ok_or_else(|| StorageError::Invalid("A valid entity ID is required".into()))?
                     .to_owned();
                 validate_id(&id, "entityId")?;
-                vec![(
-                    entity.to_owned(),
-                    action.to_owned(),
-                    id,
-                    Some(value),
-                    None,
-                )]
+                vec![(entity.to_owned(), action.to_owned(), id, Some(value), None)]
             };
         let mut unique = std::collections::HashSet::new();
         for (entity, _, id, _, _) in &writes {
@@ -303,7 +299,10 @@ impl Storage {
         Ok(if legacy && operation_name.ends_with(".create") {
             json!(writes[0].2)
         } else if legacy {
-            materialized_values.into_iter().next().unwrap_or(Value::Null)
+            materialized_values
+                .into_iter()
+                .next()
+                .unwrap_or(Value::Null)
         } else {
             Value::Array(materialized_values)
         })
@@ -589,6 +588,187 @@ impl Storage {
         )?)
     }
 
+    /// Lists workspace ids that have local entities or pending writes. Empty
+    /// workspace rows are intentionally omitted because they are not useful
+    /// merge sources in the settings UI.
+    pub fn list_local_workspaces(&self) -> Result<Vec<String>, StorageError> {
+        let connection = self.connection.lock().expect("storage mutex poisoned");
+        let mut statement = connection.prepare(
+            "SELECT id FROM workspaces
+             WHERE EXISTS(SELECT 1 FROM entities WHERE workspace_id=workspaces.id AND deleted=0)
+                OR EXISTS(SELECT 1 FROM pending_batches WHERE workspace_id=workspaces.id)
+             ORDER BY id",
+        )?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Replays the visible entities from one local workspace into another as
+    /// fresh local writes. The source is left untouched so an interrupted or
+    /// rejected push can be retried safely.
+    pub fn merge_workspace(&self, from: &str, to: &str) -> Result<Value, StorageError> {
+        validate_id(from, "workspaceId")?;
+        validate_id(to, "workspaceId")?;
+        if from == to {
+            return Err(StorageError::Invalid(
+                "Source and target workspaces must differ".into(),
+            ));
+        }
+
+        let mut connection = self.connection.lock().expect("storage mutex poisoned");
+        let transaction = connection.transaction()?;
+        ensure_workspace(&transaction, to)?;
+
+        let source_rows: Vec<(String, String, String)> = {
+            let mut statement = transaction.prepare(
+                "SELECT entity_type,entity_id,value_json
+                 FROM entities
+                 WHERE workspace_id=?1 AND deleted=0
+                 ORDER BY entity_type,entity_id",
+            )?;
+            let rows =
+                statement.query_map([from], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+
+        let mut entity_count = 0usize;
+        let mut batch_count = 0usize;
+        for chunk in source_rows.chunks(MERGE_BATCH_SIZE) {
+            let clock = tick_hlc(&transaction, to)?;
+            let now = now_ms();
+            let mut changes = Vec::with_capacity(chunk.len());
+
+            for (entity_type, entity_id, value_json) in chunk.iter() {
+                let existing_revision: Option<i64> = transaction
+                    .query_row(
+                        "SELECT revision FROM entities
+                         WHERE workspace_id=?1 AND entity_type=?2 AND entity_id=?3",
+                        params![to, entity_type, entity_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                let revision = existing_revision.map_or(1, |value| value + 1);
+                let mut materialized: Value = serde_json::from_str(value_json)?;
+                if let Some(object) = materialized.as_object_mut() {
+                    object.insert("id".into(), json!(entity_id));
+                    object.insert("revision".into(), json!(revision));
+                    object.insert("updatedAt".into(), json!(now));
+                    object.insert("deletedAt".into(), Value::Null);
+                }
+
+                transaction.execute(
+                    "INSERT INTO entities(workspace_id,entity_type,entity_id,value_json,revision,clock,deleted)
+                     VALUES(?1,?2,?3,?4,?5,?6,0)
+                     ON CONFLICT(workspace_id,entity_type,entity_id) DO UPDATE SET
+                     value_json=excluded.value_json, revision=excluded.revision, clock=excluded.clock, deleted=excluded.deleted",
+                    params![
+                        to,
+                        entity_type,
+                        entity_id,
+                        serde_json::to_string(&materialized)?,
+                        revision,
+                        &clock,
+                    ],
+                )?;
+                changes.push(json!({
+                    "entityType": entity_type,
+                    "entityId": entity_id,
+                    "baseRevision": existing_revision,
+                    "revision": revision,
+                    "operation": "upsert",
+                    "clock": clock,
+                    "value": materialized
+                }));
+            }
+
+            let sequence = next_sequence(&transaction, to)?;
+            let change_id = Uuid::new_v4().to_string();
+            let batch = json!({
+                "protocolVersion": 1,
+                "schemaVersion": 2,
+                "changeId": change_id,
+                "workspaceId": to,
+                "deviceId": device_id(&transaction, to)?,
+                "deviceSequence": sequence,
+                "clock": clock,
+                "command": "workspace.merge",
+                "createdAt": now,
+                "changes": changes
+            });
+            transaction.execute(
+                "INSERT INTO pending_batches(workspace_id,change_id,created_at,batch_json,valid)
+                 VALUES(?1,?2,?3,?4,1)",
+                params![to, change_id, now, serde_json::to_string(&batch)?],
+            )?;
+            transaction.execute(
+                "INSERT INTO applied_batches(workspace_id,change_id) VALUES(?1,?2)",
+                params![to, change_id],
+            )?;
+            entity_count += chunk.len();
+            batch_count += 1;
+        }
+
+        transaction.execute(
+            "INSERT OR IGNORE INTO workspace_blobs(workspace_id,hash)
+             SELECT ?1,hash FROM workspace_blobs WHERE workspace_id=?2",
+            params![to, from],
+        )?;
+        transaction.commit()?;
+
+        Ok(json!({
+            "entities": entity_count,
+            "batches": batch_count
+        }))
+    }
+
+    /// Permanently removes a non-active workspace from this device. Foreign
+    /// keys cascade the workspace-scoped rows; content-addressed blobs are
+    /// removed only when no other local workspace still references them.
+    pub fn delete_workspace(&self, workspace: &str) -> Result<(), StorageError> {
+        validate_id(workspace, "workspaceId")?;
+        let mut connection = self.connection.lock().expect("storage mutex poisoned");
+        let active: Option<String> = connection
+            .query_row(
+                "SELECT value FROM settings WHERE key='workspaceId'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if active.as_deref() == Some(workspace) {
+            return Err(StorageError::Invalid(
+                "The active workspace cannot be deleted".into(),
+            ));
+        }
+
+        let transaction = connection.transaction()?;
+        transaction.execute("DELETE FROM workspaces WHERE id=?1", [workspace])?;
+        let orphaned_hashes: Vec<String> = {
+            let mut statement = transaction.prepare(
+                "SELECT hash FROM blobs
+                 WHERE NOT EXISTS(SELECT 1 FROM workspace_blobs WHERE hash=blobs.hash)",
+            )?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        for hash in &orphaned_hashes {
+            transaction.execute("DELETE FROM blobs WHERE hash=?1", [hash])?;
+        }
+        transaction.commit()?;
+
+        // The database is authoritative. If a file cannot be removed now,
+        // it is an orphan and the existing startup recovery pass will remove
+        // it on the next open without affecting any remaining workspace.
+        for hash in orphaned_hashes {
+            let path = self.blob_path(&hash);
+            if let Err(error) = fs::remove_file(path) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    continue;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Renames a workspace in place, keeping its device identity, HLC and blob
     /// ownership. Foreign keys are deferred so the parent row can move before
     /// its children.
@@ -613,7 +793,7 @@ impl Storage {
         }
         ensure_workspace(&transaction, from)?;
         transaction.execute("UPDATE workspaces SET id=?2 WHERE id=?1", params![from, to])?;
-		for table in [
+        for table in [
             "entities",
             "pending_batches",
             "applied_batches",
@@ -623,17 +803,18 @@ impl Storage {
             transaction.execute(
                 &format!("UPDATE {table} SET workspace_id=?2 WHERE workspace_id=?1"),
                 params![from, to],
-			)?;
-		}
-		// Rebinding changes the server workspace's cursor namespace. Replaying
-		// from the beginning is required because target history may contain
-		// changes whose global cursors predate this device's old cursor.
-		transaction.execute("DELETE FROM sync_peers WHERE workspace_id=?1", [to])?;
-		// Pending batches carry the workspace id in their serialized payload, so
+            )?;
+        }
+        // Rebinding changes the server workspace's cursor namespace. Replaying
+        // from the beginning is required because target history may contain
+        // changes whose global cursors predate this device's old cursor.
+        transaction.execute("DELETE FROM sync_peers WHERE workspace_id=?1", [to])?;
+        // Pending batches carry the workspace id in their serialized payload, so
         // they would fail validation on push if they kept pointing at the old id.
         let stale: Vec<(String, String)> = {
-            let mut statement = transaction
-                .prepare("SELECT change_id,batch_json FROM pending_batches WHERE workspace_id=?1")?;
+            let mut statement = transaction.prepare(
+                "SELECT change_id,batch_json FROM pending_batches WHERE workspace_id=?1",
+            )?;
             let rows = statement
                 .query_map([to], |row| Ok((row.get(0)?, row.get(1)?)))?
                 .collect::<Result<Vec<(String, String)>, _>>()?;
@@ -1115,13 +1296,15 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(
             connection
-                .query_row("SELECT count(*) FROM entities", [], |row| row.get::<_, i64>(0))
+                .query_row("SELECT count(*) FROM entities", [], |row| row
+                    .get::<_, i64>(0))
                 .unwrap(),
             0
         );
         assert_eq!(
             connection
-                .query_row("SELECT count(*) FROM pending_batches", [], |row| row.get::<_, i64>(0))
+                .query_row("SELECT count(*) FROM pending_batches", [], |row| row
+                    .get::<_, i64>(0))
                 .unwrap(),
             0
         );
@@ -1304,16 +1487,24 @@ mod tests {
 
         assert_eq!(
             store
-                .query("cloud", &json!({"type":"cards.get","input":{"id":"card-1"}}))
+                .query(
+                    "cloud",
+                    &json!({"type":"cards.get","input":{"id":"card-1"}})
+                )
                 .unwrap()["title"],
             "Saved"
         );
         assert_eq!(
-            store.query("local", &json!({"type":"cards.list","input":{}})).unwrap(),
+            store
+                .query("local", &json!({"type":"cards.list","input":{}}))
+                .unwrap(),
             json!([])
         );
         assert!(store.read_blob("cloud", &hash).unwrap().is_some());
-        assert_eq!(store.sync_state("cloud", "cloud").unwrap()["cursor"], Value::Null);
+        assert_eq!(
+            store.sync_state("cloud", "cloud").unwrap()["cursor"],
+            Value::Null
+        );
         let pending = store.pending("cloud", 10).unwrap();
         assert_eq!(pending.as_array().unwrap().len(), 1);
         assert_eq!(pending[0]["workspaceId"], "cloud");
@@ -1330,6 +1521,224 @@ mod tests {
             .unwrap();
         assert!(store.adopt_workspace("other", "cloud").is_err());
         assert!(store.adopt_workspace("cloud", "cloud").is_ok());
+    }
+
+    #[test]
+    fn merge_replays_entities_and_blobs_without_removing_source() {
+        let (_dir, store) = storage();
+        store
+            .execute(
+                "local",
+                &json!({"type":"cards.put","input":{"writes":[
+                    {"entity":"card","operation":"upsert","id":"card-1","value":{"title":"Local wins"}},
+                    {"entity":"card","operation":"upsert","id":"card-local","value":{"title":"Only local"}}
+                ]}}),
+            )
+            .unwrap();
+        store
+            .execute(
+                "cloud",
+                &json!({"type":"cards.put","input":{"writes":[
+                    {"entity":"card","operation":"upsert","id":"card-1","value":{"title":"Cloud copy"}},
+                    {"entity":"card","operation":"upsert","id":"card-cloud","value":{"title":"Only cloud"}}
+                ]}}),
+            )
+            .unwrap();
+        let bytes = b"merge me";
+        let hash = hex::encode(Sha256::digest(bytes));
+        store
+            .store_blob(
+                "local",
+                &BlobDescriptor {
+                    hash: hash.clone(),
+                    content_type: "text/plain".into(),
+                    size: bytes.len() as u64,
+                },
+                bytes,
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.list_local_workspaces().unwrap(),
+            vec!["cloud".to_owned(), "local".to_owned()]
+        );
+        assert_eq!(
+            store.merge_workspace("local", "cloud").unwrap(),
+            json!({"entities":2,"batches":1})
+        );
+        assert_eq!(
+            store
+                .query(
+                    "local",
+                    &json!({"type":"cards.get","input":{"id":"card-1"}})
+                )
+                .unwrap()["title"],
+            "Local wins"
+        );
+        assert_eq!(
+            store
+                .query(
+                    "cloud",
+                    &json!({"type":"cards.get","input":{"id":"card-1"}})
+                )
+                .unwrap()["title"],
+            "Local wins"
+        );
+        assert_eq!(
+            store
+                .query("cloud", &json!({"type":"cards.list","input":{}}))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert!(store.read_blob("cloud", &hash).unwrap().is_some());
+
+        let pending = store.pending("cloud", 10).unwrap();
+        for batch in pending.as_array().unwrap() {
+            assert_eq!(batch["workspaceId"], "cloud");
+            assert!(validate_batch(batch, "cloud").is_ok());
+        }
+
+        // Replaying the same source is safe: the source remains intact and the
+        // target still has one materialized row per entity.
+        assert_eq!(
+            store.merge_workspace("local", "cloud").unwrap(),
+            json!({"entities":2,"batches":1})
+        );
+        assert_eq!(
+            store
+                .query("cloud", &json!({"type":"cards.list","input":{}}))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert!(store.has_data("local").unwrap());
+    }
+
+    #[test]
+    fn delete_workspace_cascades_rows_and_only_removes_unshared_blobs() {
+        let (dir, store) = storage();
+        store
+            .execute(
+                "source",
+                &json!({"type":"cards.put","input":{"writes":[
+                    {"entity":"card","operation":"upsert","id":"source-card","value":{"title":"Discard me"}}
+                ]}}),
+            )
+            .unwrap();
+        store
+            .apply_remote(
+                "source",
+                &json!([{
+                    "protocolVersion": 1,
+                    "schemaVersion": 2,
+                    "changeId": "remote-source-change",
+                    "workspaceId": "source",
+                    "deviceId": "peer-device",
+                    "deviceSequence": 1,
+                    "clock": "0000000000001:000000:peer-device",
+                    "command": "cards.create",
+                    "createdAt": 1,
+                    "changes": [{
+                        "entityType": "card",
+                        "entityId": "remote-source-card",
+                        "baseRevision": null,
+                        "revision": 1,
+                        "operation": "upsert",
+                        "clock": "0000000000001:000000:peer-device",
+                        "value": {"id": "remote-source-card", "title": "Remote"}
+                    }]
+                }]),
+                "peer",
+                "12",
+            )
+            .unwrap();
+
+        let shared_bytes = b"shared";
+        let shared_hash = hex::encode(Sha256::digest(shared_bytes));
+        let shared_descriptor = BlobDescriptor {
+            hash: shared_hash.clone(),
+            content_type: "text/plain".into(),
+            size: shared_bytes.len() as u64,
+        };
+        store
+            .store_blob("source", &shared_descriptor, shared_bytes)
+            .unwrap();
+        store
+            .store_blob("target", &shared_descriptor, shared_bytes)
+            .unwrap();
+
+        let unique_bytes = b"source only";
+        let unique_hash = hex::encode(Sha256::digest(unique_bytes));
+        let unique_descriptor = BlobDescriptor {
+            hash: unique_hash.clone(),
+            content_type: "text/plain".into(),
+            size: unique_bytes.len() as u64,
+        };
+        store
+            .store_blob("source", &unique_descriptor, unique_bytes)
+            .unwrap();
+        let unique_path = dir.path().join("blobs").join(&unique_hash);
+        assert!(unique_path.exists());
+
+        store.set_setting("workspaceId", "target").unwrap();
+        assert!(store.delete_workspace("target").is_err());
+
+        store.delete_workspace("source").unwrap();
+        // A second cleanup attempt is safe for callers retrying an already
+        // completed destructive action.
+        store.delete_workspace("source").unwrap();
+
+        let connection = store.connection.lock().unwrap();
+        for table in [
+            "entities",
+            "pending_batches",
+            "applied_batches",
+            "sync_peers",
+            "workspace_blobs",
+        ] {
+            let count: i64 = connection
+                .query_row(
+                    &format!("SELECT count(*) FROM {table} WHERE workspace_id='source'"),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0, "{table} should cascade for the deleted workspace");
+        }
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM blobs WHERE hash=?1",
+                    [&unique_hash],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM blobs WHERE hash=?1",
+                    [&shared_hash],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
+        drop(connection);
+
+        assert!(!unique_path.exists());
+        assert!(dir.path().join("blobs").join(&shared_hash).exists());
+        assert!(store.read_blob("target", &shared_hash).unwrap().is_some());
+        assert!(!store
+            .list_local_workspaces()
+            .unwrap()
+            .contains(&"source".into()));
     }
 
     #[test]

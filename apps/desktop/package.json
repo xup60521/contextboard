@@ -15,10 +15,12 @@
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
+    "@contextboard/agent-tools": "workspace:*",
     "@contextboard/application": "workspace:*",
     "@contextboard/storage-desktop": "workspace:*",
     "@contextboard/auth-client": "workspace:*",
     "@contextboard/client-core": "workspace:*",
+    "@contextboard/sync-protocol": "workspace:*",
     "@contextboard/ui": "workspace:*",
     "@contextboard/web-ui": "workspace:*",
     "lucide-react": "^0.577.0",

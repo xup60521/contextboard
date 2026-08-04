@@ -1,7 +1,7 @@
 /**
  * Content-derived height estimate for a card that no client has rendered yet.
  *
- * An agent creating a card through the MCP gateway has no DOM, so it cannot
+ * An agent creating a card through the local agent server has no DOM, so it cannot
  * measure anything: without this the card lands at a flat `DEFAULT_CARD_HEIGHT`
  * that has nothing to do with its content, and nothing corrects it until a
  * human opens the card for editing.

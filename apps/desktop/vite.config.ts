@@ -13,6 +13,12 @@ export default defineConfig({
 		},
 	},
 	plugins: [tailwindcss(), react()],
+	// @tldraw/assets exposes many `?url` imports. Rolldown's dependency
+	// optimizer currently parses those as Windows filenames; leave this
+	// package in Vite's normal asset pipeline instead.
+	optimizeDeps: {
+		exclude: ["@tldraw/assets"],
+	},
 	clearScreen: false,
 	server: {
 		port: 1420,

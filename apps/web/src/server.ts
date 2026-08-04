@@ -74,10 +74,11 @@ function forwardedHeaders(request: Request) {
 	return headers;
 }
 
-async function rateLimitKey(request: Request) {
+
+async function rateLimitKey(request: Request, forceAnonymous = false) {
 	const credential =
 		request.headers.get("authorization") ?? request.headers.get("cookie");
-	if (credential) {
+	if (credential && !forceAnonymous) {
 		const digest = await crypto.subtle.digest(
 			"SHA-256",
 			new TextEncoder().encode(credential),
@@ -94,9 +95,18 @@ async function isRateLimited(
 	env: WorkerEnv,
 	isBlob: boolean,
 ) {
-	const limiter = isBlob ? env.BLOB_RATE_LIMIT : env.SYNC_RATE_LIMIT;
+	const isDevice = new URL(request.url).pathname.startsWith(
+		"/api/sync/v1/device",
+	);
+	const limiter = isBlob
+		? env.BLOB_RATE_LIMIT
+		: isDevice
+			? env.DEVICE_RATE_LIMIT
+			: env.SYNC_RATE_LIMIT;
 	if (!limiter) return false;
-	const result = await limiter.limit({ key: await rateLimitKey(request) });
+	const result = await limiter.limit({
+		key: await rateLimitKey(request, isDevice),
+	});
 	return !result.success;
 }
 

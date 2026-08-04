@@ -36,6 +36,7 @@ import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
 import { useWhiteboardData } from "./hooks/useWhiteboardData";
 import type { Id } from "./ids";
 import { useWhiteboardNavigation } from "./navigation";
+import { tldrawAssetUrls } from "./tldraw-assets";
 import {
 	singlePageTldrawComponents,
 	singlePageTldrawOptions,
@@ -441,6 +442,7 @@ export function WhiteboardCanvas({
 							<WhiteboardCardContext.Provider value={whiteboardId}>
 								<Tldraw
 									assets={assetStore}
+									assetUrls={tldrawAssetUrls}
 									components={whiteboardComponents}
 									onMount={(mountedEditor) => {
 										emptyDrawingSnapshotRef.current =

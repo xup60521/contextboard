@@ -35,5 +35,11 @@ export type DesktopRuntimeState =
 			bootstrap: DesktopBootstrap;
 			/** Rebinds this device to a server-issued workspace id. */
 			adoptWorkspaceId: (workspaceId: string) => Promise<void>;
-	  }
+			/** Switches the renderer to an existing local or account workspace. */
+			setWorkspaceId: (workspaceId: string) => Promise<void>;
+			/** Replays a local workspace into the active workspace. */
+			mergeWorkspace: (workspaceId: string) => Promise<void>;
+			/** Permanently removes a non-active local workspace from this device. */
+			deleteWorkspace: (workspaceId: string) => Promise<void>;
+		}
 	| { status: "error"; error: Error };

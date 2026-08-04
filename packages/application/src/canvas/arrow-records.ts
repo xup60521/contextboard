@@ -4,7 +4,7 @@
  * Arrows are the source of truth for card relations, and `cardRelation` rows are
  * the derived index over them. Drawing an arrow normally happens inside a live
  * `Editor`, but the canvas is stored per record (entity `canvasRecord`), so a
- * headless caller — the MCP agent gateway — can write the same records directly.
+ * headless caller — the local agent server — can write the same records directly.
  *
  * The payloads here have to satisfy tldraw's own schema: a malformed record is
  * accepted by the repository and only explodes later, when someone opens the

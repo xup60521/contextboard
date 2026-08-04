@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DesktopRuntimeProvider } from "./DesktopRuntimeProvider";
 import { DesktopSyncProvider, useDesktopSync } from "./DesktopSyncProvider";
@@ -13,12 +13,14 @@ type StubOptions = {
 	remoteWorkspaces?: string[];
 	hasData?: boolean;
 	pendingBatches?: unknown[];
+	failMerge?: boolean;
 };
 
 function createStub(options: StubOptions = {}) {
 	const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
 	let workspaceId = "contextboard-desktop";
 	let pending = options.pendingBatches ?? [];
+	let failPull = false;
 
 	const invoke: Invoke = async (command, args = {}) => {
 		calls.push({ command, args });
@@ -64,6 +66,11 @@ function createStub(options: StubOptions = {}) {
 				return "device-1";
 			case "workspace_adopt":
 				return null;
+			case "workspace_merge":
+				if (options.failMerge) throw new Error("merge failed");
+				return null;
+			case "workspace_delete":
+				return null;
 			default:
 				throw { code: "INVALID_ARGUMENT", message: `Unknown ${command}` };
 		}
@@ -101,18 +108,39 @@ function createStub(options: StubOptions = {}) {
 				});
 			if (url.endsWith("/api/sync/v1/workspaces/claim"))
 				return json({ workspaceId: "contextboard-desktop", claimed: true });
+			if (url.endsWith("/api/sync/v1/workspaces/select"))
+				return json({
+					workspaceId: "workspace-from-web",
+					role: "owner",
+					createdAt: 1,
+					isDefault: true,
+				});
 			if (url.endsWith("/api/sync/v1/push"))
 				return json({
 					acknowledgedChangeIds: ["change-1"],
 					missingBlobHashes: [],
 				});
 			if (url.endsWith("/api/sync/v1/pull"))
+				if (failPull)
+					return new Response(JSON.stringify({ error: "pull failed" }), {
+						status: 500,
+						headers: { "content-type": "application/json" },
+					});
+			if (url.endsWith("/api/sync/v1/pull"))
 				return json({ batches: [], cursor: "7", hasMore: false });
 			throw new Error(`Unexpected request ${url}`);
 		},
 	);
 
-	return { invoke, calls, requests, fetchStub };
+	return {
+		invoke,
+		calls,
+		requests,
+		fetchStub,
+		setFailPull: (value: boolean) => {
+			failPull = value;
+		},
+	};
 }
 
 function SyncProbe() {
@@ -121,6 +149,31 @@ function SyncProbe() {
 		<div>
 			<span data-testid="state">{sync.state}</span>
 			<span data-testid="account">{sync.account?.email ?? "none"}</span>
+			<button
+				type="button"
+				data-testid="switch-workspace"
+				onClick={() => void sync.switchWorkspace("workspace-from-web")}
+			>
+				Switch workspace
+			</button>
+			<button
+				type="button"
+				data-testid="merge-workspace"
+				onClick={() =>
+					void sync.mergeIntoActiveWorkspace("stranded-local").catch(() => undefined)
+				}
+			>
+				Merge workspace
+			</button>
+			<button
+				type="button"
+				data-testid="delete-workspace"
+				onClick={() =>
+					void sync.deleteLocalWorkspace("stranded-local").catch(() => undefined)
+				}
+			>
+				Delete workspace
+			</button>
 		</div>
 	);
 }
@@ -193,6 +246,156 @@ describe("Desktop sync driver", () => {
 		expect(
 			stub.calls.some((call) => call.command === "workspace_acknowledge"),
 		).toBe(true);
+	});
+
+	test("switches the active workspace without adopting or renaming local data", async () => {
+		const stub = createStub({
+			storedToken: "session-token",
+			remoteWorkspaces: ["contextboard-desktop", "workspace-from-web"],
+			hasData: true,
+		});
+		vi.stubGlobal("fetch", stub.fetchStub);
+		mount(stub.invoke);
+
+		await waitFor(() =>
+			expect(
+				stub.calls.some(
+					(call) =>
+						call.command === "workspace_sync_state" &&
+						call.args?.workspaceId === "contextboard-desktop",
+				),
+			).toBe(true),
+		);
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("switch-workspace"));
+		});
+
+		await waitFor(() =>
+			expect(
+				stub.calls.some(
+					(call) =>
+						call.command === "workspace_sync_state" &&
+						call.args?.workspaceId === "workspace-from-web",
+				),
+			).toBe(true),
+		);
+		expect(
+			stub.calls.some(
+				(call) =>
+					call.command === "desktop_set_setting" &&
+					call.args?.value === "workspace-from-web",
+			),
+		).toBe(true);
+		expect(stub.calls.some((call) => call.command === "workspace_adopt")).toBe(
+			false,
+		);
+		expect(
+			stub.requests.some((request) =>
+				request.url.endsWith("/api/sync/v1/workspaces/select"),
+			),
+		).toBe(true);
+	});
+
+	test("merges, syncs, and then deletes the local source", async () => {
+		const stub = createStub({
+			storedToken: "session-token",
+			remoteWorkspaces: ["contextboard-desktop"],
+			hasData: true,
+		});
+		vi.stubGlobal("fetch", stub.fetchStub);
+		mount(stub.invoke);
+
+		await waitFor(() =>
+			expect(screen.getByTestId("state").textContent).toBe("idle"),
+		);
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("merge-workspace"));
+		});
+
+		await waitFor(() =>
+			expect(
+				stub.calls.some((call) => call.command === "workspace_delete"),
+			).toBe(true),
+		);
+		const mergeIndex = stub.calls.findIndex(
+			(call) => call.command === "workspace_merge",
+		);
+		const deleteIndex = stub.calls.findIndex(
+			(call) => call.command === "workspace_delete",
+		);
+		expect(mergeIndex).toBeGreaterThanOrEqual(0);
+		expect(deleteIndex).toBeGreaterThan(mergeIndex);
+	});
+
+	test("keeps the source when merge fails before sync", async () => {
+		const stub = createStub({
+			storedToken: "session-token",
+			remoteWorkspaces: ["contextboard-desktop"],
+			hasData: true,
+			failMerge: true,
+		});
+		vi.stubGlobal("fetch", stub.fetchStub);
+		mount(stub.invoke);
+
+		await waitFor(() =>
+			expect(screen.getByTestId("state").textContent).toBe("idle"),
+		);
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("merge-workspace"));
+		});
+		await waitFor(() =>
+			expect(
+				stub.calls.some((call) => call.command === "workspace_merge"),
+			).toBe(true),
+		);
+		expect(stub.calls.some((call) => call.command === "workspace_delete")).toBe(
+			false,
+		);
+	});
+
+	test("keeps the source when sync fails after merge", async () => {
+		const stub = createStub({
+			storedToken: "session-token",
+			remoteWorkspaces: ["contextboard-desktop"],
+			hasData: true,
+		});
+		vi.stubGlobal("fetch", stub.fetchStub);
+		mount(stub.invoke);
+
+		await waitFor(() =>
+			expect(screen.getByTestId("state").textContent).toBe("idle"),
+		);
+		stub.setFailPull(true);
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("merge-workspace"));
+		});
+		await waitFor(() =>
+			expect(
+				stub.calls.filter((call) => call.command === "workspace_merge"),
+			).toHaveLength(1),
+		);
+		expect(stub.calls.some((call) => call.command === "workspace_delete")).toBe(
+			false,
+		);
+	});
+
+	test("deletes a local workspace without contacting the server", async () => {
+		const stub = createStub({ storedToken: null });
+		vi.stubGlobal("fetch", stub.fetchStub);
+		mount(stub.invoke);
+
+		await waitFor(() =>
+			expect(screen.getByTestId("state").textContent).toBe("local-only"),
+		);
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("delete-workspace"));
+		});
+		await waitFor(() =>
+			expect(
+				stub.calls.some((call) => call.command === "workspace_delete"),
+			).toBe(true),
+		);
+		expect(stub.fetchStub).not.toHaveBeenCalled();
 	});
 
 	test("adopts the account workspace when this device holds no data", async () => {

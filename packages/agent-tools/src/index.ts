@@ -22,7 +22,7 @@ import type {
  * planners that keep references, placements and tombstones consistent are the
  * same ones the desktop and web UIs use. Nothing here reimplements domain
  * logic, and nothing here validates beyond what the data model genuinely
- * requires — guidance for the agent belongs in the descriptions below, not in
+ * requires ??guidance for the agent belongs in the descriptions below, not in
  * rules that would box the user in.
  */
 export type ToolServices = {
@@ -39,7 +39,7 @@ export type ToolDefinition = {
 	handler: (input: Record<string, unknown>) => Promise<unknown>;
 };
 
-const REFERENCE_GUIDANCE = `Card text is markdown: headings, bullet and numbered lists, blockquotes, fenced code, pipe tables and $…$ math all round trip. To cite another card, write [label](contextboard:card/<cardId>) inline, in the sentence that makes the claim; this creates a real reference and a backlink on the target card, and travels with the card to every whiteboard it appears on. Prefer citing sources this way over listing them at the end.`;
+export const REFERENCE_GUIDANCE = `Card text is markdown: headings, bullet and numbered lists, blockquotes, fenced code, pipe tables and $?? math all round trip. To cite another card, write [label](contextboard:card/<cardId>) inline, in the sentence that makes the claim; this creates a real reference and a backlink on the target card, and travels with the card to every whiteboard it appears on. Prefer citing sources this way over listing them at the end.`;
 
 function object(
 	properties: Record<string, unknown>,
@@ -82,7 +82,7 @@ function optionalNumber(
 		: undefined;
 }
 
-const PLACEMENT_GUIDANCE = `Leave x and y out and the card is placed automatically in free space beside the board's existing cards, which is usually what you want. Pass them only when the layout carries meaning — read the current layout with list_board_items first. Note that x: 0, y: 0 is a literal position, not "auto". Cards default to 576 wide, and their height is estimated from the content unless you pass h — leave h out unless you specifically need a fixed size.`;
+export const PLACEMENT_GUIDANCE = `Leave x and y out and the card is placed automatically in free space beside the board's existing cards, which is usually what you want. Pass them only when the layout carries meaning ??read the current layout with list_board_items first. Note that x: 0, y: 0 is a literal position, not "auto". Cards default to 576 wide, and their height is estimated from the content unless you pass h ??leave h out unless you specifically need a fixed size.`;
 
 /** The frame arguments shared by the tools that put a card on a board. */
 const frameProperties = {
@@ -311,7 +311,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		{
 			name: "list_board_items",
 			description:
-				"List what is placed on a whiteboard — cards and sub-whiteboard links — with their positions and sizes. Use this to see a board's layout before adding to it.",
+				"List what is placed on a whiteboard ??cards and sub-whiteboard links ??with their positions and sizes. Use this to see a board's layout before adding to it.",
 			inputSchema: object(
 				{
 					whiteboardId: stringOrNull(
@@ -349,7 +349,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		{
 			name: "move_item",
 			description:
-				"Move or resize something already placed on a whiteboard — a card or a sub-whiteboard link. Get itemId and the current layout from list_board_items. Anything you leave out keeps its current value, so passing only x and y moves the item without resizing it. This edits the user's board directly, so keep changes purposeful.",
+				"Move or resize something already placed on a whiteboard ??a card or a sub-whiteboard link. Get itemId and the current layout from list_board_items. Anything you leave out keeps its current value, so passing only x and y moves the item without resizing it. This edits the user's board directly, so keep changes purposeful.",
 			inputSchema: object(
 				{
 					whiteboardId: stringOrNull(
@@ -408,7 +408,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		{
 			name: "list_relations",
 			description:
-				"List the arrow relations on a whiteboard, or every relation touching one card. Relations come from arrows drawn between cards on a board: they are scoped to that board, undirected, and their meaning is whatever the person who drew them intended — do not assume a semantic. This is distinct from a card reference, which lives in a card's text and is global. Both you and the user can draw these arrows; use create_relation to add one.",
+				"List the arrow relations on a whiteboard, or every relation touching one card. Relations come from arrows drawn between cards on a board: they are scoped to that board, undirected, and their meaning is whatever the person who drew them intended ??do not assume a semantic. This is distinct from a card reference, which lives in a card's text and is global. Both you and the user can draw these arrows; use create_relation to add one.",
 			inputSchema: object({
 				whiteboardId: string("Only relations on this whiteboard."),
 				cardId: string("Only relations touching this card."),
@@ -422,7 +422,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		{
 			name: "create_relation",
 			description:
-				"Draw an arrow between two cards on a whiteboard, linking them. Both cards must already be placed on that board — call place_card first if one is missing. The arrow is a real one: the user sees it on the canvas, can drag or delete it, and it is undirected and carries no built-in meaning, so put any explanation in the cards themselves. Relating the same pair twice returns the existing relation instead of drawing a duplicate.",
+				"Draw an arrow between two cards on a whiteboard, linking them. Both cards must already be placed on that board ??call place_card first if one is missing. The arrow is a real one: the user sees it on the canvas, can drag or delete it, and it is undirected and carries no built-in meaning, so put any explanation in the cards themselves. Relating the same pair twice returns the existing relation instead of drawing a duplicate.",
 			inputSchema: object(
 				{
 					whiteboardId: string("The whiteboard both cards are placed on."),

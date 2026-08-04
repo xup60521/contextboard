@@ -9,6 +9,7 @@ import {
 	HttpSyncTransport,
 	SyncCoordinator,
 } from "@contextboard/client-core";
+import type { WorkspaceMembership } from "@contextboard/sync-protocol";
 import {
 	createContext,
 	type ReactNode,
@@ -89,6 +90,10 @@ export type DesktopSyncRuntime = {
 	signOut: () => Promise<void>;
 	syncNow: () => Promise<void>;
 	createWorkspace: () => Promise<void>;
+	workspaces: WorkspaceMembership[];
+	switchWorkspace: (workspaceId: string) => Promise<void>;
+	mergeIntoActiveWorkspace: (workspaceId: string) => Promise<void>;
+	deleteLocalWorkspace: (workspaceId: string) => Promise<void>;
 	workspaceSelectionRequired: boolean;
 };
 
@@ -106,6 +111,12 @@ export function DesktopSyncProvider({
 	const workspaceId = desktop.status === "ready" ? desktop.workspaceId : null;
 	const adoptWorkspaceId =
 		desktop.status === "ready" ? desktop.adoptWorkspaceId : null;
+	const setWorkspaceId =
+		desktop.status === "ready" ? desktop.setWorkspaceId : null;
+	const mergeWorkspace =
+		desktop.status === "ready" ? desktop.mergeWorkspace : null;
+	const deleteWorkspace =
+		desktop.status === "ready" ? desktop.deleteWorkspace : null;
 
 	const [token, setToken] = useState<string | null>(null);
 	const [account, setAccount] = useState<BearerSessionUser | null>(null);
@@ -117,12 +128,13 @@ export function DesktopSyncProvider({
 	const [bootstrapNonce, setBootstrapNonce] = useState(0);
 	const [workspaceSelectionRequired, setWorkspaceSelectionRequired] =
 		useState(false);
+	const [workspaces, setWorkspaces] = useState<WorkspaceMembership[]>([]);
 
 	const tokenRef = useRef<string | null>(null);
 	tokenRef.current = token;
 	const coordinatorRef = useRef<SyncCoordinator | null>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const syncNowRef = useRef<() => Promise<void>>(async () => undefined);
+	const syncNowRef = useRef<() => Promise<boolean>>(async () => false);
 	const refreshPendingRef = useRef<() => Promise<void>>(async () => undefined);
 
 	refreshPendingRef.current = async () => {
@@ -156,31 +168,45 @@ export function DesktopSyncProvider({
 		setState("local-only");
 		setMessage(undefined);
 		setWorkspaceSelectionRequired(false);
+		setWorkspaces([]);
 		await clearDesktopSessionToken(invoke).catch(() => undefined);
 	}, [invoke]);
 
 	syncNowRef.current = async () => {
 		const coordinator = coordinatorRef.current;
-		if (!coordinator || isOffline()) return;
+		if (
+			!coordinator ||
+			coordinator.status.state === "local-only" ||
+			isOffline()
+		)
+			return false;
 		try {
 			await coordinator.syncNow();
+			const stateAfterSync: string = coordinator.status.state;
+			if (
+				coordinatorRef.current !== coordinator ||
+				stateAfterSync === "local-only" ||
+				isOffline()
+			)
+				return false;
 			setMessage(undefined);
 		} catch (error) {
 			if (error instanceof HttpSyncError && error.status === 401) {
 				await forgetSession();
-				return;
+				return false;
 			}
 			if (error instanceof HttpSyncError && error.redirectWorkspaceId) {
 				coordinator.stop();
 				if (coordinatorRef.current === coordinator)
 					coordinatorRef.current = null;
 				if (adoptWorkspaceId) await adoptWorkspaceId(error.redirectWorkspaceId);
-				return;
+				return false;
 			}
 			throw error;
 		} finally {
 			await refreshPendingRef.current();
 		}
+		return true;
 	};
 
 	const syncNow = useCallback(async () => {
@@ -206,6 +232,54 @@ export function DesktopSyncProvider({
 		setWorkspaceSelectionRequired(false);
 		setBootstrapNonce((current) => current + 1);
 	}, [repository, workspaceId]);
+
+	const switchWorkspace = useCallback(
+		async (nextWorkspaceId: string) => {
+			if (!repository || !workspaceId || !setWorkspaceId || !tokenRef.current)
+				throw new Error("Sign in before switching workspaces");
+			const transport = new HttpSyncTransport({
+				baseURL: SYNC_BASE_URL,
+				credentials: "omit",
+				getAuthHeaders: () => ({
+					authorization: `Bearer ${tokenRef.current}`,
+				}),
+			});
+			await transport.selectWorkspace(nextWorkspaceId);
+			await setWorkspaceId(nextWorkspaceId);
+			setState("syncing");
+			setMessage(undefined);
+			setWorkspaceSelectionRequired(false);
+			setBootstrapNonce((current) => current + 1);
+		},
+		[repository, setWorkspaceId, workspaceId],
+	);
+
+	const mergeIntoActiveWorkspace = useCallback(
+		async (sourceWorkspaceId: string) => {
+			if (!workspaceId || !mergeWorkspace || !deleteWorkspace)
+				throw new Error("The desktop workspace is not ready");
+			if (sourceWorkspaceId === workspaceId)
+				throw new Error("The active workspace cannot be merged into itself");
+			await mergeWorkspace(sourceWorkspaceId);
+			if (!(await syncNowRef.current()))
+				throw new Error(
+					"The merged workspace could not be synced. The local source was kept.",
+				);
+			await deleteWorkspace(sourceWorkspaceId);
+		},
+		[deleteWorkspace, mergeWorkspace, workspaceId],
+	);
+
+	const deleteLocalWorkspace = useCallback(
+		async (sourceWorkspaceId: string) => {
+			if (!workspaceId || !deleteWorkspace)
+				throw new Error("The desktop workspace is not ready");
+			if (sourceWorkspaceId === workspaceId)
+				throw new Error("The active workspace cannot be deleted");
+			await deleteWorkspace(sourceWorkspaceId);
+		},
+		[deleteWorkspace, workspaceId],
+	);
 
 	// Local writes schedule a push; remote applies deliberately do not, so the
 	// coordinator cannot re-arm itself in a loop.
@@ -263,6 +337,7 @@ export function DesktopSyncProvider({
 
 			const listing = await transport.listWorkspaces(controller.signal);
 			if (!active) return;
+			setWorkspaces(listing.workspaces);
 			const currentMembership = listing.workspaces.find(
 				(item) => item.workspaceId === workspaceId,
 			);
@@ -435,6 +510,10 @@ export function DesktopSyncProvider({
 			signOut,
 			syncNow,
 			createWorkspace,
+			workspaces,
+			switchWorkspace,
+			mergeIntoActiveWorkspace,
+			deleteLocalWorkspace,
 			workspaceSelectionRequired,
 		}),
 		[
@@ -447,6 +526,10 @@ export function DesktopSyncProvider({
 			state,
 			syncNow,
 			createWorkspace,
+			workspaces,
+			switchWorkspace,
+			mergeIntoActiveWorkspace,
+			deleteLocalWorkspace,
 			workspaceSelectionRequired,
 		],
 	);

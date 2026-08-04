@@ -432,7 +432,7 @@ describe("local operations", () => {
 			shapeId: "shape:second",
 		});
 		// Relations are written through the shared application service, which is
-		// the one path the web app, the desktop bridge and the MCP gateway agree
+		// the one path the web app, the desktop bridge and the local agent server agree
 		// on. This asserts that path reaches Dexie and the sync change log.
 		const relations = createRepositoryCardRelationsService(
 			new IndexedDbWorkspaceRepository(db),

@@ -10,8 +10,7 @@ import {
 	IndexedDbWorkspaceRepository,
 } from "@contextboard/storage-indexeddb";
 import { afterEach, describe, expect, test } from "vitest";
-import { resolveBridgePort } from "./index";
-import { createTools, type ToolDefinition } from "./tools";
+import { createTools, type ToolDefinition } from "./index";
 
 const databases: Array<ReturnType<typeof createContextboardDatabase>> = [];
 const WORKSPACE_ID = "workspace-under-test";
@@ -605,37 +604,5 @@ describe("errors", () => {
 	test("returns null for a card that does not exist", async () => {
 		const { call } = makeTools();
 		expect(await call("get_card", { cardId: "card-missing" })).toBeNull();
-	});
-});
-
-describe("bridge port discovery", () => {
-	test("prefers an explicit environment override", async () => {
-		await expect(
-			resolveBridgePort({ CONTEXTBOARD_BRIDGE_PORT: "9001" }, async () =>
-				JSON.stringify({ port: 1234 }),
-			),
-		).resolves.toBe(9001);
-	});
-
-	test("falls back to the file the desktop app publishes", async () => {
-		await expect(
-			resolveBridgePort({}, async () => JSON.stringify({ port: 1234 })),
-		).resolves.toBe(1234);
-	});
-
-	test("uses the default when there is no file to read", async () => {
-		await expect(
-			resolveBridgePort({}, async () => {
-				throw new Error("ENOENT");
-			}),
-		).resolves.toBe(8787);
-	});
-
-	test("ignores an unusable override or a corrupt file", async () => {
-		await expect(
-			resolveBridgePort({ CONTEXTBOARD_BRIDGE_PORT: "not-a-port" }, async () =>
-				JSON.stringify({ port: "nope" }),
-			),
-		).resolves.toBe(8787);
 	});
 });

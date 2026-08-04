@@ -22,6 +22,8 @@ export type SidebarFooterRuntime = {
 	syncNow?: () => Promise<void>;
 	createWorkspace?: () => Promise<void>;
 	workspaceSelectionRequired?: boolean;
+	workspaces?: ReadonlyArray<{ workspaceId: string }>;
+	switchWorkspace?: (workspaceId: string) => Promise<void>;
 	/**
 	 * Platform-specific settings entry point, rendered beside the account row.
 	 * The desktop shell has local settings (the agent bridge) that the web build
@@ -107,16 +109,42 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 							</a>
 						) : null}
 						{runtime.createWorkspace && runtime.workspaceSelectionRequired ? (
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								className="mt-1 w-full justify-start text-[10px]"
-								disabled={pending !== null}
-								onClick={() => run("sync", runtime.createWorkspace)}
-							>
-								Create separate workspace
-							</Button>
+							<div className="mt-1 space-y-1">
+								{runtime.switchWorkspace && runtime.workspaces?.length ? (
+									<div className="space-y-0.5">
+										<p className="px-1 text-[10px] text-[var(--muted-foreground)]">
+											Choose an account workspace
+										</p>
+										{runtime.workspaces.map((workspace) => (
+											<Button
+												key={workspace.workspaceId}
+												type="button"
+												variant="ghost"
+												size="sm"
+												className="h-7 w-full justify-start truncate px-1.5 text-[10px]"
+												disabled={pending !== null}
+												onClick={() =>
+													run("sync", () =>
+														runtime.switchWorkspace!(workspace.workspaceId),
+													)
+												}
+											>
+												{workspace.workspaceId}
+											</Button>
+										))}
+									</div>
+								) : null}
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									className="w-full justify-start text-[10px]"
+									disabled={pending !== null}
+									onClick={() => run("sync", runtime.createWorkspace)}
+								>
+									Create separate workspace
+								</Button>
+							</div>
 						) : null}
 					</div>
 					{runtime.settings}

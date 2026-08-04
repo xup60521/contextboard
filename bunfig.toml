@@ -1,0 +1,2 @@
+[test]
+preload = ["./packages/agent-tools/test-setup.ts"]

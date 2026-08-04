@@ -11,6 +11,16 @@ import type {
 	WorkspaceRedirect,
 } from "@contextboard/sync-protocol";
 import {
+	DEVICE_CODE_INTERVAL_SECONDS,
+	DEVICE_CODE_MAX_POLLS,
+	DEVICE_CODE_SLOW_DOWN_STEP_SECONDS,
+	DEVICE_CODE_TTL_MS,
+	deviceTokenName,
+	generateDeviceCode,
+	generateUserCode,
+	hashDeviceCode,
+} from "./device-codes";
+import {
 	generateAgentToken,
 	hashAgentToken,
 	hashesMatch,
@@ -87,6 +97,25 @@ CREATE TABLE IF NOT EXISTS agent_tokens (
 );
 CREATE INDEX IF NOT EXISTS agent_tokens_user
   ON agent_tokens(user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS device_codes (
+  id TEXT PRIMARY KEY,
+  device_code_hash TEXT NOT NULL UNIQUE,
+  user_code TEXT NOT NULL UNIQUE,
+  client_name TEXT NOT NULL,
+  device_name TEXT,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  interval_seconds INTEGER NOT NULL,
+  last_polled_at INTEGER,
+  poll_count INTEGER NOT NULL DEFAULT 0,
+  approved_at INTEGER,
+  denied_at INTEGER,
+  consumed_at INTEGER,
+  user_id TEXT,
+  user_email TEXT,
+  agent_token_id TEXT
+);
+CREATE INDEX IF NOT EXISTS device_codes_expiry ON device_codes(expires_at);
 `;
 
 const cursorNumber = (cursor: string | null) => {
@@ -858,6 +887,197 @@ export class SyncStore {
 				"UPDATE agent_tokens SET last_used_at = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)",
 			)
 			.run(now, id, now - 60_000);
+	}
+
+	createDeviceCode(options: {
+		clientName: string;
+		deviceName?: string | null;
+		ttlMs?: number;
+		intervalSeconds?: number;
+	}) {
+		const clientName = options.clientName.trim() || "contextboard-cli";
+		const deviceName = options.deviceName?.trim() || null;
+		// Validate the eventual token name before a code can be approved.
+		deviceTokenName(clientName, deviceName);
+		const createdAt = Date.now();
+		const ttlMs = options.ttlMs ?? DEVICE_CODE_TTL_MS;
+		const intervalSeconds =
+			options.intervalSeconds ?? DEVICE_CODE_INTERVAL_SECONDS;
+		this.purgeExpiredDeviceCodes(createdAt);
+
+		for (let attempt = 0; attempt < 5; attempt += 1) {
+			const id = randomUUID();
+			const deviceCode = generateDeviceCode();
+			const userCode = generateUserCode();
+			try {
+				this.db
+					.prepare(
+						`INSERT INTO device_codes
+						 (id, device_code_hash, user_code, client_name, device_name,
+						  created_at, expires_at, interval_seconds)
+						 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+					)
+					.run(
+						id,
+						hashDeviceCode(deviceCode),
+						userCode,
+						clientName,
+						deviceName,
+						createdAt,
+						createdAt + ttlMs,
+						intervalSeconds,
+					);
+				return {
+					deviceCode,
+					userCode,
+					expiresAt: createdAt + ttlMs,
+					intervalSeconds,
+				};
+			} catch (error) {
+				if (
+					!String(error).includes("UNIQUE constraint failed: device_codes.user_code")
+				)
+					throw error;
+			}
+		}
+		throw new Error("Unable to allocate a device user code");
+	}
+
+	findDeviceCodeByUserCode(userCode: string, now = Date.now()) {
+		const row = this.db
+			.prepare(
+				`SELECT id, client_name clientName, device_name deviceName,
+				        expires_at expiresAt
+				 FROM device_codes
+				 WHERE user_code = ? AND approved_at IS NULL AND denied_at IS NULL
+				   AND consumed_at IS NULL AND expires_at > ?`,
+			)
+			.get(userCode, now) as {
+				id: string;
+				clientName: string;
+				deviceName: string | null;
+				expiresAt: number;
+			} | null;
+		if (!row) return null;
+		return { ...row, status: "pending" as const };
+	}
+
+	decideDeviceCode(
+		userCode: string,
+		userId: string,
+		userEmail: string,
+		action: "approve" | "deny",
+		now = Date.now(),
+	) {
+		const column = action === "approve" ? "approved_at" : "denied_at";
+		const result = this.db
+			.prepare(
+				`UPDATE device_codes
+				 SET ${column} = ?, user_id = ?, user_email = ?
+				 WHERE user_code = ? AND approved_at IS NULL AND denied_at IS NULL
+				   AND consumed_at IS NULL AND expires_at > ?`,
+			)
+			.run(now, userId, userEmail, userCode, now);
+		return result.changes > 0;
+	}
+
+	pollDeviceCode(deviceCode: string, now = Date.now()) {
+		return this.db.transaction(() => {
+			const hash = hashDeviceCode(deviceCode);
+			const row = this.db
+				.prepare(
+					`SELECT id, device_code_hash deviceCodeHash, client_name clientName,
+					        device_name deviceName, expires_at expiresAt,
+					        interval_seconds intervalSeconds, last_polled_at lastPolledAt,
+					        poll_count pollCount, approved_at approvedAt,
+					        denied_at deniedAt, consumed_at consumedAt,
+					        user_id userId, user_email userEmail
+					 FROM device_codes WHERE device_code_hash = ?`,
+				)
+				.get(hash) as {
+					id: string;
+					deviceCodeHash: string;
+					clientName: string;
+					deviceName: string | null;
+					expiresAt: number;
+					intervalSeconds: number;
+					lastPolledAt: number | null;
+					pollCount: number;
+					approvedAt: number | null;
+					deniedAt: number | null;
+					consumedAt: number | null;
+					userId: string | null;
+					userEmail: string | null;
+				} | null;
+
+			if (
+				!row ||
+				!hashesMatch(row.deviceCodeHash, hash) ||
+				row.consumedAt !== null ||
+				row.expiresAt <= now ||
+				row.pollCount >= DEVICE_CODE_MAX_POLLS
+			)
+				return { status: "expired" as const };
+
+			if (
+				row.lastPolledAt !== null &&
+				now - row.lastPolledAt < row.intervalSeconds * 1000 - 500
+			) {
+				const intervalSeconds =
+					row.intervalSeconds + DEVICE_CODE_SLOW_DOWN_STEP_SECONDS;
+				this.db
+					.prepare(
+						`UPDATE device_codes
+						 SET interval_seconds = ?, last_polled_at = ?, poll_count = poll_count + 1
+						 WHERE id = ?`,
+					)
+					.run(intervalSeconds, now, row.id);
+				return { status: "slow_down" as const, intervalSeconds };
+			}
+
+			this.db
+				.prepare(
+					`UPDATE device_codes
+					 SET last_polled_at = ?, poll_count = poll_count + 1
+					 WHERE id = ?`,
+				)
+				.run(now, row.id);
+
+			if (row.deniedAt !== null) return { status: "denied" as const };
+			if (row.approvedAt !== null && row.userId && row.userEmail) {
+				const created = this.createAgentToken(
+					row.userId,
+					row.userEmail,
+					deviceTokenName(row.clientName, row.deviceName),
+				);
+				const consumed = this.db
+					.prepare(
+						`UPDATE device_codes
+						 SET consumed_at = ?, agent_token_id = ?
+						 WHERE id = ? AND consumed_at IS NULL`,
+					)
+					.run(now, created.id, row.id);
+				if (consumed.changes === 0) {
+					this.db
+						.prepare("UPDATE agent_tokens SET revoked_at = ? WHERE id = ?")
+						.run(now, created.id);
+					return { status: "expired" as const };
+				}
+				return {
+					status: "approved" as const,
+					token: created.token,
+					tokenId: created.id,
+					name: created.name,
+				};
+			}
+			return { status: "pending" as const, intervalSeconds: row.intervalSeconds };
+		})();
+	}
+
+	purgeExpiredDeviceCodes(now = Date.now(), graceMs = 3_600_000) {
+		return this.db
+			.prepare("DELETE FROM device_codes WHERE expires_at <= ?")
+			.run(now - graceMs).changes;
 	}
 
 	private membersForWorkspace(workspaceId: string) {

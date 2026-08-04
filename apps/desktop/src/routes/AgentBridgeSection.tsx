@@ -10,9 +10,9 @@ type BridgeStatus = {
 };
 
 /**
- * Settings section for the local agent bridge.
+ * Settings section for the local agent server.
  *
- * The bridge lets an MCP server on this machine read and write the workspace,
+ * The local agent API lets an agent on this machine read and write the workspace,
  * and it is deliberately unauthenticated: anything already running as this user
  * can use it. That is a real grant, so it is off until asked for, and the
  * consequence is stated plainly rather than implied.
@@ -54,7 +54,7 @@ export function AgentBridgeSection() {
 			setError(
 				cause instanceof Error
 					? cause.message
-					: "The agent bridge could not be changed.",
+					: "The local agent server could not be changed.",
 			);
 		} finally {
 			setBusy(false);
@@ -70,7 +70,7 @@ export function AgentBridgeSection() {
 				<div className="min-w-0">
 					<h3 className="text-sm font-medium">AI agent access</h3>
 					<p className="text-xs text-[var(--muted-foreground)]">
-						Let an MCP server on this computer read and write your boards.
+						Let a local agent on this computer read and write your boards.
 					</p>
 				</div>
 				<Button
