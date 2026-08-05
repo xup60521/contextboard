@@ -1,4 +1,11 @@
-import { chmod, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	readFile,
+	stat,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -6,10 +13,10 @@ import { dirname, join } from "node:path";
  * Credentials for a headless agent box.
  *
  * The desktop shell authenticates through a GitHub popup and stores the result
- * in the OS keyring; a remote box has neither a browser nor a keyring, so it
- * reads a long-lived agent token issued from the Web UI instead. This module
- * only locates and validates that token — see `apps/sync-server/src/agent-tokens.ts`
- * for how it is minted and revoked.
+ * in the OS keyring; a remote box has no keyring, so it holds a long-lived agent
+ * token in this file instead. The token normally arrives through the device
+ * login in `device-login.ts`; this module only locates and validates it — see
+ * `apps/sync-server/src/agent-tokens.ts` for how it is minted and revoked.
  */
 export type AgentCredentials = {
 	token: string;
@@ -21,6 +28,14 @@ export type AgentCredentials = {
 
 export const CREDENTIALS_DIRECTORY = ".contextboard";
 export const CREDENTIALS_FILENAME = "credentials.json";
+
+/**
+ * Leads with the command rather than the environment variables: device login is
+ * the normal path, and the variables are for containers that cannot open a
+ * browser at all.
+ */
+export const NOT_LOGGED_IN_MESSAGE =
+	"Not logged in. Run `contextboard login`, or set CONTEXTBOARD_AGENT_TOKEN and CONTEXTBOARD_SYNC_URL.";
 
 export class CredentialsError extends Error {
 	constructor(message: string) {

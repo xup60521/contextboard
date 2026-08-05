@@ -37,6 +37,11 @@ Settings and make sure the window is open. If `mode` is `replica`, recovery is:
 run `contextboard serve`. The two servers must not be run together on one
 machine; the last writer of the discovery file is the active server.
 
+If the box is not logged in, `contextboard serve` prints a `CODE` and an `OPEN`
+URL and waits for the user to approve the login in a browser. That is not a
+hang: report the code and the URL to the user and wait, or tell them to run
+`contextboard serve` themselves if you cannot show them its output.
+
 Discovery endpoints are POST-only as well:
 
 ```sh

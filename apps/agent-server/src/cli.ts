@@ -7,12 +7,16 @@ import {
 } from "@contextboard/application/canvas";
 import { createRepositoryCardsService } from "@contextboard/application/cards";
 import { createRepositoryCardRelationsService } from "@contextboard/application/relations";
-import { HttpSyncTransport } from "@contextboard/client-core";
 import {
 	loadAgentCredentials,
+	NOT_LOGGED_IN_MESSAGE,
 	removeAgentCredentials,
-	writeAgentCredentials,
 } from "./credentials";
+import {
+	fetchDefaultWorkspaceId,
+	resolveLoginServer,
+	runDeviceLogin,
+} from "./device-login";
 import {
 	readAgentServerDiscovery,
 	removeAgentServerDiscovery,
@@ -20,16 +24,17 @@ import {
 } from "./discovery";
 import { createAgentHttpApp } from "./http";
 import { createReplicaRuntime, type ReplicaRuntime } from "./replica";
+import { startReplicaSyncLoop } from "./replica-sync-loop";
 
 const AGENT_SERVER_VERSION = "0.0.0";
 const DEFAULT_AGENT_SERVER_PORT = 8790;
-const DEVICE_CODE_ENDPOINT = "/api/sync/v1/device";
 
 type ParsedOptions = Record<string, string>;
 
 function parseOptions(
 	args: string[],
 	allowed: ReadonlySet<string>,
+	flags: ReadonlySet<string> = new Set(),
 ): ParsedOptions {
 	const options: ParsedOptions = {};
 	for (let index = 0; index < args.length; index += 1) {
@@ -38,6 +43,11 @@ function parseOptions(
 			throw new Error(`Unexpected argument: ${argument ?? ""}`);
 		const equals = argument.indexOf("=");
 		const name = equals === -1 ? argument : argument.slice(0, equals);
+		if (flags.has(name)) {
+			if (equals !== -1) throw new Error(`${name} does not take a value`);
+			options[name] = "true";
+			continue;
+		}
 		if (!allowed.has(name)) throw new Error(`Unknown option: ${name}`);
 		const value = equals === -1 ? args[++index] : argument.slice(equals + 1);
 		if (!value) throw new Error(`${name} requires a value`);
@@ -53,130 +63,17 @@ function parsePort(value: string | undefined, fallback: number) {
 	return port;
 }
 
-function normalizeServerUrl(value: string) {
-	const url = new URL(value);
-	if (url.protocol !== "http:" && url.protocol !== "https:")
-		throw new Error("Server URL must use http or https");
-	return url.origin;
-}
-
-async function readApiError(response: Response) {
-	const body = (await response.json().catch(() => null)) as {
-		error?: unknown;
-		error_description?: unknown;
-	} | null;
-	return typeof body?.error_description === "string"
-		? body.error_description
-		: typeof body?.error === "string"
-			? body.error
-			: `Request failed with status ${response.status}`;
-}
-
-function sleep(milliseconds: number) {
-	return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
-}
-
-async function resolveLoginServer(
-	explicit: string | undefined,
-	home: string | undefined,
-) {
-	if (explicit) return normalizeServerUrl(explicit);
-	if (process.env.CONTEXTBOARD_SYNC_URL)
-		return normalizeServerUrl(process.env.CONTEXTBOARD_SYNC_URL);
-	const fileCredentials = await loadAgentCredentials({
-		env: {},
-		home,
-		warn: () => undefined,
+async function startDeviceLogin(options: ParsedOptions) {
+	const serverUrl = await resolveLoginServer(options["--server"]);
+	return runDeviceLogin({
+		serverUrl,
+		deviceName: options["--device-name"]?.trim() || hostname(),
+		openBrowser: !options["--no-browser"],
 	});
-	if (fileCredentials) return normalizeServerUrl(fileCredentials.serverUrl);
-	throw new Error(
-		"No server URL configured; pass --server URL or set CONTEXTBOARD_SYNC_URL",
-	);
 }
 
 async function loginCommand(options: ParsedOptions) {
-	const serverUrl = await resolveLoginServer(options["--server"], undefined);
-	const deviceName = options["--device-name"]?.trim() || hostname();
-	const codeResponse = await fetch(`${serverUrl}${DEVICE_CODE_ENDPOINT}/code`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ clientName: "contextboard-cli", deviceName }),
-	});
-	if (!codeResponse.ok) throw new Error(await readApiError(codeResponse));
-	const code = (await codeResponse.json()) as {
-		deviceCode: string;
-		userCode: string;
-		verificationUriComplete: string;
-		expiresIn: number;
-		interval: number;
-	};
-
-	console.log("\nContextBoard device login\n");
-	console.log(`  CODE  ${code.userCode}`);
-	console.log(`  OPEN  ${code.verificationUriComplete}`);
-	console.log(
-		"\nApprove this request in the browser, then leave this command running.\n",
-	);
-
-	const deadline = Date.now() + code.expiresIn * 1000;
-	let interval = Math.max(1, code.interval);
-	for (;;) {
-		const remaining = deadline - Date.now();
-		if (remaining <= 0) throw new Error("Device login expired before approval");
-		await sleep(Math.min(interval * 1000, remaining));
-		const response = await fetch(`${serverUrl}${DEVICE_CODE_ENDPOINT}/token`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ deviceCode: code.deviceCode }),
-		});
-		const body = (await response.json().catch(() => null)) as {
-			token?: unknown;
-			tokenId?: unknown;
-			name?: unknown;
-			serverUrl?: unknown;
-			error?: unknown;
-			error_description?: unknown;
-			interval?: unknown;
-		} | null;
-		if (response.ok && typeof body?.token === "string") {
-			const tokenId =
-				typeof body.tokenId === "string" ? body.tokenId : undefined;
-			const savedServerUrl =
-				typeof body.serverUrl === "string"
-					? normalizeServerUrl(body.serverUrl)
-					: serverUrl;
-			await writeAgentCredentials({
-				token: body.token,
-				serverUrl: savedServerUrl,
-				...(tokenId ? { tokenId } : {}),
-			});
-			console.log(
-				`Logged in with token ${String(body.name ?? "contextboard-cli")}.`,
-			);
-			return;
-		}
-		const error = body?.error;
-		if (error === "authorization_pending") continue;
-		if (error === "slow_down") {
-			const returnedInterval =
-				typeof body?.interval === "number" ? body.interval : interval + 5;
-			const retryAfter = Number(response.headers.get("retry-after"));
-			interval = Math.max(
-				interval + 5,
-				returnedInterval,
-				Number.isFinite(retryAfter) ? retryAfter : 0,
-			);
-			continue;
-		}
-		if (error === "access_denied")
-			throw new Error("The user denied this device login");
-		if (error === "expired_token") throw new Error("Device login expired");
-		throw new Error(
-			typeof body?.error_description === "string"
-				? body.error_description
-				: `Device login failed (${response.status})`,
-		);
-	}
+	await startDeviceLogin(options);
 }
 
 async function logoutCommand() {
@@ -235,22 +132,9 @@ async function statusCommand() {
 				.catch(() => null)
 		: null;
 	const credentials = await loadAgentCredentials({ warn: () => undefined });
-	let cloudWorkspace: string | null = null;
-	if (credentials) {
-		const transport = new HttpSyncTransport({
-			baseURL: credentials.serverUrl,
-			credentials: "omit",
-			getAuthHeaders: () => ({
-				authorization: `Bearer ${credentials.token}`,
-			}),
-		});
-		const listing = await transport.listWorkspaces();
-		cloudWorkspace =
-			listing.workspaces.find((workspace) => workspace.isDefault)
-				?.workspaceId ??
-			listing.workspaces[0]?.workspaceId ??
-			null;
-	}
+	const cloudWorkspace = credentials
+		? await fetchDefaultWorkspaceId(credentials)
+		: null;
 	if (!local && !credentials)
 		throw new Error(
 			"No running agent server or credentials found; enable the agent server in ContextBoard or run `contextboard serve`.",
@@ -263,9 +147,28 @@ async function statusCommand() {
 	console.log(`cloud: ${credentials ? "live" : "not checked"}`);
 }
 
+/**
+ * A fresh box has no credentials, and the fix for that is a device login rather
+ * than a manual token paste — so run it here instead of failing. `--no-login`
+ * (or `CONTEXTBOARD_NO_LOGIN`) restores the fail-fast behaviour for containers
+ * and service managers, where a login prompt nobody can answer would look like
+ * a hang.
+ */
+async function resolveServeCredentials(options: ParsedOptions) {
+	const existing = await loadAgentCredentials();
+	if (existing) return existing;
+	if (options["--no-login"] || process.env.CONTEXTBOARD_NO_LOGIN?.trim())
+		throw new Error(NOT_LOGGED_IN_MESSAGE);
+	// Kept ASCII: this line is often read through a redirected Windows pipe or a
+	// service log, where a non-ASCII dash turns into mojibake.
+	console.log("No ContextBoard credentials found; starting device login.");
+	return startDeviceLogin(options);
+}
+
 async function serveCommand(options: ParsedOptions) {
 	const port = parsePort(options["--port"], DEFAULT_AGENT_SERVER_PORT);
-	const runtime: ReplicaRuntime = await createReplicaRuntime();
+	const credentials = await resolveServeCredentials(options);
+	const runtime: ReplicaRuntime = await createReplicaRuntime({ credentials });
 	const { repository, workspaceId } = runtime;
 
 	const tools = createTools({
@@ -289,6 +192,14 @@ async function serveCommand(options: ParsedOptions) {
 	});
 	const boundPort = server.port ?? port;
 	const discoveryLease = await writeAgentServerDiscovery(boundPort, "replica");
+	const stopReplicaSync = startReplicaSyncLoop({
+		sync: runtime.flush,
+		retryDelay: () => runtime.coordinator.retryDelay(),
+		onError: (error) => {
+			const kind = error instanceof Error && error.name ? error.name : "UnknownError";
+			console.error(`Replica sync failed (${kind})`);
+		},
+	});
 	console.log(
 		`ContextBoard agent server listening on 127.0.0.1:${boundPort} (replica, workspace ${workspaceId})`,
 	);
@@ -301,6 +212,7 @@ async function serveCommand(options: ParsedOptions) {
 	const shutdown = async () => {
 		if (closed) return;
 		closed = true;
+		stopReplicaSync();
 		try {
 			// Drain the replica while its database is still open and before the
 			// HTTP listener is closed. `close` repeats the flush defensively.
@@ -327,22 +239,34 @@ async function serveCommand(options: ParsedOptions) {
 
 function usage() {
 	return `Usage:
-	  contextboard serve [--port PORT]
-  contextboard login [--server URL] [--device-name NAME]
+  contextboard serve [--port PORT] [--server URL] [--device-name NAME] [--no-login] [--no-browser]
+  contextboard login [--server URL] [--device-name NAME] [--no-browser]
   contextboard logout
-  contextboard status`;
+  contextboard status
+
+serve logs in automatically when the box has no credentials.`;
 }
 
 async function main() {
 	const [command, ...args] = process.argv.slice(2);
 	if (!command) throw new Error(usage());
 	if (command === "serve") {
-		await serveCommand(parseOptions(args, new Set(["--port"])));
+		await serveCommand(
+			parseOptions(
+				args,
+				new Set(["--port", "--server", "--device-name"]),
+				new Set(["--no-login", "--no-browser"]),
+			),
+		);
 		return;
 	}
 	if (command === "login") {
 		await loginCommand(
-			parseOptions(args, new Set(["--server", "--device-name"])),
+			parseOptions(
+				args,
+				new Set(["--server", "--device-name"]),
+				new Set(["--no-browser"]),
+			),
 		);
 		return;
 	}

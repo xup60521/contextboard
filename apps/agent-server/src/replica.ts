@@ -26,7 +26,7 @@ import type {
 } from "@contextboard/sync-protocol";
 import { gunzipSync, strFromU8 } from "fflate";
 import type { AgentCredentials } from "./credentials";
-import { loadAgentCredentials } from "./credentials";
+import { loadAgentCredentials, NOT_LOGGED_IN_MESSAGE } from "./credentials";
 
 export const REPLICA_FILENAME = "replica.sqlite";
 export const DEVICE_FILENAME = "device.json";
@@ -263,10 +263,7 @@ export async function createReplicaRuntime(
 	const credentials =
 		options.credentials ??
 		(await loadAgentCredentials({ env, home: options.home }));
-	if (!credentials)
-		throw new Error(
-			"Replica mode requires CONTEXTBOARD_AGENT_TOKEN or ~/.contextboard/credentials.json",
-		);
+	if (!credentials) throw new Error(NOT_LOGGED_IN_MESSAGE);
 
 	const databasePath =
 		options.databasePath ??
