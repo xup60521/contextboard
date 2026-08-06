@@ -1,12 +1,20 @@
-import { useCallback, useRef, type MutableRefObject, type RefObject } from "react";
+import {
+	type MutableRefObject,
+	type RefObject,
+	useCallback,
+	useRef,
+} from "react";
 import type { Editor } from "tldraw";
-import type { Id } from "../ids";
 import {
 	type SequencedFrame,
 	shouldClearOptimisticFrame,
 	type WhiteboardFrame,
 } from "../frame-sync";
-import { rehydrateItemShape, type BoardItemResult } from "../whiteboard-canvas-helpers";
+import type { Id } from "../ids";
+import {
+	type BoardItemResult,
+	rehydrateItemShape,
+} from "../whiteboard-canvas-helpers";
 
 export function useFrameSync({
 	editor,
@@ -14,6 +22,7 @@ export function useFrameSync({
 	latestItemsRef,
 	optimisticFramesRef,
 	hydratingRef,
+	interactionActiveRef,
 }: {
 	editor: Editor | null;
 	updateItemFrames: (args: {
@@ -26,6 +35,7 @@ export function useFrameSync({
 	latestItemsRef: RefObject<Map<Id<"boardItems">, BoardItemResult>>;
 	optimisticFramesRef: MutableRefObject<Map<Id<"boardItems">, SequencedFrame>>;
 	hydratingRef: MutableRefObject<boolean>;
+	interactionActiveRef: MutableRefObject<boolean>;
 }) {
 	const queuedFrameUpdatesRef = useRef(
 		new Map<Id<"boardItems">, SequencedFrame>(),
@@ -82,6 +92,12 @@ export function useFrameSync({
 		updateItemFrames,
 	]);
 
+	const pauseFramePersistence = useCallback(() => {
+		if (flushTimerRef.current === null) return;
+		window.clearTimeout(flushTimerRef.current);
+		flushTimerRef.current = null;
+	}, []);
+
 	const queueFrameUpdate = useCallback(
 		(itemId: Id<"boardItems">, frame: WhiteboardFrame) => {
 			const sequencedFrame = {
@@ -92,17 +108,20 @@ export function useFrameSync({
 			queuedFrameUpdatesRef.current.set(itemId, sequencedFrame);
 			optimisticFramesRef.current.set(itemId, sequencedFrame);
 
+			if (interactionActiveRef.current) return;
+
 			if (flushTimerRef.current !== null) {
 				window.clearTimeout(flushTimerRef.current);
 			}
 
 			flushTimerRef.current = window.setTimeout(flushFrameUpdates, 250);
 		},
-		[flushFrameUpdates, optimisticFramesRef],
+		[flushFrameUpdates, interactionActiveRef, optimisticFramesRef],
 	);
 
 	return {
 		flushFrameUpdates,
+		pauseFramePersistence,
 		queueFrameUpdate,
 		queuedFrameUpdatesRef,
 		flushTimerRef,

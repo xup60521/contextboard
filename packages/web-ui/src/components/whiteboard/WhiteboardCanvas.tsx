@@ -19,6 +19,7 @@ import { EditableWhiteboardTitle } from "./EditableWhiteboardTitle";
 import type { SequencedFrame } from "./frame-sync";
 import { useCameraReset } from "./hooks/useCameraReset";
 import { useCanvasEvents } from "./hooks/useCanvasEvents";
+import { useCanvasPersistenceInteraction } from "./hooks/useCanvasPersistenceInteraction";
 import { useCardDeleteShortcut } from "./hooks/useCardDeleteShortcut";
 import { useCardRelationSync } from "./hooks/useCardRelationSync";
 import { useDrawingHydration } from "./hooks/useDrawingHydration";
@@ -128,6 +129,7 @@ export function WhiteboardCanvas({
 
 	// ── Shared refs (written/read by multiple hooks) ───────────────────────────
 	const hydratingRef = useRef(false);
+	const interactionActiveRef = useRef(false);
 	const optimisticFramesRef = useRef(
 		new Map<Id<"boardItems">, SequencedFrame>(),
 	);
@@ -140,6 +142,7 @@ export function WhiteboardCanvas({
 	// ── Hooks ──────────────────────────────────────────────────────────────────
 	const {
 		flushFrameUpdates,
+		pauseFramePersistence,
 		queueFrameUpdate,
 		queuedFrameUpdatesRef,
 		flushTimerRef,
@@ -149,10 +152,12 @@ export function WhiteboardCanvas({
 		latestItemsRef,
 		optimisticFramesRef,
 		hydratingRef,
+		interactionActiveRef,
 	});
 
 	const {
 		flushDrawingSave,
+		pauseDrawingPersistence,
 		queueDrawingSave,
 		pendingDrawingSaveRef,
 		saveDrawingTimerRef,
@@ -161,6 +166,16 @@ export function WhiteboardCanvas({
 	} = useDrawingSync({
 		whiteboardId,
 		applyCanvasRecordChanges,
+		interactionActiveRef,
+	});
+
+	useCanvasPersistenceInteraction({
+		editor,
+		interactionActiveRef,
+		pauseFramePersistence,
+		flushFrameUpdates,
+		pauseDrawingPersistence,
+		flushDrawingSave,
 	});
 
 	const { createCardAt, createSubwhiteboardAt } = useItemCreation({
@@ -314,6 +329,16 @@ export function WhiteboardCanvas({
 	useRightDragPan({ editor });
 	useThemeSync({ editor, themeMode });
 
+	useEffect(() => {
+		if (!editor || loadedDrawingKey !== whiteboardKey) return;
+		try {
+			if (typeof performance !== "undefined")
+				performance.mark("contextboard:whiteboard-hydrated");
+		} catch {
+			// Performance marks are diagnostics only.
+		}
+	}, [editor, loadedDrawingKey, whiteboardKey]);
+
 	// ── Board reset: flush and clear all per-board state on whiteboard switch ──
 	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on whiteboardId; flush fns stable
 	useEffect(() => {
@@ -445,6 +470,12 @@ export function WhiteboardCanvas({
 									assetUrls={tldrawAssetUrls}
 									components={whiteboardComponents}
 									onMount={(mountedEditor) => {
+										try {
+											if (typeof performance !== "undefined")
+												performance.mark("contextboard:tldraw-mounted");
+										} catch {
+											// Performance marks are diagnostics only.
+										}
 										emptyDrawingSnapshotRef.current =
 											mountedEditor.store.getStoreSnapshot("document");
 										setEditor(mountedEditor);

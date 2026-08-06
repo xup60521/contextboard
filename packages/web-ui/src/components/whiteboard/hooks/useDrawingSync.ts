@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { type MutableRefObject, useCallback, useRef, useState } from "react";
 import type { Id } from "../ids";
 
 export type CanvasRecordDelta = {
@@ -82,6 +82,7 @@ export function mergeCanvasRecordDeltas(
 export function useDrawingSync({
 	whiteboardId,
 	applyCanvasRecordChanges,
+	interactionActiveRef,
 }: {
 	whiteboardId: Id<"whiteboards"> | null;
 	applyCanvasRecordChanges: (
@@ -89,6 +90,7 @@ export function useDrawingSync({
 			whiteboardId: Id<"whiteboards"> | null;
 		},
 	) => Promise<CanvasRecordSaveResult>;
+	interactionActiveRef: MutableRefObject<boolean>;
 }) {
 	const pendingDrawingSaveRef = useRef<{
 		whiteboardId: Id<"whiteboards"> | null;
@@ -212,6 +214,12 @@ export function useDrawingSync({
 		return attempt;
 	}, [applyCanvasRecordChanges, updatePendingState]);
 
+	const pauseDrawingPersistence = useCallback(() => {
+		if (saveDrawingTimerRef.current === null) return;
+		window.clearTimeout(saveDrawingTimerRef.current);
+		saveDrawingTimerRef.current = null;
+	}, []);
+
 	const queueDrawingSave = useCallback(
 		(delta: CanvasRecordDelta) => {
 			if (!whiteboardId) return;
@@ -225,6 +233,8 @@ export function useDrawingSync({
 			};
 			updatePendingState();
 
+			if (interactionActiveRef.current) return;
+
 			if (saveDrawingTimerRef.current !== null)
 				window.clearTimeout(saveDrawingTimerRef.current);
 			saveDrawingTimerRef.current = window.setTimeout(
@@ -232,13 +242,14 @@ export function useDrawingSync({
 				500,
 			);
 		},
-		[flushDrawingSave, updatePendingState, whiteboardId],
+		[flushDrawingSave, interactionActiveRef, updatePendingState, whiteboardId],
 	);
 
 	return {
 		flushDrawingSave,
 		queueDrawingSave,
 		pendingDrawingSaveRef,
+		pauseDrawingPersistence,
 		saveDrawingTimerRef,
 		drawingSaveState,
 		acknowledgeDrawingEcho,
