@@ -219,6 +219,19 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		[items],
 	);
 
+	useEffect(() => {
+		const metadataReady =
+			whiteboardId === null ||
+			(whiteboard !== undefined && breadcrumbs !== undefined);
+		if (!activeCanvasData || !metadataReady) return;
+		try {
+			if (typeof performance !== "undefined")
+				performance.mark("contextboard:whiteboard-data-ready");
+		} catch {
+			// Performance marks are diagnostics only.
+		}
+	}, [activeCanvasData, breadcrumbs, whiteboard, whiteboardId]);
+
 	const boardItems = useMemo(
 		() => (items ?? []).map((item) => toBoardItem(item, runtime.workspaceId)),
 		[items, runtime.workspaceId],

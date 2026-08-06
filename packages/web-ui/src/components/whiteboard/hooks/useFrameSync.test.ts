@@ -46,6 +46,7 @@ describe("useFrameSync", () => {
 				latestItemsRef: { current: new Map() },
 				optimisticFramesRef: { current: new Map() },
 				hydratingRef: { current: false },
+				interactionActiveRef: { current: false },
 			}),
 		);
 
@@ -85,6 +86,7 @@ describe("useFrameSync", () => {
 				latestItemsRef,
 				optimisticFramesRef,
 				hydratingRef: { current: false },
+				interactionActiveRef: { current: false },
 			}),
 		);
 
@@ -96,5 +98,56 @@ describe("useFrameSync", () => {
 		expect(editor.run).toHaveBeenCalledTimes(1);
 		expect(editor.createShape).toHaveBeenCalledTimes(2);
 		expect(optimisticFramesRef.current.size).toBe(0);
+	});
+
+	test("keeps frame persistence pending until the interaction is released", async () => {
+		vi.useFakeTimers();
+		const updateItemFrames = vi.fn().mockResolvedValue(undefined);
+		const interactionActiveRef = { current: true };
+		const { result } = renderHook(() =>
+			useFrameSync({
+				editor: null,
+				updateItemFrames,
+				latestItemsRef: { current: new Map() },
+				optimisticFramesRef: { current: new Map() },
+				hydratingRef: { current: false },
+				interactionActiveRef,
+			}),
+		);
+
+		result.current.queueFrameUpdate("item:a" as never, frame(10));
+		vi.advanceTimersByTime(1_000);
+		expect(updateItemFrames).not.toHaveBeenCalled();
+
+		interactionActiveRef.current = false;
+		result.current.flushFrameUpdates();
+		await Promise.resolve();
+
+		expect(updateItemFrames).toHaveBeenCalledWith({
+			updates: [{ itemId: "item:a", ...frame(10) }],
+		});
+	});
+
+	test("cancels an already scheduled flush when an interaction starts", () => {
+		vi.useFakeTimers();
+		const updateItemFrames = vi.fn().mockResolvedValue(undefined);
+		const interactionActiveRef = { current: false };
+		const { result } = renderHook(() =>
+			useFrameSync({
+				editor: null,
+				updateItemFrames,
+				latestItemsRef: { current: new Map() },
+				optimisticFramesRef: { current: new Map() },
+				hydratingRef: { current: false },
+				interactionActiveRef,
+			}),
+		);
+
+		result.current.queueFrameUpdate("item:a" as never, frame(10));
+		interactionActiveRef.current = true;
+		result.current.pauseFramePersistence();
+		vi.advanceTimersByTime(1_000);
+
+		expect(updateItemFrames).not.toHaveBeenCalled();
 	});
 });

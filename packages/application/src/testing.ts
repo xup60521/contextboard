@@ -31,11 +31,21 @@ const ENTITY_TYPES: Record<string, string> = {
  */
 export function createMemoryWorkspaceRepository(
 	options: { now?: () => number } = {},
-): WorkspaceRepository & { pendingCommands: string[] } {
+): WorkspaceRepository & {
+	pendingCommands: string[];
+	queryLog: DomainQuery<unknown>[];
+} {
 	const now = options.now ?? (() => Date.now());
 	const store = new Map<string, Map<string, Entity>>();
 	const listeners = new Set<() => void>();
 	const pendingCommands: string[] = [];
+	/**
+	 * Every read this repository served, in order. Backends that cross a process
+	 * boundary pay per read — and pay again per row returned — so tests assert
+	 * both that batch APIs stay O(1) in reads rather than O(n) in the ids they
+	 * are given, and that they scope their reads instead of pulling whole tables.
+	 */
+	const queryLog: DomainQuery<unknown>[] = [];
 
 	const split = (type: string) => {
 		const [prefix, action] = type.split(".");
@@ -56,9 +66,15 @@ export function createMemoryWorkspaceRepository(
 
 	return {
 		pendingCommands,
+		queryLog,
 		async query<T>(query: DomainQuery<T>): Promise<T> {
+			queryLog.push(query as DomainQuery<unknown>);
 			const { entityType, action } = split(query.type);
-			const input = (query.input ?? {}) as { id?: string };
+			const input = (query.input ?? {}) as {
+				id?: string;
+				ids?: unknown;
+				whiteboardId?: unknown;
+			};
 			const rows = table(entityType);
 			if (action === "get") {
 				if (!input.id) throw new Error("A valid entity ID is required");
@@ -67,7 +83,38 @@ export function createMemoryWorkspaceRepository(
 			}
 			if (action !== "list")
 				throw new Error("The requested domain operation is not supported");
+			if ("ids" in input) {
+				if (!Array.isArray(input.ids)) throw new Error("ids must be an array");
+				if (input.ids.some((id) => typeof id !== "string" || id.length === 0))
+					throw new Error("ids must contain non-empty strings");
+			}
+			const whiteboardFilterSupported = new Set([
+				"boardItem",
+				"canvasRecord",
+				"tldrawDocument",
+				"cardRelation",
+			]);
+			if ("whiteboardId" in input && !whiteboardFilterSupported.has(entityType))
+				throw new Error(
+					`whiteboardId filtering is not supported for ${entityType}`,
+				);
+			if (
+				"whiteboardId" in input &&
+				input.whiteboardId !== null &&
+				typeof input.whiteboardId !== "string"
+			)
+				throw new Error("whiteboardId must be a string or null");
+
+			const ids = "ids" in input ? [...new Set(input.ids as string[])] : null;
+			const idSet = ids ? new Set(ids) : null;
+			const whiteboardId = input.whiteboardId as string | null | undefined;
 			return [...rows.values()]
+				.filter((row) => (idSet ? idSet.has(row.id) : true))
+				.filter((row) =>
+					"whiteboardId" in input
+						? (row.whiteboardId ?? null) === whiteboardId
+						: true,
+				)
 				.filter((row) => row.deletedAt === null)
 				.sort((a, b) => a.id.localeCompare(b.id)) as T;
 		},
@@ -115,7 +162,9 @@ export function createMemoryWorkspaceRepository(
 				return materialized as T;
 			}
 
-			if (!["create", "put", "update", "upsert", "delete"].includes(action ?? ""))
+			if (
+				!["create", "put", "update", "upsert", "delete"].includes(action ?? "")
+			)
 				throw new Error("The requested domain operation is not supported");
 			const value = input.value;
 			if (!value || typeof value.id !== "string")

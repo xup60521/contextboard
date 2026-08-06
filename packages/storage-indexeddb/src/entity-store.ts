@@ -168,6 +168,55 @@ function resolve(operation: unknown) {
 const isActive = (row: Row | undefined): row is Row =>
 	!!row && row.deletedAt === null;
 
+const WHITEBOARD_FILTER_ENTITY_TYPES = new Set([
+	"boardItem",
+	"canvasRecord",
+	"tldrawDocument",
+	"cardRelation",
+]);
+
+type ListQueryInput = {
+	ids?: string[];
+	whiteboardId?: string | null;
+};
+
+function parseListQueryInput(
+	input: unknown,
+	entityType: string,
+): ListQueryInput {
+	if (input === undefined || input === null) return {};
+	if (typeof input !== "object" || Array.isArray(input))
+		throw new InvalidDomainArgumentError("List input must be an object");
+
+	const value = input as Record<string, unknown>;
+	let ids: string[] | undefined;
+	if ("ids" in value) {
+		if (!Array.isArray(value.ids))
+			throw new InvalidDomainArgumentError("ids must be an array");
+		if (value.ids.some((id) => typeof id !== "string" || id.length === 0))
+			throw new InvalidDomainArgumentError(
+				"ids must contain non-empty strings",
+			);
+		ids = [...new Set(value.ids)];
+	}
+
+	if (!("whiteboardId" in value)) return { ids };
+	if (!WHITEBOARD_FILTER_ENTITY_TYPES.has(entityType))
+		throw new InvalidDomainArgumentError(
+			`whiteboardId filtering is not supported for ${entityType}`,
+		);
+	const whiteboardId = value.whiteboardId;
+	if (whiteboardId !== null && typeof whiteboardId !== "string")
+		throw new InvalidDomainArgumentError(
+			"whiteboardId must be a string or null",
+		);
+	return { ids, whiteboardId };
+}
+
+function hasWhiteboardId(row: Row, whiteboardId: string | null) {
+	return (row.whiteboardId ?? null) === whiteboardId;
+}
+
 export async function queryEntities(
 	database: ContextboardDatabaseLike,
 	request: { type: string; input?: unknown },
@@ -183,8 +232,26 @@ export async function queryEntities(
 		const row = (await table.get(id)) as Row | undefined;
 		return isActive(row) ? row : null;
 	}
-	const rows = (await table.toArray()) as Row[];
-	return rows.filter(isActive).sort((a, b) => a.id.localeCompare(b.id));
+	const filter = parseListQueryInput(request.input, binding.entityType);
+	if (filter.ids?.length === 0) return [];
+
+	const rows = filter.ids
+		? ((await Promise.all(filter.ids.map((id) => table.get(id)))).filter(
+				(row): row is Row => !!row,
+			) as Row[])
+		: typeof filter.whiteboardId === "string"
+			? ((await table
+					.where("whiteboardId")
+					.equals(filter.whiteboardId)
+					.toArray()) as Row[])
+			: ((await table.toArray()) as Row[]);
+	// Bound to a local so the closure below keeps the narrowed type.
+	const whiteboardId = filter.whiteboardId;
+	const scopedRows =
+		whiteboardId === undefined
+			? rows
+			: rows.filter((row) => hasWhiteboardId(row, whiteboardId));
+	return scopedRows.filter(isActive).sort((a, b) => a.id.localeCompare(b.id));
 }
 
 const clocks = new Map<string, HybridLogicalClock>();

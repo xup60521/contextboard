@@ -7,6 +7,8 @@ export type AgentHttpInfo = {
 	workspaceId: string;
 	version: string;
 	port: number;
+	skillMarkdown: string;
+	skillEtag: string;
 };
 
 type AgentErrorCode =
@@ -20,11 +22,22 @@ type AgentErrorCode =
 	| "UNSUPPORTED_MEDIA_TYPE";
 
 const JSON_CONTENT_TYPE = "application/json; charset=utf-8";
+const MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8";
 
 function jsonResponse(body: unknown, status = 200) {
 	return new Response(JSON.stringify(body), {
 		status,
 		headers: { "content-type": JSON_CONTENT_TYPE },
+	});
+}
+
+function skillResponse(info: AgentHttpInfo) {
+	return new Response(info.skillMarkdown, {
+		status: 200,
+		headers: {
+			"content-type": MARKDOWN_CONTENT_TYPE,
+			etag: info.skillEtag,
+		},
 	});
 }
 
@@ -69,6 +82,16 @@ export function createAgentHttpApp(
 						"INVALID_ARGUMENT",
 						"Request body must be a JSON object",
 					);
+
+				if (pathname === "/api/v1/_skill") {
+					if (Object.keys(input).length)
+						return errorResponse(
+							400,
+							"INVALID_ARGUMENT",
+							"Discovery requests require an empty JSON object",
+						);
+					return skillResponse(info);
+				}
 
 				if (pathname === "/api/v1/_health") {
 					if (Object.keys(input).length)

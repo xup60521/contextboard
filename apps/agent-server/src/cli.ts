@@ -25,6 +25,7 @@ import {
 import { createAgentHttpApp } from "./http";
 import { createReplicaRuntime, type ReplicaRuntime } from "./replica";
 import { startReplicaSyncLoop } from "./replica-sync-loop";
+import { loadAgentSkill } from "./skill";
 
 const AGENT_SERVER_VERSION = "0.0.0";
 const DEFAULT_AGENT_SERVER_PORT = 8790;
@@ -179,11 +180,14 @@ async function serveCommand(options: ParsedOptions) {
 		canvas: createRepositoryCanvasService(repository, { workspaceId }),
 		relations: createRepositoryCardRelationsService(repository),
 	});
+	const skill = loadAgentSkill();
 	const app = createAgentHttpApp(tools, {
 		mode: "replica",
 		workspaceId,
 		version: AGENT_SERVER_VERSION,
 		port,
+		skillMarkdown: skill.markdown,
+		skillEtag: skill.etag,
 	});
 	const server = Bun.serve({
 		hostname: "127.0.0.1",
@@ -196,7 +200,8 @@ async function serveCommand(options: ParsedOptions) {
 		sync: runtime.flush,
 		retryDelay: () => runtime.coordinator.retryDelay(),
 		onError: (error) => {
-			const kind = error instanceof Error && error.name ? error.name : "UnknownError";
+			const kind =
+				error instanceof Error && error.name ? error.name : "UnknownError";
 			console.error(`Replica sync failed (${kind})`);
 		},
 	});

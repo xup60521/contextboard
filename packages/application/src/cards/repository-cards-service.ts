@@ -180,6 +180,137 @@ export function createRepositoryCardsService(
 	}
 
 	/**
+	 * The rows every {@link CardDetail} in one batch is assembled from. Read once
+	 * per call rather than once per card: on the desktop backend each read is a
+	 * Tauri IPC round trip, so a per-card fan-out multiplies both the round trips
+	 * and the JSON re-serialization of every row it returns.
+	 */
+	type CardDetailContext = {
+		rowById: Map<string, CardEntity>;
+		activeItems: EntityRow[];
+		boardById: Map<string, EntityRow>;
+		backlinksByTargetId: Map<string, EntityRow[]>;
+		backlinkSourceById: Map<string, CardEntity>;
+	};
+
+	async function readDetailContext(
+		cardIds: readonly string[],
+	): Promise<CardDetailContext> {
+		const wanted = new Set(cardIds);
+		const [rows, items, references, boards] = await Promise.all([
+			listRows(repository, "cards", { ids: [...wanted] }),
+			listRows(repository, "items"),
+			listRows(repository, "cardReferences"),
+			listRows(repository, "whiteboards"),
+		]);
+
+		// Backlinks only need the *source* cards' title and preview, so resolve
+		// them by id instead of pulling the whole card table — every row of which
+		// carries its full content.
+		const backlinksByTargetId = new Map<string, EntityRow[]>();
+		const sourceIds = new Set<string>();
+		for (const reference of references) {
+			const targetCardId = String(reference.targetCardId ?? "");
+			if (!wanted.has(targetCardId)) continue;
+			const bucket = backlinksByTargetId.get(targetCardId);
+			if (bucket) bucket.push(reference);
+			else backlinksByTargetId.set(targetCardId, [reference]);
+			const sourceCardId = String(reference.sourceCardId ?? "");
+			if (sourceCardId) sourceIds.add(sourceCardId);
+		}
+		const sources =
+			sourceIds.size > 0
+				? await listRows(repository, "cards", { ids: [...sourceIds] })
+				: [];
+
+		const toCardEntities = (values: EntityRow[]) =>
+			values
+				.map(normalize)
+				.filter((row): row is CardEntity => row !== null && isActive(row));
+
+		return {
+			rowById: new Map(toCardEntities(rows).map((row) => [row.id, row])),
+			activeItems: items.filter(isActiveRow),
+			boardById: new Map(
+				boards.filter(isActiveRow).map((board) => [board.id, board]),
+			),
+			backlinksByTargetId,
+			backlinkSourceById: new Map(
+				toCardEntities(sources).map((row) => [row.id, row]),
+			),
+		};
+	}
+
+	async function getManyDetails(
+		cardIds: readonly string[],
+	): Promise<Array<CardDetail | null>> {
+		if (cardIds.length === 0) return [];
+		const context = await readDetailContext(cardIds);
+		return cardIds.map((cardId) => {
+			const row = context.rowById.get(cardId);
+			return row ? buildCardDetail(row, context) : null;
+		});
+	}
+
+	function buildCardDetail(
+		row: CardEntity,
+		context: CardDetailContext,
+	): CardDetail {
+		const placements = context.activeItems.filter(
+			(item) => item.cardId === row.id,
+		);
+		const preferred = preferPlacement(placements);
+		const board =
+			preferred && typeof preferred.whiteboardId === "string"
+				? (context.boardById.get(preferred.whiteboardId) ?? null)
+				: null;
+		const breadcrumbs = board
+			? [
+					...(Array.isArray(board.ancestorIds)
+						? board.ancestorIds.map(String)
+						: []),
+					board.id,
+				]
+					.map((entry) => context.boardById.get(entry))
+					.filter((entry): entry is EntityRow => !!entry)
+					.map((entry) => ({
+						id: entry.id,
+						title: typeof entry.title === "string" ? entry.title : "",
+					}))
+			: [];
+
+		return {
+			...toSummary(row),
+			content: row.content,
+			activePlacementCount: row.activePlacementCount,
+			placements: placements.map(toPlacement),
+			preferredPlacement: preferred ? toPlacement(preferred) : null,
+			boardWhiteboardId:
+				preferred && typeof preferred.whiteboardId === "string"
+					? preferred.whiteboardId
+					: null,
+			shapeId: preferred ? String(preferred.shapeId ?? "") : null,
+			breadcrumbs,
+			backlinks: (context.backlinksByTargetId.get(row.id) ?? [])
+				.flatMap((reference) => {
+					const source = context.backlinkSourceById.get(
+						String(reference.sourceCardId),
+					);
+					return source
+						? [
+								{
+									cardId: source.id,
+									title: source.derivedTitle,
+									preview: source.preview,
+								},
+							]
+						: [];
+				})
+				.sort((a, b) => a.title.localeCompare(b.title)),
+		};
+	}
+
+	/**
 	 * Keeps `cardReference`/`fileReference` rows in step with the content, so
 	 * backlinks and blob refcounts behave identically on both platforms.
 	 */
@@ -320,66 +451,7 @@ export function createRepositoryCardsService(
 		},
 
 		async get(cardId: string): Promise<CardDetail | null> {
-			const row = await read(cardId);
-			if (!row) return null;
-			const [items, references, cards, boards] = await Promise.all([
-				listRows(repository, "items"),
-				listRows(repository, "cardReferences"),
-				listCards(),
-				listRows(repository, "whiteboards"),
-			]);
-			const activeItems = items.filter(isActiveRow);
-			const activeBoards = boards.filter(isActiveRow);
-			const cardById = new Map(cards.map((card) => [card.id, card]));
-			const boardById = new Map(activeBoards.map((board) => [board.id, board]));
-			const placements = activeItems.filter((item) => item.cardId === cardId);
-			const preferred = preferPlacement(placements);
-			const board =
-				preferred && typeof preferred.whiteboardId === "string"
-					? (boardById.get(preferred.whiteboardId) ?? null)
-					: null;
-			const breadcrumbs = board
-				? [
-						...(Array.isArray(board.ancestorIds)
-							? board.ancestorIds.map(String)
-							: []),
-						board.id,
-					]
-						.map((entry) => boardById.get(entry))
-						.filter((entry): entry is EntityRow => !!entry)
-						.map((entry) => ({
-							id: entry.id,
-							title: typeof entry.title === "string" ? entry.title : "",
-						}))
-				: [];
-			return {
-				...toSummary(row),
-				content: row.content,
-				activePlacementCount: row.activePlacementCount,
-				placements: placements.map(toPlacement),
-				preferredPlacement: preferred ? toPlacement(preferred) : null,
-				boardWhiteboardId:
-					preferred && typeof preferred.whiteboardId === "string"
-						? preferred.whiteboardId
-						: null,
-				shapeId: preferred ? String(preferred.shapeId ?? "") : null,
-				breadcrumbs,
-				backlinks: references
-					.filter((reference) => reference.targetCardId === cardId)
-					.flatMap((reference) => {
-						const source = cardById.get(String(reference.sourceCardId));
-						return source
-							? [
-									{
-										cardId: source.id,
-										title: source.derivedTitle,
-										preview: source.preview,
-									},
-								]
-							: [];
-					})
-					.sort((a, b) => a.title.localeCompare(b.title)),
-			};
+			return (await getManyDetails([cardId]))[0] ?? null;
 		},
 
 		async create(input = {}) {
@@ -417,8 +489,8 @@ export function createRepositoryCardsService(
 			});
 		},
 
-		async getMany(cardIds: string[]) {
-			return Promise.all(cardIds.map((cardId) => this.get(cardId)));
+		getMany(cardIds: string[]) {
+			return getManyDetails(cardIds);
 		},
 
 		async updateContent({

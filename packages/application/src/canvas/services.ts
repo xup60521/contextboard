@@ -100,6 +100,46 @@ async function readBoardSnapshot(repository: WorkspaceRepository) {
 	};
 }
 
+/** Reads only the rows needed to render one whiteboard's metadata. */
+async function readWhiteboardDetail(
+	repository: WorkspaceRepository,
+	id: string,
+): Promise<WhiteboardDetail | null> {
+	const board = await getRow(repository, "whiteboards", id);
+	if (!board || !isActiveRow(board)) return null;
+
+	const items = (
+		await listRows(repository, "items", { whiteboardId: id })
+	).filter(isActiveRow);
+	const ancestorIds = Array.isArray(board.ancestorIds)
+		? board.ancestorIds.map(String)
+		: [];
+	const childWhiteboardIds = items
+		.filter((item) => item.kind === "subwhiteboard")
+		.map((item) => item.childWhiteboardId)
+		.filter((childId): childId is string => typeof childId === "string");
+	const relatedBoardIds = [
+		...new Set([id, ...ancestorIds, ...childWhiteboardIds]),
+	];
+	const relatedBoards = await listRows(repository, "whiteboards", {
+		ids: relatedBoardIds,
+	});
+	const boards = [board, ...relatedBoards.filter(isActiveRow)];
+	const summary = toSummary(board, items, boards);
+	const boardById = new Map(boards.map((entry) => [entry.id, entry]));
+
+	return {
+		...summary,
+		breadcrumbs: [...summary.ancestorIds, board.id]
+			.map((entry) => boardById.get(entry))
+			.filter((entry): entry is EntityRow => !!entry)
+			.map((entry) => ({
+				id: entry.id,
+				title: typeof entry.title === "string" ? entry.title : "",
+			})),
+	};
+}
+
 async function archiveWhiteboardTree(
 	repository: WorkspaceRepository,
 	options: ServiceOptions,
@@ -165,21 +205,7 @@ export function createRepositoryWhiteboardsService(
 		},
 
 		async get(id: string): Promise<WhiteboardDetail | null> {
-			const { items, boards } = await readBoardSnapshot(repository);
-			const board = boards.find((row) => row.id === id);
-			if (!board) return null;
-			const boardById = new Map(boards.map((row) => [row.id, row]));
-			const summary = toSummary(board, items, boards);
-			return {
-				...summary,
-				breadcrumbs: [...summary.ancestorIds, board.id]
-					.map((entry) => boardById.get(entry))
-					.filter((entry): entry is EntityRow => !!entry)
-					.map((entry) => ({
-						id: entry.id,
-						title: typeof entry.title === "string" ? entry.title : "",
-					})),
-			};
+			return readWhiteboardDetail(repository, id);
 		},
 
 		async createRoot() {
@@ -332,7 +358,9 @@ export function createRepositoryCanvasService(
 	}
 
 	async function readDocumentRow(whiteboardId: string | null) {
-		const rows = await listRows(repository, "tldrawDocuments");
+		const rows = await listRows(repository, "tldrawDocuments", {
+			whiteboardId,
+		});
 		return (
 			rows.find(
 				(row) =>
@@ -344,7 +372,7 @@ export function createRepositoryCanvasService(
 	/** Active and tombstoned records for a board, keyed by tldraw record id. */
 	async function readRecordRows(whiteboardId: string | null) {
 		if (whiteboardId === null) return [];
-		const rows = await listRows(repository, "records");
+		const rows = await listRows(repository, "records", { whiteboardId });
 		return rows.filter((row) => (row.whiteboardId ?? null) === whiteboardId);
 	}
 
@@ -408,12 +436,30 @@ export function createRepositoryCanvasService(
 
 	return {
 		async listItems(whiteboardId: string | null): Promise<CanvasItem[]> {
-			const [items, boards, cards] = await Promise.all([
-				listRows(repository, "items"),
-				listRows(repository, "whiteboards"),
-				listRows(repository, "cards"),
-			]);
+			const items = await listRows(repository, "items", { whiteboardId });
 			const activeItems = items.filter(isActiveRow);
+			const cardIds = [
+				...new Set(
+					activeItems
+						.filter((item) => item.kind === "card")
+						.map((item) => item.cardId)
+						.filter((cardId): cardId is string => typeof cardId === "string"),
+				),
+			];
+			const childWhiteboardIds = [
+				...new Set(
+					activeItems
+						.filter((item) => item.kind === "subwhiteboard")
+						.map((item) => item.childWhiteboardId)
+						.filter(
+							(childId): childId is string => typeof childId === "string",
+						),
+				),
+			];
+			const [boards, cards] = await Promise.all([
+				listRows(repository, "whiteboards", { ids: childWhiteboardIds }),
+				listRows(repository, "cards", { ids: cardIds }),
+			]);
 			const activeBoards = boards.filter(isActiveRow);
 			const cardById = new Map(
 				cards.filter(isActiveRow).map((card) => [card.id, card]),

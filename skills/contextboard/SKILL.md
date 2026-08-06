@@ -49,6 +49,18 @@ curl -sS -X POST "http://127.0.0.1:${port}/api/v1/_tools" \
   -H 'content-type: application/json' -d '{}'
 ```
 
+The active server also serves this instruction file as raw UTF-8 Markdown. It
+is useful for refreshing an agent's instructions after it has discovered the
+port:
+
+```sh
+curl -sS -X POST "http://127.0.0.1:${port}/api/v1/_skill" \
+  -H 'content-type: application/json' -d '{}'
+```
+
+The response is `text/markdown; charset=utf-8` and includes an `ETag` derived
+from the document contents.
+
 React to renderer lifecycle errors instead of retrying blindly:
 
 - `503 RENDERER_UNAVAILABLE`: the desktop window is closed or the renderer has

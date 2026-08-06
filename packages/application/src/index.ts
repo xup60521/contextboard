@@ -31,6 +31,7 @@ export { createRepositoryCardRelationsService } from "./relations/repository-car
 export {
 	applyWrites,
 	type EntityRow,
+	type EntityListFilter,
 	getRow,
 	isActiveRow,
 	listActiveRows,

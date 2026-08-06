@@ -10,6 +10,7 @@
 use crate::storage::{Storage, StorageError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs,
@@ -39,10 +40,16 @@ pub const DEFAULT_WORKSPACE_ID: &str = "contextboard-desktop";
 const API_PREFIX: &str = "/api/v1";
 const HEALTH_ENDPOINT: &str = "/api/v1/_health";
 const TOOLS_ENDPOINT: &str = "/api/v1/_tools";
+const SKILL_ENDPOINT: &str = "/api/v1/_skill";
+const SKILL_MARKDOWN: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../skills/contextboard/SKILL.md"
+));
 const MAX_BODY_BYTES: u64 = 8 * 1024 * 1024;
 const RENDERER_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_IN_FLIGHT: usize = 16;
 const JSON_CONTENT_TYPE: &[u8] = b"application/json; charset=utf-8";
+const MARKDOWN_CONTENT_TYPE: &[u8] = b"text/markdown; charset=utf-8";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AgentError {
@@ -337,8 +344,8 @@ pub fn guard(head: &RequestHead<'_>, port: u16) -> Result<(), AgentError> {
         return Err(AgentError::new(404, "NOT_FOUND", "Unknown agent endpoint"));
     }
     // GET is refused even for discovery: an <img> or <script> cannot read the
-    // JSON, but it can still time the response and probe whether ContextBoard
-    // is running on the loopback port.
+    // response, but it can still time it and probe whether ContextBoard is
+    // running on the loopback port.
     if !head.method.eq_ignore_ascii_case("POST") {
         return Err(AgentError::new(
             405,
@@ -531,6 +538,7 @@ impl AgentServerState {
 enum Served {
     Discovery(Value),
     Tool(Value),
+    Skill { body: &'static str, etag: String },
 }
 
 fn serve(app: &AppHandle, mut request: Request, port: u16) {
@@ -599,6 +607,19 @@ fn serve(app: &AppHandle, mut request: Request, port: u16) {
             let tools = app.state::<AgentState>().tools()?;
             return Ok(Served::Discovery(json!(tools)));
         }
+        if path == SKILL_ENDPOINT {
+            if !input.is_empty() {
+                return Err(AgentError::new(
+                    400,
+                    "INVALID_ARGUMENT",
+                    "Discovery requests require an empty JSON object",
+                ));
+            }
+            return Ok(Served::Skill {
+                body: SKILL_MARKDOWN,
+                etag: skill_etag(),
+            });
+        }
 
         let tool = path.strip_prefix("/api/v1/").unwrap_or_default();
         let result = app
@@ -607,18 +628,21 @@ fn serve(app: &AppHandle, mut request: Request, port: u16) {
         Ok(Served::Tool(result))
     });
 
-    let (status, payload) = match outcome {
-        Ok(Served::Discovery(result)) => (200, result),
-        Ok(Served::Tool(result)) => (200, json!({ "ok": true, "result": result })),
-        Err(error) => (
+    match outcome {
+        Ok(Served::Skill { body, etag }) => respond_markdown(request, body, &etag),
+        Ok(Served::Discovery(result)) => respond_payload(request, 200, result),
+        Ok(Served::Tool(result)) => {
+            respond_payload(request, 200, json!({ "ok": true, "result": result }))
+        }
+        Err(error) => respond_payload(
+            request,
             error.status,
             json!({
                 "ok": false,
                 "error": { "code": error.code, "message": error.message },
             }),
         ),
-    };
-    respond_payload(request, status, payload);
+    }
 }
 
 fn respond_error(request: Request, error: AgentError) {
@@ -636,10 +660,26 @@ fn respond_payload(request: Request, status: u16, payload: Value) {
     let response = Response::from_string(payload.to_string())
         .with_status_code(status)
         .with_header(
-            Header::from_bytes(&b"Content-Type"[..], JSON_CONTENT_TYPE)
-                .expect("static header"),
+            Header::from_bytes(&b"Content-Type"[..], JSON_CONTENT_TYPE).expect("static header"),
         );
     let _ = request.respond(response);
+}
+
+fn respond_markdown(request: Request, body: &'static str, etag: &str) {
+    let response = Response::from_string(body.to_string())
+        .with_status_code(200)
+        .with_header(
+            Header::from_bytes(&b"Content-Type"[..], MARKDOWN_CONTENT_TYPE).expect("static header"),
+        )
+        .with_header(Header::from_bytes(&b"ETag"[..], etag.as_bytes()).expect("etag header"));
+    let _ = request.respond(response);
+}
+
+fn skill_etag() -> String {
+    format!(
+        "\"{}\"",
+        hex::encode(Sha256::digest(SKILL_MARKDOWN.as_bytes()))
+    )
 }
 
 fn path_without_suffix(url: &str) -> &str {
@@ -740,6 +780,7 @@ mod tests {
         assert_eq!(guard(&head("POST", "/api/v1/create_card"), 8787), Ok(()));
         assert_eq!(guard(&head("POST", HEALTH_ENDPOINT), 8787), Ok(()));
         assert_eq!(guard(&head("POST", TOOLS_ENDPOINT), 8787), Ok(()));
+        assert_eq!(guard(&head("POST", SKILL_ENDPOINT), 8787), Ok(()));
     }
 
     #[test]
@@ -756,6 +797,20 @@ mod tests {
                 .status,
             405
         );
+        assert_eq!(
+            guard(&head("GET", SKILL_ENDPOINT), 8787)
+                .unwrap_err()
+                .status,
+            405
+        );
+    }
+
+    #[test]
+    fn embeds_the_canonical_skill_and_computes_a_stable_etag() {
+        assert!(SKILL_MARKDOWN.starts_with("---\n") || SKILL_MARKDOWN.starts_with("---\r\n"));
+        assert!(SKILL_MARKDOWN.contains("name: contextboard"));
+        assert_eq!(skill_etag(), skill_etag());
+        assert_eq!(skill_etag().len(), 66);
     }
 
     #[test]

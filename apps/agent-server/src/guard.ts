@@ -12,6 +12,7 @@ export type AgentGuardError = {
 const API_PREFIX = "/api/v1";
 const HEALTH_PATH = `${API_PREFIX}/_health`;
 const TOOLS_PATH = `${API_PREFIX}/_tools`;
+const SKILL_PATH = `${API_PREFIX}/_skill`;
 
 function failure(
 	status: AgentGuardError["status"],
@@ -47,7 +48,16 @@ function isToolPath(pathname: string) {
 	return (
 		pathname.startsWith(`${API_PREFIX}/`) &&
 		pathname !== HEALTH_PATH &&
-		pathname !== TOOLS_PATH
+		pathname !== TOOLS_PATH &&
+		pathname !== SKILL_PATH
+	);
+}
+
+function isDiscoveryPath(pathname: string) {
+	return (
+		pathname === HEALTH_PATH ||
+		pathname === TOOLS_PATH ||
+		pathname === SKILL_PATH
 	);
 }
 
@@ -60,14 +70,14 @@ export function guardRequest(
 	port: number,
 ): AgentGuardError | null {
 	const pathname = new URL(request.url).pathname;
-	const isHealthOrTools = pathname === HEALTH_PATH || pathname === TOOLS_PATH;
+	const isDiscovery = isDiscoveryPath(pathname);
 	const isTool = isToolPath(pathname);
-	if (!isHealthOrTools && !isTool)
+	if (!isDiscovery && !isTool)
 		return failure(404, "NOT_FOUND", "Unknown agent endpoint");
 
 	// GET is refused even for discovery: an <img> or <script> cannot read the
-	// JSON, but it can still time the response and probe whether ContextBoard
-	// is running on the loopback port.
+	// response, but it can still time it and probe whether ContextBoard is
+	// running on the loopback port.
 	if (request.method.toUpperCase() !== "POST")
 		return failure(
 			405,
