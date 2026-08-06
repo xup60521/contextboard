@@ -30,6 +30,19 @@ The server writes `~/.contextboard/agent-server.json` while running. The full
 HTTP contract, tool schemas, placement guidance, and recipes live in
 [`skills/contextboard/SKILL.md`](../../skills/contextboard/SKILL.md).
 
+The local server exposes the canonical skill document for agents that need to
+refresh their instructions:
+
+```sh
+curl -sS -X POST "http://127.0.0.1:<port>/api/v1/_skill" \
+  -H 'content-type: application/json' -d '{}'
+```
+
+The endpoint is loopback-only and POST-only, like `/_health` and `/_tools`. It
+returns the raw Markdown with `content-type: text/markdown; charset=utf-8` and
+an `ETag` based on the document contents. The desktop bridge exposes the same
+contract.
+
 Replica mode performs an initial sync before exposing the agent tools, then
 continues pulling remote changes every two seconds while the server is alive.
 Transient sync failures use bounded exponential backoff; stopping the server

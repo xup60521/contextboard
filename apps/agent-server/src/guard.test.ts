@@ -16,6 +16,8 @@ const tool = {
 	inputSchema: { type: "object" },
 	handler: async (input: Record<string, unknown>) => input,
 };
+const skillMarkdown = "# ContextBoard skill\n";
+const skillEtag = '"test-etag"';
 
 describe("agent-server loopback guard", () => {
 	test("allows guarded POST discovery with an empty JSON body", async () => {
@@ -24,6 +26,8 @@ describe("agent-server loopback guard", () => {
 			workspaceId: "workspace-1",
 			version: "test",
 			port: PORT,
+			skillMarkdown,
+			skillEtag,
 		});
 		const discovery = {
 			method: "POST",
@@ -32,6 +36,7 @@ describe("agent-server loopback guard", () => {
 		};
 		const health = await app.fetch(guarded("/api/v1/_health", discovery));
 		const tools = await app.fetch(guarded("/api/v1/_tools", discovery));
+		const skill = await app.fetch(guarded("/api/v1/_skill", discovery));
 		expect(health.status).toBe(200);
 		expect(health.headers.get("content-type")).toBe(
 			"application/json; charset=utf-8",
@@ -51,6 +56,12 @@ describe("agent-server loopback guard", () => {
 		expect(tools.headers.get("content-type")).toBe(
 			"application/json; charset=utf-8",
 		);
+		expect(skill.status).toBe(200);
+		expect(skill.headers.get("content-type")).toBe(
+			"text/markdown; charset=utf-8",
+		);
+		expect(skill.headers.get("etag")).toBe(skillEtag);
+		expect(await skill.text()).toBe(skillMarkdown);
 	});
 
 	test("requires POST for tools and discovery", () => {
@@ -61,6 +72,32 @@ describe("agent-server loopback guard", () => {
 		expect(
 			guardRequest(guarded("/api/v1/_health", { method: "GET" }), PORT),
 		).toMatchObject({ status: 405, code: "METHOD_NOT_ALLOWED" });
+		expect(
+			guardRequest(guarded("/api/v1/_skill", { method: "GET" }), PORT),
+		).toMatchObject({ status: 405, code: "METHOD_NOT_ALLOWED" });
+	});
+
+	test("requires an empty object for the skill document", async () => {
+		const app = createAgentHttpApp([tool], {
+			mode: "replica",
+			workspaceId: "workspace-1",
+			version: "test",
+			port: PORT,
+			skillMarkdown,
+			skillEtag,
+		});
+		const response = await app.fetch(
+			guarded("/api/v1/_skill", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ unexpected: true }),
+			}),
+		);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			ok: false,
+			error: { code: "INVALID_ARGUMENT" },
+		});
 	});
 
 	test("rejects paths, browser origins, and non-JSON tool calls", () => {
@@ -130,6 +167,8 @@ describe("agent-server loopback guard", () => {
 				workspaceId: "workspace-1",
 				version: "test",
 				port: PORT,
+				skillMarkdown,
+				skillEtag,
 			},
 		);
 		const response = await app.fetch(
