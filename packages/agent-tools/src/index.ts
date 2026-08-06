@@ -1,6 +1,11 @@
 import {
+	type ArrangeEdge,
+	type ArrangeNode,
+	type ArrangeStyle,
+	arrangeRelationLayout,
 	buildArrowRelationRecords,
 	collectArrowRelationRecordIds,
+	collectDirectedArrowRelations,
 } from "@contextboard/application/canvas";
 import {
 	cardContentToTextWithReferences,
@@ -534,6 +539,121 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 					expectedRevision: relation.revision,
 				});
 				return { deleted: true };
+			},
+		},
+		{
+			name: "arrange_cards",
+			description:
+				"Lay the cards on a whiteboard out from the arrows between them, as a tree or a mindmap. Draw the relations you want with create_relation and then call this instead of working out coordinates yourself. It reads the arrow directions, so the card an arrow starts at becomes the parent. Cards with no relation are left exactly where they are, as is anything the user drew by hand, and the arrangement is centred on where the cards already were so the board does not jump. Pass cardIds to arrange only part of the board; everything else then counts as an obstacle to keep clear of.",
+			inputSchema: object(
+				{
+					whiteboardId: string("The whiteboard to arrange."),
+					cardIds: {
+						type: "array",
+						items: { type: "string" },
+						description:
+							"Only arrange these cards. Omit to arrange every card on the board.",
+					},
+					style: {
+						type: "string",
+						enum: ["auto", "tree-horizontal", "tree-vertical", "mindmap"],
+						description:
+							"Layout to use. Defaults to auto, which picks a mindmap for a single well-branched hub and a left-to-right tree otherwise.",
+					},
+				},
+				["whiteboardId"],
+			),
+			handler: async (input) => {
+				const whiteboardId = requireString(input, "whiteboardId");
+				const style = (optionalString(input, "style") ??
+					"auto") as ArrangeStyle;
+				const only = Array.isArray(input.cardIds)
+					? new Set(
+							input.cardIds.filter(
+								(value): value is string => typeof value === "string",
+							),
+						)
+					: null;
+
+				const items = await canvas.listItems(whiteboardId);
+				const cardItems = items.filter(
+					(item) => item.kind === "card" && item.cardId,
+				);
+				const chosen = only
+					? cardItems.filter((item) => only.has(item.cardId as string))
+					: cardItems;
+
+				const itemByShapeId = new Map(
+					chosen.map((item) => [item.shapeId, item]),
+				);
+				const nodes: ArrangeNode[] = chosen.map((item) => ({
+					id: item.shapeId,
+					x: item.x,
+					y: item.y,
+					w: item.w,
+					h: item.h,
+				}));
+
+				// Direction has to come from the arrows themselves: the relation index
+				// canonicalises its endpoints, so it cannot say which card is the parent.
+				const document = await canvas.getDocument(whiteboardId);
+				const records = Object.values(
+					(document?.snapshot as { store?: Record<string, unknown> } | null)
+						?.store ?? {},
+				);
+				const edges: ArrangeEdge[] = [];
+				for (const relation of collectDirectedArrowRelations(records)) {
+					if (!itemByShapeId.has(relation.sourceShapeId)) continue;
+					if (!itemByShapeId.has(relation.targetShapeId)) continue;
+					edges.push({
+						source: relation.sourceShapeId,
+						target: relation.targetShapeId,
+					});
+				}
+
+				const obstacles = items
+					.filter((item) => !itemByShapeId.has(item.shapeId))
+					.map((item) => ({ x: item.x, y: item.y, w: item.w, h: item.h }));
+
+				const layout = arrangeRelationLayout(nodes, edges, {
+					style,
+					obstacles,
+				});
+
+				const arranged: {
+					itemId: string;
+					cardId: string;
+					x: number;
+					y: number;
+				}[] = [];
+				for (const [shapeId, position] of layout.positions) {
+					const item = itemByShapeId.get(shapeId);
+					if (!item) continue;
+					await canvas.updateItemFrame({
+						itemId: item.id,
+						x: position.x,
+						y: position.y,
+						w: item.w,
+						h: item.h,
+						rotation: item.rotation,
+						zIndex: item.zIndex,
+					});
+					arranged.push({
+						itemId: item.id,
+						cardId: item.cardId as string,
+						x: position.x,
+						y: position.y,
+					});
+				}
+
+				return {
+					style: layout.style,
+					arranged,
+					skippedCardIds: layout.skippedIds.flatMap((shapeId) => {
+						const cardId = itemByShapeId.get(shapeId)?.cardId;
+						return cardId ? [cardId] : [];
+					}),
+				};
 			},
 		},
 	];

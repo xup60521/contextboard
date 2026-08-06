@@ -606,3 +606,97 @@ describe("errors", () => {
 		expect(await call("get_card", { cardId: "card-missing" })).toBeNull();
 	});
 });
+
+describe("arrange_cards", () => {
+	/** A board with three cards, the first two related, the third not. */
+	async function board() {
+		const { call } = makeTools();
+		const { whiteboardId } = await call("create_whiteboard", {});
+		const ids: string[] = [];
+		for (const text of ["Root", "Child", "Loner"]) {
+			const { cardId } = await call("create_card", { text, whiteboardId });
+			ids.push(cardId);
+		}
+		const [root, child, loner] = ids;
+		await call("create_relation", {
+			whiteboardId,
+			sourceCardId: root,
+			targetCardId: child,
+		});
+		const frames = async () => {
+			const items = await call<Array<{ cardId: string; x: number; y: number }>>(
+				"list_board_items",
+				{ whiteboardId },
+			);
+			return new Map(
+				items.map((item) => [item.cardId, { x: item.x, y: item.y }]),
+			);
+		};
+		return { call, whiteboardId, root, child, loner, frames };
+	}
+
+	test("puts a related card in the layer after its parent", async () => {
+		const { call, whiteboardId, root, child, frames } = await board();
+
+		const result = await call("arrange_cards", { whiteboardId });
+
+		expect(result.style).toBe("tree-horizontal");
+		expect(result.arranged.length).toBeGreaterThan(0);
+		const after = await frames();
+		const rootFrame = after.get(root) as { x: number; y: number };
+		const childFrame = after.get(child) as { x: number; y: number };
+		expect(childFrame.x).toBeGreaterThan(rootFrame.x);
+		expect(childFrame.y).toBe(rootFrame.y);
+	});
+
+	test("leaves a card with no relation exactly where it was", async () => {
+		const { call, whiteboardId, loner, frames } = await board();
+		const before = await frames();
+
+		const result = await call("arrange_cards", { whiteboardId });
+
+		expect(result.skippedCardIds).toEqual([loner]);
+		expect((await frames()).get(loner)).toEqual(before.get(loner));
+	});
+
+	test("arranges only the cards it is given", async () => {
+		const { call, whiteboardId, root, child, loner, frames } = await board();
+		const before = await frames();
+
+		const result = await call("arrange_cards", {
+			whiteboardId,
+			cardIds: [root, child],
+		});
+
+		expect(
+			result.arranged.map((row: { cardId: string }) => row.cardId),
+		).not.toContain(loner);
+		expect((await frames()).get(loner)).toEqual(before.get(loner));
+	});
+
+	test("does nothing on a board with no arrows", async () => {
+		const { call } = makeTools();
+		const { whiteboardId } = await call("create_whiteboard", {});
+		await call("create_card", { text: "Alone", whiteboardId });
+
+		const result = await call("arrange_cards", { whiteboardId });
+
+		expect(result.arranged).toEqual([]);
+		expect(result.skippedCardIds).toHaveLength(1);
+	});
+
+	test("honours an explicit style", async () => {
+		const { call, whiteboardId, root, child, frames } = await board();
+
+		const result = await call("arrange_cards", {
+			whiteboardId,
+			style: "tree-vertical",
+		});
+
+		expect(result.style).toBe("tree-vertical");
+		const after = await frames();
+		expect((after.get(child) as { y: number }).y).toBeGreaterThan(
+			(after.get(root) as { y: number }).y,
+		);
+	});
+});

@@ -1,8 +1,0 @@
-
-ContextBoard device login
-
-  CODE  RHFT-RFVT
-  OPEN  http://localhost:3000/device?user_code=RHFT-RFVT
-
-Approve this request in the browser, then leave this command running.
-

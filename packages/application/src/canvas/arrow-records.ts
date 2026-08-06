@@ -175,6 +175,60 @@ export function buildArrowRelationRecords(
 	};
 }
 
+/** An arrow read back out of the records, with its direction intact. */
+export type DirectedArrowRelation = {
+	arrowShapeId: string;
+	/** Shape id at the arrow's tail. */
+	sourceShapeId: string;
+	/** Shape id at the arrow's head. */
+	targetShapeId: string;
+};
+
+/**
+ * Reads the arrows on a board back out of its records, keeping direction.
+ *
+ * The `cardRelation` index canonicalises its endpoints, because a hand-drawn
+ * arrow carries no agreed semantic and A→B is the same relation as B→A. Layout
+ * is the one caller that does need the direction — it decides which card is the
+ * parent — so it reads the bindings directly. Arrows bound at only one end (a
+ * loose end the user is still dragging) are ignored.
+ */
+export function collectDirectedArrowRelations(
+	records: readonly unknown[],
+): DirectedArrowRelation[] {
+	type BindingLike = RecordLike & {
+		type?: unknown;
+		fromId?: unknown;
+		toId?: unknown;
+		props?: { terminal?: unknown };
+	};
+
+	const terminals = new Map<string, { start?: string; end?: string }>();
+	for (const value of records) {
+		const record = asRecord(value) as BindingLike | null;
+		if (record?.typeName !== "binding" || record.type !== "arrow") continue;
+		if (typeof record.fromId !== "string" || typeof record.toId !== "string") {
+			continue;
+		}
+		const terminal = record.props?.terminal;
+		if (terminal !== "start" && terminal !== "end") continue;
+		const entry = terminals.get(record.fromId) ?? {};
+		entry[terminal] = record.toId;
+		terminals.set(record.fromId, entry);
+	}
+
+	const relations: DirectedArrowRelation[] = [];
+	for (const [arrowShapeId, entry] of terminals) {
+		if (!entry.start || !entry.end || entry.start === entry.end) continue;
+		relations.push({
+			arrowShapeId,
+			sourceShapeId: entry.start,
+			targetShapeId: entry.end,
+		});
+	}
+	return relations;
+}
+
 /**
  * Ids of the records that make up an arrow relation, for removal.
  *

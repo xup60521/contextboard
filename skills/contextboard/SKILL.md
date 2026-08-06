@@ -118,6 +118,7 @@ the machine.
 | `place_card` | `cardId`, `whiteboardId` | `x`, `y`, `w`, `h` | Place an existing card. |
 | `move_item` | `whiteboardId` (`null` for root), `itemId` | `x`, `y`, `w`, `h`, `rotation` | Move or resize a placement. |
 | `archive_item` | `itemId` | `deleteCards` | Remove one placement. |
+| `arrange_cards` | `whiteboardId` | `cardIds`, `style` | Lay cards out from the arrows between them. |
 
 ### Relations
 
@@ -133,6 +134,22 @@ Leave x and y out and the card is placed automatically in free space beside the 
 
 Use `list_board_items` before manually choosing coordinates. A card can have
 independent placements on several whiteboards.
+
+## Laying out related cards
+
+When several cards belong to one structure, do not compute coordinates for them.
+Create the cards, draw the arrows with `create_relation`, then call
+`arrange_cards` once. It reads the arrow directions — the card an arrow starts
+at becomes the parent — and produces a left-to-right tree, or a mindmap when one
+card is a well-branched hub. It also keeps arrows from crossing, which hand-placed
+coordinates almost never do.
+
+`arrange_cards` only moves cards that have a relation. Cards with none, and
+anything the user drew by hand, stay exactly where they are, and the result is
+centred on where the cards already were, so the board does not jump. Pass
+`cardIds` to arrange one structure on a busy board; the rest of the board then
+counts as space to keep clear of. `style` may be `auto` (default),
+`tree-horizontal`, `tree-vertical` or `mindmap`.
 
 ## References vs relations
 
@@ -174,6 +191,19 @@ Make sure both cards are on the same whiteboard, then call:
 curl -sS -X POST "http://127.0.0.1:${port}/api/v1/create_relation" \
   -H 'content-type: application/json' \
   -d '{"whiteboardId":"whiteboard-id","sourceCardId":"card-a","targetCardId":"card-b"}'
+```
+
+### Build a structure, then let the board lay it out
+
+Place the cards, relate them, and arrange once at the end:
+
+```sh
+curl -sS -X POST "http://127.0.0.1:${port}/api/v1/create_relation" \
+  -H 'content-type: application/json' \
+  -d '{"whiteboardId":"whiteboard-id","sourceCardId":"card-parent","targetCardId":"card-child"}'
+curl -sS -X POST "http://127.0.0.1:${port}/api/v1/arrange_cards" \
+  -H 'content-type: application/json' \
+  -d '{"whiteboardId":"whiteboard-id"}'
 ```
 
 ### Walk a whiteboard's items

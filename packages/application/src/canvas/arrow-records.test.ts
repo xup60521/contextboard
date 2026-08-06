@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildArrowRelationRecords,
 	collectArrowRelationRecordIds,
+	collectDirectedArrowRelations,
 } from "./arrow-records";
 
 // The real tldraw schema, so a malformed payload fails here rather than when
@@ -163,5 +164,75 @@ describe("collectArrowRelationRecordIds", () => {
 		expect(collectArrowRelationRecordIds("shape:arrow", [])).toEqual([
 			"shape:arrow",
 		]);
+	});
+});
+
+describe("collectDirectedArrowRelations", () => {
+	it("reads back the direction an arrow was built with", () => {
+		const built = buildArrowRelationRecords({
+			sourceShapeId: "shape:a",
+			targetShapeId: "shape:b",
+			records: [page],
+		});
+
+		expect(collectDirectedArrowRelations(built.records)).toEqual([
+			{
+				arrowShapeId: built.arrowShapeId,
+				sourceShapeId: "shape:a",
+				targetShapeId: "shape:b",
+			},
+		]);
+	});
+
+	it("keeps the two directions of a pair apart", () => {
+		const forward = buildArrowRelationRecords({
+			sourceShapeId: "shape:a",
+			targetShapeId: "shape:b",
+		});
+		const backward = buildArrowRelationRecords({
+			sourceShapeId: "shape:b",
+			targetShapeId: "shape:a",
+		});
+
+		const relations = collectDirectedArrowRelations([
+			...forward.records,
+			...backward.records,
+		]);
+
+		expect(
+			relations.map((relation) => [
+				relation.sourceShapeId,
+				relation.targetShapeId,
+			]),
+		).toEqual(
+			expect.arrayContaining([
+				["shape:a", "shape:b"],
+				["shape:b", "shape:a"],
+			]),
+		);
+		expect(relations).toHaveLength(2);
+	});
+
+	it("ignores an arrow that is only bound at one end", () => {
+		const built = buildArrowRelationRecords({
+			sourceShapeId: "shape:a",
+			targetShapeId: "shape:b",
+		});
+		const loose = built.records.filter(
+			(record) => (record as { id?: string }).id !== built.endBindingId,
+		);
+
+		expect(collectDirectedArrowRelations(loose)).toEqual([]);
+	});
+
+	it("ignores non-arrow records and unrelated bindings", () => {
+		expect(
+			collectDirectedArrowRelations([
+				page,
+				{ id: "binding:x", typeName: "binding", type: "note", fromId: "a" },
+				null,
+				"not a record",
+			]),
+		).toEqual([]);
 	});
 });
