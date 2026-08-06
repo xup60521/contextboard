@@ -102,7 +102,7 @@ export function WhiteboardCanvas({
 		tldrawDocument,
 		createCardItem,
 		createSubwhiteboardItem,
-		updateItemFrame,
+		updateItemFrames,
 		archiveItem,
 		archiveWhiteboard,
 		archiveCardsGlobally,
@@ -145,7 +145,7 @@ export function WhiteboardCanvas({
 		flushTimerRef,
 	} = useFrameSync({
 		editor,
-		updateItemFrame,
+		updateItemFrames,
 		latestItemsRef,
 		optimisticFramesRef,
 		hydratingRef,

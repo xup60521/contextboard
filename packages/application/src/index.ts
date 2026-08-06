@@ -42,6 +42,7 @@ export type {
 	ApplicationRuntime,
 	CanvasItem,
 	CanvasItemCard,
+	CanvasItemFrameUpdate,
 	CanvasItemWhiteboard,
 	CanvasService,
 	CardBacklink,

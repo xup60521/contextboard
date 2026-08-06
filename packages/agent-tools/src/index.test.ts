@@ -54,7 +54,7 @@ function makeTools() {
 		return ((document?.snapshot as { store?: Record<string, unknown> } | null)
 			?.store ?? {}) as Record<string, Record<string, unknown>>;
 	};
-	return { call, tools, store };
+	return { call, tools, store, database };
 }
 
 afterEach(async () => {
@@ -610,7 +610,7 @@ describe("errors", () => {
 describe("arrange_cards", () => {
 	/** A board with three cards, the first two related, the third not. */
 	async function board() {
-		const { call } = makeTools();
+		const { call, database } = makeTools();
 		const { whiteboardId } = await call("create_whiteboard", {});
 		const ids: string[] = [];
 		for (const text of ["Root", "Child", "Loner"]) {
@@ -632,11 +632,14 @@ describe("arrange_cards", () => {
 				items.map((item) => [item.cardId, { x: item.x, y: item.y }]),
 			);
 		};
-		return { call, whiteboardId, root, child, loner, frames };
+		return { call, whiteboardId, root, child, loner, frames, database };
 	}
 
 	test("puts a related card in the layer after its parent", async () => {
-		const { call, whiteboardId, root, child, frames } = await board();
+		const { call, whiteboardId, root, child, frames, database } = await board();
+		const batchCountBeforeArrange = (await database.changeLog.toArray()).filter(
+			(batch) => batch.command === "items.update",
+		).length;
 
 		const result = await call("arrange_cards", { whiteboardId });
 
@@ -647,6 +650,16 @@ describe("arrange_cards", () => {
 		const childFrame = after.get(child) as { x: number; y: number };
 		expect(childFrame.x).toBeGreaterThan(rootFrame.x);
 		expect(childFrame.y).toBe(rootFrame.y);
+
+		const newBatches = (await database.changeLog.toArray()).filter(
+			(batch) => batch.command === "items.update",
+		);
+		expect(newBatches).toHaveLength(batchCountBeforeArrange + 1);
+		const arrangeBatch = newBatches.at(-1);
+		expect(arrangeBatch?.changes).toHaveLength(result.arranged.length);
+		expect(arrangeBatch?.changes.every((change) =>
+			change.entityType === "boardItem",
+		)).toBe(true);
 	});
 
 	test("leaves a card with no relation exactly where it was", async () => {

@@ -152,6 +152,11 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			requireCanvas().updateItemFrame(input),
 		[requireCanvas],
 	);
+	const updateItemFrames = useCallback(
+		(input: Parameters<Canvas["updateItemFrames"]>[0]) =>
+			requireCanvas().updateItemFrames(input),
+		[requireCanvas],
+	);
 	const archiveItem = useCallback(
 		(input: Parameters<Canvas["archiveItem"]>[0]) =>
 			requireCanvas().archiveItem(input),
@@ -232,6 +237,7 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		createCardItem,
 		createSubwhiteboardItem,
 		updateItemFrame,
+		updateItemFrames,
 		archiveItem,
 		archiveWhiteboard,
 		archiveCardsGlobally,

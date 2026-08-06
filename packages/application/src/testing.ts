@@ -83,7 +83,6 @@ export function createMemoryWorkspaceRepository(
 			if (input.writes) {
 				if (!input.writes.length)
 					throw new Error("writes must contain at least 1 entry");
-				const materialized: Record<string, unknown>[] = [];
 				for (const write of input.writes) {
 					const rows = table(write.entity);
 					const existing = rows.get(write.id);
@@ -94,6 +93,11 @@ export function createMemoryWorkspaceRepository(
 						throw new WorkspaceConflictError(
 							`CONFLICT: revision mismatch for ${write.entity}:${write.id}`,
 						);
+				}
+				const materialized: Record<string, unknown>[] = [];
+				for (const write of input.writes) {
+					const rows = table(write.entity);
+					const existing = rows.get(write.id);
 					const timestamp = now();
 					const deleted = write.operation === "delete";
 					const next = {

@@ -626,10 +626,19 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 					x: number;
 					y: number;
 				}[] = [];
+				const frameUpdates: Array<{
+					itemId: string;
+					x: number;
+					y: number;
+					w: number;
+					h: number;
+					rotation: number;
+					zIndex: number;
+				}> = [];
 				for (const [shapeId, position] of layout.positions) {
 					const item = itemByShapeId.get(shapeId);
 					if (!item) continue;
-					await canvas.updateItemFrame({
+					frameUpdates.push({
 						itemId: item.id,
 						x: position.x,
 						y: position.y,
@@ -644,6 +653,9 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 						x: position.x,
 						y: position.y,
 					});
+				}
+				if (frameUpdates.length > 0) {
+					await canvas.updateItemFrames({ updates: frameUpdates });
 				}
 
 				return {

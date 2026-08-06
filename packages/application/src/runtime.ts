@@ -283,6 +283,16 @@ export type CanvasItem = {
 	childWhiteboard: CanvasItemWhiteboard | null;
 };
 
+export type CanvasItemFrameUpdate = {
+	itemId: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	rotation: number;
+	zIndex: number;
+};
+
 export type CreateCardItemResult = { itemId: string; cardId: string };
 
 export type TldrawDocument = {
@@ -344,15 +354,8 @@ export interface CanvasService {
 		h?: number;
 		rotation?: number;
 	}): Promise<string | null>;
-	updateItemFrame(input: {
-		itemId: string;
-		x: number;
-		y: number;
-		w: number;
-		h: number;
-		rotation: number;
-		zIndex: number;
-	}): Promise<void>;
+	updateItemFrame(input: CanvasItemFrameUpdate): Promise<void>;
+	updateItemFrames(input: { updates: CanvasItemFrameUpdate[] }): Promise<void>;
 	archiveItem(input: { itemId: string; deleteCards?: boolean }): Promise<void>;
 	saveDocument(input: {
 		whiteboardId: string | null;
