@@ -46,7 +46,7 @@ type DesktopStorageState =
 	| Exclude<DesktopRuntimeState, { status: "ready" }>
 	| Omit<
 			Extract<DesktopRuntimeState, { status: "ready" }>,
-			"adoptWorkspaceId"
+			| "adoptWorkspaceId"
 			| "setWorkspaceId"
 			| "mergeWorkspace"
 			| "deleteWorkspace"
@@ -73,6 +73,14 @@ async function connectQuietly(repository: {
 	}
 }
 
+function markDesktopPerformance(name: string) {
+	try {
+		if (typeof performance !== "undefined") performance.mark(name);
+	} catch {
+		// Performance marks are diagnostics only.
+	}
+}
+
 export function DesktopRuntimeProvider({
 	children,
 	invoke,
@@ -87,26 +95,44 @@ export function DesktopRuntimeProvider({
 	 * this provider, and a leaked listener would repaint against the old store.
 	 */
 	const disconnect = useRef<(() => void) | null>(null);
-
-	useEffect(() => {
-		let active = true;
-
-		void (async () => {
-			try {
-				const bootstrap = await bootstrapDesktop(invoke);
-				const workspaceId =
-					(await readDesktopSetting("workspaceId", invoke)) ??
-					DEFAULT_DESKTOP_WORKSPACE_ID;
-				if (!active) return;
-				const repository = createDesktopRepository(workspaceId, invoke);
-				const stop = await connectQuietly(repository);
-				// The awaits above can resolve after teardown, so the listener has
-				// to be dropped here rather than left for the cleanup to find.
-				if (!active) {
+	const activeRef = useRef(false);
+	const connectionGeneration = useRef(0);
+	const connectRepository = useCallback(
+		(repository: Parameters<typeof connectQuietly>[0]) => {
+			const generation = ++connectionGeneration.current;
+			disconnect.current?.();
+			disconnect.current = null;
+			void connectQuietly(repository).then((stop) => {
+				if (!activeRef.current || connectionGeneration.current !== generation) {
 					stop();
 					return;
 				}
 				disconnect.current = stop;
+			});
+		},
+		[],
+	);
+
+	useEffect(() => {
+		let active = true;
+		activeRef.current = true;
+		const startupGeneration = ++connectionGeneration.current;
+
+		void (async () => {
+			try {
+				const [bootstrap, storedWorkspaceId] = await Promise.all([
+					bootstrapDesktop(invoke),
+					readDesktopSetting("workspaceId", invoke),
+				]);
+				const workspaceId = storedWorkspaceId ?? DEFAULT_DESKTOP_WORKSPACE_ID;
+				if (
+					!active ||
+					!activeRef.current ||
+					connectionGeneration.current !== startupGeneration
+				)
+					return;
+				const repository = createDesktopRepository(workspaceId, invoke);
+				markDesktopPerformance("contextboard:desktop-runtime-ready");
 				setState(
 					bootstrap.storageAvailable
 						? { status: "ready", repository, workspaceId, bootstrap }
@@ -117,6 +143,9 @@ export function DesktopRuntimeProvider({
 								reason: "Desktop storage is not available in this build",
 							},
 				);
+				// Native event subscription is useful for freshness but is not needed
+				// before the first usable render.
+				connectRepository(repository);
 			} catch (error: unknown) {
 				if (!active) return;
 				setState({
@@ -131,10 +160,12 @@ export function DesktopRuntimeProvider({
 
 		return () => {
 			active = false;
+			activeRef.current = false;
+			connectionGeneration.current += 1;
 			disconnect.current?.();
 			disconnect.current = null;
 		};
-	}, [invoke]);
+	}, [connectRepository, invoke]);
 
 	/**
 	 * Moves this device onto a server-issued workspace id. The repository is
@@ -146,17 +177,15 @@ export function DesktopRuntimeProvider({
 				return;
 			await state.repository.adopt(nextWorkspaceId);
 			await writeDesktopSetting("workspaceId", nextWorkspaceId, invoke);
-			disconnect.current?.();
-			disconnect.current = null;
 			const repository = createDesktopRepository(nextWorkspaceId, invoke);
-			disconnect.current = await connectQuietly(repository);
+			connectRepository(repository);
 			setState((current) =>
 				current.status === "ready"
 					? { ...current, workspaceId: nextWorkspaceId, repository }
 					: current,
 			);
 		},
-		[invoke, state],
+		[connectRepository, invoke, state],
 	);
 
 	/**
@@ -168,17 +197,15 @@ export function DesktopRuntimeProvider({
 			if (state.status !== "ready" || state.workspaceId === nextWorkspaceId)
 				return;
 			await writeDesktopSetting("workspaceId", nextWorkspaceId, invoke);
-			disconnect.current?.();
-			disconnect.current = null;
 			const repository = createDesktopRepository(nextWorkspaceId, invoke);
-			disconnect.current = await connectQuietly(repository);
+			connectRepository(repository);
 			setState((current) =>
 				current.status === "ready"
 					? { ...current, workspaceId: nextWorkspaceId, repository }
 					: current,
 			);
 		},
-		[invoke, state],
+		[connectRepository, invoke, state],
 	);
 
 	const mergeWorkspace = useCallback(
@@ -216,13 +243,7 @@ export function DesktopRuntimeProvider({
 						deleteWorkspace,
 					}
 				: state,
-		[
-			adoptWorkspaceId,
-			deleteWorkspace,
-			mergeWorkspace,
-			setWorkspaceId,
-			state,
-		],
+		[adoptWorkspaceId, deleteWorkspace, mergeWorkspace, setWorkspaceId, state],
 	);
 
 	return (

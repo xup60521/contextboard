@@ -88,7 +88,7 @@ pub fn desktop_bootstrap() -> DesktopBootstrap {
 }
 
 #[tauri::command]
-pub fn workspace_query(
+pub async fn workspace_query(
     storage: State<'_, Storage>,
     workspace_id: String,
     query: Value,
@@ -97,7 +97,7 @@ pub fn workspace_query(
 }
 
 #[tauri::command]
-pub fn workspace_execute(
+pub async fn workspace_execute(
     storage: State<'_, Storage>,
     workspace_id: String,
     command: Value,
@@ -106,7 +106,7 @@ pub fn workspace_execute(
 }
 
 #[tauri::command]
-pub fn workspace_pending_batches(
+pub async fn workspace_pending_batches(
     storage: State<'_, Storage>,
     workspace_id: String,
     limit: u32,
@@ -115,7 +115,7 @@ pub fn workspace_pending_batches(
 }
 
 #[tauri::command]
-pub fn workspace_acknowledge(
+pub async fn workspace_acknowledge(
     storage: State<'_, Storage>,
     workspace_id: String,
     change_ids: Vec<String>,
@@ -127,7 +127,7 @@ pub fn workspace_acknowledge(
 }
 
 #[tauri::command]
-pub fn workspace_apply_remote(
+pub async fn workspace_apply_remote(
     storage: State<'_, Storage>,
     workspace_id: String,
     batches: Value,
@@ -140,7 +140,7 @@ pub fn workspace_apply_remote(
 }
 
 #[tauri::command]
-pub fn workspace_sync_state(
+pub async fn workspace_sync_state(
     storage: State<'_, Storage>,
     workspace_id: String,
     peer_id: String,
@@ -151,7 +151,7 @@ pub fn workspace_sync_state(
 }
 
 #[tauri::command]
-pub fn workspace_read_blob(
+pub async fn workspace_read_blob(
     storage: State<'_, Storage>,
     workspace_id: String,
     hash: String,
@@ -168,7 +168,7 @@ pub fn workspace_read_blob(
 }
 
 #[tauri::command]
-pub fn workspace_missing_blobs(
+pub async fn workspace_missing_blobs(
     storage: State<'_, Storage>,
     workspace_id: String,
 ) -> Result<Value, CommandError> {
@@ -179,7 +179,7 @@ pub fn workspace_missing_blobs(
 }
 
 #[tauri::command]
-pub fn workspace_store_blob(
+pub async fn workspace_store_blob(
     storage: State<'_, Storage>,
     workspace_id: String,
     descriptor: BlobDescriptor,
@@ -192,7 +192,7 @@ pub fn workspace_store_blob(
 }
 
 #[tauri::command]
-pub fn workspace_device_id(
+pub async fn workspace_device_id(
     storage: State<'_, Storage>,
     workspace_id: String,
 ) -> Result<String, CommandError> {
@@ -200,7 +200,7 @@ pub fn workspace_device_id(
 }
 
 #[tauri::command]
-pub fn workspace_has_data(
+pub async fn workspace_has_data(
     storage: State<'_, Storage>,
     workspace_id: String,
 ) -> Result<bool, CommandError> {
@@ -208,7 +208,7 @@ pub fn workspace_has_data(
 }
 
 #[tauri::command]
-pub fn workspace_adopt(
+pub async fn workspace_adopt(
     storage: State<'_, Storage>,
     workspace_id: String,
     target_workspace_id: String,
@@ -220,7 +220,7 @@ pub fn workspace_adopt(
 }
 
 #[tauri::command]
-pub fn workspace_merge(
+pub async fn workspace_merge(
     storage: State<'_, Storage>,
     from: String,
     to: String,
@@ -229,7 +229,7 @@ pub fn workspace_merge(
 }
 
 #[tauri::command]
-pub fn workspace_delete(
+pub async fn workspace_delete(
     storage: State<'_, Storage>,
     workspace_id: String,
 ) -> Result<Value, CommandError> {
@@ -240,12 +240,12 @@ pub fn workspace_delete(
 }
 
 #[tauri::command]
-pub fn workspace_list_local(storage: State<'_, Storage>) -> Result<Vec<String>, CommandError> {
+pub async fn workspace_list_local(storage: State<'_, Storage>) -> Result<Vec<String>, CommandError> {
     storage.list_local_workspaces().map_err(Into::into)
 }
 
 #[tauri::command]
-pub fn desktop_setting(
+pub async fn desktop_setting(
     storage: State<'_, Storage>,
     key: String,
 ) -> Result<Option<String>, CommandError> {
@@ -253,7 +253,7 @@ pub fn desktop_setting(
 }
 
 #[tauri::command]
-pub fn desktop_set_setting(
+pub async fn desktop_set_setting(
     storage: State<'_, Storage>,
     key: String,
     value: String,
