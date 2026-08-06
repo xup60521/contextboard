@@ -236,6 +236,146 @@ describe("repository canvas capability", () => {
 		expect(detail?.placements).toEqual([]);
 	});
 
+	test("updates multiple item frames with one atomic repository command", async () => {
+		const { whiteboards, canvas, repository } = setup();
+		const rootId = await whiteboards.createRoot();
+		const first = await canvas.createCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:first",
+		});
+		const second = await canvas.createCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:second",
+		});
+		const commandCount = repository.pendingCommands.length;
+
+		await canvas.updateItemFrames({
+			updates: [
+				{
+					itemId: first.itemId,
+					x: 100,
+					y: 200,
+					w: 300,
+					h: 400,
+					rotation: 0.1,
+					zIndex: 5,
+				},
+				{
+					itemId: second.itemId,
+					x: 500,
+					y: 600,
+					w: 700,
+					h: 800,
+					rotation: 0.2,
+					zIndex: 6,
+				},
+			],
+		});
+
+		expect(repository.pendingCommands.slice(commandCount)).toEqual([
+			"items.update",
+		]);
+		expect(await canvas.listItems(rootId)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: first.itemId,
+					x: 100,
+					y: 200,
+					w: 300,
+					h: 400,
+					rotation: 0.1,
+					zIndex: 5,
+				}),
+				expect.objectContaining({
+					id: second.itemId,
+					x: 500,
+					y: 600,
+					w: 700,
+					h: 800,
+					rotation: 0.2,
+					zIndex: 6,
+				}),
+			]),
+		);
+	});
+
+	test("rejects duplicate item ids before issuing a write", async () => {
+		const { whiteboards, canvas, repository } = setup();
+		const rootId = await whiteboards.createRoot();
+		const { itemId } = await canvas.createCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:duplicate",
+		});
+		const commandCount = repository.pendingCommands.length;
+		const update = {
+			itemId,
+			x: 1,
+			y: 2,
+			w: 3,
+			h: 4,
+			rotation: 0,
+			zIndex: 5,
+		};
+
+		await expect(
+			canvas.updateItemFrames({ updates: [update, update] }),
+		).rejects.toThrow(/same item twice/);
+		expect(repository.pendingCommands.length).toBe(commandCount);
+	});
+
+	test("keeps a stale multi-write frame command atomic", async () => {
+		const { whiteboards, canvas, repository } = setup();
+		const rootId = await whiteboards.createRoot();
+		const first = await canvas.createCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:atomic-first",
+		});
+		const second = await canvas.createCardItem({
+			whiteboardId: rootId,
+			shapeId: "shape:atomic-second",
+		});
+		const firstRow = await repository.query<Record<string, unknown> | null>({
+			type: "items.get",
+			input: { id: first.itemId },
+		});
+		const secondRow = await repository.query<Record<string, unknown> | null>({
+			type: "items.get",
+			input: { id: second.itemId },
+		});
+		if (!firstRow || !secondRow) throw new Error("expected both items");
+
+		await expect(
+			repository.execute({
+				type: "items.update",
+				input: {
+					writes: [
+						{
+							entity: "boardItem",
+							operation: "upsert",
+							id: first.itemId,
+							value: { ...firstRow, x: 111 },
+							expectedRevision: Number(firstRow.revision),
+						},
+						{
+							entity: "boardItem",
+							operation: "upsert",
+							id: second.itemId,
+							value: { ...secondRow, x: 222 },
+							expectedRevision: Number(secondRow.revision) + 1,
+						},
+					],
+				},
+			}),
+		).rejects.toThrow(/CONFLICT/);
+
+		expect(await canvas.listItems(rootId)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: first.itemId, x: 0 }),
+				expect.objectContaining({ id: second.itemId, x: 0 }),
+			]),
+		);
+	});
+
 	test("archiveItem without deleteCards detaches the placement and keeps the card", async () => {
 		const { whiteboards, canvas, cards } = setup();
 		const rootId = await whiteboards.createRoot();

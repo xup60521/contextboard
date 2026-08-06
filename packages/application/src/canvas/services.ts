@@ -14,6 +14,7 @@ import {
 } from "../repository/entities";
 import type {
 	CanvasItem,
+	CanvasItemFrameUpdate,
 	CanvasRecordDelta,
 	CanvasRecordSaveResult,
 	CanvasService,
@@ -356,6 +357,55 @@ export function createRepositoryCanvasService(
 			: null;
 	}
 
+	async function applyItemFrameUpdates(
+		updates: CanvasItemFrameUpdate[],
+	): Promise<void> {
+		if (updates.length === 0) return;
+
+		const itemIds = new Set<string>();
+		for (const update of updates) {
+			if (itemIds.has(update.itemId)) {
+				throw new Error(
+					`A frame batch cannot update the same item twice: ${update.itemId}`,
+				);
+			}
+			itemIds.add(update.itemId);
+		}
+
+		await withRetry(async () => {
+			const timestamp = now();
+			const rows = await Promise.all(
+				updates.map((update) => getRow(repository, "items", update.itemId)),
+			);
+			const writes: Parameters<typeof applyWrites>[2] = [];
+
+			for (const [index, update] of updates.entries()) {
+				const row = rows[index];
+				if (!row) throw new Error(`Item not found: ${update.itemId}`);
+
+				writes.push({
+					entity: "boardItem",
+					operation: "upsert",
+					id: row.id,
+					value: {
+						...row,
+						x: update.x,
+						y: update.y,
+						w: update.w,
+						h: update.h,
+						rotation: update.rotation,
+						zIndex: update.zIndex,
+						updatedAt: timestamp,
+						updatedByDeviceId: deviceId,
+					},
+					expectedRevision: row.revision,
+				});
+			}
+
+			await applyWrites(repository, "items.update", writes);
+		});
+	}
+
 	return {
 		async listItems(whiteboardId: string | null): Promise<CanvasItem[]> {
 			const [items, boards, cards] = await Promise.all([
@@ -525,30 +575,12 @@ export function createRepositoryCanvasService(
 			return result.itemId;
 		},
 
-		async updateItemFrame(input) {
-			await withRetry(async () => {
-				const row = await getRow(repository, "items", input.itemId);
-				if (!row) throw new Error("Item not found");
-				await applyWrites(repository, "items.update", [
-					{
-						entity: "boardItem",
-						operation: "upsert",
-						id: row.id,
-						value: {
-							...row,
-							x: input.x,
-							y: input.y,
-							w: input.w,
-							h: input.h,
-							rotation: input.rotation,
-							zIndex: input.zIndex,
-							updatedAt: now(),
-							updatedByDeviceId: deviceId,
-						},
-						expectedRevision: row.revision,
-					},
-				]);
-			});
+		updateItemFrame(input) {
+			return applyItemFrameUpdates([input]);
+		},
+
+		updateItemFrames({ updates }) {
+			return applyItemFrameUpdates(updates);
 		},
 
 		async archiveItem({ itemId, deleteCards }) {

@@ -10,20 +10,18 @@ import { rehydrateItemShape, type BoardItemResult } from "../whiteboard-canvas-h
 
 export function useFrameSync({
 	editor,
-	updateItemFrame,
+	updateItemFrames,
 	latestItemsRef,
 	optimisticFramesRef,
 	hydratingRef,
 }: {
 	editor: Editor | null;
-	updateItemFrame: (args: {
-		itemId: Id<"boardItems">;
-		x: number;
-		y: number;
-		w: number;
-		h: number;
-		rotation: number;
-		zIndex: number;
+	updateItemFrames: (args: {
+		updates: Array<
+			WhiteboardFrame & {
+				itemId: Id<"boardItems">;
+			}
+		>;
 	}) => Promise<unknown>;
 	latestItemsRef: RefObject<Map<Id<"boardItems">, BoardItemResult>>;
 	optimisticFramesRef: MutableRefObject<Map<Id<"boardItems">, SequencedFrame>>;
@@ -40,27 +38,49 @@ export function useFrameSync({
 		const queuedFrames = queuedFrameUpdatesRef.current;
 		queuedFrameUpdatesRef.current = new Map();
 
-		for (const [itemId, sequencedFrame] of queuedFrames) {
-			void updateItemFrame({ itemId, ...sequencedFrame.frame }).catch(() => {
+		if (queuedFrames.size === 0) return;
+
+		void updateItemFrames({
+			updates: [...queuedFrames].map(([itemId, sequencedFrame]) => ({
+				itemId,
+				...sequencedFrame.frame,
+			})),
+		}).catch(() => {
+			const itemsToRehydrate: BoardItemResult[] = [];
+
+			for (const [itemId, sequencedFrame] of queuedFrames) {
 				const currentFrame = optimisticFramesRef.current.get(itemId);
 				if (!shouldClearOptimisticFrame(currentFrame, sequencedFrame.seq)) {
-					return;
+					continue;
 				}
 
 				optimisticFramesRef.current.delete(itemId);
 				const latestItem = latestItemsRef.current?.get(itemId);
-				if (!latestItem || !editor) return;
+				if (latestItem) itemsToRehydrate.push(latestItem);
+			}
 
-				hydratingRef.current = true;
-				editor.run(() => rehydrateItemShape(editor, latestItem), {
-					history: "ignore",
-				});
-				window.setTimeout(() => {
-					hydratingRef.current = false;
-				}, 0);
-			});
-		}
-	}, [editor, hydratingRef, latestItemsRef, optimisticFramesRef, updateItemFrame]);
+			if (!editor || itemsToRehydrate.length === 0) return;
+
+			hydratingRef.current = true;
+			editor.run(
+				() => {
+					for (const item of itemsToRehydrate) {
+						rehydrateItemShape(editor, item);
+					}
+				},
+				{ history: "ignore" },
+			);
+			window.setTimeout(() => {
+				hydratingRef.current = false;
+			}, 0);
+		});
+	}, [
+		editor,
+		hydratingRef,
+		latestItemsRef,
+		optimisticFramesRef,
+		updateItemFrames,
+	]);
 
 	const queueFrameUpdate = useCallback(
 		(itemId: Id<"boardItems">, frame: WhiteboardFrame) => {
