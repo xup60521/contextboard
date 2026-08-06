@@ -5,6 +5,7 @@ import {
 	createServerAuth,
 	dataRoot,
 	desktopOrigins,
+	publicAppUrl,
 } from "./configuration";
 import { SyncStore } from "./store";
 
@@ -18,6 +19,7 @@ const port = Number(process.env.PORT ?? 8788);
 const app = createSyncApp(store, auth, {
 	crossOriginAllowlist: desktopOrigins(),
 	allowedEmails: emailAllowlist,
+	publicAppUrl: publicAppUrl(),
 });
 
 Bun.serve({

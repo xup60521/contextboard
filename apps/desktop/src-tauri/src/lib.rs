@@ -1,5 +1,5 @@
+mod agent;
 mod auth;
-mod bridge;
 mod commands;
 mod storage;
 
@@ -10,7 +10,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(auth::AuthHandoffState::default())
-        .manage(bridge::BridgeState::default())
+        .manage(agent::AgentState::default())
+        .manage(agent::AgentServerState::default())
         .setup(|app| {
             let root = app
                 .path()
@@ -18,24 +19,29 @@ pub fn run() {
                 .map_err(|error| format!("Unable to resolve desktop app data: {error}"))?;
             let storage = storage::Storage::open(root)
                 .map_err(|error| format!("Unable to initialize desktop storage: {error:?}"))?;
-            let enabled = bridge::is_enabled(&storage).unwrap_or(false);
-            let port = bridge::configured_port(&storage).unwrap_or(bridge::DEFAULT_PORT);
+            let enabled = agent::is_enabled(&storage).unwrap_or(false);
+            let port = agent::configured_port(&storage).unwrap_or(agent::DEFAULT_PORT);
             app.manage(storage);
-            // Only resumes a bridge the user previously switched on. A failure
+            // Only resumes the agent server the user previously switched on. A failure
             // to bind must not stop the app from starting; the settings panel
-            // reports the bridge as off and the user can retry on another port.
+            // reports the server as off and the user can retry on another port.
             if enabled {
                 if let Err(error) = app
-                    .state::<bridge::BridgeState>()
+                    .state::<agent::AgentServerState>()
                     .start(port, app.handle().clone())
                 {
-                    eprintln!("Agent bridge did not start: {}", error.message);
+                    eprintln!("Local agent server did not start: {}", error.message);
                 }
             }
             Ok(())
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                let agent = window.app_handle().state::<agent::AgentState>();
+                window
+                    .app_handle()
+                    .state::<agent::AgentServerState>()
+                    .stop(&agent);
                 window.app_handle().exit(0);
             }
         })
@@ -53,10 +59,16 @@ pub fn run() {
             commands::workspace_device_id,
             commands::workspace_has_data,
             commands::workspace_adopt,
+            commands::workspace_merge,
+            commands::workspace_delete,
+            commands::workspace_list_local,
             commands::desktop_setting,
             commands::desktop_set_setting,
             commands::desktop_bridge_status,
             commands::desktop_bridge_set_enabled,
+            commands::desktop_agent_subscribe,
+            commands::desktop_agent_respond,
+            commands::desktop_agent_unsubscribe,
             commands::desktop_auth_start,
             commands::desktop_auth_wait,
             commands::desktop_auth_cancel,

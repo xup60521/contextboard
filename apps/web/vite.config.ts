@@ -18,6 +18,10 @@ const config = defineConfig({
     viteReact(),
     babel({ presets: [reactCompilerPreset()] }),
   ],
+  // Keep tldraw's `?url` asset imports out of Rolldown's Windows dependency
+  // optimizer; Vite's normal transform handles them correctly.
+  optimizeDeps: { exclude: ['@tldraw/assets'] },
+  ssr: { optimizeDeps: { exclude: ['@tldraw/assets'] } },
   server: {host:true}
 })
 

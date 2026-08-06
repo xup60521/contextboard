@@ -1,25 +1,24 @@
 {
-  "name": "@contextboard/agent-mcp",
+  "name": "@contextboard/agent-server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "bin": { "contextboard-mcp": "./src/index.ts" },
+  "bin": { "contextboard": "./src/cli.ts" },
   "scripts": {
-    "dev": "bun run src/index.ts",
-    "start": "bun run src/index.ts",
+    "dev": "bun run src/cli.ts serve",
+    "start": "bun run src/cli.ts serve",
     "build": "tsc --noEmit",
     "check": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "@contextboard/agent-tools": "workspace:*",
     "@contextboard/application": "workspace:*",
     "@contextboard/client-core": "workspace:*",
     "@contextboard/local-db": "workspace:*",
-    "@contextboard/storage-bridge": "workspace:*",
     "@contextboard/storage-indexeddb": "workspace:*",
     "@contextboard/sync-protocol": "workspace:*",
-    "fflate": "^0.8.2",
-    "@modelcontextprotocol/sdk": "^1.22.0"
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "@types/bun": "latest",

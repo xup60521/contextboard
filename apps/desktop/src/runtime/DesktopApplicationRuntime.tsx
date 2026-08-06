@@ -10,6 +10,7 @@ import {
 } from "@contextboard/application";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";
+import { DesktopAgentBridge } from "./DesktopAgentBridge";
 import { useDesktopRuntime } from "./DesktopRuntimeProvider";
 import { useDesktopSync } from "./DesktopSyncProvider";
 import { createDesktopFileRuntime } from "./desktopFileRuntime";
@@ -42,7 +43,9 @@ export function DesktopApplicationRuntime({
 			cards: createRepositoryCardsService(repository),
 			relations: createRepositoryCardRelationsService(repository),
 			search: createRepositorySearchService(repository),
-			whiteboards: createRepositoryWhiteboardsService(repository),
+			whiteboards: createRepositoryWhiteboardsService(repository, {
+				workspaceId,
+			}),
 			canvas: createRepositoryCanvasService(repository, { workspaceId }),
 			files: createDesktopFileRuntime(repository),
 			navigation: {
@@ -75,10 +78,16 @@ export function DesktopApplicationRuntime({
 		return { ...capabilities, sync };
 	}, [capabilities, desktopSync.message, desktopSync.state]);
 
-	if (!runtime) return null;
+	if (!runtime || !runtime.whiteboards || !runtime.canvas) return null;
 
 	return (
 		<ApplicationRuntimeProvider runtime={runtime}>
+			<DesktopAgentBridge
+				cards={runtime.cards}
+				whiteboards={runtime.whiteboards}
+				canvas={runtime.canvas}
+				relations={runtime.relations}
+			/>
 			{children}
 		</ApplicationRuntimeProvider>
 	);

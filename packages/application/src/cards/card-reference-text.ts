@@ -4,7 +4,7 @@
  * Cards are stored as ProseMirror documents, and a reference to another card is
  * an ordinary `link` mark carrying `cardId` / `cardLabelMode` / `resolvedTitle`
  * (see `packages/editor/src/card-reference/card-link.ts`). Programmatic callers
- * — the MCP agent gateway — read and write plain text, so this module round
+ * — the local agent server — read and write plain text, so this module round
  * trips those documents through markdown.
  *
  * Both directions have to cover the same subset. `update_card` replaces the

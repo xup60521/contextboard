@@ -1,24 +1,41 @@
-import { readFile, stat } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	readFile,
+	stat,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { homedir, platform } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 /**
  * Credentials for a headless agent box.
  *
  * The desktop shell authenticates through a GitHub popup and stores the result
- * in the OS keyring; a remote box has neither a browser nor a keyring, so it
- * reads a long-lived agent token issued from the Web UI instead. This module
- * only locates and validates that token — see `apps/sync-server/src/agent-tokens.ts`
- * for how it is minted and revoked.
+ * in the OS keyring; a remote box has no keyring, so it holds a long-lived agent
+ * token in this file instead. The token normally arrives through the device
+ * login in `device-login.ts`; this module only locates and validates it — see
+ * `apps/sync-server/src/agent-tokens.ts` for how it is minted and revoked.
  */
 export type AgentCredentials = {
 	token: string;
 	/** Origin of the public endpoint, i.e. the Worker, not the sync server. */
 	serverUrl: string;
+	/** Optional metadata used by `contextboard logout`; env credentials omit it. */
+	tokenId?: string;
 };
 
 export const CREDENTIALS_DIRECTORY = ".contextboard";
 export const CREDENTIALS_FILENAME = "credentials.json";
+
+/**
+ * Leads with the command rather than the environment variables: device login is
+ * the normal path, and the variables are for containers that cannot open a
+ * browser at all.
+ */
+export const NOT_LOGGED_IN_MESSAGE =
+	"Not logged in. Run `contextboard login`, or set CONTEXTBOARD_AGENT_TOKEN and CONTEXTBOARD_SYNC_URL.";
 
 export class CredentialsError extends Error {
 	constructor(message: string) {
@@ -62,7 +79,11 @@ function parseCredentials(raw: string, source: string): AgentCredentials {
 	} catch {
 		throw new CredentialsError(`${source} is not valid JSON`);
 	}
-	const record = parsed as { token?: unknown; serverUrl?: unknown };
+	const record = parsed as {
+		token?: unknown;
+		serverUrl?: unknown;
+		tokenId?: unknown;
+	};
 	if (typeof record?.token !== "string" || !record.token.trim())
 		throw new CredentialsError(`${source} is missing a "token" string`);
 	if (typeof record?.serverUrl !== "string" || !record.serverUrl.trim())
@@ -70,7 +91,38 @@ function parseCredentials(raw: string, source: string): AgentCredentials {
 	return {
 		token: record.token.trim(),
 		serverUrl: record.serverUrl.trim().replace(/\/+$/, ""),
+		...(typeof record.tokenId === "string" && record.tokenId.trim()
+			? { tokenId: record.tokenId.trim() }
+			: {}),
 	};
+}
+
+export async function writeAgentCredentials(
+	credentials: AgentCredentials,
+	home = homedir(),
+) {
+	const path = credentialsPath(home);
+	await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+	const body = {
+		token: credentials.token,
+		serverUrl: credentials.serverUrl,
+		...(credentials.tokenId ? { tokenId: credentials.tokenId } : {}),
+	};
+	await writeFile(path, `${JSON.stringify(body, null, 2)}\n`, {
+		encoding: "utf8",
+		mode: 0o600,
+	});
+	await chmod(path, 0o600).catch(() => undefined);
+	return path;
+}
+
+export async function removeAgentCredentials(home = homedir()) {
+	try {
+		await unlink(credentialsPath(home));
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**

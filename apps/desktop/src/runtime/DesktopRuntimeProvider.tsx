@@ -11,6 +11,7 @@ import {
 import {
 	bootstrapDesktop,
 	createDesktopRepository,
+	invokeDesktop,
 	type Invoke,
 	readDesktopSetting,
 	writeDesktopSetting,
@@ -43,7 +44,13 @@ export function useDesktopInvoke(): Invoke | undefined {
  */
 type DesktopStorageState =
 	| Exclude<DesktopRuntimeState, { status: "ready" }>
-	| Omit<Extract<DesktopRuntimeState, { status: "ready" }>, "adoptWorkspaceId">;
+	| Omit<
+			Extract<DesktopRuntimeState, { status: "ready" }>,
+			"adoptWorkspaceId"
+			| "setWorkspaceId"
+			| "mergeWorkspace"
+			| "deleteWorkspace"
+	  >;
 
 export type DesktopRuntimeProviderProps = {
 	children: ReactNode;
@@ -152,9 +159,70 @@ export function DesktopRuntimeProvider({
 		[invoke, state],
 	);
 
+	/**
+	 * Selects a workspace without moving any rows. Each repository is bound to
+	 * its id, so switching tears down the old listener and creates a new adapter.
+	 */
+	const setWorkspaceId = useCallback(
+		async (nextWorkspaceId: string) => {
+			if (state.status !== "ready" || state.workspaceId === nextWorkspaceId)
+				return;
+			await writeDesktopSetting("workspaceId", nextWorkspaceId, invoke);
+			disconnect.current?.();
+			disconnect.current = null;
+			const repository = createDesktopRepository(nextWorkspaceId, invoke);
+			disconnect.current = await connectQuietly(repository);
+			setState((current) =>
+				current.status === "ready"
+					? { ...current, workspaceId: nextWorkspaceId, repository }
+					: current,
+			);
+		},
+		[invoke, state],
+	);
+
+	const mergeWorkspace = useCallback(
+		async (fromWorkspaceId: string) => {
+			if (state.status !== "ready" || state.workspaceId === fromWorkspaceId)
+				return;
+			await invokeDesktop(
+				"workspace_merge",
+				{ from: fromWorkspaceId, to: state.workspaceId },
+				invoke,
+			);
+		},
+		[invoke, state],
+	);
+
+	const deleteWorkspace = useCallback(
+		async (workspaceId: string) => {
+			if (state.status !== "ready")
+				throw new Error("The desktop workspace is not ready");
+			if (state.workspaceId === workspaceId)
+				throw new Error("The active workspace cannot be deleted");
+			await invokeDesktop("workspace_delete", { workspaceId }, invoke);
+		},
+		[invoke, state],
+	);
+
 	const value = useMemo<DesktopRuntimeState>(
-		() => (state.status === "ready" ? { ...state, adoptWorkspaceId } : state),
-		[adoptWorkspaceId, state],
+		() =>
+			state.status === "ready"
+				? {
+						...state,
+						adoptWorkspaceId,
+						setWorkspaceId,
+						mergeWorkspace,
+						deleteWorkspace,
+					}
+				: state,
+		[
+			adoptWorkspaceId,
+			deleteWorkspace,
+			mergeWorkspace,
+			setWorkspaceId,
+			state,
+		],
 	);
 
 	return (

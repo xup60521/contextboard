@@ -13,6 +13,7 @@ apps/*/src-tauri/target
 .env
 .nitro
 .tanstack
+.tmp/
 .turbo
 .wrangler
 .output

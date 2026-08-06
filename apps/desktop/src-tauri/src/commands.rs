@@ -1,9 +1,9 @@
+use crate::agent::{self, AgentError, AgentErrorBody, AgentRequest, AgentServerState, AgentState};
 use crate::auth::{self, AuthError, AuthHandoff, AuthHandoffState};
-use crate::bridge::{self, BridgeError, BridgeState};
 use crate::storage::{BlobDescriptor, Storage, StorageError};
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, State};
+use tauri::{ipc::Channel, AppHandle, State};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -46,10 +46,10 @@ impl From<StorageError> for CommandError {
     }
 }
 
-impl From<BridgeError> for CommandError {
-    fn from(value: BridgeError) -> Self {
+impl From<AgentError> for CommandError {
+    fn from(value: AgentError) -> Self {
         Self {
-            code: "BRIDGE_FAILED",
+            code: "AGENT_SERVER_FAILED",
             message: value.message,
         }
     }
@@ -220,6 +220,31 @@ pub fn workspace_adopt(
 }
 
 #[tauri::command]
+pub fn workspace_merge(
+    storage: State<'_, Storage>,
+    from: String,
+    to: String,
+) -> Result<Value, CommandError> {
+    storage.merge_workspace(&from, &to).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn workspace_delete(
+    storage: State<'_, Storage>,
+    workspace_id: String,
+) -> Result<Value, CommandError> {
+    storage
+        .delete_workspace(&workspace_id)
+        .map(|_| Value::Null)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn workspace_list_local(storage: State<'_, Storage>) -> Result<Vec<String>, CommandError> {
+    storage.list_local_workspaces().map_err(Into::into)
+}
+
+#[tauri::command]
 pub fn desktop_setting(
     storage: State<'_, Storage>,
     key: String,
@@ -241,51 +266,83 @@ pub fn desktop_set_setting(
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct BridgeStatus {
+pub struct AgentServerStatus {
     pub enabled: bool,
     pub port: Option<u16>,
     /// The port that would be used on the next start, so the settings panel can
-    /// show an address before the bridge is switched on.
+    /// show an address before the agent server is switched on.
     pub configured_port: u16,
 }
 
-fn bridge_status(storage: &Storage, state: &BridgeState) -> Result<BridgeStatus, CommandError> {
-    Ok(BridgeStatus {
+fn bridge_status(
+    storage: &Storage,
+    state: &AgentServerState,
+) -> Result<AgentServerStatus, CommandError> {
+    Ok(AgentServerStatus {
         enabled: state.port().is_some(),
         port: state.port(),
-        configured_port: bridge::configured_port(storage)?,
+        configured_port: agent::configured_port(storage)?,
     })
 }
 
 #[tauri::command]
 pub fn desktop_bridge_status(
     storage: State<'_, Storage>,
-    state: State<'_, BridgeState>,
-) -> Result<BridgeStatus, CommandError> {
+    state: State<'_, AgentServerState>,
+) -> Result<AgentServerStatus, CommandError> {
     bridge_status(&storage, &state)
 }
 
-/// Turning the bridge on lets any program on this machine read and write the
+/// Turning the local agent server on lets any program on this machine read and write the
 /// workspace, so it is off until the user asks for it and the choice is
 /// persisted rather than inferred.
 #[tauri::command]
 pub fn desktop_bridge_set_enabled(
     app: AppHandle,
     storage: State<'_, Storage>,
-    state: State<'_, BridgeState>,
+    state: State<'_, AgentServerState>,
+    agent_state: State<'_, AgentState>,
     enabled: bool,
-) -> Result<BridgeStatus, CommandError> {
+) -> Result<AgentServerStatus, CommandError> {
     if enabled {
-        let port = bridge::configured_port(&storage)?;
+        let port = agent::configured_port(&storage)?;
         state.start(port, app)?;
     } else {
-        state.stop();
+        state.stop(&agent_state);
     }
     storage.set_setting(
-        bridge::ENABLED_SETTING_KEY,
+        agent::ENABLED_SETTING_KEY,
         if enabled { "true" } else { "false" },
     )?;
     bridge_status(&storage, &state)
+}
+
+#[tauri::command]
+pub fn desktop_agent_subscribe(
+    state: State<'_, AgentState>,
+    channel: Channel<AgentRequest>,
+    tools: Vec<String>,
+) -> u64 {
+    state.subscribe(channel, tools)
+}
+
+#[tauri::command]
+pub fn desktop_agent_respond(
+    state: State<'_, AgentState>,
+    generation: u64,
+    id: u64,
+    ok: bool,
+    result: Option<Value>,
+    error: Option<AgentErrorBody>,
+) -> Value {
+    state.respond(generation, id, ok, result, error);
+    Value::Null
+}
+
+#[tauri::command]
+pub fn desktop_agent_unsubscribe(state: State<'_, AgentState>, generation: u64) -> Value {
+    state.unsubscribe(generation);
+    Value::Null
 }
 
 /// Binds the loopback listener and hands the sign-in page to the user's real
@@ -296,13 +353,15 @@ pub fn desktop_auth_start(
     base_url: String,
 ) -> Result<AuthHandoff, CommandError> {
     let started = handoff.start(&base_url)?;
-    tauri_plugin_opener::open_url(started.authorize_url.clone(), None::<&str>).map_err(|error| {
-        handoff.cancel();
-        CommandError {
-            code: "AUTH_FAILED",
-            message: format!("Unable to open the browser: {error}"),
-        }
-    })?;
+    tauri_plugin_opener::open_url(started.authorize_url.clone(), None::<&str>).map_err(
+        |error| {
+            handoff.cancel();
+            CommandError {
+                code: "AUTH_FAILED",
+                message: format!("Unable to open the browser: {error}"),
+            }
+        },
+    )?;
     Ok(started)
 }
 
@@ -343,9 +402,7 @@ pub fn desktop_auth_token() -> Result<Option<String>, CommandError> {
 
 #[tauri::command]
 pub fn desktop_auth_clear() -> Result<Value, CommandError> {
-    auth::clear_token()
-        .map(|_| Value::Null)
-        .map_err(Into::into)
+    auth::clear_token().map(|_| Value::Null).map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -354,7 +411,10 @@ mod tests {
 
     #[test]
     fn auth_errors_are_typed_without_leaking_internals() {
-        assert_eq!(CommandError::from(AuthError::TimedOut).code, "AUTH_TIMED_OUT");
+        assert_eq!(
+            CommandError::from(AuthError::TimedOut).code,
+            "AUTH_TIMED_OUT"
+        );
         assert_eq!(
             CommandError::from(AuthError::Provider("access denied".into())).code,
             "AUTH_FAILED"

@@ -157,6 +157,37 @@ describe("private API gateway", () => {
 		expect(directFetch).not.toHaveBeenCalled();
 	});
 
+	test("uses the device limiter and anonymous IP keys for device flow", async () => {
+		const directFetch = vi.fn(async () => Response.json({ ok: true }));
+		const deviceLimit = vi.fn(async () => ({ success: false }));
+		const syncLimit = vi.fn(async () => ({ success: true }));
+		vi.stubGlobal("fetch", directFetch);
+		const response = await proxyPrivateApi(
+			new Request("http://localhost/api/sync/v1/device/token", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					cookie: "session=secret",
+					authorization: "Bearer secret",
+					"cf-connecting-ip": "203.0.113.9",
+				},
+				body: JSON.stringify({ deviceCode: "cbdc_test" }),
+			}),
+			{
+				SYNC_VPS_URL: "http://127.0.0.1:8788",
+				SYNC_RATE_LIMIT: { limit: syncLimit } as unknown as RateLimit,
+				DEVICE_RATE_LIMIT: { limit: deviceLimit } as unknown as RateLimit,
+			},
+		);
+		expect(response.status).toBe(429);
+		expect(deviceLimit).toHaveBeenCalledOnce();
+		expect(syncLimit).not.toHaveBeenCalled();
+		expect(deviceLimit.mock.calls[0]?.[0].key).toBe(
+			"anonymous:203.0.113.9",
+		);
+		expect(directFetch).not.toHaveBeenCalled();
+	});
+
 	test("passes an abortable timeout signal and redacts failure logs", async () => {
 		const directFetch = vi.fn(async (request: Request) => {
 			expect(request.signal).toBeInstanceOf(AbortSignal);

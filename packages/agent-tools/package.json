@@ -1,5 +1,5 @@
 {
-  "name": "@contextboard/storage-bridge",
+  "name": "@contextboard/agent-tools",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,11 +10,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@contextboard/client-core": "workspace:*",
-    "@contextboard/sync-protocol": "workspace:*"
+    "@contextboard/application": "workspace:*"
   },
   "devDependencies": {
-    "@contextboard/application": "workspace:*",
     "@contextboard/storage-indexeddb": "workspace:*",
     "@types/bun": "latest",
     "fake-indexeddb": "^6.2.4",

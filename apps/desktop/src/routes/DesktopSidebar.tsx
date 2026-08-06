@@ -50,6 +50,8 @@ export function DesktopSidebar() {
 		syncNow: signedIn ? sync.syncNow : undefined,
 		createWorkspace: signedIn ? sync.createWorkspace : undefined,
 		workspaceSelectionRequired: sync.workspaceSelectionRequired,
+		workspaces: signedIn ? sync.workspaces : undefined,
+		switchWorkspace: signedIn ? sync.switchWorkspace : undefined,
 		settings: <DesktopSettingsDialog />,
 	};
 	return <AppSidebar footer={footer} />;

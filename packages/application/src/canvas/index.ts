@@ -6,6 +6,7 @@ export * from "./plan/append-card";
 export * from "./plan/archive-card";
 export * from "./plan/archive-item";
 export * from "./plan/archive-whiteboard-tree";
+export * from "./plan/arrange-relations";
 export * from "./plan/create-card-item";
 export * from "./plan/create-subwhiteboard";
 export * from "./plan/place-card-frame";

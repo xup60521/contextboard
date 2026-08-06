@@ -76,10 +76,7 @@ impl AuthHandoffState {
     }
 
     pub fn take(&self) -> Option<TcpListener> {
-        self.listener
-            .lock()
-            .expect("auth mutex poisoned")
-            .take()
+        self.listener.lock().expect("auth mutex poisoned").take()
     }
 
     pub fn cancel(&self) {
@@ -164,7 +161,8 @@ fn parse_callback(request_line: &str) -> Result<Option<String>, AuthError> {
     if let Some(error) = error {
         return Err(AuthError::Provider(sanitize_message(&error)));
     }
-    let token = token.ok_or_else(|| AuthError::Invalid("The sign-in response had no token".into()))?;
+    let token =
+        token.ok_or_else(|| AuthError::Invalid("The sign-in response had no token".into()))?;
     validate_token(&token)?;
     Ok(Some(token))
 }
@@ -341,9 +339,9 @@ mod tests {
         let state = AuthHandoffState::default();
         let handoff = state.start("http://localhost:3000").unwrap();
         assert!(handoff.redirect_uri.starts_with("http://127.0.0.1:"));
-        assert!(handoff.authorize_url.starts_with(
-            "http://localhost:3000/desktop-auth?redirect=http%3A%2F%2F127.0.0.1%3A"
-        ));
+        assert!(handoff
+            .authorize_url
+            .starts_with("http://localhost:3000/desktop-auth?redirect=http%3A%2F%2F127.0.0.1%3A"));
         assert!(state.take().is_some());
         assert!(state.take().is_none());
     }

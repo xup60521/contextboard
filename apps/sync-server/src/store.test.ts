@@ -7,6 +7,7 @@ import {
 	SYNC_PROTOCOL_VERSION,
 	SYNC_SCHEMA_VERSION,
 } from "@contextboard/sync-protocol";
+import { hashDeviceCode } from "./device-codes";
 import { SyncStore } from "./store";
 
 const roots: string[] = [];
@@ -49,6 +50,101 @@ afterEach(() => {
 });
 
 describe("SyncStore", () => {
+	test("device authorization can be approved only once", () => {
+		const store = createStore();
+		const created = store.createDeviceCode({
+			clientName: "contextboard-cli",
+			deviceName: "test-box",
+		});
+		expect(
+			store.decideDeviceCode(
+				created.userCode,
+				"user-1",
+				"one@example.com",
+				"approve",
+				1_000,
+			),
+		).toBe(true);
+		expect(
+			store.decideDeviceCode(
+				created.userCode,
+				"user-2",
+				"two@example.com",
+				"deny",
+				1_001,
+			),
+		).toBe(false);
+		store.close();
+	});
+
+	test("slows down early polls and expires a replayed approval", () => {
+		const store = createStore();
+		const pending = store.createDeviceCode({
+			clientName: "contextboard-cli",
+			intervalSeconds: 5,
+		});
+		expect(store.pollDeviceCode(pending.deviceCode, 1_000).status).toBe("pending");
+		const slowed = store.pollDeviceCode(pending.deviceCode, 1_001);
+		expect(slowed).toEqual({ status: "slow_down", intervalSeconds: 10 });
+
+		const approved = store.createDeviceCode({
+			clientName: "contextboard-cli",
+			deviceName: "replay-box",
+		});
+		store.decideDeviceCode(
+			approved.userCode,
+			"user-1",
+			"one@example.com",
+			"approve",
+			10_000,
+		);
+		const first = store.pollDeviceCode(approved.deviceCode, 10_000);
+		expect(first.status).toBe("approved");
+		expect(store.pollDeviceCode(approved.deviceCode, 20_000)).toEqual({
+			status: "expired",
+		});
+		store.close();
+	});
+
+	test("uses injected time for expiry and enforces the poll ceiling", () => {
+		const store = createStore();
+		const expired = store.createDeviceCode({ clientName: "contextboard-cli", ttlMs: 100 });
+		expect(store.pollDeviceCode(expired.deviceCode, expired.expiresAt)).toEqual({
+			status: "expired",
+		});
+
+		const ceiling = store.createDeviceCode({ clientName: "contextboard-cli" });
+		store.db
+			.prepare("UPDATE device_codes SET poll_count = ? WHERE device_code_hash = ?")
+			.run(200, hashDeviceCode(ceiling.deviceCode));
+		expect(store.pollDeviceCode(ceiling.deviceCode, Date.now())).toEqual({
+			status: "expired",
+		});
+		store.close();
+	});
+
+	test("mints a listed ordinary agent token with the device name", () => {
+		const store = createStore();
+		const created = store.createDeviceCode({
+			clientName: "contextboard-cli",
+			deviceName: "macbook-pro",
+		});
+		store.decideDeviceCode(
+			created.userCode,
+			"user-1",
+			"one@example.com",
+			"approve",
+			1_000,
+		);
+		const result = store.pollDeviceCode(created.deviceCode, 1_000);
+		expect(result.status).toBe("approved");
+		if (result.status !== "approved") return;
+		expect(result.token).toStartWith("cbat_");
+		expect(store.listAgentTokens("user-1")[0]?.name).toBe(
+			"contextboard-cli (macbook-pro)",
+		);
+		store.close();
+	});
 	test("deduplicates retries by change id and device sequence", () => {
 		const store = createStore();
 		const first = store.push("workspace-1", [batch(1)]);

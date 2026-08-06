@@ -417,7 +417,7 @@ describe("tldraw persistence", () => {
 	});
 });
 
-// The MCP gateway writes arrow records without a live Editor. A mistake there
+// The local agent server writes arrow records without a live Editor. A mistake there
 // would not surface until someone opened the board, so assert the records it
 // builds survive the hydration path.
 describe("agent-authored arrow records", () => {

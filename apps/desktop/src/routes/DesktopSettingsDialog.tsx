@@ -10,6 +10,7 @@ import {
 import { Settings } from "lucide-react";
 import { useState } from "react";
 import { AgentBridgeSection } from "./AgentBridgeSection";
+import { WorkspaceSection } from "./WorkspaceSection";
 
 /**
  * Desktop settings.
@@ -37,10 +38,11 @@ export function DesktopSettingsDialog() {
 				<DialogHeader>
 					<DialogTitle>Settings</DialogTitle>
 					<DialogDescription>
-						Options that apply to this computer only.
+						Preferences for this computer and its workspace.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="flex flex-col gap-6">
+					<WorkspaceSection />
 					<AgentBridgeSection />
 				</div>
 			</DialogContent>

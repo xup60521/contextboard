@@ -30,6 +30,14 @@
         "limit": 120,
         "period": 60
       }
+    },
+    {
+      "name": "DEVICE_RATE_LIMIT",
+      "namespace_id": "41003",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
     }
   ],
   "env": {
@@ -51,6 +59,14 @@
         {
           "name": "BLOB_RATE_LIMIT",
           "namespace_id": "41002",
+          "simple": {
+            "limit": 120,
+            "period": 60
+          }
+        },
+        {
+          "name": "DEVICE_RATE_LIMIT",
+          "namespace_id": "41003",
           "simple": {
             "limit": 120,
             "period": 60

@@ -26,7 +26,7 @@ import type {
 } from "@contextboard/sync-protocol";
 import { gunzipSync, strFromU8 } from "fflate";
 import type { AgentCredentials } from "./credentials";
-import { loadAgentCredentials } from "./credentials";
+import { loadAgentCredentials, NOT_LOGGED_IN_MESSAGE } from "./credentials";
 
 export const REPLICA_FILENAME = "replica.sqlite";
 export const DEVICE_FILENAME = "device.json";
@@ -52,7 +52,7 @@ async function readDeviceId(path: string) {
 	}
 }
 
-/** Loads the same device id on every MCP invocation on the remote box. */
+/** Loads the same device id on every agent-server invocation on the remote box. */
 export async function loadOrCreateDeviceId(
 	options: { home?: string; path?: string; fallbackDeviceId?: string } = {},
 ) {
@@ -188,7 +188,7 @@ async function selectReplicaWorkspace(
 	return workspaceId;
 }
 
-/** Adds the replica's flush-on-write guarantee without changing MCP tools. */
+/** Adds the replica's flush-on-write guarantee without changing agent tools. */
 export class FlushOnWriteWorkspaceRepository implements WorkspaceRepository {
 	constructor(
 		private readonly inner: WorkspaceRepository,
@@ -247,6 +247,7 @@ export type ReplicaRuntime = {
 	coordinator: SyncCoordinator;
 	workspaceId: string;
 	deviceId: string;
+	flush(): Promise<void>;
 	close(): Promise<void>;
 };
 
@@ -262,10 +263,7 @@ export async function createReplicaRuntime(
 	const credentials =
 		options.credentials ??
 		(await loadAgentCredentials({ env, home: options.home }));
-	if (!credentials)
-		throw new Error(
-			"Replica mode requires CONTEXTBOARD_AGENT_TOKEN or ~/.contextboard/credentials.json",
-		);
+	if (!credentials) throw new Error(NOT_LOGGED_IN_MESSAGE);
 
 	const databasePath =
 		options.databasePath ??
@@ -322,7 +320,7 @@ export async function createReplicaRuntime(
 				if (!(await baseRepository.getPendingBatches(1)).length) return;
 			}
 		};
-		// The first sync is awaited before the repository is handed to the MCP
+		// The first sync is awaited before the repository is handed to the agent
 		// tools. No tool can observe a stale cold-start replica.
 		await flush();
 		const repository = new FlushOnWriteWorkspaceRepository(
@@ -336,6 +334,7 @@ export async function createReplicaRuntime(
 			coordinator,
 			workspaceId,
 			deviceId: identity.deviceId,
+			flush,
 			close: async () => {
 				try {
 					await flush();

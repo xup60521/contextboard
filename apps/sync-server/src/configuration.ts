@@ -25,6 +25,10 @@ export function allowedEmails() {
 	return parseAllowedEmails(required("CONTEXTBOARD_ALLOWED_EMAILS"));
 }
 
+export function publicAppUrl() {
+	return new URL(required("BETTER_AUTH_URL")).origin;
+}
+
 export function createServerAuth() {
 	return createContextboardAuth({
 		databasePath: join(dataRoot, "auth.sqlite"),
