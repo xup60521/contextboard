@@ -305,6 +305,114 @@ describe("card placement and reference capabilities", () => {
 	});
 });
 
+describe("batched card detail reads", () => {
+	/**
+	 * Builds a board holding `count` placed cards, each of which is referenced by
+	 * one other card so every detail carries placements, breadcrumbs and a
+	 * backlink.
+	 */
+	const fixture = async (count: number) => {
+		const { cards, repository } = service();
+		const whiteboards = createRepositoryWhiteboardsService(repository, {
+			createId: () => "board-1",
+		});
+		const whiteboardId = await whiteboards.createRoot();
+		const targets: string[] = [];
+		for (let index = 0; index < count; index += 1) {
+			const target = await cards.create({
+				content: textToCardContent(`Target ${index}`),
+			});
+			const source = await cards.create({
+				content: textToCardContent(`Source ${index}`),
+			});
+			await cards.updateContent({
+				cardId: source,
+				content: {
+					type: "doc",
+					content: [
+						{
+							type: "paragraph",
+							content: [
+								{
+									type: "text",
+									text: `Target ${index}`,
+									marks: [{ type: "cardReference", attrs: { cardId: target } }],
+								},
+							],
+						},
+					],
+				},
+			});
+			targets.push(target);
+		}
+		await cards.appendManyToWhiteboard({ cardIds: targets, whiteboardId });
+		return { cards, repository, targets };
+	};
+
+	test("getMany matches per-card get, in the requested order", async () => {
+		const { cards, targets } = await fixture(3);
+		const ids = [targets[2], targets[0], "missing", targets[1]];
+
+		const batched = await cards.getMany(ids);
+		const individually = await Promise.all(ids.map((id) => cards.get(id)));
+
+		expect(batched).toEqual(individually);
+		expect(batched.map((row) => row?.id ?? null)).toEqual([
+			targets[2],
+			targets[0],
+			null,
+			targets[1],
+		]);
+		// The fixture is only meaningful if it actually exercises each branch.
+		expect(batched[0]?.backlinks).toHaveLength(1);
+		expect(batched[0]?.placements).toHaveLength(1);
+		expect(batched[0]?.breadcrumbs).toHaveLength(1);
+	});
+
+	test("getMany issues a constant number of reads regardless of card count", async () => {
+		const small = await fixture(2);
+		small.repository.queryLog.length = 0;
+		await small.cards.getMany(small.targets);
+
+		const large = await fixture(12);
+		large.repository.queryLog.length = 0;
+		await large.cards.getMany(large.targets);
+
+		expect(large.repository.queryLog.length).toBe(
+			small.repository.queryLog.length,
+		);
+		// cards(by id), items, cardReferences, whiteboards, backlink sources.
+		expect(large.repository.queryLog.map((query) => query.type)).toEqual([
+			"cards.list",
+			"items.list",
+			"cardReferences.list",
+			"whiteboards.list",
+			"cards.list",
+		]);
+	});
+
+	test("getMany never reads the whole card table", async () => {
+		const { cards, repository, targets } = await fixture(3);
+		repository.queryLog.length = 0;
+		await cards.getMany(targets);
+		// Card rows carry their full content, so every card read must be scoped
+		// to a known set of ids.
+		const unscoped = repository.queryLog.filter(
+			(query) =>
+				query.type === "cards.list" &&
+				!Array.isArray((query.input as { ids?: unknown } | undefined)?.ids),
+		);
+		expect(unscoped).toEqual([]);
+	});
+
+	test("getMany of nothing reads nothing", async () => {
+		const { cards, repository } = await fixture(1);
+		repository.queryLog.length = 0;
+		expect(await cards.getMany([])).toEqual([]);
+		expect(repository.queryLog).toEqual([]);
+	});
+});
+
 describe("recovering cards stored with a serialized document", () => {
 	test("reads a double-encoded row back as a document", async () => {
 		// Rows written before restore/adopt learned to parse the canvas's
