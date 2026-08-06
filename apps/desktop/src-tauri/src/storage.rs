@@ -1,4 +1,5 @@
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::types::Value as SqlValue;
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -26,6 +27,7 @@ const ENTITY_TYPES: &[&str] = &[
     "todo",
 ];
 const MERGE_BATCH_SIZE: usize = 200;
+const LIST_QUERY_CHUNK_SIZE: usize = 400;
 
 #[derive(Debug)]
 pub enum StorageError {
@@ -97,7 +99,15 @@ impl Storage {
         let operation = operation(request)?;
         let (entity_type, mode) =
             query_operation(operation).ok_or(StorageError::UnknownOperation)?;
-        let input = request.get("input").and_then(Value::as_object);
+        let input = match request.get("input") {
+            None | Some(Value::Null) => None,
+            Some(Value::Object(input)) => Some(input),
+            Some(_) => {
+                return Err(StorageError::Invalid(
+                    "Query input must be an object".into(),
+                ))
+            }
+        };
         let connection = self.connection.lock().expect("storage mutex poisoned");
         if mode == "get" {
             let id = input
@@ -115,16 +125,12 @@ impl Storage {
                 .map(|v| v.unwrap_or(Value::Null))
                 .map_err(Into::into);
         }
-        let mut statement = connection.prepare(
-            "SELECT value_json FROM entities WHERE workspace_id=?1 AND entity_type=?2 AND deleted=0 ORDER BY entity_id"
-        )?;
-        let rows = statement.query_map(params![workspace, entity_type], |row| {
-            row.get::<_, String>(0)
-        })?;
-        let values = rows
-            .map(|row| serde_json::from_str(&row?).map_err(StorageError::from))
-            .collect::<Result<Vec<Value>, StorageError>>()?;
-        Ok(Value::Array(values))
+        Ok(Value::Array(query_entity_list(
+            &connection,
+            workspace,
+            entity_type,
+            input,
+        )?))
     }
 
     pub fn execute(&self, workspace: &str, request: &Value) -> Result<Value, StorageError> {
@@ -936,6 +942,7 @@ fn migrate(connection: &Connection) -> Result<(), StorageError> {
       CREATE TABLE IF NOT EXISTS blobs(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,content_type TEXT NOT NULL,present INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS workspace_blobs(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,hash TEXT NOT NULL REFERENCES blobs(hash) ON DELETE CASCADE,PRIMARY KEY(workspace_id,hash));
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS entities_whiteboard ON entities(workspace_id, entity_type, json_extract(value_json, '$.whiteboardId'));
       COMMIT;")?;
     let version: Option<i64> = connection
         .query_row("SELECT version FROM schema_meta LIMIT 1", [], |r| r.get(0))
@@ -1038,6 +1045,125 @@ fn operation(value: &Value) -> Result<&str, StorageError> {
         .and_then(Value::as_str)
         .ok_or(StorageError::UnknownOperation)
 }
+
+struct EntityListFilter {
+    ids: Option<Vec<String>>,
+    whiteboard_id: Option<Option<String>>,
+}
+
+fn parse_entity_list_filter(
+    input: Option<&serde_json::Map<String, Value>>,
+    entity_type: &str,
+) -> Result<EntityListFilter, StorageError> {
+    let ids = match input.and_then(|value| value.get("ids")) {
+        None => None,
+        Some(value) => {
+            let values = value
+                .as_array()
+                .ok_or_else(|| StorageError::Invalid("ids must be an array".into()))?;
+            let mut ids = Vec::with_capacity(values.len());
+            for value in values {
+                let id = value.as_str().ok_or_else(|| {
+                    StorageError::Invalid("ids must contain non-empty strings".into())
+                })?;
+                validate_id(id, "entityId")?;
+                ids.push(id.to_owned());
+            }
+            ids.sort();
+            ids.dedup();
+            Some(ids)
+        }
+    };
+
+    let whiteboard_id = match input.and_then(|value| value.get("whiteboardId")) {
+        None => None,
+        Some(value) => {
+            if !matches!(
+                entity_type,
+                "boardItem" | "canvasRecord" | "tldrawDocument" | "cardRelation"
+            ) {
+                return Err(StorageError::Invalid(format!(
+                    "whiteboardId filtering is not supported for {entity_type}"
+                )));
+            }
+            Some(match value {
+                Value::Null => None,
+                Value::String(value) => {
+                    validate_id(value, "whiteboardId")?;
+                    Some(value.clone())
+                }
+                _ => {
+                    return Err(StorageError::Invalid(
+                        "whiteboardId must be a string or null".into(),
+                    ))
+                }
+            })
+        }
+    };
+
+    Ok(EntityListFilter { ids, whiteboard_id })
+}
+
+fn query_entity_list(
+    connection: &Connection,
+    workspace: &str,
+    entity_type: &str,
+    input: Option<&serde_json::Map<String, Value>>,
+) -> Result<Vec<Value>, StorageError> {
+    let filter = parse_entity_list_filter(input, entity_type)?;
+    if filter.ids.as_ref().is_some_and(Vec::is_empty) {
+        return Ok(Vec::new());
+    }
+
+    let empty_ids: &[String] = &[];
+    let chunks = filter
+        .ids
+        .as_deref()
+        .map(|ids| ids.chunks(LIST_QUERY_CHUNK_SIZE).collect::<Vec<_>>())
+        .unwrap_or_else(|| vec![empty_ids]);
+    let mut values = Vec::<(String, Value)>::new();
+
+    for ids in chunks {
+        let mut sql = String::from(
+            "SELECT entity_id, value_json FROM entities WHERE workspace_id=? AND entity_type=? AND deleted=0",
+        );
+        let mut parameters = vec![
+            SqlValue::Text(workspace.to_owned()),
+            SqlValue::Text(entity_type.to_owned()),
+        ];
+
+        if !ids.is_empty() {
+            sql.push_str(" AND entity_id IN (");
+            sql.push_str(&vec!["?"; ids.len()].join(","));
+            sql.push(')');
+            parameters.extend(ids.iter().cloned().map(SqlValue::Text));
+        }
+
+        if let Some(whiteboard_id) = &filter.whiteboard_id {
+            match whiteboard_id {
+                Some(whiteboard_id) => {
+                    sql.push_str(" AND json_extract(value_json, '$.whiteboardId') = ?");
+                    parameters.push(SqlValue::Text(whiteboard_id.clone()));
+                }
+                None => sql.push_str(" AND json_extract(value_json, '$.whiteboardId') IS NULL"),
+            }
+        }
+
+        sql.push_str(" ORDER BY entity_id");
+        let mut statement = connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(parameters.iter()), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, value_json) = row?;
+            values.push((id, serde_json::from_str(&value_json)?));
+        }
+    }
+
+    values.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(values.into_iter().map(|(_, value)| value).collect())
+}
+
 fn query_operation(value: &str) -> Option<(&'static str, &'static str)> {
     let (prefix, action) = value.split_once('.')?;
     let entity = match prefix {
@@ -1230,6 +1356,111 @@ mod tests {
                 .unwrap()["title"],
             "Saved"
         );
+    }
+
+    #[test]
+    fn list_queries_filter_by_whiteboard_ids_and_tombstones() {
+        let (_dir, store) = storage();
+        store
+            .execute(
+                "one",
+                &json!({
+                    "type": "filter.seed",
+                    "input": {"writes": [
+                        {"entity":"boardItem","operation":"upsert","id":"item-a","value":{"whiteboardId":"board-a"}},
+                        {"entity":"boardItem","operation":"upsert","id":"item-b","value":{"whiteboardId":"board-b"}},
+                        {"entity":"boardItem","operation":"upsert","id":"item-root","value":{"whiteboardId":null}},
+                        {"entity":"card","operation":"upsert","id":"card-a","value":{"title":"A"}},
+                        {"entity":"card","operation":"upsert","id":"card-b","value":{"title":"B"}}
+                    ]}
+                }),
+            )
+            .unwrap();
+        store
+            .execute(
+                "one",
+                &json!({
+                    "type": "filter.delete",
+                    "input": {"writes": [{"entity":"boardItem","operation":"delete","id":"item-b","expectedRevision":1}]}
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            store
+                .query(
+                    "one",
+                    &json!({"type":"items.list","input":{"whiteboardId":"board-a"}}),
+                )
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["item-a"]
+        );
+        assert_eq!(
+            store
+                .query(
+                    "one",
+                    &json!({"type":"items.list","input":{"whiteboardId":null}}),
+                )
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["item-root"]
+        );
+        assert_eq!(
+            store
+                .query(
+                    "one",
+                    &json!({"type":"cards.list","input":{"ids":["card-b","missing","card-a","card-a"]}}),
+                )
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["card-a", "card-b"]
+        );
+        assert_eq!(
+            store
+                .query("one", &json!({"type":"cards.list","input":{"ids":[]}}))
+                .unwrap(),
+            json!([])
+        );
+        let large_ids = (0..1_100)
+            .map(|index| Value::String(format!("missing-{index}")))
+            .chain(std::iter::once(Value::String("card-a".into())))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            store
+                .query(
+                    "one",
+                    &json!({"type":"cards.list","input":{"ids":large_ids}}),
+                )
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["card-a"]
+        );
+        assert!(store
+            .query(
+                "one",
+                &json!({"type":"cards.list","input":{"whiteboardId":"board-a"}}),
+            )
+            .is_err());
+        assert!(store
+            .query("one", &json!({"type":"items.list","input":[]}))
+            .is_err());
     }
 
     #[test]

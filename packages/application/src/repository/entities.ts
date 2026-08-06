@@ -15,6 +15,12 @@ export type EntityRow = Record<string, unknown> & {
 	archivedAt?: number | null;
 };
 
+/** Optional predicates for collection reads that can be answered by storage. */
+export type EntityListFilter = {
+	ids?: readonly string[];
+	whiteboardId?: string | null;
+};
+
 /** Rows that are neither tombstoned nor archived. */
 export function isActiveRow(row: {
 	deletedAt: number | null;
@@ -45,10 +51,11 @@ function normalizeRow(value: unknown): EntityRow | null {
 export async function listRows(
 	repository: WorkspaceRepository,
 	collection: string,
+	filter: EntityListFilter = {},
 ): Promise<EntityRow[]> {
 	const raw = await repository.query<unknown>({
 		type: `${collection}.list`,
-		input: {},
+		input: filter,
 	});
 	return (Array.isArray(raw) ? raw : [])
 		.map(normalizeRow)

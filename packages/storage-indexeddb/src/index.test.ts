@@ -157,6 +157,99 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 		expect(batch?.changes.map((change) => change.revision)).toEqual([1, 1]);
 	});
 
+	test("pushes list filters into indexed entity reads", async () => {
+		const { repository } = await makeRepository();
+		await repository.execute({
+			type: "filter.seed",
+			input: {
+				writes: [
+					{
+						entity: "boardItem",
+						operation: "upsert",
+						id: "item-a",
+						value: { whiteboardId: "board-a" },
+					},
+					{
+						entity: "boardItem",
+						operation: "upsert",
+						id: "item-b",
+						value: { whiteboardId: "board-b" },
+					},
+					{
+						entity: "boardItem",
+						operation: "upsert",
+						id: "item-root",
+						value: { whiteboardId: null },
+					},
+					{
+						entity: "card",
+						operation: "upsert",
+						id: "card-a",
+						value: { derivedTitle: "A" },
+					},
+					{
+						entity: "card",
+						operation: "upsert",
+						id: "card-b",
+						value: { derivedTitle: "B" },
+					},
+				],
+			},
+		});
+		const deleteBatch = await repository.execute({
+			type: "filter.delete",
+			input: {
+				writes: [
+					{
+						entity: "boardItem",
+						operation: "delete",
+						id: "item-b",
+						expectedRevision: 1,
+					},
+				],
+			},
+		});
+		expect(deleteBatch).toHaveLength(1);
+
+		const byBoard = await repository.query<Array<{ id: string }>>({
+			type: "items.list",
+			input: { whiteboardId: "board-a" },
+		});
+		const rootItems = await repository.query<Array<{ id: string }>>({
+			type: "items.list",
+			input: { whiteboardId: null },
+		});
+		expect(byBoard.map((row) => row.id)).toEqual(["item-a"]);
+		expect(rootItems.map((row) => row.id)).toEqual(["item-root"]);
+
+		const cards = await repository.query<Array<{ id: string }>>({
+			type: "cards.list",
+			input: { ids: ["card-b", "missing", "card-a", "card-a"] },
+		});
+		expect(cards.map((row) => row.id)).toEqual(["card-a", "card-b"]);
+		expect(
+			await repository.query({ type: "cards.list", input: { ids: [] } }),
+		).toEqual([]);
+		const largeIds = [
+			...Array.from({ length: 1_100 }, (_, index) => `missing-${index}`),
+			"card-a",
+		];
+		expect(
+			(
+				await repository.query<Array<{ id: string }>>({
+					type: "cards.list",
+					input: { ids: largeIds },
+				})
+			).map((row) => row.id),
+		).toEqual(["card-a"]);
+		await expect(
+			repository.query({
+				type: "cards.list",
+				input: { whiteboardId: "board-a" },
+			}),
+		).rejects.toThrow("whiteboardId filtering");
+	});
+
 	test("commits every cascade entity type in one sync batch", async () => {
 		const { repository } = await makeRepository();
 		await repository.execute({
@@ -226,7 +319,9 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 
 		const pending = await repository.getPendingBatches(10);
 		expect(pending).toHaveLength(1);
-		expect(new Set(pending[0]?.changes.map((change) => change.entityType))).toEqual(
+		expect(
+			new Set(pending[0]?.changes.map((change) => change.entityType)),
+		).toEqual(
 			new Set([
 				"whiteboard",
 				"boardItem",

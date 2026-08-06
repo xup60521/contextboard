@@ -177,6 +177,57 @@ describe("repository whiteboards capability", () => {
 });
 
 describe("repository canvas capability", () => {
+	test("does not hydrate unrelated board items, cards, records or documents", async () => {
+		const { whiteboards, canvas, repository } = setup();
+		const boardId = await whiteboards.createRoot();
+		const otherBoardId = await whiteboards.createRoot();
+		await canvas.createCardItem({
+			whiteboardId: boardId,
+			shapeId: "shape:board",
+		});
+		await canvas.createCardItem({
+			whiteboardId: otherBoardId,
+			shapeId: "shape:other",
+		});
+		await canvas.saveDocument({
+			whiteboardId: otherBoardId,
+			snapshot: { unrelated: true },
+		});
+		await canvas.applyRecordChanges({
+			whiteboardId: otherBoardId,
+			added: [{ id: "shape:other-record", typeName: "shape" }],
+			updated: [],
+			removed: [],
+		});
+
+		const itemQueries: Array<{ type: string; input?: unknown }> = [];
+		const originalQuery = repository.query.bind(repository);
+		repository.query = async (query) => {
+			itemQueries.push(query);
+			return originalQuery(query);
+		};
+
+		expect(
+			(await canvas.listItems(boardId)).map((item) => item.shapeId),
+		).toEqual(["shape:board"]);
+		expect(await canvas.getDocument(boardId)).toBeNull();
+		expect(
+			itemQueries.some(
+				(query) =>
+					query.type === "items.list" &&
+					(query.input as { whiteboardId?: string }).whiteboardId === boardId,
+			),
+		).toBe(true);
+		expect(
+			itemQueries.some(
+				(query) =>
+					query.type === "items.list" &&
+					(query.input as { whiteboardId?: string }).whiteboardId ===
+						otherBoardId,
+			),
+		).toBe(false);
+	});
+
 	test("creates a card item that is visible to both the canvas and the card list", async () => {
 		const { whiteboards, canvas, cards } = setup();
 		const rootId = await whiteboards.createRoot();
@@ -444,7 +495,9 @@ describe("repository canvas capability", () => {
 		const rootId = await whiteboards.createRoot();
 		const content = {
 			type: "doc",
-			content: [{ type: "paragraph", content: [{ type: "text", text: "Linked" }] }],
+			content: [
+				{ type: "paragraph", content: [{ type: "text", text: "Linked" }] },
+			],
 		};
 		const source = await canvas.createCardItem({
 			whiteboardId: rootId,
@@ -473,7 +526,9 @@ describe("repository canvas capability", () => {
 		const rootId = await whiteboards.createRoot();
 		const content = {
 			type: "doc",
-			content: [{ type: "paragraph", content: [{ type: "text", text: "Copy" }] }],
+			content: [
+				{ type: "paragraph", content: [{ type: "text", text: "Copy" }] },
+			],
 		};
 		const source = await canvas.createCardItem({
 			whiteboardId: rootId,
@@ -507,12 +562,16 @@ describe("repository canvas capability", () => {
 			shapeId: "shape:source",
 			content: {
 				type: "doc",
-				content: [{ type: "paragraph", content: [{ type: "text", text: "Original" }] }],
+				content: [
+					{ type: "paragraph", content: [{ type: "text", text: "Original" }] },
+				],
 			},
 		});
 		const externalContent = {
 			type: "doc",
-			content: [{ type: "paragraph", content: [{ type: "text", text: "External" }] }],
+			content: [
+				{ type: "paragraph", content: [{ type: "text", text: "External" }] },
+			],
 		};
 
 		await canvas.restoreOrAdoptCardItem({
