@@ -1,12 +1,12 @@
 import {
 	type ApplicationRuntime,
 	ApplicationRuntimeProvider,
+	ApplicationSyncStatusProvider,
 	createRepositoryCanvasService,
 	createRepositoryCardRelationsService,
 	createRepositoryCardsService,
 	createRepositorySearchService,
 	createRepositoryWhiteboardsService,
-	type SyncRuntime,
 } from "@contextboard/application";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";
@@ -65,30 +65,31 @@ export function DesktopApplicationRuntime({
 				// library.
 				hrefAttribute: (href) => `#${href}`,
 			},
-		} satisfies Omit<ApplicationRuntime, "sync">;
+		} satisfies ApplicationRuntime;
 	}, [repository, router, workspaceId]);
 
-	// Only the sync status rides on the runtime object identity.
-	const runtime = useMemo<ApplicationRuntime | null>(() => {
-		if (!capabilities) return null;
-		const sync: SyncRuntime = {
+	const syncStatus = useMemo(
+		() => ({
 			state: desktopSync.state,
 			message: desktopSync.message,
-		};
-		return { ...capabilities, sync };
-	}, [capabilities, desktopSync.message, desktopSync.state]);
+		}),
+		[desktopSync.message, desktopSync.state],
+	);
 
-	if (!runtime || !runtime.whiteboards || !runtime.canvas) return null;
+	if (!capabilities || !capabilities.whiteboards || !capabilities.canvas)
+		return null;
 
 	return (
-		<ApplicationRuntimeProvider runtime={runtime}>
-			<DesktopAgentBridge
-				cards={runtime.cards}
-				whiteboards={runtime.whiteboards}
-				canvas={runtime.canvas}
-				relations={runtime.relations}
-			/>
-			{children}
-		</ApplicationRuntimeProvider>
+		<ApplicationSyncStatusProvider value={syncStatus}>
+			<ApplicationRuntimeProvider runtime={capabilities}>
+				<DesktopAgentBridge
+					cards={capabilities.cards}
+					whiteboards={capabilities.whiteboards}
+					canvas={capabilities.canvas}
+					relations={capabilities.relations}
+				/>
+				{children}
+			</ApplicationRuntimeProvider>
+		</ApplicationSyncStatusProvider>
 	);
 }

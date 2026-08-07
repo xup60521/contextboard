@@ -155,7 +155,7 @@ export interface CardsService {
 		whiteboardId?: string;
 	}): Promise<CardSearchResult[]>;
 	/** Notifies when the underlying store changed, so views can revalidate. */
-	subscribe(listener: () => void): () => void;
+	subscribe(listener: () => void, options?: { cardIds?: string[] }): () => void;
 }
 
 export type CardRelationSummary = {
@@ -202,7 +202,10 @@ export interface CardRelationsService {
 			cardIds: readonly [string, string];
 		}>;
 	}): Promise<void>;
-	subscribe(listener: () => void): () => void;
+	subscribe(
+		listener: () => void,
+		options?: { whiteboardId?: string; cardIds?: string[] },
+	): () => void;
 }
 
 export type WhiteboardSummary = {
@@ -245,7 +248,10 @@ export interface WhiteboardsService {
 	}): Promise<CreateSubwhiteboardResult>;
 	rename(input: { whiteboardId: string; title: string }): Promise<string>;
 	archive(id: string, options?: WhiteboardArchiveOptions): Promise<void>;
-	subscribe(listener: () => void): () => void;
+	subscribe(
+		listener: () => void,
+		options?: { whiteboardIds?: string[] },
+	): () => void;
 }
 
 export type CanvasItemCard = {
@@ -370,7 +376,15 @@ export interface CanvasService {
 	applyRecordChanges(
 		input: CanvasRecordDelta & { whiteboardId: string | null },
 	): Promise<CanvasRecordSaveResult>;
-	subscribe(listener: () => void): () => void;
+	subscribeItems(
+		whiteboardId: string | null,
+		listener: () => void,
+		options?: { cardIds?: string[] },
+	): () => void;
+	subscribeDocument(
+		whiteboardId: string | null,
+		listener: () => void,
+	): () => void;
 }
 
 export type FileDescriptor = {
@@ -434,9 +448,7 @@ export interface ApplicationRuntime {
 	files?: FileRuntime;
 	search?: SearchService;
 	navigation: NavigationRuntime;
-	sync?: SyncRuntime;
 	ui?: {
-		onCardContentDirtyChange?: (cardId: string, dirty: boolean) => void;
 		resolveScrollHost?: () => HTMLElement | null;
 	};
 }

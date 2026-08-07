@@ -51,6 +51,7 @@ export function useDrawingHydration({
 	const emptyDrawingSnapshotRef = useRef<TLStoreSnapshot | null>(null);
 	const deferredBindingsRef = useRef<unknown[]>([]);
 	const appliedCanvasRecordIdsRef = useRef(new Set<string>());
+	const appliedCanvasRecordVersionsRef = useRef<Record<string, number>>({});
 	const latestDrawingSnapshotRef = useRef<TLStoreSnapshot | null>(null);
 	const activeWhiteboardKeyRef = useRef(whiteboardKey);
 	const hydrationGenerationRef = useRef(0);
@@ -94,6 +95,7 @@ export function useDrawingHydration({
 
 		deferredBindingsRef.current = [];
 		appliedCanvasRecordIdsRef.current = new Set();
+		appliedCanvasRecordVersionsRef.current = {};
 		latestDrawingSnapshotRef.current = null;
 		setHydrationError(null);
 
@@ -114,6 +116,9 @@ export function useDrawingHydration({
 
 			deferredBindingsRef.current = deferredBindings;
 			appliedCanvasRecordIdsRef.current = persistedRecordIds(snapshot);
+			appliedCanvasRecordVersionsRef.current = {
+				...(tldrawDocument?.canvasRecordVersions ?? {}),
+			};
 			latestDrawingSnapshotRef.current = snapshot;
 			loadedDrawingKeyRef.current = whiteboardKey;
 			setLoadedDrawingKey(whiteboardKey);
@@ -208,9 +213,14 @@ export function useDrawingHydration({
 			>,
 			editorStore,
 			previouslyAppliedRecordIds: appliedCanvasRecordIdsRef.current,
+			previouslyAppliedRecordVersions: appliedCanvasRecordVersionsRef.current,
+			persistedRecordVersions: tldrawDocument?.canvasRecordVersions,
 			availableShapeIds,
 		});
 		appliedCanvasRecordIdsRef.current = reconciliation.nextAppliedRecordIds;
+		appliedCanvasRecordVersionsRef.current = {
+			...(tldrawDocument?.canvasRecordVersions ?? {}),
+		};
 
 		const persistedIds = reconciliation.nextAppliedRecordIds;
 		const deferredById = new Map<string, TLRecord>();

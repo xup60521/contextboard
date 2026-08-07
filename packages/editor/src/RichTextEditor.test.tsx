@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import type { JSONContent } from "@tiptap/core";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 import { RichTextEditor } from "./RichTextEditor";
 
 if (!("getClientRects" in Text.prototype)) {
@@ -152,6 +153,13 @@ function setup(initialContent?: JSONContent) {
 	);
 	return { ...result, onChange };
 }
+
+test("keeps the document visible while the interactive editor initializes", () => {
+	const markup = renderToStaticMarkup(
+		<RichTextEditor content={INITIAL_CONTENT} editable={true} />,
+	);
+	expect(markup).toContain("Alpha Beta Gamma");
+});
 
 async function paste(container: HTMLElement, text: string) {
 	let editor: Element | null = null;

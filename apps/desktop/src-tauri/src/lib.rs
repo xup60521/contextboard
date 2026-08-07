@@ -53,6 +53,7 @@ pub fn run() {
             commands::workspace_acknowledge,
             commands::workspace_apply_remote,
             commands::workspace_sync_state,
+            commands::workspace_update_sync_cursor,
             commands::workspace_read_blob,
             commands::workspace_missing_blobs,
             commands::workspace_store_blob,

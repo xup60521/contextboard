@@ -17,7 +17,10 @@ import {
 } from "./MarkdownCardShell";
 import { useMarkdownCardAutoHeight } from "./useMarkdownCardAutoHeight";
 import { WhiteboardCardContext } from "./WhiteboardCardContext";
-import { hydrateCardShapes } from "./whiteboard-canvas-helpers";
+import {
+	useCardContentEntry,
+	useCardContentStore,
+} from "./card-content-store";
 
 const MIN_HEIGHT = 96;
 
@@ -32,18 +35,27 @@ export function PersistedMarkdownCardComponent({
 	const cardId = shape.props.cardId as Id<"cards">;
 	const boardWhiteboardId = useContext(WhiteboardCardContext);
 	const openWhiteboardPreview = useSetAtom(whiteboardPreviewCardIdAtom);
+	const contentStore = useCardContentStore();
+	const contentEntry = useCardContentEntry(cardId);
 	const currentContent = useMemo(
-		() => parseMarkdownContent(shape.props.content),
-		[shape.props.content],
+		() =>
+			contentEntry.draft ??
+			contentEntry.persistedDocument ??
+			parseMarkdownContent(shape.props.content),
+		[contentEntry, shape.props.content],
 	);
-	const { scheduleSave: schedulePersistedSave, flushSave } =
+	const { scheduleSave: schedulePersistedSave, flushSave, error: saveError } =
 		useDebouncedCardSave(cardId, 450, {
 			initialContent: currentContent,
-			initialVersion: shape.props.contentVersion ?? null,
+			initialVersion:
+				contentEntry.persistedVersion ?? shape.props.contentVersion ?? null,
 			onPersisted: ({ content, version }) => {
-				hydrateCardShapes(editor, { cardId, content, version });
+				contentStore.acknowledge(cardId, content, version);
 			},
 		});
+	useEffect(() => {
+		if (saveError) contentStore.setError(cardId, saveError);
+	}, [cardId, contentStore, saveError]);
 	const { cardRef, setIsContentReady, latestPropsRef, measureNextHeight } =
 		useMarkdownCardAutoHeight({
 			shape,
@@ -66,7 +78,7 @@ export function PersistedMarkdownCardComponent({
 
 	const scheduleSave = useCallback(
 		(value: JSONContent) => {
-			const serializedContent = JSON.stringify(value);
+			contentStore.setDraft(cardId, value);
 			const latestProps = latestPropsRef.current;
 			const nextHeight = measureNextHeight();
 
@@ -77,7 +89,6 @@ export function PersistedMarkdownCardComponent({
 						type: "markdown-card",
 						props: {
 							...latestProps,
-							content: serializedContent,
 							h: nextHeight,
 						},
 					});
@@ -88,6 +99,8 @@ export function PersistedMarkdownCardComponent({
 			schedulePersistedSave(value);
 		},
 		[
+			cardId,
+			contentStore,
 			editor,
 			latestPropsRef,
 			measureNextHeight,

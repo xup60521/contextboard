@@ -45,6 +45,9 @@ describe("SyncCoordinator", () => {
 				applied.push(cursor);
 				return { applied: 0, conflicts: 0 };
 			},
+			updateSyncCursor: async (_peerId, cursor) => {
+				applied.push(cursor);
+			},
 		};
 		const transport: SyncTransport = {
 			push: async () => ({
@@ -60,6 +63,45 @@ describe("SyncCoordinator", () => {
 		await new SyncCoordinator("workspace-1", repository, transport).syncNow();
 		expect(pullCursors).toEqual(["5"]);
 		expect(applied).toEqual(["8"]);
+	});
+
+	test("advances an empty-pull cursor without applying a remote batch", async () => {
+		let applyCalls = 0;
+		const cursors: string[] = [];
+		const repository: WorkspaceRepository = {
+			query: async () => undefined as never,
+			execute: async () => undefined as never,
+			subscribe: () => () => undefined,
+			getPendingBatches: async () => [],
+			acknowledge: async () => undefined,
+			getSyncState: async (peerId) => ({
+				peerId,
+				cursor: "4",
+				enabled: true,
+				updatedAt: 1,
+				lastSyncedAt: null,
+			}),
+			applyRemote: async () => {
+				applyCalls += 1;
+				return { applied: 0, conflicts: 0 };
+			},
+			updateSyncCursor: async (_peerId, cursor) => {
+				cursors.push(cursor);
+			},
+		};
+		const transport: SyncTransport = {
+			push: async () => ({
+				cursor: "ignored-push-cursor",
+				acknowledgedChangeIds: [],
+				missingBlobHashes: [],
+			}),
+			pull: async () => ({ cursor: "5", batches: [], hasMore: false }),
+		};
+
+		await new SyncCoordinator("workspace-1", repository, transport).syncNow();
+
+		expect(applyCalls).toBe(0);
+		expect(cursors).toEqual(["5"]);
 	});
 
 	test("keeps a pending batch until required blob uploads succeed", async () => {
@@ -80,6 +122,7 @@ describe("SyncCoordinator", () => {
 				lastSyncedAt: null,
 			}),
 			applyRemote: async () => ({ applied: 0, conflicts: 0 }),
+			updateSyncCursor: async () => undefined,
 			getLocalBlob: async () => ({
 				descriptor: {
 					hash: "a".repeat(64),
@@ -121,6 +164,7 @@ describe("SyncCoordinator", () => {
 				lastSyncedAt: null,
 			}),
 			applyRemote: async () => ({ applied: 0, conflicts: 0 }),
+			updateSyncCursor: async () => undefined,
 		};
 		let requestStarted!: () => void;
 		const started = new Promise<void>((resolve) => {

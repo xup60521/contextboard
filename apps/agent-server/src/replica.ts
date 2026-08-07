@@ -8,6 +8,8 @@ import {
 	type LocalBlob,
 	SyncCoordinator,
 	type WorkspaceRepository,
+	type WorkspaceChangeFilter,
+	type WorkspaceChangeListener,
 } from "@contextboard/client-core";
 import {
 	adoptWorkspaceId,
@@ -205,8 +207,8 @@ export class FlushOnWriteWorkspaceRepository implements WorkspaceRepository {
 		return result;
 	}
 
-	subscribe(listener: () => void) {
-		return this.inner.subscribe(listener);
+	subscribe(listener: WorkspaceChangeListener, filter?: WorkspaceChangeFilter) {
+		return this.inner.subscribe(listener, filter);
 	}
 
 	getPendingBatches(limit: number) {
@@ -219,6 +221,10 @@ export class FlushOnWriteWorkspaceRepository implements WorkspaceRepository {
 
 	applyRemote(batches: ChangeBatch[], peerId: string, nextCursor: string) {
 		return this.inner.applyRemote(batches, peerId, nextCursor);
+	}
+
+	updateSyncCursor(peerId: string, cursor: string) {
+		return this.inner.updateSyncCursor(peerId, cursor);
 	}
 
 	getSyncState(peerId: string) {

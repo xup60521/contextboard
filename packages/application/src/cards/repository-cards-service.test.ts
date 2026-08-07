@@ -381,13 +381,15 @@ describe("batched card detail reads", () => {
 		expect(large.repository.queryLog.length).toBe(
 			small.repository.queryLog.length,
 		);
-		// cards(by id), items, cardReferences, whiteboards, backlink sources.
+		// lightweight cards, content rows, items, references, backlink summaries,
+		// and placed boards remain a constant-size batch read plan.
 		expect(large.repository.queryLog.map((query) => query.type)).toEqual([
 			"cards.list",
+			"cardContents.list",
 			"items.list",
 			"cardReferences.list",
-			"whiteboards.list",
 			"cards.list",
+			"whiteboards.list",
 		]);
 	});
 
@@ -414,6 +416,23 @@ describe("batched card detail reads", () => {
 });
 
 describe("recovering cards stored with a serialized document", () => {
+	test("falls back to the legacy body when a placeholder content row is empty", async () => {
+		const { repository, cards } = service();
+		const document = textToCardContent("Recovered legacy body");
+		const cardId = await cards.create({ content: document });
+		const contentRow = await repository.query<Record<string, unknown>>({
+			type: "cardContents.get",
+			input: { id: cardId },
+		});
+		await repository.execute({
+			type: "cardContents.update",
+			input: { value: { ...contentRow, document: null } },
+		});
+
+		expect((await cards.get(cardId))?.content).toEqual(document);
+		expect((await cards.getMany([cardId]))[0]?.content).toEqual(document);
+	});
+
 	test("reads a double-encoded row back as a document", async () => {
 		// Rows written before restore/adopt learned to parse the canvas's
 		// serialized props hold the document as a string, which renders blank.

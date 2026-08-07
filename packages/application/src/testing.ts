@@ -2,7 +2,13 @@ import type {
 	ApplyResult,
 	DomainCommand,
 	DomainQuery,
+	WorkspaceChangeFilter,
+	WorkspaceChangeListener,
 	WorkspaceRepository,
+} from "@contextboard/client-core";
+import {
+	describeDomainCommand,
+	workspaceChangeMatches,
 } from "@contextboard/client-core";
 import { type EntityWrite, WorkspaceConflictError } from "./workspace";
 
@@ -14,6 +20,7 @@ type Entity = Record<string, unknown> & {
 
 const ENTITY_TYPES: Record<string, string> = {
 	cards: "card",
+	cardContents: "cardContent",
 	whiteboards: "whiteboard",
 	items: "boardItem",
 	records: "canvasRecord",
@@ -22,6 +29,8 @@ const ENTITY_TYPES: Record<string, string> = {
 	fileReferences: "fileReference",
 	cardReferences: "cardReference",
 	cardRelations: "cardRelation",
+	conflicts: "conflict",
+	todos: "todo",
 };
 
 /**
@@ -37,7 +46,16 @@ export function createMemoryWorkspaceRepository(
 } {
 	const now = options.now ?? (() => Date.now());
 	const store = new Map<string, Map<string, Entity>>();
-	const listeners = new Set<() => void>();
+	const listeners = new Set<{
+		listener: WorkspaceChangeListener;
+		filter?: WorkspaceChangeFilter;
+	}>();
+	const emit = (command: DomainCommand<unknown>) => {
+		const change = { origin: "local" as const, changes: describeDomainCommand(command) };
+		for (const subscription of listeners)
+			if (workspaceChangeMatches(change, subscription.filter))
+				subscription.listener(change);
+	};
 	const pendingCommands: string[] = [];
 	/**
 	 * Every read this repository served, in order. Backends that cross a process
@@ -70,7 +88,7 @@ export function createMemoryWorkspaceRepository(
 		async query<T>(query: DomainQuery<T>): Promise<T> {
 			queryLog.push(query as DomainQuery<unknown>);
 			const { entityType, action } = split(query.type);
-			const input = (query.input ?? {}) as {
+			const input = (query.input ?? {}) as Record<string, unknown> & {
 				id?: string;
 				ids?: unknown;
 				whiteboardId?: unknown;
@@ -108,6 +126,8 @@ export function createMemoryWorkspaceRepository(
 			const ids = "ids" in input ? [...new Set(input.ids as string[])] : null;
 			const idSet = ids ? new Set(ids) : null;
 			const whiteboardId = input.whiteboardId as string | null | undefined;
+			const includes = (key: string, value: unknown) =>
+				!(key in input) || (input[key] as unknown[]).includes(value);
 			return [...rows.values()]
 				.filter((row) => (idSet ? idSet.has(row.id) : true))
 				.filter((row) =>
@@ -115,6 +135,19 @@ export function createMemoryWorkspaceRepository(
 						? (row.whiteboardId ?? null) === whiteboardId
 						: true,
 				)
+				.filter((row) => includes("whiteboardIds", row.whiteboardId ?? null))
+				.filter((row) =>
+					!("cardIds" in input) ||
+					includes("cardIds", row.cardId) ||
+					includes("cardIds", row.sourceCardId) ||
+					includes("cardIds", row.targetCardId),
+				)
+				.filter((row) => includes("childWhiteboardIds", row.childWhiteboardId))
+				.filter((row) => includes("parentWhiteboardIds", row.parentWhiteboardId ?? null))
+				.filter((row) => includes("sourceCardIds", row.sourceCardId))
+				.filter((row) => includes("targetCardIds", row.targetCardId))
+				.filter((row) => includes("targetKeys", row.targetKey))
+				.filter((row) => includes("fileIds", row.fileId))
 				.filter((row) => row.deletedAt === null)
 				.sort((a, b) => a.id.localeCompare(b.id)) as T;
 		},
@@ -158,7 +191,7 @@ export function createMemoryWorkspaceRepository(
 					materialized.push(next);
 				}
 				pendingCommands.push(command.type);
-				for (const listener of listeners) listener();
+				emit(command);
 				return materialized as T;
 			}
 
@@ -182,12 +215,13 @@ export function createMemoryWorkspaceRepository(
 			} as Entity;
 			rows.set(value.id, materialized);
 			pendingCommands.push(command.type);
-			for (const listener of listeners) listener();
+			emit(command);
 			return (action === "create" ? value.id : materialized) as T;
 		},
-		subscribe(listener: () => void) {
-			listeners.add(listener);
-			return () => listeners.delete(listener);
+		subscribe(listener, filter) {
+			const subscription = { listener, filter };
+			listeners.add(subscription);
+			return () => listeners.delete(subscription);
 		},
 		async getPendingBatches() {
 			return [];
@@ -196,6 +230,7 @@ export function createMemoryWorkspaceRepository(
 		async applyRemote(): Promise<ApplyResult> {
 			return { applied: 0, conflicts: 0 };
 		},
+		async updateSyncCursor() {},
 		async getSyncState() {
 			return {
 				peerId: "memory",

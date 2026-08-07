@@ -1,5 +1,3 @@
-import type { Id } from "./ids";
-
 /**
  * Shared registry of cards whose local content has unsaved edits.
  *
@@ -11,16 +9,16 @@ import type { Id } from "./ids";
  * (`preserveEditingCardContent`) consult this registry to avoid overwriting —
  * and re-triggering on — freshly-edited content.
  */
-const dirtyCardIds = new Set<Id<"cards">>();
+const dirtyCardIds = new Set<string>();
 
-export function markCardContentDirty(cardId: Id<"cards">): void {
+export function markCardContentDirty(cardId: string): void {
 	dirtyCardIds.add(cardId);
 }
 
-export function clearCardContentDirty(cardId: Id<"cards">): void {
+export function clearCardContentDirty(cardId: string): void {
 	dirtyCardIds.delete(cardId);
 }
 
-export function isCardContentDirty(cardId: Id<"cards">): boolean {
+export function isCardContentDirty(cardId: string): boolean {
 	return dirtyCardIds.has(cardId);
 }

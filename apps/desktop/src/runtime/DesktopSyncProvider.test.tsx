@@ -50,6 +50,8 @@ function createStub(options: StubOptions = {}) {
 				return null;
 			case "workspace_apply_remote":
 				return { applied: 0, conflicts: 0 };
+			case "workspace_update_sync_cursor":
+				return null;
 			case "workspace_sync_state":
 				return {
 					peerId: "contextboard-cloud",

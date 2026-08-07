@@ -1,8 +1,14 @@
-import type {
-	DomainCommand,
-	DomainQuery,
-	WorkspaceChangeListener,
-	WorkspaceRepository,
+import {
+	describeDomainCommand,
+	describeRemoteBatches,
+	recordContextboardPerf,
+	workspaceChangeMatches,
+	type DomainCommand,
+	type DomainQuery,
+	type WorkspaceChange,
+	type WorkspaceChangeFilter,
+	type WorkspaceChangeListener,
+	type WorkspaceRepository,
 } from "@contextboard/client-core";
 import {
 	acknowledgeBatches,
@@ -11,6 +17,7 @@ import {
 	getMissingBlobs,
 	getPendingBatches,
 	getSyncState,
+	updateSyncCursor,
 	storeRemoteBlob,
 } from "@contextboard/local-db";
 import type { ContextboardDatabaseLike } from "@contextboard/local-db";
@@ -24,25 +31,58 @@ import { executeEntityCommand, queryEntities } from "./entity-store";
  */
 /** Repository adapter for any local database implementing the shared table API. */
 export class LocalWorkspaceRepository implements WorkspaceRepository {
-	#listeners = new Set<WorkspaceChangeListener>();
+	#listeners = new Set<{
+		listener: WorkspaceChangeListener;
+		filter?: WorkspaceChangeFilter;
+	}>();
 	#localListeners = new Set<WorkspaceChangeListener>();
 
 	constructor(private readonly database: ContextboardDatabaseLike) {}
 
-	query<T>(query: DomainQuery<T>): Promise<T> {
-		return queryEntities(this.database, query) as Promise<T>;
+	async query<T>(query: DomainQuery<T>): Promise<T> {
+		recordContextboardPerf("repository.query", { detail: query.type });
+		const result = await queryEntities(this.database, query) as T;
+		if (Array.isArray(result))
+			recordContextboardPerf("repository.rows", {
+				detail: query.type,
+				value: result.length,
+			});
+		return result;
 	}
 
 	async execute<T>(command: DomainCommand<T>): Promise<T> {
+		recordContextboardPerf("repository.command", { detail: command.type });
 		const result = await executeEntityCommand(this.database, command);
-		for (const listener of this.#listeners) listener();
-		for (const listener of this.#localListeners) listener();
+		const change: WorkspaceChange = {
+			origin: "local",
+			changes: describeDomainCommand(command),
+		};
+		this.#emit(change);
+		for (const listener of this.#localListeners) listener(change);
 		return result as T;
 	}
 
-	subscribe(listener: WorkspaceChangeListener) {
-		this.#listeners.add(listener);
-		return () => this.#listeners.delete(listener);
+	#emit(change: WorkspaceChange) {
+		if (change.changes.length === 0) return;
+		recordContextboardPerf("repository.notification.emitted", {
+			detail: change.origin,
+		});
+		for (const subscription of this.#listeners) {
+			if (!workspaceChangeMatches(change, subscription.filter)) continue;
+			recordContextboardPerf("repository.notification.delivered", {
+				detail: change.origin,
+			});
+			subscription.listener(change);
+		}
+	}
+
+	subscribe(
+		listener: WorkspaceChangeListener,
+		filter?: WorkspaceChangeFilter,
+	) {
+		const subscription = { listener, filter };
+		this.#listeners.add(subscription);
+		return () => this.#listeners.delete(subscription);
 	}
 
 	subscribeLocal(listener: WorkspaceChangeListener) {
@@ -50,8 +90,13 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
 		return () => this.#localListeners.delete(listener);
 	}
 
-	getPendingBatches(limit: number) {
-		return getPendingBatches(this.database, limit);
+	async getPendingBatches(limit: number) {
+		const batches = await getPendingBatches(this.database, limit);
+		recordContextboardPerf("repository.rows", {
+			detail: "changeLog.pending",
+			value: batches.length,
+		});
+		return batches;
 	}
 
 	acknowledge(changeIds: string[]) {
@@ -76,12 +121,23 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
 			peerId,
 			nextCursor,
 		);
-		for (const listener of this.#listeners) listener();
+		const changes = result.materializedChanges ?? [];
+		this.#emit({
+			origin: "remote",
+			changes:
+				changes.length > 0 && batches[0]
+					? describeRemoteBatches([{ ...batches[0], changes }])
+					: [],
+		});
 		return result;
 	}
 
 	getSyncState(peerId: string) {
 		return getSyncState(this.database, peerId);
+	}
+
+	updateSyncCursor(peerId: string, cursor: string) {
+		return updateSyncCursor(this.database, peerId, cursor);
 	}
 
 	getLocalBlob(hash: string) {

@@ -2,10 +2,10 @@ import {
 	type BoardItem,
 	type CanvasRecord,
 	type Card,
+	type CardContent,
 	type CardReference,
 	type CardRelation,
 	type FileReference,
-	hasHierarchyCycle,
 	type LocalFile,
 	type TldrawDocument,
 	type Whiteboard,
@@ -37,6 +37,7 @@ export interface RowCollection<T> {
 	first(): Promise<T | undefined>;
 	toArray(): Promise<T[]>;
 	count(): Promise<number>;
+	limit(count: number): RowCollection<T>;
 }
 
 export interface RowWhereClause<T> {
@@ -45,6 +46,7 @@ export interface RowWhereClause<T> {
 
 export interface RowTable<T = any> {
 	get(key: any): Promise<T | undefined>;
+	bulkGet(keys: any[]): Promise<Array<T | undefined>>;
 	put(value: T): Promise<any>;
 	add(value: T): Promise<any>;
 	bulkPut(values: T[]): Promise<any>;
@@ -65,6 +67,7 @@ export type LocalTransaction = unknown;
 export interface ContextboardDatabaseLike {
 	whiteboards: RowTable<Whiteboard>;
 	cards: RowTable<Card>;
+	cardContents: RowTable<CardContent>;
 	boardItems: RowTable<BoardItem>;
 	tldrawDocuments: RowTable<TldrawDocument>;
 	files: RowTable<LocalFile>;
@@ -81,7 +84,11 @@ export interface ContextboardDatabaseLike {
 	transaction(...args: any[]): Promise<any>;
 }
 
-export type ApplyRemoteResult = { applied: number; conflicts: number };
+export type ApplyRemoteResult = {
+	applied: number;
+	conflicts: number;
+	materializedChanges?: EntityChange[];
+};
 
 export type Setting = { key: string; value: unknown };
 export type SyncPeer = {
@@ -115,6 +122,7 @@ export class ContextboardDatabase extends Dexie {
 	// records remain branded in the domain package, while lookups accept strings.
 	whiteboards!: EntityTable<Whiteboard, any>;
 	cards!: EntityTable<Card, any>;
+	cardContents!: EntityTable<CardContent, any>;
 	boardItems!: EntityTable<BoardItem, any>;
 	tldrawDocuments!: EntityTable<TldrawDocument, any>;
 	files!: EntityTable<LocalFile, any>;
@@ -165,6 +173,82 @@ export class ContextboardDatabase extends Dexie {
 			cardRelations:
 				"id, whiteboardId, sourceCardId, targetCardId, arrowShapeId, [sourceCardId+targetCardId], deletedAt",
 		});
+		this.version(5)
+			.stores({
+				cardContents: "id, &cardId, contentVersion, clock, updatedAt, deletedAt",
+			})
+			.upgrade(async (transaction) => {
+				const cards = await transaction.table("cards").toArray();
+				const contents = transaction.table("cardContents");
+				for (const card of cards) {
+					if (await contents.get(card.id)) continue;
+					const updatedAt = Number(card.updatedAt ?? card.createdAt ?? Date.now());
+					const deviceId = String(card.updatedByDeviceId ?? "migration");
+					await contents.put({
+						id: card.id,
+						cardId: card.id,
+						document: card.content ?? null,
+						contentVersion: Number(card.contentVersion ?? 1),
+						revision: Number(card.revision ?? 1),
+						clock: `${String(updatedAt).padStart(13, "0")}:000000:${deviceId}`,
+						createdAt: Number(card.createdAt ?? updatedAt),
+						updatedAt,
+						updatedByDeviceId: deviceId,
+						deletedAt: card.deletedAt ?? null,
+					});
+				}
+			});
+		this.version(6).stores({
+			whiteboards:
+				"id, parentWhiteboardId, [parentWhiteboardId+archivedAt+sortKey], [archivedAt+pathKey], updatedAt, deletedAt",
+			boardItems:
+				"id, whiteboardId, [whiteboardId+archivedAt+zIndex], [whiteboardId+shapeId], cardId, childWhiteboardId, deletedAt",
+			cardRelations:
+				"id, whiteboardId, sourceCardId, targetCardId, arrowShapeId, [sourceCardId+targetCardId], deletedAt",
+			canvasRecords:
+				"id, &[whiteboardId+recordId], whiteboardId, recordType, clock, deletedAt",
+			tldrawDocuments: "id, &whiteboardId, updatedAt, deletedAt",
+			changeLog:
+				"changeId, &[workspaceId+deviceId+deviceSequence], [createdAt+changeId], createdAt",
+		});
+		this.version(7)
+			.stores({
+				cardContents: "id, &cardId, contentVersion, clock, updatedAt, deletedAt",
+			})
+			.upgrade(async (transaction) => {
+				const cards = await transaction.table("cards").toArray();
+				const contents = transaction.table("cardContents");
+				for (const card of cards) {
+					if (card.content === null || card.content === undefined) continue;
+					const existing = await contents.get(card.id);
+					if (
+						existing?.document !== null &&
+						existing?.document !== undefined
+					) {
+						continue;
+					}
+					const updatedAt = Number(card.updatedAt ?? card.createdAt ?? Date.now());
+					const deviceId = String(card.updatedByDeviceId ?? "migration");
+					await contents.put({
+						...existing,
+						id: card.id,
+						cardId: card.id,
+						document: card.content,
+						contentVersion: Number(
+							existing?.contentVersion ?? card.contentVersion ?? 1,
+						),
+						revision: Number(existing?.revision ?? card.revision ?? 1),
+						clock: String(
+							existing?.clock ??
+								`${String(updatedAt).padStart(13, "0")}:000000:${deviceId}`,
+						),
+						createdAt: Number(existing?.createdAt ?? card.createdAt ?? updatedAt),
+						updatedAt: Number(existing?.updatedAt ?? updatedAt),
+						updatedByDeviceId: String(existing?.updatedByDeviceId ?? deviceId),
+						deletedAt: existing?.deletedAt ?? card.deletedAt ?? null,
+					});
+				}
+			});
 	}
 }
 
@@ -298,6 +382,13 @@ export async function getPendingBatches(
 	db: ContextboardDatabaseLike,
 	limit: number,
 ) {
+	const boundedLimit = Math.max(1, limit);
+	const format = await db.settings.get("changeLogFormatVersion");
+	if (format?.value === 2)
+		return db.changeLog.orderBy("createdAt").limit(boundedLimit).toArray();
+
+	// Pre-versioned databases need one compatibility scan. Once recorded, the
+	// hot polling path never materializes more rows than the requested limit.
 	const pending = await db.changeLog.orderBy("createdAt").toArray();
 	const hasLegacyBatch = pending.some((batch) => {
 		try {
@@ -310,7 +401,8 @@ export async function getPendingBatches(
 	const current = hasLegacyBatch
 		? await rebuildLegacyPendingBatches(db)
 		: pending;
-	return current.slice(0, Math.max(1, limit));
+	await db.settings.put({ key: "changeLogFormatVersion", value: 2 });
+	return current.slice(0, boundedLimit);
 }
 
 /**
@@ -325,6 +417,7 @@ async function rebuildLegacyPendingBatches(
 	const transactionTables = [
 		db.whiteboards,
 		db.cards,
+		db.cardContents,
 		db.boardItems,
 		db.tldrawDocuments,
 		db.files,
@@ -431,6 +524,7 @@ async function rebuildLegacyPendingBatches(
 		const sources: Array<[SyncEntityType, RowTable]> = [
 			["whiteboard", db.whiteboards],
 			["card", db.cards],
+			["cardContent", db.cardContents],
 			["boardItem", db.boardItems],
 			["file", db.files],
 			["fileReference", db.fileReferences],
@@ -514,6 +608,8 @@ const remoteTable = (
 		? db.whiteboards
 		: entityType === "card"
 			? db.cards
+			: entityType === "cardContent"
+				? db.cardContents
 			: entityType === "boardItem"
 				? db.boardItems
 				: entityType === "tldrawDocument"
@@ -543,9 +639,39 @@ export async function applyRemoteBatches(
 ): Promise<ApplyRemoteResult> {
 	let applied = 0;
 	let conflicts = 0;
+	const materializedChanges: EntityChange[] = [];
+	if (batches.length === 0) {
+		if (nextCursor !== undefined) await updateSyncCursor(db, peerId, nextCursor);
+		return { applied, conflicts, materializedChanges };
+	}
+	for (let offset = 0; offset < batches.length; offset += 25) {
+		const chunk = batches.slice(offset, offset + 25);
+		const result = await applyRemoteBatchChunk(
+			db,
+			chunk,
+			peerId,
+			offset + chunk.length >= batches.length ? nextCursor : undefined,
+		);
+		applied += result.applied;
+		conflicts += result.conflicts;
+		materializedChanges.push(...(result.materializedChanges ?? []));
+	}
+	return { applied, conflicts, materializedChanges };
+}
+
+async function applyRemoteBatchChunk(
+	db: ContextboardDatabaseLike,
+	batches: ChangeBatch[],
+	peerId: string,
+	nextCursor?: string,
+): Promise<ApplyRemoteResult> {
+	let applied = 0;
+	let conflicts = 0;
+	const materializedChanges: EntityChange[] = [];
 	const tables = [
 		db.whiteboards,
 		db.cards,
+		db.cardContents,
 		db.boardItems,
 		db.tldrawDocuments,
 		db.files,
@@ -569,12 +695,13 @@ export async function applyRemoteBatches(
 			newlyAppliedBytes += new TextEncoder().encode(
 				JSON.stringify(batch),
 			).byteLength;
+			const conflictCopyByCardId = new Map<string, string>();
 			for (const change of batch.changes) {
 				const table = remoteTable(db, change.entityType);
 				if (!table || !change.value || typeof change.value !== "object")
 					continue;
 				const incoming = change.value as Record<string, unknown>;
-				const materialized =
+				let materialized =
 					change.entityType === "file"
 						? {
 								...incoming,
@@ -585,16 +712,27 @@ export async function applyRemoteBatches(
 								change.entityType === "canvasRecord"
 							? { ...incoming, clock: change.clock }
 							: incoming;
-				const local = (await table.get(change.entityId)) as
+				const redirectedEntityId =
+					change.entityType === "cardContent"
+						? conflictCopyByCardId.get(change.entityId)
+						: undefined;
+				if (redirectedEntityId)
+					materialized = {
+						...materialized,
+						id: redirectedEntityId,
+						cardId: redirectedEntityId,
+					};
+				const targetEntityId = redirectedEntityId ?? change.entityId;
+				const local = (await table.get(targetEntityId)) as
 					| Record<string, unknown>
 					| undefined;
 				if (change.entityType === "whiteboard") {
-					const rows = await db.whiteboards.toArray();
-					const byId = new Map(rows.map((row) => [row.id, row] as const));
 					const parentId = (materialized.parentWhiteboardId ?? null) as never;
-					const invalid =
-						(parentId !== null && !byId.has(parentId)) ||
-						hasHierarchyCycle(change.entityId as never, parentId, byId);
+					const invalid = await hasInvalidStoredHierarchy(
+						db,
+						change.entityId,
+						parentId,
+					);
 					if (invalid) {
 						const conflictId = `hierarchy:${change.entityId}:${String(parentId ?? "root")}:${change.clock}`;
 						if (!(await db.conflicts.get(conflictId))) {
@@ -612,6 +750,11 @@ export async function applyRemoteBatches(
 								updatedByDeviceId: batch.deviceId,
 							});
 							conflicts++;
+							materializedChanges.push({
+								...change,
+								entityType: "conflict",
+								entityId: conflictId,
+							});
 						}
 						continue;
 					}
@@ -627,8 +770,9 @@ export async function applyRemoteBatches(
 						`${batch.deviceId}:${change.revision}`,
 					].sort();
 					const conflictId = `conflict:${change.entityId}:${participants.join(":")}`;
+					const conflictCardId = conflictCopyCardId(conflictId);
+					conflictCopyByCardId.set(change.entityId, conflictCardId);
 					if (!(await db.conflicts.get(conflictId))) {
-						const conflictCardId = conflictCopyCardId(conflictId);
 						const placements = (
 							await db.boardItems
 								.where("cardId")
@@ -644,6 +788,16 @@ export async function applyRemoteBatches(
 							derivedTitle: `Conflict: ${String(incoming.derivedTitle ?? "Untitled card")}`,
 							activePlacementCount: placements.length,
 						} as never);
+						if ("content" in materialized) {
+							await db.cardContents.put(
+								legacyCardContentRow(
+									materialized,
+									conflictCardId,
+									change.clock,
+									batch.deviceId,
+								),
+							);
+						}
 						for (const [index, placement] of placements.entries()) {
 							await db.boardItems.put({
 								...placement,
@@ -704,6 +858,14 @@ export async function applyRemoteBatches(
 							updatedByDeviceId: batch.deviceId,
 						});
 						conflicts++;
+						materializedChanges.push(
+							{
+								...change,
+								entityType: "conflict",
+								entityId: conflictId,
+							},
+							{ ...change, entityId: conflictCardId },
+						);
 					}
 					continue;
 				}
@@ -739,6 +901,29 @@ export async function applyRemoteBatches(
 				}
 				await table.put(materialized);
 				applied++;
+				materializedChanges.push(
+					targetEntityId === change.entityId
+						? change
+						: { ...change, entityId: targetEntityId },
+				);
+				if (change.entityType === "card" && "content" in materialized) {
+					const existingContent = await db.cardContents.get(targetEntityId);
+					if (!existingContent || existingContent.clock < change.clock) {
+						const contentRow = legacyCardContentRow(
+							materialized,
+							targetEntityId,
+							change.clock,
+							batch.deviceId,
+						);
+						await db.cardContents.put(contentRow);
+						materializedChanges.push({
+							...change,
+							entityType: "cardContent",
+							entityId: targetEntityId,
+							value: contentRow,
+						});
+					}
+				}
 			}
 			await db.appliedChangeBatches.put({
 				changeId: batch.changeId,
@@ -777,7 +962,45 @@ export async function applyRemoteBatches(
 		}
 		// Counts are derived from active items and child whiteboards at read time.
 	});
-	return { applied, conflicts };
+	return { applied, conflicts, materializedChanges };
+}
+
+function legacyCardContentRow(
+	card: Record<string, unknown>,
+	cardId: string,
+	clock: string,
+	deviceId: string,
+): CardContent {
+	return {
+		id: cardId as CardContent["id"],
+		cardId: cardId as CardContent["cardId"],
+		document: card.content ?? { type: "doc", content: [] },
+		contentVersion: Number(card.contentVersion ?? 1),
+		revision: Number(card.revision ?? 1),
+		clock,
+		createdAt: Number(card.createdAt ?? Date.now()),
+		updatedAt: Number(card.updatedAt ?? Date.now()),
+		updatedByDeviceId: String(card.updatedByDeviceId ?? deviceId),
+		deletedAt:
+			typeof card.deletedAt === "number" ? card.deletedAt : null,
+	};
+}
+
+async function hasInvalidStoredHierarchy(
+	db: ContextboardDatabaseLike,
+	whiteboardId: string,
+	parentId: string | null,
+) {
+	const seen = new Set([whiteboardId]);
+	let cursor = parentId;
+	while (cursor !== null) {
+		if (seen.has(cursor)) return true;
+		seen.add(cursor);
+		const parent = await db.whiteboards.get(cursor as never);
+		if (!parent || parent.deletedAt !== null) return true;
+		cursor = parent.parentWhiteboardId as string | null;
+	}
+	return false;
 }
 
 export async function getSyncState(
@@ -797,10 +1020,28 @@ export async function getSyncState(
 	);
 }
 
+export async function updateSyncCursor(
+	db: ContextboardDatabaseLike,
+	peerId: string,
+	cursor: string,
+) {
+	const existing = await db.syncPeers.get(peerId);
+	const now = Date.now();
+	await db.syncPeers.put({
+		peerId,
+		url: existing?.url ?? "",
+		cursor,
+		enabled: existing?.enabled ?? true,
+		updatedAt: now,
+		lastSyncedAt: now,
+	});
+}
+
 export async function hasWorkspaceData(db: ContextboardDatabaseLike) {
 	const counts = await Promise.all([
 		db.whiteboards.count(),
 		db.cards.count(),
+		db.cardContents.count(),
 		db.boardItems.count(),
 		db.canvasRecords.count(),
 		db.fileReferences.count(),
@@ -912,6 +1153,7 @@ export async function exportCheckpointEntities(db: ContextboardDatabaseLike) {
 	const [
 		whiteboards,
 		cards,
+		cardContents,
 		boardItems,
 		files,
 		fileReferences,
@@ -923,6 +1165,7 @@ export async function exportCheckpointEntities(db: ContextboardDatabaseLike) {
 	] = await Promise.all([
 		db.whiteboards.toArray(),
 		db.cards.toArray(),
+		db.cardContents.toArray(),
 		db.boardItems.toArray(),
 		db.files.toArray(),
 		db.fileReferences.toArray(),
@@ -935,6 +1178,7 @@ export async function exportCheckpointEntities(db: ContextboardDatabaseLike) {
 	return {
 		whiteboards,
 		cards,
+		cardContents,
 		boardItems,
 		files: files.map(({ blob: _blob, ...metadata }) => metadata),
 		fileReferences,
@@ -960,6 +1204,7 @@ export async function importCheckpointEntities(
 		[
 			db.whiteboards,
 			db.cards,
+			db.cardContents,
 			db.boardItems,
 			db.tldrawDocuments,
 			db.files,
@@ -976,6 +1221,7 @@ export async function importCheckpointEntities(
 			await Promise.all([
 				db.whiteboards.bulkPut((entities.whiteboards ?? []) as never[]),
 				db.cards.bulkPut((entities.cards ?? []) as never[]),
+				db.cardContents.bulkPut((entities.cardContents ?? []) as never[]),
 				db.boardItems.bulkPut((entities.boardItems ?? []) as never[]),
 				db.tldrawDocuments.bulkPut((entities.tldrawDocuments ?? []) as never[]),
 				db.files.bulkPut(

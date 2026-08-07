@@ -16,10 +16,31 @@ export type EntityRow = Record<string, unknown> & {
 };
 
 /** Optional predicates for collection reads that can be answered by storage. */
-export type EntityListFilter = {
+type BaseEntityListFilter = {
 	ids?: readonly string[];
-	whiteboardId?: string | null;
 };
+
+export type EntityListFilterByCollection = {
+	cards: BaseEntityListFilter;
+	cardContents: BaseEntityListFilter & { cardIds?: readonly string[] };
+	items: BaseEntityListFilter & {
+		whiteboardId?: string | null;
+		whiteboardIds?: readonly (string | null)[];
+		cardIds?: readonly string[];
+		childWhiteboardIds?: readonly string[];
+	};
+	whiteboards: BaseEntityListFilter & { parentWhiteboardIds?: readonly (string | null)[] };
+	cardReferences: BaseEntityListFilter & { sourceCardIds?: readonly string[]; targetCardIds?: readonly string[] };
+	fileReferences: BaseEntityListFilter & { targetKeys?: readonly string[]; fileIds?: readonly string[] };
+	cardRelations: BaseEntityListFilter & { whiteboardId?: string | null; whiteboardIds?: readonly (string | null)[]; cardIds?: readonly string[] };
+	records: BaseEntityListFilter & { whiteboardId?: string | null; whiteboardIds?: readonly (string | null)[] };
+	tldrawDocuments: BaseEntityListFilter & { whiteboardId?: string | null; whiteboardIds?: readonly (string | null)[] };
+	files: BaseEntityListFilter;
+	conflicts: BaseEntityListFilter;
+	todos: BaseEntityListFilter;
+};
+export type EntityCollection = keyof EntityListFilterByCollection;
+export type EntityListFilter = EntityListFilterByCollection[EntityCollection];
 
 /** Rows that are neither tombstoned nor archived. */
 export function isActiveRow(row: {
@@ -48,10 +69,10 @@ function normalizeRow(value: unknown): EntityRow | null {
 }
 
 /** Reads every row of one domain collection (e.g. `"items"`). */
-export async function listRows(
+export async function listRows<K extends EntityCollection>(
 	repository: WorkspaceRepository,
-	collection: string,
-	filter: EntityListFilter = {},
+	collection: K,
+	filter: EntityListFilterByCollection[K] = {} as EntityListFilterByCollection[K],
 ): Promise<EntityRow[]> {
 	const raw = await repository.query<unknown>({
 		type: `${collection}.list`,
@@ -65,14 +86,14 @@ export async function listRows(
 /** Reads every *active* row of one domain collection. */
 export async function listActiveRows(
 	repository: WorkspaceRepository,
-	collection: string,
+	collection: EntityCollection,
 ): Promise<EntityRow[]> {
 	return (await listRows(repository, collection)).filter(isActiveRow);
 }
 
 export async function getRow(
 	repository: WorkspaceRepository,
-	collection: string,
+	collection: EntityCollection,
 	id: string,
 ): Promise<EntityRow | null> {
 	return normalizeRow(

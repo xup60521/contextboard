@@ -245,9 +245,18 @@ export function createSyncApp(
 				input.workspaceId,
 				allowedEmails,
 			);
-		return context.json(
-			store.pull(input.workspaceId, input.cursor, input.limit),
-		);
+		const pulled = store.pull(input.workspaceId, input.cursor, input.limit);
+		if (input.capabilities?.includes("card-content-v1"))
+			return context.json(pulled);
+		return context.json({
+			...pulled,
+			batches: pulled.batches.map((batch) => ({
+				...batch,
+				changes: batch.changes.filter(
+					(change) => change.entityType !== "cardContent",
+				),
+			})),
+		});
 	});
 
 	app.put("/api/sync/v1/blobs/:hash", async (context) => {

@@ -151,6 +151,19 @@ pub async fn workspace_sync_state(
 }
 
 #[tauri::command]
+pub async fn workspace_update_sync_cursor(
+    storage: State<'_, Storage>,
+    workspace_id: String,
+    peer_id: String,
+    cursor: String,
+) -> Result<Value, CommandError> {
+    storage
+        .update_sync_cursor(&workspace_id, &peer_id, &cursor)
+        .map(|_| Value::Null)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn workspace_read_blob(
     storage: State<'_, Storage>,
     workspace_id: String,
@@ -240,7 +253,9 @@ pub async fn workspace_delete(
 }
 
 #[tauri::command]
-pub async fn workspace_list_local(storage: State<'_, Storage>) -> Result<Vec<String>, CommandError> {
+pub async fn workspace_list_local(
+    storage: State<'_, Storage>,
+) -> Result<Vec<String>, CommandError> {
     storage.list_local_workspaces().map_err(Into::into)
 }
 

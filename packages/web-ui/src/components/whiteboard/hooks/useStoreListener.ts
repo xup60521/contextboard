@@ -10,6 +10,10 @@ import type { WhiteboardFrame } from "../frame-sync";
 import type { Id } from "../ids";
 import { forgetMeasuredCardHeight } from "../measured-card-heights";
 import {
+	enterHydration,
+	releaseHydrationAfterStoreFlush,
+} from "../hydration-gate";
+import {
 	hasManagedShapeFrameChanged,
 	hasPersistableDrawingChange,
 	isManagedWhiteboardShape,
@@ -67,7 +71,9 @@ export function useStoreListener({
 					if (!whiteboardId) {
 						// Root board can't host cards; drop the orphan so it doesn't
 						// ghost on screen until the next reload strips it.
+						const release = enterHydration(hydratingRef);
 						editor.deleteShapes([record.id]);
+						releaseHydrationAfterStoreFlush(release);
 						continue;
 					}
 
@@ -145,11 +151,9 @@ export function useStoreListener({
 									: [],
 							);
 						if (rootRecordIds.length) {
-							hydratingRef.current = true;
+							const release = enterHydration(hydratingRef);
 							editor.store.remove(rootRecordIds as never[]);
-							window.setTimeout(() => {
-								hydratingRef.current = false;
-							}, 0);
+							releaseHydrationAfterStoreFlush(release);
 						}
 						return;
 					}

@@ -5,7 +5,8 @@ import {
 	type WhiteboardBreadcrumb,
 	type WhiteboardDetail,
 } from "@contextboard/application";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { recordContextboardPerf } from "@contextboard/application";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Id } from "../ids";
 import type {
 	BoardItemResult,
@@ -65,18 +66,24 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		WhiteboardBreadcrumb[] | undefined
 	>();
 	const canvasKey = whiteboardId ?? "__root__";
-	const [canvasData, setCanvasData] = useState<
-		| {
-				key: string;
-				items: CanvasItem[];
-				document: TldrawDocumentResult;
-		  }
-		| undefined
+	const [itemsData, setItemsData] = useState<
+		{ key: string; value: CanvasItem[] } | undefined
 	>();
-	const activeCanvasData =
-		canvasData?.key === canvasKey ? canvasData : undefined;
-	const items = activeCanvasData?.items;
-	const tldrawDocument = activeCanvasData?.document;
+	const [documentData, setDocumentData] = useState<
+		{ key: string; value: TldrawDocumentResult } | undefined
+	>();
+	const items = itemsData?.key === canvasKey ? itemsData.value : undefined;
+	const tldrawDocument =
+		documentData?.key === canvasKey ? documentData.value : undefined;
+	const itemCardIds = useMemo(
+		() =>
+			(items ?? []).flatMap((item) =>
+				item.cardId ? [item.cardId] : [],
+			),
+		[items],
+	);
+	const itemCardIdsKey = itemCardIds.join("\0");
+	const loadedItemsKeyRef = useRef<string | null>(null);
 
 	useEffect(() => {
 		if (!whiteboardId || !whiteboards) {
@@ -103,28 +110,70 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	useEffect(() => {
 		if (!canvas) return;
 		let active = true;
-		setCanvasData(undefined);
+		let running = false;
+		let dirty = false;
 		const load = async () => {
-			const [nextItems, nextDocument] = await Promise.all([
-				canvas.listItems(whiteboardId ?? null),
-				canvas.getDocument(whiteboardId ?? null),
-			]);
-			if (!active) return;
-			setCanvasData({
-				key: canvasKey,
-				items: nextItems,
-				document: nextDocument
-					? ({
-							whiteboardId: nextDocument.whiteboardId,
-							snapshot: nextDocument.snapshot,
-							revision: nextDocument.revision,
-							canvasRecordVersions: nextDocument.canvasRecordVersions,
-						} as NonNullable<TldrawDocumentResult>)
-					: null,
-			});
+			dirty = true;
+			if (running) return;
+			running = true;
+			do {
+				dirty = false;
+				recordContextboardPerf("canvas.items.reload", { detail: canvasKey });
+				const nextItems = await canvas.listItems(whiteboardId ?? null);
+				if (active) {
+					loadedItemsKeyRef.current = canvasKey;
+					setItemsData({ key: canvasKey, value: nextItems });
+				}
+			} while (active && dirty);
+			running = false;
+		};
+		if (loadedItemsKeyRef.current !== canvasKey) void load();
+		const unsubscribe = canvas.subscribeItems(
+			whiteboardId ?? null,
+			() => void load(),
+			{ cardIds: itemCardIdsKey ? itemCardIdsKey.split("\0") : [] },
+		);
+		return () => {
+			active = false;
+			unsubscribe();
+		};
+	}, [canvas, canvasKey, itemCardIdsKey, whiteboardId]);
+
+	useEffect(() => {
+		if (!canvas) return;
+		let active = true;
+		let running = false;
+		let dirty = false;
+		const load = async () => {
+			dirty = true;
+			if (running) return;
+			running = true;
+			do {
+				dirty = false;
+				recordContextboardPerf("canvas.document.reload", {
+					detail: canvasKey,
+				});
+				const next = await canvas.getDocument(whiteboardId ?? null);
+				if (active)
+					setDocumentData({
+						key: canvasKey,
+						value: next
+							? ({
+									whiteboardId: next.whiteboardId,
+									snapshot: next.snapshot,
+									revision: next.revision,
+									canvasRecordVersions: next.canvasRecordVersions,
+								} as NonNullable<TldrawDocumentResult>)
+							: null,
+					});
+			} while (active && dirty);
+			running = false;
 		};
 		void load();
-		const unsubscribe = canvas.subscribe(() => void load());
+		const unsubscribe = canvas.subscribeDocument(
+			whiteboardId ?? null,
+			() => void load(),
+		);
 		return () => {
 			active = false;
 			unsubscribe();
@@ -223,14 +272,15 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		const metadataReady =
 			whiteboardId === null ||
 			(whiteboard !== undefined && breadcrumbs !== undefined);
-		if (!activeCanvasData || !metadataReady) return;
+		if (items === undefined || tldrawDocument === undefined || !metadataReady)
+			return;
 		try {
 			if (typeof performance !== "undefined")
 				performance.mark("contextboard:whiteboard-data-ready");
 		} catch {
 			// Performance marks are diagnostics only.
 		}
-	}, [activeCanvasData, breadcrumbs, whiteboard, whiteboardId]);
+	}, [breadcrumbs, items, tldrawDocument, whiteboard, whiteboardId]);
 
 	const boardItems = useMemo(
 		() => (items ?? []).map((item) => toBoardItem(item, runtime.workspaceId)),
@@ -246,6 +296,7 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		})),
 		itemQuery,
 		items: boardItems,
+		itemsReady: items !== undefined,
 		tldrawDocument,
 		createCardItem,
 		createSubwhiteboardItem,

@@ -669,6 +669,40 @@ describe("repository canvas record changes", () => {
 		expect(document?.canvasRecordVersions).toEqual({ "shape:a": 2 });
 	});
 
+	test("does not resurrect a legacy snapshot after deleting the last record", async () => {
+		const { whiteboards, canvas } = setup();
+		const rootId = await whiteboards.createRoot();
+		await canvas.saveDocument({
+			whiteboardId: rootId,
+			snapshot: {
+				store: {
+					"shape:legacy": {
+						id: "shape:legacy",
+						typeName: "shape",
+						type: "geo",
+					},
+				},
+			},
+		});
+		await canvas.applyRecordChanges({
+			whiteboardId: rootId,
+			added: [{ id: "shape:only", typeName: "shape", type: "geo" }],
+			updated: [],
+			removed: [],
+		});
+		await canvas.applyRecordChanges({
+			whiteboardId: rootId,
+			added: [],
+			updated: [],
+			removed: ["shape:legacy", "shape:only"],
+		});
+
+		expect((await canvas.getDocument(rootId))?.snapshot).toEqual({
+			schema: null,
+			store: {},
+		});
+	});
+
 	test("atomically migrates the legacy snapshot before applying a record delta", async () => {
 		const { whiteboards, canvas } = setup();
 		const rootId = await whiteboards.createRoot();

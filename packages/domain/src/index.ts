@@ -1,6 +1,7 @@
 export type Brand<T, Name extends string> = T & { readonly __brand: Name };
 
 export type CardId = Brand<string, "CardId">;
+export type CardContentId = Brand<string, "CardContentId">;
 export type WhiteboardId = Brand<string, "WhiteboardId">;
 export type BoardItemId = Brand<string, "BoardItemId">;
 export type TldrawDocumentId = Brand<string, "TldrawDocumentId">;
@@ -59,8 +60,18 @@ export type BoardItem = EntityBase<BoardItemId> & {
 
 export type TldrawDocument = EntityBase<TldrawDocumentId> & {
 	whiteboardId: WhiteboardId | null;
-	snapshot: unknown;
+	snapshot?: unknown;
+	/** Store schema retained after the legacy whole-store snapshot is removed. */
+	schema?: unknown;
 	documentVersion: number;
+	storageMode?: "legacy-snapshot" | "records-v1";
+};
+
+export type CardContent = EntityBase<CardContentId> & {
+	cardId: CardId;
+	document: unknown;
+	contentVersion: number;
+	clock: string;
 };
 
 export type LocalFile = EntityBase<FileId> & {

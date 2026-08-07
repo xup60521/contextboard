@@ -111,17 +111,19 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 		};
 		const listener = vi.fn();
 		repository.subscribe(listener);
-		expect(await repository.applyRemote([batch], "cloud", "1")).toEqual({
+		expect(await repository.applyRemote([batch], "cloud", "1")).toMatchObject({
 			applied: 1,
 			conflicts: 0,
 		});
-		expect(await repository.applyRemote([batch], "cloud", "2")).toEqual({
+		expect(await repository.applyRemote([batch], "cloud", "2")).toMatchObject({
 			applied: 0,
 			conflicts: 0,
 		});
 		expect((await repository.getSyncState("cloud")).cursor).toBe("2");
 		expect(await database.todos.count()).toBe(1);
-		expect(listener).toHaveBeenCalledTimes(2);
+		// Replaying an already-applied batch changes no materialized row and emits
+		// no repository invalidation.
+		expect(listener).toHaveBeenCalledTimes(1);
 
 		const mismatch = { ...batch, changeId: "remote-2", workspaceId: "other" };
 		await expect(
@@ -155,6 +157,92 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 		expect(batch?.changes).toHaveLength(2);
 		expect(new Set(batch?.changes.map((change) => change.clock)).size).toBe(1);
 		expect(batch?.changes.map((change) => change.revision)).toEqual([1, 1]);
+	});
+
+	test("delivers structured changes only to matching subscriptions", async () => {
+		const { repository } = await makeRepository();
+		const cards = vi.fn();
+		const boardA = vi.fn();
+		const boardB = vi.fn();
+		repository.subscribe(cards, { entityTypes: ["card"] });
+		repository.subscribe(boardA, {
+			entityTypes: ["boardItem"],
+			whiteboardIds: ["board-a"],
+		});
+		repository.subscribe(boardB, {
+			entityTypes: ["boardItem"],
+			whiteboardIds: ["board-b"],
+		});
+		await repository.execute({
+			type: "items.create",
+			input: {
+				writes: [
+					{
+						entity: "boardItem",
+						operation: "upsert",
+						id: "item-a",
+						value: { whiteboardId: "board-a", cardId: "card-a" },
+					},
+				],
+			},
+		});
+		expect(cards).not.toHaveBeenCalled();
+		expect(boardA).toHaveBeenCalledWith({
+			origin: "local",
+			changes: [
+				expect.objectContaining({
+					entityType: "boardItem",
+					entityId: "item-a",
+					whiteboardId: "board-a",
+					cardId: "card-a",
+				}),
+			],
+		});
+		expect(boardB).not.toHaveBeenCalled();
+	});
+
+	test("accepts manifest-backed card content, conflict, and todo entities", async () => {
+		const { repository } = await makeRepository();
+		await repository.execute({
+			type: "manifest.seed",
+			input: {
+				writes: [
+					{
+						entity: "cardContent",
+						operation: "upsert",
+						id: "card-a",
+						value: { cardId: "card-a", document: { type: "doc" } },
+					},
+					{
+						entity: "todo",
+						operation: "upsert",
+						id: "todo-a",
+						value: { text: "Follow up" },
+					},
+					{
+						entity: "conflict",
+						operation: "upsert",
+						id: "conflict-a",
+						value: { entityType: "card", entityId: "card-a" },
+					},
+				],
+			},
+		});
+		expect(
+			await repository.query({
+				type: "cardContents.get",
+				input: { id: "card-a" },
+			}),
+		).toMatchObject({ cardId: "card-a", document: { type: "doc" } });
+		expect(
+			await repository.query({ type: "todos.get", input: { id: "todo-a" } }),
+		).toMatchObject({ text: "Follow up" });
+		expect(
+			await repository.query({
+				type: "conflicts.get",
+				input: { id: "conflict-a" },
+			}),
+		).toMatchObject({ conflictId: "conflict-a" });
 	});
 
 	test("pushes list filters into indexed entity reads", async () => {

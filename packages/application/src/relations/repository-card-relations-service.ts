@@ -286,8 +286,16 @@ export function createRepositoryCardRelationsService(
 			});
 		},
 
-		subscribe(listener) {
-			return repository.subscribe(listener);
+		subscribe(listener, options) {
+			return repository.subscribe(
+				() => listener(),
+				{
+					entityTypes: ["cardRelation", "card", "whiteboard"],
+					...(options?.whiteboardId
+						? { whiteboardIds: [options.whiteboardId] }
+						: {}),
+				},
+			);
 		},
 	};
 }

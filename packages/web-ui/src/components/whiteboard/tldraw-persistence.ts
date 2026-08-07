@@ -107,11 +107,15 @@ export function planCanvasReconciliation({
 	persistedStore,
 	editorStore,
 	previouslyAppliedRecordIds,
+	previouslyAppliedRecordVersions,
+	persistedRecordVersions,
 	availableShapeIds,
 }: {
 	persistedStore: Record<string, unknown>;
 	editorStore: Record<string, unknown>;
 	previouslyAppliedRecordIds: ReadonlySet<string>;
+	previouslyAppliedRecordVersions?: Readonly<Record<string, number>>;
+	persistedRecordVersions?: Readonly<Record<string, number>>;
 	availableShapeIds: ReadonlySet<string>;
 }): CanvasReconciliation {
 	const nextRecords = new Map<string, TLRecord>();
@@ -150,6 +154,14 @@ export function planCanvasReconciliation({
 			deferredBindings.push(record);
 			continue;
 		}
+		const previousVersion = previouslyAppliedRecordVersions?.[record.id];
+		const persistedVersion = persistedRecordVersions?.[record.id];
+		if (
+			previousVersion !== undefined &&
+			persistedVersion !== undefined &&
+			previousVersion === persistedVersion
+		)
+			continue;
 		if (!recordsEqual(editorStore[record.id], record)) upserts.push(record);
 	}
 	upserts.sort(

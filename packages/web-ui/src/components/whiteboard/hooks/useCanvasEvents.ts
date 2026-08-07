@@ -54,8 +54,7 @@ export function useCanvasEvents({
 			if (info.target === "shape") {
 				if (
 					isMarkdownCardShape(info.shape) &&
-					info.shape.props.cardId &&
-					!info.shape.props.contentLoaded
+					info.shape.props.cardId
 				) {
 					pendingEditShapeIdRef.current = info.shape.id;
 					prioritizeCardContent(
@@ -76,8 +75,7 @@ export function useCanvasEvents({
 			if (hitShape) {
 				if (
 					isMarkdownCardShape(hitShape) &&
-					hitShape.props.cardId &&
-					!hitShape.props.contentLoaded
+					hitShape.props.cardId
 				) {
 					pendingEditShapeIdRef.current = hitShape.id;
 					prioritizeCardContent(

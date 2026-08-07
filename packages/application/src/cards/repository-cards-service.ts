@@ -6,6 +6,7 @@ import {
 } from "../canvas/plan/archive-card";
 import { type Frame, findFreeFrame } from "../canvas/plan/place-card-frame";
 import { planReferences } from "../canvas/plan/references";
+import { collectReferenceIds } from "../canvas/derive/references";
 import { normalizeImageSources } from "../files/fileUrl";
 import {
 	applyWrites,
@@ -145,6 +146,19 @@ function preferPlacement(placements: EntityRow[], preferred?: string | null) {
 }
 
 /**
+ * Release A databases can contain a placeholder cardContent row created from a
+ * lightweight card that did not carry its legacy body. A null document is not
+ * authoritative: prefer the legacy card body until a real external document
+ * has been materialized. This keeps mixed-version imports and partially
+ * migrated local databases readable on every card surface.
+ */
+function hasMaterializedCardContent(
+	row: Record<string, unknown> | null | undefined,
+): row is Record<string, unknown> {
+	return row != null && row.document !== null && row.document !== undefined;
+}
+
+/**
  * Card capability implemented purely through the semantic
  * {@link WorkspaceRepository} boundary. The renderer never learns about SQL,
  * IndexedDB object stores or filesystem layout — only allow-listed domain
@@ -163,8 +177,27 @@ export function createRepositoryCardsService(
 	const deviceId = options.deviceId ?? "";
 
 	async function read(cardId: string): Promise<CardEntity | null> {
+		const [rawCard, rawContent] = await Promise.all([
+			repository.query({ type: "cards.get", input: { id: cardId } }),
+			repository.query<unknown>({
+				type: "cardContents.get",
+				input: { id: cardId },
+			}),
+		]);
+		const contentRow =
+			rawContent && typeof rawContent === "object"
+				? (rawContent as Record<string, unknown>)
+				: null;
 		const row = normalize(
-			await repository.query({ type: "cards.get", input: { id: cardId } }),
+			rawCard &&
+			typeof rawCard === "object" &&
+			hasMaterializedCardContent(contentRow)
+				? {
+						...(rawCard as Record<string, unknown>),
+						content: contentRow.document,
+						contentVersion: contentRow.contentVersion,
+					}
+				: rawCard,
 		);
 		return row && isActive(row) ? row : null;
 	}
@@ -187,7 +220,7 @@ export function createRepositoryCardsService(
 	 */
 	type CardDetailContext = {
 		rowById: Map<string, CardEntity>;
-		activeItems: EntityRow[];
+		activeItemsByCardId: Map<string, EntityRow[]>;
 		boardById: Map<string, EntityRow>;
 		backlinksByTargetId: Map<string, EntityRow[]>;
 		backlinkSourceById: Map<string, CardEntity>;
@@ -197,11 +230,13 @@ export function createRepositoryCardsService(
 		cardIds: readonly string[],
 	): Promise<CardDetailContext> {
 		const wanted = new Set(cardIds);
-		const [rows, items, references, boards] = await Promise.all([
+		const [rows, contentRows, items, references] = await Promise.all([
 			listRows(repository, "cards", { ids: [...wanted] }),
-			listRows(repository, "items"),
-			listRows(repository, "cardReferences"),
-			listRows(repository, "whiteboards"),
+			listRows(repository, "cardContents", { cardIds: [...wanted] }),
+			listRows(repository, "items", { cardIds: [...wanted] }),
+			listRows(repository, "cardReferences", {
+				targetCardIds: [...wanted],
+			}),
 		]);
 
 		// Backlinks only need the *source* cards' title and preview, so resolve
@@ -222,17 +257,66 @@ export function createRepositoryCardsService(
 			sourceIds.size > 0
 				? await listRows(repository, "cards", { ids: [...sourceIds] })
 				: [];
+		const activeItems = items.filter(isActiveRow);
+		const placedBoardIds = [
+			...new Set(
+				activeItems.flatMap((item) =>
+					typeof item.whiteboardId === "string" ? [item.whiteboardId] : [],
+				),
+			),
+		];
+		const placedBoards = placedBoardIds.length
+			? await listRows(repository, "whiteboards", { ids: placedBoardIds })
+			: [];
+		const ancestorIds = [
+			...new Set(
+				placedBoards.flatMap((board) =>
+					Array.isArray(board.ancestorIds) ? board.ancestorIds.map(String) : [],
+				),
+			),
+		].filter((id) => !placedBoardIds.includes(id));
+		const ancestorBoards = ancestorIds.length
+			? await listRows(repository, "whiteboards", { ids: ancestorIds })
+			: [];
+		const activeItemsByCardId = new Map<string, EntityRow[]>();
+		for (const item of activeItems) {
+			if (typeof item.cardId !== "string") continue;
+			const bucket = activeItemsByCardId.get(item.cardId);
+			if (bucket) bucket.push(item);
+			else activeItemsByCardId.set(item.cardId, [item]);
+		}
 
 		const toCardEntities = (values: EntityRow[]) =>
 			values
 				.map(normalize)
 				.filter((row): row is CardEntity => row !== null && isActive(row));
 
+		const contentByCardId = new Map(
+			contentRows
+				.filter(isActiveRow)
+				.map((row) => [String(row.cardId), row] as const),
+		);
 		return {
-			rowById: new Map(toCardEntities(rows).map((row) => [row.id, row])),
-			activeItems: items.filter(isActiveRow),
+			rowById: new Map(
+				toCardEntities(rows).map((row) => {
+					const content = contentByCardId.get(row.id);
+					return [
+						row.id,
+						hasMaterializedCardContent(content)
+							? normalize({
+									...row,
+									content: content.document,
+									contentVersion: content.contentVersion,
+								}) ?? row
+							: row,
+					] as const;
+				}),
+			),
+			activeItemsByCardId,
 			boardById: new Map(
-				boards.filter(isActiveRow).map((board) => [board.id, board]),
+				[...placedBoards, ...ancestorBoards]
+					.filter(isActiveRow)
+					.map((board) => [board.id, board]),
 			),
 			backlinksByTargetId,
 			backlinkSourceById: new Map(
@@ -256,9 +340,7 @@ export function createRepositoryCardsService(
 		row: CardEntity,
 		context: CardDetailContext,
 	): CardDetail {
-		const placements = context.activeItems.filter(
-			(item) => item.cardId === row.id,
-		);
+		const placements = context.activeItemsByCardId.get(row.id) ?? [];
 		const preferred = preferPlacement(placements);
 		const board =
 			preferred && typeof preferred.whiteboardId === "string"
@@ -315,21 +397,30 @@ export function createRepositoryCardsService(
 	 * backlinks and blob refcounts behave identically on both platforms.
 	 */
 	async function planReferenceWrites(cardId: string, content: unknown) {
-		const [fileReferences, cardReferences, files] = await Promise.all([
-			listRows(repository, "fileReferences"),
-			listRows(repository, "cardReferences"),
-			listRows(repository, "files"),
-		]);
 		const targetKey = `card:${cardId}`;
+		const [targetFileReferences, cardReferences] = await Promise.all([
+			listRows(repository, "fileReferences", { targetKeys: [targetKey] }),
+			listRows(repository, "cardReferences", { sourceCardIds: [cardId] }),
+		]);
+		const affectedFileIds = [
+			...new Set([
+				...targetFileReferences.map((row) => String(row.fileId ?? "")),
+				...collectReferenceIds(content, "fileId"),
+			]),
+		].filter(Boolean);
+		const [allFileReferences, files] = await Promise.all([
+			affectedFileIds.length
+				? listRows(repository, "fileReferences", { fileIds: affectedFileIds })
+				: Promise.resolve([]),
+			affectedFileIds.length
+				? listRows(repository, "files", { ids: affectedFileIds })
+				: Promise.resolve([]),
+		]);
 		const plan = planReferences(
 			{
-				targetFileReferences: fileReferences.filter(
-					(row) => row.targetKey === targetKey,
-				) as never[],
-				allFileReferences: fileReferences as never[],
-				cardReferences: cardReferences.filter(
-					(row) => row.sourceCardId === cardId,
-				) as never[],
+				targetFileReferences: targetFileReferences as never[],
+				allFileReferences: allFileReferences as never[],
+				cardReferences: cardReferences as never[],
 				files: files as never[],
 			},
 			{ targetType: "card", targetId: cardId, content },
@@ -483,6 +574,19 @@ export function createRepositoryCardsService(
 						value,
 						expectedRevision: 0,
 					},
+					{
+						entity: "cardContent",
+						operation: "upsert",
+						id: cardId,
+						value: {
+							id: cardId,
+							cardId,
+							document: content,
+							contentVersion: 1,
+							clock: "",
+						},
+						expectedRevision: 0,
+					},
 					...referenceWrites,
 				]);
 				return cardId;
@@ -502,12 +606,19 @@ export function createRepositoryCardsService(
 			return withRetry(async () => {
 				const row = await read(cardId);
 				if (!row) throw new Error("Card not found");
+				const contentRow = await repository.query<Record<string, unknown> | null>({
+					type: "cardContents.get",
+					input: { id: cardId },
+				});
 				if (
 					typeof expectedVersion === "number" &&
 					expectedVersion !== row.contentVersion
 				)
 					throw new Error("Card was updated elsewhere");
-				if (JSON.stringify(normalizedContent) === JSON.stringify(row.content))
+				if (
+					contentRow &&
+					JSON.stringify(normalizedContent) === JSON.stringify(row.content)
+				)
 					return row.contentVersion;
 				const contentVersion = row.contentVersion + 1;
 				const value: CardEntity = {
@@ -528,6 +639,22 @@ export function createRepositoryCardsService(
 						id: cardId,
 						value,
 						expectedRevision: row.revision,
+					},
+					{
+						entity: "cardContent",
+						operation: "upsert",
+						id: cardId,
+						value: {
+							id: cardId,
+							cardId,
+							document: normalizedContent,
+							contentVersion,
+							clock: "",
+						},
+						expectedRevision:
+							typeof contentRow?.revision === "number"
+								? contentRow.revision
+								: 0,
 					},
 					...referenceWrites,
 				]);
@@ -603,8 +730,34 @@ export function createRepositoryCardsService(
 				});
 		},
 
-		subscribe(listener: () => void) {
-			return repository.subscribe(listener);
+		subscribe(listener, options) {
+			return repository.subscribe(
+				(change) => {
+					if (
+						options?.cardIds &&
+						!change.changes.some(
+							(item) =>
+								item.entityType !== "card" ||
+								options.cardIds?.includes(item.entityId) ||
+								(item.cardId !== null &&
+									item.cardId !== undefined &&
+									options.cardIds?.includes(item.cardId)),
+						)
+					)
+						return;
+					listener();
+				},
+				{
+					entityTypes: [
+						"card",
+						"cardContent",
+						"boardItem",
+						"cardReference",
+						"fileReference",
+						"whiteboard",
+					],
+				},
+			);
 		},
 	};
 }

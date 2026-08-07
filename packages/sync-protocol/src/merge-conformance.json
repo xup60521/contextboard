@@ -1,0 +1,25 @@
+{
+  "deterministicIds": [
+    {
+      "kind": "conflictCopyCard",
+      "parts": ["conflict:card-1:device-a:1:device-b:2"],
+      "expected": "conflict-card:cdbf811f652003b37bbf760192e48cef"
+    },
+    {
+      "kind": "entity",
+      "namespace": "conflict-placement",
+      "parts": ["conflict-1", "placement-1"],
+      "expected": "conflict-placement:4e0b224f4e194cb3cb76d2b9d71264ff"
+    }
+  ],
+  "scenarios": [
+    { "name": "equal clocks", "entityType": "canvasRecord", "expected": "device-id-tie-break" },
+    { "name": "stale clocks", "entityType": "cardRelation", "expected": "keep-local" },
+    { "name": "revision conflicts", "entityType": "card", "expected": "conflict-copy" },
+    { "name": "hierarchy conflicts", "entityType": "whiteboard", "expected": "conflict" },
+    { "name": "duplicate batches", "entityType": "todo", "expected": "idempotent" },
+    { "name": "tombstones", "entityType": "todo", "expected": "materialize-delete" },
+    { "name": "file normalization", "entityType": "file", "expected": "hash-to-sha256" },
+    { "name": "conflict-copy determinism", "entityType": "card", "expected": "stable-id" }
+  ]
+}

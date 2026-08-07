@@ -439,7 +439,8 @@ describe("local database", () => {
 			"contextboard-cloud",
 			"7",
 		);
-		expect(result).toEqual({ applied: 0, conflicts: 0 });
+		expect(result).toMatchObject({ applied: 0, conflicts: 0 });
+		expect(result.materializedChanges).toEqual([]);
 		expect((await db.syncPeers.get("contextboard-cloud"))?.cursor).toBe("7");
 		expect(await db.todos.count()).toBe(1);
 	});
@@ -562,6 +563,18 @@ describe("local database", () => {
 			[dbB, cardB],
 		] as const) {
 			await db.cards.put(value as never);
+			await db.cardContents.put({
+				id: "card-1",
+				cardId: "card-1",
+				document: value.content,
+				contentVersion: value.contentVersion,
+				clock: `0000000000002:000000:${value.updatedByDeviceId}`,
+				revision: value.revision,
+				createdAt: value.createdAt,
+				updatedAt: value.updatedAt,
+				updatedByDeviceId: value.updatedByDeviceId,
+				deletedAt: null,
+			} as never);
 			await db.boardItems.put({
 				id: "placement-1",
 				whiteboardId: "board-1",
@@ -617,6 +630,26 @@ describe("local database", () => {
 					clock: `0000000000002:000000:${deviceId}`,
 					value,
 				},
+				{
+					entityType: "cardContent",
+					entityId: "card-1",
+					baseRevision: 1,
+					revision: 2,
+					operation: "upsert",
+					clock: `0000000000002:000000:${deviceId}`,
+					value: {
+						id: "card-1",
+						cardId: "card-1",
+						document: value.content,
+						contentVersion: value.contentVersion,
+						clock: `0000000000002:000000:${deviceId}`,
+						revision: 2,
+						createdAt: 1,
+						updatedAt: 2,
+						updatedByDeviceId: deviceId,
+						deletedAt: null,
+					},
+				},
 			],
 		});
 		const fromB = remoteBatch("change-b", "device-b", cardB);
@@ -636,6 +669,9 @@ describe("local database", () => {
 		const copyB = await dbB.cards.get(copyId);
 		expect(copyA?.content).toEqual(cardB.content);
 		expect(copyB?.content).toEqual(cardA.content);
+		expect((await dbA.cardContents.get(copyId))?.document).toEqual(cardB.content);
+		expect((await dbB.cardContents.get(copyId))?.document).toEqual(cardA.content);
+		expect((await dbA.cardContents.get("card-1"))?.document).toEqual(cardA.content);
 		expect(
 			(copyA as unknown as { customMetadata: unknown }).customMetadata,
 		).toEqual(cardB.customMetadata);

@@ -12,6 +12,7 @@ import { useRichTextReady } from "./hooks/useRichTextReady";
 import { useRichTextRuntimeRefs } from "./hooks/useRichTextRuntimeRefs";
 import type { RichTextEditorProps } from "./RichTextEditor.types";
 import { RichTextEditorChrome } from "./RichTextEditorChrome";
+import { StaticRichTextRenderer } from "./static-renderer/StaticRichTextRenderer";
 
 export function RichTextEditor({
 	content,
@@ -83,7 +84,13 @@ export function RichTextEditor({
 	});
 
 	if (!editor) {
-		return null;
+		return (
+			<StaticRichTextRenderer
+				content={content}
+				className={className}
+				contentClassName={contentClassName}
+			/>
+		);
 	}
 
 	return (
