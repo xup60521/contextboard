@@ -173,6 +173,19 @@ describe("Hono sync app", () => {
 			createdAt: 1,
 			changes: [
 				{
+					entityType: "card",
+					entityId: "card-1",
+					baseRevision: null,
+					revision: 1,
+					operation: "upsert",
+					clock: "0000000000001:000001:device-1",
+					value: {
+						id: "card-1",
+						content: { type: "doc", content: [] },
+						contentVersion: 1,
+					},
+				},
+				{
 					entityType: "cardContent",
 					entityId: "card-1",
 					baseRevision: null,
@@ -208,8 +221,17 @@ describe("Hono sync app", () => {
 		const capable = (await (await pull(["card-content-v1"])).json()) as {
 			batches: typeof batch[];
 		};
-		expect(legacy.batches[0]?.changes).toEqual([]);
-		expect(capable.batches[0]?.changes[0]?.entityType).toBe("cardContent");
+		expect(legacy.batches[0]?.changes).toEqual([
+			expect.objectContaining({
+				entityType: "card",
+				value: expect.objectContaining({
+					content: { type: "doc", content: [] },
+				}),
+			}),
+		]);
+		expect(capable.batches[0]?.changes.map((change) => change.entityType)).toEqual(
+			["card", "cardContent"],
+		);
 		store.close();
 	});
 

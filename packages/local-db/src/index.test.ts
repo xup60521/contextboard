@@ -7,7 +7,7 @@ import {
 	SYNC_PROTOCOL_VERSION,
 	SYNC_SCHEMA_VERSION,
 } from "@contextboard/sync-protocol";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
 	acknowledgeBatches,
 	applyRemoteBatches,
@@ -179,6 +179,46 @@ describe("local database", () => {
 			}),
 		);
 		expect(JSON.stringify(batches)).not.toContain("stale mutation arguments");
+	});
+
+	test("limits a versioned 10,000-row pending log before materialization", async () => {
+		const db = makeDb();
+		const identity = await ensureLocalIdentity(db);
+		await db.settings.put({ key: "changeLogFormatVersion", value: 2 });
+		const batches = Array.from({ length: 10_000 }, (_, index): ChangeBatch => ({
+			protocolVersion: SYNC_PROTOCOL_VERSION,
+			schemaVersion: SYNC_SCHEMA_VERSION,
+			changeId: `pending-${index.toString().padStart(5, "0")}`,
+			workspaceId: identity.workspaceId,
+			deviceId: identity.deviceId,
+			deviceSequence: index + 1,
+			clock: `${(index + 1).toString().padStart(13, "0")}:000000:${identity.deviceId}`,
+			command: "performance.fixture",
+			createdAt: index,
+			changes: [],
+		}));
+		await db.changeLog.bulkAdd(batches);
+
+		let appliedLimit: number | null = null;
+		const orderBy = db.changeLog.orderBy.bind(db.changeLog);
+		const orderBySpy = vi
+			.spyOn(db.changeLog, "orderBy")
+			.mockImplementation(((index: string) => {
+				const ordered = orderBy(index);
+				const limit = ordered.limit.bind(ordered);
+				ordered.limit = ((count: number) => {
+					appliedLimit = count;
+					return limit(count);
+				}) as typeof ordered.limit;
+				return ordered;
+			}) as typeof db.changeLog.orderBy);
+
+		const pending = await getPendingBatches(db, 100);
+		orderBySpy.mockRestore();
+		expect(appliedLimit).toBe(100);
+		expect(pending).toHaveLength(100);
+		expect(pending[0]?.changeId).toBe("pending-00000");
+		expect(pending.at(-1)?.changeId).toBe("pending-00099");
 	});
 
 	test("rebuilds every syncable entity, excludes binary snapshots, and is idempotent", async () => {
