@@ -25,6 +25,7 @@ import { useCameraReset } from "./hooks/useCameraReset";
 import { useCanvasEvents } from "./hooks/useCanvasEvents";
 import { useCanvasPersistenceInteraction } from "./hooks/useCanvasPersistenceInteraction";
 import { useCardDeleteShortcut } from "./hooks/useCardDeleteShortcut";
+import { useSubwhiteboardEnterShortcut } from "./hooks/useSubwhiteboardEnterShortcut";
 import { useCardRelationSync } from "./hooks/useCardRelationSync";
 import { useDrawingHydration } from "./hooks/useDrawingHydration";
 import { useDrawingSync } from "./hooks/useDrawingSync";
@@ -307,6 +308,8 @@ export function WhiteboardCanvas({
 
 	const { whiteboardCardDeletePending, setWhiteboardCardDeletePending } =
 		useCardDeleteShortcut({ editor });
+
+	useSubwhiteboardEnterShortcut({ editor, navigate });
 
 	const {
 		pending: pendingPaste,
