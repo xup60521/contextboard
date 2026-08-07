@@ -191,9 +191,10 @@ const OPERATION_ENTITY_TYPES: Record<string, SyncEntityType> = {
 };
 
 function scopeFromValue(value: unknown) {
-	const row = value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
+	const row =
+		value && typeof value === "object"
+			? (value as Record<string, unknown>)
+			: {};
 	return {
 		...(Object.hasOwn(row, "whiteboardId") &&
 		(row.whiteboardId === null || typeof row.whiteboardId === "string")
@@ -204,7 +205,8 @@ function scopeFromValue(value: unknown) {
 			? { cardId: row.cardId as string | null }
 			: {}),
 		...(Object.hasOwn(row, "parentWhiteboardId") &&
-		(row.parentWhiteboardId === null || typeof row.parentWhiteboardId === "string")
+		(row.parentWhiteboardId === null ||
+			typeof row.parentWhiteboardId === "string")
 			? { parentWhiteboardId: row.parentWhiteboardId as string | null }
 			: {}),
 	};
@@ -214,29 +216,37 @@ export function describeDomainCommand(
 	command: DomainCommand<unknown>,
 	result?: unknown,
 ) {
-	const input = command.input && typeof command.input === "object"
-		? (command.input as Record<string, unknown>)
-		: {};
+	const input =
+		command.input && typeof command.input === "object"
+			? (command.input as Record<string, unknown>)
+			: {};
 	const writes = Array.isArray(input.writes) ? input.writes : null;
 	if (writes) {
-		return writes.flatMap((candidate): WorkspaceEntityChange[] => {
+		const materialized = Array.isArray(result) ? result : [];
+		return writes.flatMap((candidate, index): WorkspaceEntityChange[] => {
 			if (!candidate || typeof candidate !== "object") return [];
 			const write = candidate as Record<string, unknown>;
 			if (typeof write.entity !== "string" || typeof write.id !== "string")
 				return [];
-			return [{
-				entityType: write.entity as SyncEntityType,
-				entityId: write.id,
-				...scopeFromValue(write.value),
-			}];
+			return [
+				{
+					entityType: write.entity as SyncEntityType,
+					entityId: write.id,
+					// Deletes intentionally omit a value from the command contract. Both
+					// stores return their materialized tombstone in matching write order,
+					// which preserves scope metadata for filtered invalidations.
+					...scopeFromValue(write.value ?? materialized[index]),
+				},
+			];
 		});
 	}
 	const prefix = command.type.split(".")[0] ?? "";
 	const entityType = OPERATION_ENTITY_TYPES[prefix];
 	const value = input.value ?? input;
-	const row = value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: input;
+	const row =
+		value && typeof value === "object"
+			? (value as Record<string, unknown>)
+			: input;
 	const id = row.id ?? row.conflictId ?? result;
 	return entityType && typeof id === "string"
 		? [{ entityType, entityId: id, ...scopeFromValue(value) }]
@@ -249,10 +259,10 @@ export function describeRemoteBatches(batches: readonly ChangeBatch[]) {
 
 export function describeRemoteChanges(changes: readonly EntityChange[]) {
 	return changes.map((change) => ({
-			entityType: change.entityType,
-			entityId: change.entityId,
-			...scopeFromValue(change.value),
-		}));
+		entityType: change.entityType,
+		entityId: change.entityId,
+		...scopeFromValue(change.value),
+	}));
 }
 
 export function workspaceChangeMatches(

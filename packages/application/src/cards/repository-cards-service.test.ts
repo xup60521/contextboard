@@ -35,6 +35,14 @@ describe("repository card capability", () => {
 		expect(repository.pendingCommands).toEqual(["cards.create"]);
 		const card = await cards.get(cardId);
 		expect(card?.title).toBe("New card");
+		expect(
+			(
+				await repository.query<Record<string, unknown>>({
+					type: "cards.get",
+					input: { id: cardId },
+				})
+			).content,
+		).toBeNull();
 	});
 
 	test("updates content, bumps the version and rejects stale writes", async () => {
@@ -423,6 +431,14 @@ describe("recovering cards stored with a serialized document", () => {
 		const contentRow = await repository.query<Record<string, unknown>>({
 			type: "cardContents.get",
 			input: { id: cardId },
+		});
+		const cardRow = await repository.query<Record<string, unknown>>({
+			type: "cards.get",
+			input: { id: cardId },
+		});
+		await repository.execute({
+			type: "cards.update",
+			input: { value: { ...cardRow, content: document } },
 		});
 		await repository.execute({
 			type: "cardContents.update",

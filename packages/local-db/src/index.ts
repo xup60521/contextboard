@@ -1,14 +1,14 @@
-import {
-	type BoardItem,
-	type CanvasRecord,
-	type Card,
-	type CardContent,
-	type CardReference,
-	type CardRelation,
-	type FileReference,
-	type LocalFile,
-	type TldrawDocument,
-	type Whiteboard,
+import type {
+	BoardItem,
+	CanvasRecord,
+	Card,
+	CardContent,
+	CardReference,
+	CardRelation,
+	FileReference,
+	LocalFile,
+	TldrawDocument,
+	Whiteboard,
 } from "@contextboard/domain";
 import {
 	type BlobDescriptor,
@@ -175,14 +175,17 @@ export class ContextboardDatabase extends Dexie {
 		});
 		this.version(5)
 			.stores({
-				cardContents: "id, &cardId, contentVersion, clock, updatedAt, deletedAt",
+				cardContents:
+					"id, &cardId, contentVersion, clock, updatedAt, deletedAt",
 			})
 			.upgrade(async (transaction) => {
 				const cards = await transaction.table("cards").toArray();
 				const contents = transaction.table("cardContents");
 				for (const card of cards) {
 					if (await contents.get(card.id)) continue;
-					const updatedAt = Number(card.updatedAt ?? card.createdAt ?? Date.now());
+					const updatedAt = Number(
+						card.updatedAt ?? card.createdAt ?? Date.now(),
+					);
 					const deviceId = String(card.updatedByDeviceId ?? "migration");
 					await contents.put({
 						id: card.id,
@@ -213,7 +216,8 @@ export class ContextboardDatabase extends Dexie {
 		});
 		this.version(7)
 			.stores({
-				cardContents: "id, &cardId, contentVersion, clock, updatedAt, deletedAt",
+				cardContents:
+					"id, &cardId, contentVersion, clock, updatedAt, deletedAt",
 			})
 			.upgrade(async (transaction) => {
 				const cards = await transaction.table("cards").toArray();
@@ -221,13 +225,12 @@ export class ContextboardDatabase extends Dexie {
 				for (const card of cards) {
 					if (card.content === null || card.content === undefined) continue;
 					const existing = await contents.get(card.id);
-					if (
-						existing?.document !== null &&
-						existing?.document !== undefined
-					) {
+					if (existing?.document !== null && existing?.document !== undefined) {
 						continue;
 					}
-					const updatedAt = Number(card.updatedAt ?? card.createdAt ?? Date.now());
+					const updatedAt = Number(
+						card.updatedAt ?? card.createdAt ?? Date.now(),
+					);
 					const deviceId = String(card.updatedByDeviceId ?? "migration");
 					await contents.put({
 						...existing,
@@ -242,7 +245,9 @@ export class ContextboardDatabase extends Dexie {
 							existing?.clock ??
 								`${String(updatedAt).padStart(13, "0")}:000000:${deviceId}`,
 						),
-						createdAt: Number(existing?.createdAt ?? card.createdAt ?? updatedAt),
+						createdAt: Number(
+							existing?.createdAt ?? card.createdAt ?? updatedAt,
+						),
 						updatedAt: Number(existing?.updatedAt ?? updatedAt),
 						updatedByDeviceId: String(existing?.updatedByDeviceId ?? deviceId),
 						deletedAt: existing?.deletedAt ?? card.deletedAt ?? null,
@@ -267,7 +272,7 @@ export async function runLocalCommand<T>(
 		transaction: LocalTransaction,
 	) => Promise<{ result: T; changes: EntityChange[] }>,
 ): Promise<T> {
-	return db.transaction(
+	const committed = await db.transaction(
 		"rw",
 		[...tables, db.changeLog, db.settings, db.appliedChangeBatches],
 		async (transaction: LocalTransaction) => {
@@ -305,25 +310,53 @@ export async function runLocalCommand<T>(
 			await db.settings.put({ key: "deviceSequence", value: sequence });
 			const checkpointCount = await db.settings.get("checkpointChangeCount");
 			const checkpointBytes = await db.settings.get("checkpointChangeBytes");
+			const nextCheckpointCount =
+				(typeof checkpointCount?.value === "number"
+					? checkpointCount.value
+					: 0) + 1;
+			const nextCheckpointBytes =
+				(typeof checkpointBytes?.value === "number"
+					? checkpointBytes.value
+					: 0) + new TextEncoder().encode(JSON.stringify(batch)).byteLength;
 			await db.settings.bulkPut([
 				{
 					key: "checkpointChangeCount",
-					value:
-						(typeof checkpointCount?.value === "number"
-							? checkpointCount.value
-							: 0) + 1,
+					value: nextCheckpointCount,
 				},
 				{
 					key: "checkpointChangeBytes",
-					value:
-						(typeof checkpointBytes?.value === "number"
-							? checkpointBytes.value
-							: 0) + new TextEncoder().encode(JSON.stringify(batch)).byteLength,
+					value: nextCheckpointBytes,
 				},
 			]);
-			return result;
+			return {
+				result,
+				shouldCompact:
+					nextCheckpointCount >= UNPEERED_COMPACTION_BATCHES ||
+					nextCheckpointBytes >= UNPEERED_COMPACTION_BYTES,
+			};
 		},
 	);
+	// A local-only workspace has nobody to acknowledge its append-only log.
+	// Periodically collapse it to one materialized post-state batch so autosave
+	// cost stays bounded for users who remain offline indefinitely. This is
+	// best-effort maintenance after the command commits: a compaction failure
+	// must never make callers retry an already-committed domain write.
+	if (committed.shouldCompact)
+		await compactUnpeeredPendingBatches(db).catch(() => undefined);
+	return committed.result;
+}
+
+const UNPEERED_COMPACTION_BATCHES = 1_000;
+const UNPEERED_COMPACTION_BYTES = 10 * 1024 * 1024;
+
+async function compactUnpeeredPendingBatches(db: ContextboardDatabaseLike) {
+	const peers = await db.syncPeers.toArray();
+	if (peers.some((peer) => peer.enabled)) return;
+	await rebuildPendingBatches(db, {
+		command: "maintenance.compactPendingChanges",
+		requireLegacy: false,
+		markFormatCurrent: false,
+	});
 }
 
 /** Keeps the active Dexie transaction alive while a browser API promise settles. */
@@ -401,7 +434,11 @@ export async function getPendingBatches(
 	const current = hasLegacyBatch
 		? await rebuildLegacyPendingBatches(db)
 		: pending;
-	await db.settings.put({ key: "changeLogFormatVersion", value: 2 });
+	// The rebuilding transaction records this marker itself. Keep the simple
+	// no-legacy upgrade cheap while ensuring a failed rebuild can never leave a
+	// partially migrated log marked current.
+	if (!hasLegacyBatch)
+		await db.settings.put({ key: "changeLogFormatVersion", value: 2 });
 	return current.slice(0, boundedLimit);
 }
 
@@ -413,6 +450,21 @@ export async function getPendingBatches(
  */
 async function rebuildLegacyPendingBatches(
 	db: ContextboardDatabaseLike,
+): Promise<ChangeBatch[]> {
+	return rebuildPendingBatches(db, {
+		command: "migration.rebuildPendingChanges",
+		requireLegacy: true,
+		markFormatCurrent: true,
+	});
+}
+
+async function rebuildPendingBatches(
+	db: ContextboardDatabaseLike,
+	options: {
+		command: string;
+		requireLegacy: boolean;
+		markFormatCurrent: boolean;
+	},
 ): Promise<ChangeBatch[]> {
 	const transactionTables = [
 		db.whiteboards,
@@ -441,7 +493,11 @@ async function rebuildLegacyPendingBatches(
 				return true;
 			}
 		});
-		if (!stillHasLegacy) return pending;
+		if (options.requireLegacy && !stillHasLegacy) {
+			if (options.markFormatCurrent)
+				await db.settings.put({ key: "changeLogFormatVersion", value: 2 });
+			return pending;
+		}
 
 		const workspaceId = (await db.settings.get("workspaceId"))?.value;
 		const deviceId = (await db.settings.get("deviceId"))?.value;
@@ -572,7 +628,7 @@ async function rebuildLegacyPendingBatches(
 			deviceId,
 			deviceSequence,
 			clock,
-			command: "migration.rebuildPendingChanges",
+			command: options.command,
 			createdAt: now,
 			changes,
 		};
@@ -588,7 +644,17 @@ async function rebuildLegacyPendingBatches(
 			deviceSequence,
 			appliedAt: now,
 		});
-		await db.settings.put({ key: "deviceSequence", value: deviceSequence });
+		await db.settings.bulkPut([
+			{ key: "deviceSequence", value: deviceSequence },
+			{ key: "checkpointChangeCount", value: 1 },
+			{
+				key: "checkpointChangeBytes",
+				value: new TextEncoder().encode(JSON.stringify(rebuilt)).byteLength,
+			},
+			...(options.markFormatCurrent
+				? [{ key: "changeLogFormatVersion", value: 2 }]
+				: []),
+		]);
 		return [rebuilt];
 	});
 }
@@ -610,25 +676,25 @@ const remoteTable = (
 			? db.cards
 			: entityType === "cardContent"
 				? db.cardContents
-			: entityType === "boardItem"
-				? db.boardItems
-				: entityType === "tldrawDocument"
-					? db.tldrawDocuments
-					: entityType === "file"
-						? db.files
-						: entityType === "fileReference"
-							? db.fileReferences
-							: entityType === "cardReference"
-								? db.cardReferences
-								: entityType === "cardRelation"
-									? db.cardRelations
-									: entityType === "canvasRecord"
-										? db.canvasRecords
-										: entityType === "conflict"
-											? db.conflicts
-											: entityType === "todo"
-												? db.todos
-												: null;
+				: entityType === "boardItem"
+					? db.boardItems
+					: entityType === "tldrawDocument"
+						? db.tldrawDocuments
+						: entityType === "file"
+							? db.files
+							: entityType === "fileReference"
+								? db.fileReferences
+								: entityType === "cardReference"
+									? db.cardReferences
+									: entityType === "cardRelation"
+										? db.cardRelations
+										: entityType === "canvasRecord"
+											? db.canvasRecords
+											: entityType === "conflict"
+												? db.conflicts
+												: entityType === "todo"
+													? db.todos
+													: null;
 
 /** Applies server batches without creating a new local batch. */
 export async function applyRemoteBatches(
@@ -641,7 +707,8 @@ export async function applyRemoteBatches(
 	let conflicts = 0;
 	const materializedChanges: EntityChange[] = [];
 	if (batches.length === 0) {
-		if (nextCursor !== undefined) await updateSyncCursor(db, peerId, nextCursor);
+		if (nextCursor !== undefined)
+			await updateSyncCursor(db, peerId, nextCursor);
 		return { applied, conflicts, materializedChanges };
 	}
 	for (let offset = 0; offset < batches.length; offset += 25) {
@@ -981,8 +1048,7 @@ function legacyCardContentRow(
 		createdAt: Number(card.createdAt ?? Date.now()),
 		updatedAt: Number(card.updatedAt ?? Date.now()),
 		updatedByDeviceId: String(card.updatedByDeviceId ?? deviceId),
-		deletedAt:
-			typeof card.deletedAt === "number" ? card.deletedAt : null,
+		deletedAt: typeof card.deletedAt === "number" ? card.deletedAt : null,
 	};
 }
 

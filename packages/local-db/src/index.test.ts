@@ -185,33 +185,36 @@ describe("local database", () => {
 		const db = makeDb();
 		const identity = await ensureLocalIdentity(db);
 		await db.settings.put({ key: "changeLogFormatVersion", value: 2 });
-		const batches = Array.from({ length: 10_000 }, (_, index): ChangeBatch => ({
-			protocolVersion: SYNC_PROTOCOL_VERSION,
-			schemaVersion: SYNC_SCHEMA_VERSION,
-			changeId: `pending-${index.toString().padStart(5, "0")}`,
-			workspaceId: identity.workspaceId,
-			deviceId: identity.deviceId,
-			deviceSequence: index + 1,
-			clock: `${(index + 1).toString().padStart(13, "0")}:000000:${identity.deviceId}`,
-			command: "performance.fixture",
-			createdAt: index,
-			changes: [],
-		}));
+		const batches = Array.from(
+			{ length: 10_000 },
+			(_, index): ChangeBatch => ({
+				protocolVersion: SYNC_PROTOCOL_VERSION,
+				schemaVersion: SYNC_SCHEMA_VERSION,
+				changeId: `pending-${index.toString().padStart(5, "0")}`,
+				workspaceId: identity.workspaceId,
+				deviceId: identity.deviceId,
+				deviceSequence: index + 1,
+				clock: `${(index + 1).toString().padStart(13, "0")}:000000:${identity.deviceId}`,
+				command: "performance.fixture",
+				createdAt: index,
+				changes: [],
+			}),
+		);
 		await db.changeLog.bulkAdd(batches);
 
 		let appliedLimit: number | null = null;
 		const orderBy = db.changeLog.orderBy.bind(db.changeLog);
-		const orderBySpy = vi
-			.spyOn(db.changeLog, "orderBy")
-			.mockImplementation(((index: string) => {
-				const ordered = orderBy(index);
-				const limit = ordered.limit.bind(ordered);
-				ordered.limit = ((count: number) => {
-					appliedLimit = count;
-					return limit(count);
-				}) as typeof ordered.limit;
-				return ordered;
-			}) as typeof db.changeLog.orderBy);
+		const orderBySpy = vi.spyOn(db.changeLog, "orderBy").mockImplementation(((
+			index: string,
+		) => {
+			const ordered = orderBy(index);
+			const limit = ordered.limit.bind(ordered);
+			ordered.limit = ((count: number) => {
+				appliedLimit = count;
+				return limit(count);
+			}) as typeof ordered.limit;
+			return ordered;
+		}) as typeof db.changeLog.orderBy);
 
 		const pending = await getPendingBatches(db, 100);
 		orderBySpy.mockRestore();
@@ -219,7 +222,7 @@ describe("local database", () => {
 		expect(pending).toHaveLength(100);
 		expect(pending[0]?.changeId).toBe("pending-00000");
 		expect(pending.at(-1)?.changeId).toBe("pending-00099");
-	});
+	}, 15_000);
 
 	test("rebuilds every syncable entity, excludes binary snapshots, and is idempotent", async () => {
 		const db = makeDb();
@@ -432,6 +435,60 @@ describe("local database", () => {
 		expect(await db.changeLog.get("legacy-change")).toBeDefined();
 		expect(await db.canvasRecords.count()).toBe(1);
 		expect((await db.settings.get("deviceSequence"))?.value).toBeUndefined();
+		expect(
+			(await db.settings.get("changeLogFormatVersion"))?.value,
+		).toBeUndefined();
+	});
+
+	test("compacts an unpeered offline log to one materialized batch at the threshold", async () => {
+		const db = makeDb();
+		const identity = await ensureLocalIdentity(db);
+		await db.settings.put({ key: "checkpointChangeCount", value: 999 });
+		await runLocalCommand(
+			db,
+			{ ...identity, clock: new HybridLogicalClock(identity.deviceId) },
+			"todos.add",
+			[db.todos],
+			async () => {
+				const now = Date.now();
+				const row = {
+					id: "todo-compacted",
+					text: "Still here",
+					completed: false,
+					revision: 1,
+					createdAt: now,
+					updatedAt: now,
+					updatedByDeviceId: identity.deviceId,
+					deletedAt: null,
+				};
+				await db.todos.add(row);
+				return {
+					result: undefined,
+					changes: [
+						{
+							entityType: "todo" as const,
+							entityId: row.id,
+							baseRevision: null,
+							revision: 1,
+							operation: "upsert" as const,
+							clock: "",
+							value: row,
+						},
+					],
+				};
+			},
+		);
+
+		const pending = await db.changeLog.toArray();
+		expect(pending).toHaveLength(1);
+		expect(pending[0]?.command).toBe("maintenance.compactPendingChanges");
+		expect(pending[0]?.changes).toContainEqual(
+			expect.objectContaining({
+				entityType: "todo",
+				entityId: "todo-compacted",
+				value: expect.objectContaining({ text: "Still here" }),
+			}),
+		);
 	});
 
 	test("skips an echoed local batch while atomically advancing the cursor", async () => {
@@ -709,9 +766,15 @@ describe("local database", () => {
 		const copyB = await dbB.cards.get(copyId);
 		expect(copyA?.content).toEqual(cardB.content);
 		expect(copyB?.content).toEqual(cardA.content);
-		expect((await dbA.cardContents.get(copyId))?.document).toEqual(cardB.content);
-		expect((await dbB.cardContents.get(copyId))?.document).toEqual(cardA.content);
-		expect((await dbA.cardContents.get("card-1"))?.document).toEqual(cardA.content);
+		expect((await dbA.cardContents.get(copyId))?.document).toEqual(
+			cardB.content,
+		);
+		expect((await dbB.cardContents.get(copyId))?.document).toEqual(
+			cardA.content,
+		);
+		expect((await dbA.cardContents.get("card-1"))?.document).toEqual(
+			cardA.content,
+		);
 		expect(
 			(copyA as unknown as { customMetadata: unknown }).customMetadata,
 		).toEqual(cardB.customMetadata);

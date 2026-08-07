@@ -1,4 +1,5 @@
 import type { WorkspaceRepository } from "@contextboard/client-core";
+import { collectReferenceIds } from "../canvas/derive/references";
 import { planAppendCard } from "../canvas/plan/append-card";
 import {
 	type ArchiveCardSnapshot,
@@ -6,7 +7,6 @@ import {
 } from "../canvas/plan/archive-card";
 import { type Frame, findFreeFrame } from "../canvas/plan/place-card-frame";
 import { planReferences } from "../canvas/plan/references";
-import { collectReferenceIds } from "../canvas/derive/references";
 import { normalizeImageSources } from "../files/fileUrl";
 import {
 	applyWrites,
@@ -190,8 +190,8 @@ export function createRepositoryCardsService(
 				: null;
 		const row = normalize(
 			rawCard &&
-			typeof rawCard === "object" &&
-			hasMaterializedCardContent(contentRow)
+				typeof rawCard === "object" &&
+				hasMaterializedCardContent(contentRow)
 				? {
 						...(rawCard as Record<string, unknown>),
 						content: contentRow.document,
@@ -303,11 +303,11 @@ export function createRepositoryCardsService(
 					return [
 						row.id,
 						hasMaterializedCardContent(content)
-							? normalize({
+							? (normalize({
 									...row,
 									content: content.document,
 									contentVersion: content.contentVersion,
-								}) ?? row
+								}) ?? row)
 							: row,
 					] as const;
 				}),
@@ -485,7 +485,9 @@ export function createRepositoryCardsService(
 				w: width,
 				h:
 					frame.h ??
-					(card ? estimateCardHeight(card.content, width) : DEFAULT_CARD_HEIGHT),
+					(card
+						? estimateCardHeight(card.content, width)
+						: DEFAULT_CARD_HEIGHT),
 			};
 			// Only a caller that gives neither coordinate wants auto-placement;
 			// `x: 0, y: 0` is a literal request for the origin.
@@ -554,7 +556,10 @@ export function createRepositoryCardsService(
 				const timestamp = now();
 				const value: CardEntity = {
 					id: cardId,
-					content,
+					// The document is authoritative in cardContents. Keep the card row a
+					// lightweight summary so list/search reads never deserialize every
+					// TipTap tree in the workspace.
+					content: null,
 					...deriveCardMetadata(content),
 					contentVersion: 1,
 					createdAt: timestamp,
@@ -606,7 +611,10 @@ export function createRepositoryCardsService(
 			return withRetry(async () => {
 				const row = await read(cardId);
 				if (!row) throw new Error("Card not found");
-				const contentRow = await repository.query<Record<string, unknown> | null>({
+				const contentRow = await repository.query<Record<
+					string,
+					unknown
+				> | null>({
 					type: "cardContents.get",
 					input: { id: cardId },
 				});
@@ -623,7 +631,7 @@ export function createRepositoryCardsService(
 				const contentVersion = row.contentVersion + 1;
 				const value: CardEntity = {
 					...row,
-					content: normalizedContent,
+					content: null,
 					...deriveCardMetadata(normalizedContent),
 					contentVersion,
 					updatedAt: now(),

@@ -199,6 +199,31 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 			],
 		});
 		expect(boardB).not.toHaveBeenCalled();
+
+		boardA.mockClear();
+		await repository.execute({
+			type: "items.delete",
+			input: {
+				writes: [
+					{
+						entity: "boardItem",
+						operation: "delete",
+						id: "item-a",
+					},
+				],
+			},
+		});
+		expect(boardA).toHaveBeenCalledWith({
+			origin: "local",
+			changes: [
+				expect.objectContaining({
+					entityType: "boardItem",
+					entityId: "item-a",
+					whiteboardId: "board-a",
+				}),
+			],
+		});
+		expect(boardB).not.toHaveBeenCalled();
 	});
 
 	test("accepts manifest-backed card content, conflict, and todo entities", async () => {

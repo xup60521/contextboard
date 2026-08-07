@@ -1,15 +1,16 @@
 import {
+	type DomainCommand,
+	type DomainQuery,
 	describeDomainCommand,
 	describeRemoteBatches,
 	recordContextboardPerf,
-	workspaceChangeMatches,
-	type DomainCommand,
-	type DomainQuery,
 	type WorkspaceChange,
 	type WorkspaceChangeFilter,
 	type WorkspaceChangeListener,
 	type WorkspaceRepository,
+	workspaceChangeMatches,
 } from "@contextboard/client-core";
+import type { ContextboardDatabaseLike } from "@contextboard/local-db";
 import {
 	acknowledgeBatches,
 	applyRemoteBatches,
@@ -17,10 +18,9 @@ import {
 	getMissingBlobs,
 	getPendingBatches,
 	getSyncState,
-	updateSyncCursor,
 	storeRemoteBlob,
+	updateSyncCursor,
 } from "@contextboard/local-db";
-import type { ContextboardDatabaseLike } from "@contextboard/local-db";
 import { executeEntityCommand, queryEntities } from "./entity-store";
 
 /**
@@ -41,7 +41,7 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
 
 	async query<T>(query: DomainQuery<T>): Promise<T> {
 		recordContextboardPerf("repository.query", { detail: query.type });
-		const result = await queryEntities(this.database, query) as T;
+		const result = (await queryEntities(this.database, query)) as T;
 		if (Array.isArray(result))
 			recordContextboardPerf("repository.rows", {
 				detail: query.type,
@@ -55,10 +55,11 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
 		const result = await executeEntityCommand(this.database, command);
 		const change: WorkspaceChange = {
 			origin: "local",
-			changes: describeDomainCommand(command),
+			changes: describeDomainCommand(command, result),
 		};
 		this.#emit(change);
-		for (const listener of this.#localListeners) listener(change);
+		if (change.changes.length > 0)
+			for (const listener of this.#localListeners) listener(change);
 		return result as T;
 	}
 
@@ -76,10 +77,7 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
 		}
 	}
 
-	subscribe(
-		listener: WorkspaceChangeListener,
-		filter?: WorkspaceChangeFilter,
-	) {
+	subscribe(listener: WorkspaceChangeListener, filter?: WorkspaceChangeFilter) {
 		const subscription = { listener, filter };
 		this.#listeners.add(subscription);
 		return () => this.#listeners.delete(subscription);

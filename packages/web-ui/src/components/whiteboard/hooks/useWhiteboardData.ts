@@ -1,11 +1,11 @@
 import {
 	type CanvasItem,
 	fileSrc,
+	recordContextboardPerf,
 	useApplicationRuntime,
 	type WhiteboardBreadcrumb,
 	type WhiteboardDetail,
 } from "@contextboard/application";
-import { recordContextboardPerf } from "@contextboard/application";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Id } from "../ids";
 import type {
@@ -76,10 +76,7 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	const tldrawDocument =
 		documentData?.key === canvasKey ? documentData.value : undefined;
 	const itemCardIds = useMemo(
-		() =>
-			(items ?? []).flatMap((item) =>
-				item.cardId ? [item.cardId] : [],
-			),
+		() => (items ?? []).flatMap((item) => (item.cardId ? [item.cardId] : [])),
 		[items],
 	);
 	const itemCardIdsKey = itemCardIds.join("\0");
@@ -100,7 +97,9 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			setBreadcrumbs(detail?.breadcrumbs ?? []);
 		};
 		void load();
-		const unsubscribe = whiteboards.subscribe(() => void load());
+		const unsubscribe = whiteboards.subscribe(() => void load(), {
+			whiteboardIds: [whiteboardId],
+		});
 		return () => {
 			active = false;
 			unsubscribe();

@@ -7,20 +7,32 @@ export function createRepositorySearchService(
 ): SearchService {
 	return {
 		async search({ term, whiteboardId, limit = 8 }) {
-			const [cards, whiteboards, items] = await Promise.all([
-				listRows(repository, "cards"),
-				listRows(repository, "whiteboards"),
-				listRows(repository, "items"),
-			]);
 			const normalized = term.trim().toLocaleLowerCase();
-			const activeItems = items.filter(isActiveRow);
-			const localCardIds = whiteboardId
-				? new Set(
-						activeItems
-							.filter((item) => item.whiteboardId === whiteboardId)
-							.map((item) => item.cardId),
+			const localItems = whiteboardId
+				? (await listRows(repository, "items", { whiteboardId })).filter(
+						isActiveRow,
 					)
 				: null;
+			const localCardIds = localItems
+				? new Set(localItems.map((item) => item.cardId))
+				: null;
+			const localWhiteboardIds = localItems
+				? new Set(localItems.map((item) => item.childWhiteboardId))
+				: null;
+			const [cards, whiteboards] = await Promise.all([
+				localCardIds
+					? listRows(repository, "cards", {
+							ids: [...localCardIds].filter(
+								(id): id is string => typeof id === "string",
+							),
+						})
+					: listRows(repository, "cards"),
+				whiteboardId
+					? listRows(repository, "whiteboards", {
+							parentWhiteboardIds: [whiteboardId],
+						})
+					: listRows(repository, "whiteboards"),
+			]);
 			const activeCards = cards
 				.filter(
 					(card) =>
@@ -37,17 +49,42 @@ export function createRepositorySearchService(
 				.filter(
 					(board) =>
 						isActiveRow(board) &&
-						(!whiteboardId || board.parentWhiteboardId === whiteboardId) &&
+						(!localWhiteboardIds || localWhiteboardIds.has(board.id)) &&
 						(!normalized ||
 							String(board.title ?? "")
 								.toLocaleLowerCase()
 								.includes(normalized)),
 				)
 				.slice(0, limit);
+			const cardIds = activeCards.map((card) => card.id);
+			const whiteboardIds = activeWhiteboards.map((board) => board.id);
+			const [cardContents, cardItems, whiteboardItems] = await Promise.all([
+				cardIds.length
+					? listRows(repository, "cardContents", { cardIds })
+					: Promise.resolve([]),
+				localItems !== null
+					? Promise.resolve(localItems)
+					: cardIds.length
+						? listRows(repository, "items", { cardIds })
+						: Promise.resolve([]),
+				localItems !== null
+					? Promise.resolve(localItems)
+					: whiteboardIds.length
+						? listRows(repository, "items", {
+								childWhiteboardIds: whiteboardIds,
+							})
+						: Promise.resolve([]),
+			]);
+			const contentByCardId = new Map(
+				cardContents
+					.filter(isActiveRow)
+					.map((row) => [String(row.cardId), row.document] as const),
+			);
 
 			return {
 				cards: activeCards.map((card) => {
-					const placements = activeItems
+					const placements = cardItems
+						.filter(isActiveRow)
 						.filter((item) => item.cardId === card.id)
 						.sort((a, b) => b.updatedAt - a.updatedAt);
 					const placement =
@@ -59,7 +96,7 @@ export function createRepositorySearchService(
 						id: card.id,
 						title: String(card.derivedTitle ?? ""),
 						preview: String(card.preview ?? ""),
-						content: card.content ?? null,
+						content: contentByCardId.get(card.id) ?? card.content ?? null,
 						boardWhiteboardId:
 							typeof placement?.whiteboardId === "string"
 								? placement.whiteboardId
@@ -68,7 +105,7 @@ export function createRepositorySearchService(
 					};
 				}),
 				whiteboards: activeWhiteboards.map((board) => {
-					const placement = activeItems.find(
+					const placement = whiteboardItems.find(
 						(item) => item.childWhiteboardId === board.id,
 					);
 					return {

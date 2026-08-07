@@ -9,11 +9,11 @@ import {
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { DeleteCardDialog } from "../cards/DeleteCardDialog";
 import { CardPasteResolutionMenu } from "./CardPasteResolutionMenu";
+import { CustomMenuPanel } from "./CustomMenuPanel";
 import {
 	CardContentStoreProvider,
 	createCardContentStore,
 } from "./card-content-store";
-import { CustomMenuPanel } from "./CustomMenuPanel";
 import {
 	markdownWhiteboardShapeUtils,
 	WhiteboardCardContext,
@@ -21,7 +21,6 @@ import {
 import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import { EditableWhiteboardTitle } from "./EditableWhiteboardTitle";
 import type { SequencedFrame } from "./frame-sync";
-import { createHydrationGate } from "./hydration-gate";
 import { useCameraReset } from "./hooks/useCameraReset";
 import { useCanvasEvents } from "./hooks/useCanvasEvents";
 import { useCanvasPersistenceInteraction } from "./hooks/useCanvasPersistenceInteraction";
@@ -40,6 +39,7 @@ import { useThemeSync } from "./hooks/useThemeSync";
 import { useVisibleCardContentHydration } from "./hooks/useVisibleCardContentHydration";
 import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
 import { useWhiteboardData } from "./hooks/useWhiteboardData";
+import { createHydrationGate } from "./hydration-gate";
 import type { Id } from "./ids";
 import { useWhiteboardNavigation } from "./navigation";
 import { tldrawAssetUrls } from "./tldraw-assets";
@@ -374,11 +374,14 @@ export function WhiteboardCanvas({
 	}, [flushDrawingSave, flushFrameUpdates]);
 
 	// ── Derived display values ─────────────────────────────────────────────────
-	const contextValue = {
-		createCardAt: whiteboardId ? createCardAt : null,
-		createSubwhiteboardAt,
-		pointRef: contextMenuPointRef,
-	};
+	const contextValue = useMemo(
+		() => ({
+			createCardAt: whiteboardId ? createCardAt : null,
+			createSubwhiteboardAt,
+			pointRef: contextMenuPointRef,
+		}),
+		[createCardAt, createSubwhiteboardAt, whiteboardId],
+	);
 
 	const whiteboardActions = useMemo(
 		() => ({
@@ -477,30 +480,30 @@ export function WhiteboardCanvas({
 						<WhiteboardContextMenuContext.Provider value={contextValue}>
 							<WhiteboardCardContext.Provider value={whiteboardId}>
 								<CardContentStoreProvider store={cardContentStore}>
-								<Tldraw
-									assets={assetStore}
-									assetUrls={tldrawAssetUrls}
-									components={whiteboardComponents}
-									onMount={(mountedEditor) => {
-										try {
-											if (typeof performance !== "undefined")
-												performance.mark("contextboard:tldraw-mounted");
-										} catch {
-											// Performance marks are diagnostics only.
-										}
-										emptyDrawingSnapshotRef.current =
-											mountedEditor.store.getStoreSnapshot("document");
-										setEditor(mountedEditor);
+									<Tldraw
+										assets={assetStore}
+										assetUrls={tldrawAssetUrls}
+										components={whiteboardComponents}
+										onMount={(mountedEditor) => {
+											try {
+												if (typeof performance !== "undefined")
+													performance.mark("contextboard:tldraw-mounted");
+											} catch {
+												// Performance marks are diagnostics only.
+											}
+											emptyDrawingSnapshotRef.current =
+												mountedEditor.store.getStoreSnapshot("document");
+											setEditor(mountedEditor);
 
-										return () => {
-											setEditor(null);
-										};
-									}}
-									options={whiteboardOptions}
-									onUiEvent={handleUiEvent}
-									overrides={singlePageTldrawUiOverrides}
-									shapeUtils={markdownWhiteboardShapeUtils}
-								/>
+											return () => {
+												setEditor(null);
+											};
+										}}
+										options={whiteboardOptions}
+										onUiEvent={handleUiEvent}
+										overrides={singlePageTldrawUiOverrides}
+										shapeUtils={markdownWhiteboardShapeUtils}
+									/>
 								</CardContentStoreProvider>
 							</WhiteboardCardContext.Provider>
 						</WhiteboardContextMenuContext.Provider>
