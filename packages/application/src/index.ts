@@ -1,8 +1,10 @@
 export {
 	ApplicationRuntimeProvider,
+	ApplicationSyncStatusProvider,
 	type ApplicationRuntimeProviderProps,
 	type AsyncState,
 	useApplicationRuntime,
+	useApplicationSyncStatus,
 	useApplicationValue,
 } from "./ApplicationRuntimeProvider";
 export * from "./canvas";
@@ -30,8 +32,10 @@ export {
 export { createRepositoryCardRelationsService } from "./relations/repository-card-relations-service";
 export {
 	applyWrites,
+	type EntityCollection,
 	type EntityRow,
 	type EntityListFilter,
+	type EntityListFilterByCollection,
 	getRow,
 	isActiveRow,
 	listActiveRows,
@@ -79,3 +83,4 @@ export type {
 } from "./runtime";
 export { createRepositorySearchService } from "./search/repository-search-service";
 export * from "./workspace";
+export { recordContextboardPerf } from "@contextboard/client-core";

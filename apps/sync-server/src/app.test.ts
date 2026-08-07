@@ -155,6 +155,64 @@ describe("Hono sync app", () => {
 		store.close();
 	});
 
+	test("filters cardContent for legacy clients and serves it to capable clients", async () => {
+		const { store, app } = createFixture();
+		const headers = {
+			"content-type": "application/json",
+			...syncVersionHeaders(),
+		};
+		const batch = {
+			protocolVersion: SYNC_PROTOCOL_VERSION,
+			schemaVersion: SYNC_SCHEMA_VERSION,
+			changeId: "content-change",
+			workspaceId: "workspace-1",
+			deviceId: "device-1",
+			deviceSequence: 1,
+			clock: "0000000000001:000001:device-1",
+			command: "cards.update",
+			createdAt: 1,
+			changes: [
+				{
+					entityType: "cardContent",
+					entityId: "card-1",
+					baseRevision: null,
+					revision: 1,
+					operation: "upsert",
+					clock: "0000000000001:000001:device-1",
+					value: { id: "card-1", cardId: "card-1", document: null },
+				},
+			],
+		};
+		await app.request("/api/sync/v1/push", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				workspaceId: "workspace-1",
+				cursor: null,
+				capabilities: ["card-content-v1"],
+				batches: [batch],
+			}),
+		});
+		const pull = (capabilities?: string[]) =>
+			app.request("/api/sync/v1/pull", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					workspaceId: "workspace-1",
+					cursor: null,
+					limit: 10,
+					...(capabilities ? { capabilities } : {}),
+				}),
+			});
+		const legacy = (await (await pull()).json()) as { batches: typeof batch[] };
+		const capable = (await (await pull(["card-content-v1"])).json()) as {
+			batches: typeof batch[];
+		};
+		expect(legacy.batches[0]?.changes).toEqual([]);
+		expect(capable.batches[0]?.changes[0]?.entityType).toBe("cardContent");
+		store.close();
+	});
+
 	test("rejects missing or unknown transport versions", async () => {
 		const { store, app } = createFixture();
 		const missing = await app.request("/api/sync/v1/pull", {

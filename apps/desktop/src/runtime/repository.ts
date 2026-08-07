@@ -17,11 +17,11 @@ const defaultInvoke: Invoke = (command, args) => tauriInvoke(command, args);
 /** Native event subscription, injectable so tests need no Tauri host. */
 export type Listen = (
 	event: string,
-	listener: () => void,
+	listener: (payload: unknown) => void,
 ) => Promise<() => void>;
 
 const defaultListen: Listen = (event, listener) =>
-	tauriListen(event, () => listener());
+	tauriListen(event, (message) => listener(message.payload));
 
 const ERROR_CODES = new Set<DesktopCommandErrorCode>([
 	"INVALID_ARGUMENT",

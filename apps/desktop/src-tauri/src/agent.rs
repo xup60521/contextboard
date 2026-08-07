@@ -988,8 +988,13 @@ mod tests {
         let second = thread::spawn(move || {
             second_state.call("echo", json!({"call": 2}), Duration::from_secs(1))
         });
-        let first_request = received.recv().expect("first renderer request");
-        let second_request = received.recv().expect("second renderer request");
+        let request_a = received.recv().expect("first renderer request");
+        let request_b = received.recv().expect("second renderer request");
+        let (first_request, second_request) = if request_a.input["call"] == 1 {
+            (request_a, request_b)
+        } else {
+            (request_b, request_a)
+        };
         assert!(state.respond(generation, second_request.id, true, Some(json!(2)), None));
         assert!(state.respond(generation, first_request.id, true, Some(json!(1)), None));
         assert_eq!(first.join().expect("first call").expect("reply"), json!(1));

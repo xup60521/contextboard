@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 
-import { useApplicationRuntime } from "@contextboard/application";
+import {
+	useApplicationRuntime,
+	useApplicationSyncStatus,
+} from "@contextboard/application";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { DesktopSyncRuntime } from "./DesktopSyncProvider";
@@ -53,6 +56,7 @@ const renders: Array<{ capabilities: unknown[]; syncState: string }> = [];
 
 function Probe() {
 	const runtime = useApplicationRuntime();
+	const sync = useApplicationSyncStatus();
 	renders.push({
 		capabilities: [
 			runtime.cards,
@@ -61,9 +65,9 @@ function Probe() {
 			runtime.files,
 			runtime.navigation,
 		],
-		syncState: String(runtime.sync?.state),
+		syncState: sync.state,
 	});
-	return <span data-testid="sync-state">{runtime.sync?.state}</span>;
+	return <span data-testid="sync-state">{sync.state}</span>;
 }
 
 // A fresh element per render: React bails out of re-rendering a referentially

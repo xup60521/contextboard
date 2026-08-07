@@ -339,7 +339,7 @@ describe("MarkdownCardComponent", () => {
 				id: "shape:card-1",
 				type: "markdown-card",
 				props: expect.objectContaining({
-					content: JSON.stringify(CONTENT_B),
+					content: JSON.stringify(CONTENT_A),
 				}),
 			}),
 		);

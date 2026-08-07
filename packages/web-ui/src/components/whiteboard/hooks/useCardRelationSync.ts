@@ -1,4 +1,7 @@
-import { useApplicationRuntime } from "@contextboard/application";
+import {
+	recordContextboardPerf,
+	useApplicationRuntime,
+} from "@contextboard/application";
 import { type MutableRefObject, useCallback, useEffect, useRef } from "react";
 import type { Editor } from "tldraw";
 import { collectCanvasCardRelations } from "../card-relations";
@@ -13,6 +16,7 @@ export function useCardRelationSync({
 	loadedDrawingKey,
 	reconciliationGeneration,
 	hydratingRef,
+	interactionActiveRef,
 }: {
 	editor: Editor | null;
 	whiteboardId: Id<"whiteboards"> | null;
@@ -20,6 +24,7 @@ export function useCardRelationSync({
 	loadedDrawingKey: string | null;
 	reconciliationGeneration: number;
 	hydratingRef: MutableRefObject<boolean>;
+	interactionActiveRef: MutableRefObject<boolean>;
 }) {
 	const { relations } = useApplicationRuntime();
 	const timerRef = useRef<number | null>(null);
@@ -34,6 +39,9 @@ export function useCardRelationSync({
 		)
 			return;
 		const projection = collectCanvasCardRelations(editor);
+		recordContextboardPerf("canvas.relation.reconcile", {
+			detail: whiteboardId,
+		});
 		chainRef.current = chainRef.current
 			.catch(() => undefined)
 			.then(() =>
@@ -61,11 +69,18 @@ export function useCardRelationSync({
 			if (timerRef.current !== null) window.clearTimeout(timerRef.current);
 			timerRef.current = window.setTimeout(() => {
 				timerRef.current = null;
+				if (interactionActiveRef.current) {
+					schedule();
+					return;
+				}
 				reconcile();
 			}, RECONCILE_DELAY_MS);
 		};
 		schedule();
-		const removeListener = editor.store.listen(schedule, {
+		const removeListener = editor.store.listen(({ changes }) => {
+			if (!hasRelationAffectingChange(changes)) return;
+			schedule();
+		}, {
 			source: "user",
 			scope: "document",
 		});
@@ -77,9 +92,43 @@ export function useCardRelationSync({
 	}, [
 		editor,
 		loadedDrawingKey,
+		interactionActiveRef,
 		reconcile,
 		reconciliationGeneration,
 		whiteboardId,
 		whiteboardKey,
 	]);
+}
+
+function isArrowOrArrowBinding(record: unknown) {
+	if (!record || typeof record !== "object") return false;
+	const value = record as { typeName?: unknown; type?: unknown };
+	return (
+		(value.typeName === "shape" && value.type === "arrow") ||
+		(value.typeName === "binding" && value.type === "arrow")
+	);
+}
+
+function isManagedCard(record: unknown) {
+	if (!record || typeof record !== "object") return false;
+	const value = record as { typeName?: unknown; type?: unknown };
+	return value.typeName === "shape" && value.type === "markdown-card";
+}
+
+export function hasRelationAffectingChange(changes: {
+	added: Record<string, unknown>;
+	updated: Record<string, [unknown, unknown]>;
+	removed: Record<string, unknown>;
+}) {
+	return (
+		Object.values(changes.added).some(
+			(record) => isArrowOrArrowBinding(record) || isManagedCard(record),
+		) ||
+		Object.values(changes.removed).some(
+			(record) => isArrowOrArrowBinding(record) || isManagedCard(record),
+		) ||
+		Object.values(changes.updated).some(([before, after]) =>
+			isArrowOrArrowBinding(before) || isArrowOrArrowBinding(after),
+		)
+	);
 }

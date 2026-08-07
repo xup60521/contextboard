@@ -1,10 +1,13 @@
-import { useApplicationRuntime } from "@contextboard/application";
+import {
+	recordContextboardPerf,
+	useApplicationRuntime,
+} from "@contextboard/application";
 import { useCallback, useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { react as tldrawReact, type Editor, type TLShapeId } from "tldraw";
 import type { Id } from "../ids";
 import { isCardContentDirty } from "../dirty-card-content";
+import type { CardContentStore } from "../card-content-store";
 import {
-	hydrateCardShapes,
 	isMarkdownCardShape,
 	type BoardItemResult,
 } from "../whiteboard-canvas-helpers";
@@ -33,6 +36,12 @@ class LRUCache {
 
 const cardContentCache = new LRUCache(100);
 const MAX_CARD_CONTENT_BATCH = 30;
+const SPATIAL_CELL_SIZE = 1_000;
+const VIEWPORT_PREFETCH = 500;
+
+function spatialCell(value: number) {
+	return Math.floor(value / SPATIAL_CELL_SIZE);
+}
 
 export function useVisibleCardContentHydration({
 	editor,
@@ -40,12 +49,14 @@ export function useVisibleCardContentHydration({
 	loadedDrawingKey,
 	whiteboardKey,
 	pendingEditShapeIdRef,
+	contentStore,
 }: {
 	editor: Editor | null;
 	items: BoardItemResult[];
 	loadedDrawingKey: string | null;
 	whiteboardKey: string;
 	pendingEditShapeIdRef: MutableRefObject<TLShapeId | null>;
+	contentStore: CardContentStore;
 }) {
 	const { cards } = useApplicationRuntime();
 	const inFlightCardIdsRef = useRef(new Set<Id<"cards">>());
@@ -61,6 +72,25 @@ export function useVisibleCardContentHydration({
 		}
 		return versions;
 	}, [items]);
+	const itemSpatialIndex = useMemo(() => {
+		const index = new Map<string, BoardItemResult[]>();
+		for (const item of items) {
+			if (!item.cardId) continue;
+			const minX = spatialCell(item.x);
+			const maxX = spatialCell(item.x + item.w);
+			const minY = spatialCell(item.y);
+			const maxY = spatialCell(item.y + item.h);
+			for (let x = minX; x <= maxX; x++) {
+				for (let y = minY; y <= maxY; y++) {
+					const key = `${x}:${y}`;
+					const bucket = index.get(key);
+					if (bucket) bucket.push(item);
+					else index.set(key, [item]);
+				}
+			}
+		}
+		return index;
+	}, [items]);
 
 	const enterPendingEditIfReady = useCallback(() => {
 		if (!editor) return;
@@ -68,14 +98,19 @@ export function useVisibleCardContentHydration({
 		if (!shapeId) return;
 
 		const shape = editor.getShape(shapeId);
-		if (!shape || !isMarkdownCardShape(shape) || !shape.props.contentLoaded) {
+		if (
+			!shape ||
+			!isMarkdownCardShape(shape) ||
+			!shape.props.cardId ||
+			contentStore.getSnapshot(shape.props.cardId).status !== "ready"
+		) {
 			return;
 		}
 
 		pendingEditShapeIdRef.current = null;
 		editor.select(shapeId);
 		editor.setEditingShape(shapeId);
-	}, [editor, pendingEditShapeIdRef]);
+	}, [contentStore, editor, pendingEditShapeIdRef]);
 
 	const collectCandidateCardIds = useCallback(() => {
 		if (!editor) return [] as Id<"cards">[];
@@ -83,8 +118,22 @@ export function useVisibleCardContentHydration({
 		const selected = new Set<Id<"cards">>();
 		const batch: Id<"cards">[] = [];
 		const editingShapeId = editor.getEditingShapeId();
-		const culledShapes = editor.getCulledShapes();
-		const visibleShapes = editor.getCurrentPageShapesSorted();
+		const viewport = editor.getViewportPageBounds();
+		const candidateItems = new Map<string, BoardItemResult>();
+		for (
+			let x = spatialCell(viewport.x - VIEWPORT_PREFETCH);
+			x <= spatialCell(viewport.x + viewport.w + VIEWPORT_PREFETCH);
+			x++
+		) {
+			for (
+				let y = spatialCell(viewport.y - VIEWPORT_PREFETCH);
+				y <= spatialCell(viewport.y + viewport.h + VIEWPORT_PREFETCH);
+				y++
+			) {
+				for (const item of itemSpatialIndex.get(`${x}:${y}`) ?? [])
+					candidateItems.set(item.shapeId, item);
+			}
+		}
 
 		const maybeAdd = (cardId: Id<"cards"> | undefined) => {
 			if (!cardId) return false;
@@ -100,9 +149,9 @@ export function useVisibleCardContentHydration({
 			if (maybeAdd(cardId)) return batch;
 		}
 
-		for (const shape of visibleShapes) {
-			if (culledShapes.has(shape.id)) continue;
-			if (!isMarkdownCardShape(shape) || !shape.props.cardId) continue;
+		for (const item of candidateItems.values()) {
+			const shape = editor.getShape(item.shapeId as TLShapeId);
+			if (!shape || !isMarkdownCardShape(shape) || !shape.props.cardId) continue;
 			if (shape.id === editingShapeId) continue;
 
 			const cardId = shape.props.cardId as Id<"cards">;
@@ -111,17 +160,18 @@ export function useVisibleCardContentHydration({
 			// this reactive, keep rescheduling.
 			if (isCardContentDirty(cardId)) continue;
 			const serverVersion = serverVersionByCardId.get(cardId);
+			const contentEntry = contentStore.getSnapshot(cardId);
 			const needsContent =
-				shape.props.contentLoaded !== true ||
+				contentEntry.status !== "ready" ||
 				(serverVersion !== undefined &&
-					shape.props.contentVersion !== serverVersion);
+					contentEntry.persistedVersion !== serverVersion);
 
 			if (!needsContent) continue;
 			if (maybeAdd(cardId)) return batch;
 		}
 
 		return batch;
-	}, [editor, serverVersionByCardId]);
+	}, [contentStore, editor, itemSpatialIndex, serverVersionByCardId]);
 
 	const runHydration = useCallback(async () => {
 		if (!editor || loadedDrawingKey !== whiteboardKey || runningRef.current) {
@@ -133,6 +183,9 @@ export function useVisibleCardContentHydration({
 			while (true) {
 				const cardIds = collectCandidateCardIds();
 				if (cardIds.length === 0) break;
+				recordContextboardPerf("canvas.hydration.candidate", {
+					value: cardIds.length,
+				});
 
 				const hits: Array<{
 					cardId: Id<"cards">;
@@ -156,18 +209,22 @@ export function useVisibleCardContentHydration({
 				}
 
 				if (hits.length > 0) {
-					editor.run(
-						() => {
-							for (const result of hits) hydrateCardShapes(editor, result);
-						},
-						{ history: "ignore" },
-					);
+					recordContextboardPerf("canvas.hydration.cache-hit", {
+						value: hits.length,
+					});
+					for (const result of hits)
+						contentStore.setPersisted(
+							result.cardId,
+							result.content,
+							result.version,
+						);
 					enterPendingEditIfReady();
 				}
 
 				if (missIds.length > 0) {
 					for (const cardId of missIds) {
 						inFlightCardIdsRef.current.add(cardId);
+						contentStore.markLoading(cardId);
 					}
 					priorityCardIdsRef.current = priorityCardIdsRef.current.filter(
 						(id) => !missIds.includes(id),
@@ -183,19 +240,23 @@ export function useVisibleCardContentHydration({
 								version: detail.version,
 							}));
 
-						editor.run(
-							() => {
-								for (const result of results) {
-									cardContentCache.set(
-										`${result.cardId}:${result.version}`,
-										result.content,
-									);
-									hydrateCardShapes(editor, result);
-								}
-							},
-							{ history: "ignore" },
-						);
+						for (const result of results) {
+							cardContentCache.set(
+								`${result.cardId}:${result.version}`,
+								result.content,
+							);
+							contentStore.setPersisted(
+								result.cardId,
+								result.content,
+								result.version,
+							);
+						}
 						enterPendingEditIfReady();
+					} catch (error) {
+						const failure =
+							error instanceof Error ? error : new Error(String(error));
+						for (const cardId of missIds)
+							contentStore.setError(cardId, failure);
 					} finally {
 						for (const cardId of missIds) {
 							inFlightCardIdsRef.current.delete(cardId);
@@ -213,6 +274,7 @@ export function useVisibleCardContentHydration({
 	}, [
 		collectCandidateCardIds,
 		cards,
+		contentStore,
 		editor,
 		enterPendingEditIfReady,
 		loadedDrawingKey,
@@ -230,6 +292,12 @@ export function useVisibleCardContentHydration({
 
 	const prioritizeCardContent = useCallback(
 		(shapeId: TLShapeId, cardId: Id<"cards">) => {
+			if (contentStore.getSnapshot(cardId).status === "ready" && editor) {
+				pendingEditShapeIdRef.current = null;
+				editor.select(shapeId);
+				editor.setEditingShape(shapeId);
+				return;
+			}
 			pendingEditShapeIdRef.current = shapeId;
 			priorityCardIdsRef.current = [
 				cardId,
@@ -237,7 +305,7 @@ export function useVisibleCardContentHydration({
 			];
 			scheduleHydration();
 		},
-		[pendingEditShapeIdRef, scheduleHydration],
+		[contentStore, editor, pendingEditShapeIdRef, scheduleHydration],
 	);
 
 	useEffect(() => {
@@ -251,14 +319,8 @@ export function useVisibleCardContentHydration({
 		return tldrawReact("hydrate visible whiteboard card content", () => {
 			if (loadedDrawingKey !== whiteboardKey) return;
 
-			editor.getCulledShapes();
+			editor.getViewportPageBounds();
 			editor.getEditingShapeId();
-			for (const shape of editor.getCurrentPageShapesSorted()) {
-				if (!isMarkdownCardShape(shape)) continue;
-				shape.props.cardId;
-				shape.props.contentLoaded;
-				shape.props.contentVersion;
-			}
 
 			scheduleHydration();
 		});

@@ -5,6 +5,7 @@ import type { JSONContent } from "@tiptap/core";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useDebouncedCardSave } from "./useDebouncedCardSave";
+import { isCardContentDirty } from "../whiteboard/dirty-card-content";
 
 const updateContentMock = vi.fn();
 const runtimeMock = {
@@ -79,6 +80,7 @@ describe("useDebouncedCardSave", () => {
 
 		fireEvent.click(screen.getByText("schedule first"));
 		fireEvent.click(screen.getByText("schedule second"));
+		expect(isCardContentDirty(CARD_ID)).toBe(true);
 
 		await vi.advanceTimersByTimeAsync(449);
 		expect(updateContentMock).not.toHaveBeenCalled();
@@ -90,6 +92,23 @@ describe("useDebouncedCardSave", () => {
 			content: SECOND_CONTENT,
 			expectedVersion: undefined,
 		});
+		expect(isCardContentDirty(CARD_ID)).toBe(false);
+	});
+
+	test("keeps a failed save dirty until a retry succeeds", async () => {
+		updateContentMock
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValueOnce(2);
+		render(<Harness initialContent={FIRST_CONTENT} initialVersion={1} />);
+
+		fireEvent.click(screen.getByText("schedule second"));
+		await vi.advanceTimersByTimeAsync(450);
+		expect(isCardContentDirty(CARD_ID)).toBe(true);
+
+		fireEvent.click(screen.getByText("flush"));
+		await Promise.resolve();
+		expect(updateContentMock).toHaveBeenCalledTimes(2);
+		expect(isCardContentDirty(CARD_ID)).toBe(false);
 	});
 
 	test("flushes pending content when unmounted", () => {

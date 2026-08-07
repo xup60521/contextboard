@@ -49,6 +49,9 @@ export function useFrameSync({
 		queuedFrameUpdatesRef.current = new Map();
 
 		if (queuedFrames.size === 0) return;
+		recordContextboardPerf("canvas.frame.write", {
+			value: queuedFrames.size,
+		});
 
 		void updateItemFrames({
 			updates: [...queuedFrames].map(([itemId, sequencedFrame]) => ({
@@ -127,3 +130,4 @@ export function useFrameSync({
 		flushTimerRef,
 	};
 }
+import { recordContextboardPerf } from "@contextboard/application";

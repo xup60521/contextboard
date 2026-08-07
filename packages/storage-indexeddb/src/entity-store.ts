@@ -22,6 +22,7 @@ type EntityBinding = {
 	table: (db: ContextboardDatabaseLike) => RowTable<Row>;
 	/** Keeps generic writes compatible with the Web schema's indexes. */
 	defaults: () => Record<string, unknown>;
+	idField?: string;
 };
 type NormalizedWrite = {
 	binding: EntityBinding;
@@ -95,12 +96,16 @@ const BINDINGS: Record<string, EntityBinding> = {
 	tldrawDocuments: {
 		entityType: "tldrawDocument",
 		table: (db) => db.tldrawDocuments as RowTable<Row>,
-		defaults: () => ({ whiteboardId: null, documentVersion: 1 }),
+		defaults: () => ({
+			whiteboardId: null,
+			documentVersion: 1,
+			storageMode: "legacy-snapshot",
+		}),
 	},
 	files: {
 		entityType: "file",
 		table: (db) => db.files as RowTable<Row>,
-		defaults: () => ({ status: "pending", pendingDeleteAt: null }),
+		defaults: () => ({ status: "active", pendingDeleteAt: null }),
 	},
 	fileReferences: {
 		entityType: "fileReference",
@@ -123,6 +128,34 @@ const BINDINGS: Record<string, EntityBinding> = {
 			ordinal: null,
 			clock: "",
 		}),
+	},
+	cardContents: {
+		entityType: "cardContent",
+		table: (db) => db.cardContents as RowTable<Row>,
+		defaults: () => ({
+			cardId: null,
+			document: null,
+			contentVersion: 1,
+			clock: "",
+		}),
+	},
+	conflicts: {
+		entityType: "conflict",
+		table: (db) => db.conflicts as unknown as RowTable<Row>,
+		idField: "conflictId",
+		defaults: () => ({
+			entityType: "card",
+			entityId: "",
+			localValue: null,
+			remoteValue: null,
+			resolvedAt: null,
+			resolution: null,
+		}),
+	},
+	todos: {
+		entityType: "todo",
+		table: (db) => db.todos as RowTable<Row>,
+		defaults: () => ({ text: "", completed: false }),
 	},
 };
 
@@ -168,16 +201,32 @@ function resolve(operation: unknown) {
 const isActive = (row: Row | undefined): row is Row =>
 	!!row && row.deletedAt === null;
 
-const WHITEBOARD_FILTER_ENTITY_TYPES = new Set([
-	"boardItem",
-	"canvasRecord",
-	"tldrawDocument",
-	"cardRelation",
-]);
-
 type ListQueryInput = {
 	ids?: string[];
 	whiteboardId?: string | null;
+	whiteboardIds?: Array<string | null>;
+	cardIds?: string[];
+	childWhiteboardIds?: string[];
+	parentWhiteboardIds?: Array<string | null>;
+	sourceCardIds?: string[];
+	targetCardIds?: string[];
+	targetKeys?: string[];
+	fileIds?: string[];
+};
+
+const FILTERS_BY_ENTITY: Record<string, ReadonlySet<keyof ListQueryInput>> = {
+	card: new Set(["ids"]),
+	cardContent: new Set(["ids", "cardIds"]),
+	boardItem: new Set(["ids", "whiteboardId", "whiteboardIds", "cardIds", "childWhiteboardIds"]),
+	whiteboard: new Set(["ids", "parentWhiteboardIds"]),
+	cardReference: new Set(["ids", "sourceCardIds", "targetCardIds"]),
+	fileReference: new Set(["ids", "targetKeys", "fileIds"]),
+	cardRelation: new Set(["ids", "whiteboardId", "whiteboardIds", "cardIds"]),
+	canvasRecord: new Set(["ids", "whiteboardId", "whiteboardIds"]),
+	tldrawDocument: new Set(["ids", "whiteboardId", "whiteboardIds"]),
+	file: new Set(["ids"]),
+	conflict: new Set(["ids"]),
+	todo: new Set(["ids"]),
 };
 
 function parseListQueryInput(
@@ -189,32 +238,76 @@ function parseListQueryInput(
 		throw new InvalidDomainArgumentError("List input must be an object");
 
 	const value = input as Record<string, unknown>;
-	let ids: string[] | undefined;
-	if ("ids" in value) {
-		if (!Array.isArray(value.ids))
-			throw new InvalidDomainArgumentError("ids must be an array");
-		if (value.ids.some((id) => typeof id !== "string" || id.length === 0))
+	const allowed = FILTERS_BY_ENTITY[entityType] ?? new Set(["ids"] as const);
+	const result: ListQueryInput = {};
+	for (const [key, raw] of Object.entries(value)) {
+		if (!allowed.has(key as keyof ListQueryInput))
 			throw new InvalidDomainArgumentError(
-				"ids must contain non-empty strings",
+				`${key} filtering is not supported for ${entityType}`,
 			);
-		ids = [...new Set(value.ids)];
+		if (key === "whiteboardId") {
+			if (raw !== null && typeof raw !== "string")
+				throw new InvalidDomainArgumentError(
+					"whiteboardId must be a string or null",
+				);
+			result.whiteboardId = raw as string | null;
+			continue;
+		}
+		if (!Array.isArray(raw))
+			throw new InvalidDomainArgumentError(`${key} must be an array`);
+		const allowsNull = key === "whiteboardIds" || key === "parentWhiteboardIds";
+		if (
+			raw.some(
+				(item) =>
+					!(typeof item === "string" && item.length > 0) &&
+					!(allowsNull && item === null),
+			)
+		)
+			throw new InvalidDomainArgumentError(
+				`${key} must contain non-empty strings${allowsNull ? " or null" : ""}`,
+			);
+		(result as Record<string, unknown>)[key] = [...new Set(raw)];
 	}
-
-	if (!("whiteboardId" in value)) return { ids };
-	if (!WHITEBOARD_FILTER_ENTITY_TYPES.has(entityType))
-		throw new InvalidDomainArgumentError(
-			`whiteboardId filtering is not supported for ${entityType}`,
-		);
-	const whiteboardId = value.whiteboardId;
-	if (whiteboardId !== null && typeof whiteboardId !== "string")
-		throw new InvalidDomainArgumentError(
-			"whiteboardId must be a string or null",
-		);
-	return { ids, whiteboardId };
+	return result;
 }
 
 function hasWhiteboardId(row: Row, whiteboardId: string | null) {
 	return (row.whiteboardId ?? null) === whiteboardId;
+}
+
+function rowMatchesFilter(row: Row, filter: ListQueryInput) {
+	if (filter.whiteboardId !== undefined && !hasWhiteboardId(row, filter.whiteboardId)) return false;
+	if (filter.whiteboardIds && !filter.whiteboardIds.includes((row.whiteboardId ?? null) as string | null)) return false;
+	if (filter.cardIds && !filter.cardIds.includes(String(row.cardId ?? "")) && !filter.cardIds.includes(String(row.sourceCardId ?? "")) && !filter.cardIds.includes(String(row.targetCardId ?? ""))) return false;
+	if (filter.childWhiteboardIds && !filter.childWhiteboardIds.includes(String(row.childWhiteboardId ?? ""))) return false;
+	if (filter.parentWhiteboardIds && !filter.parentWhiteboardIds.includes((row.parentWhiteboardId ?? null) as string | null)) return false;
+	if (filter.sourceCardIds && !filter.sourceCardIds.includes(String(row.sourceCardId ?? ""))) return false;
+	if (filter.targetCardIds && !filter.targetCardIds.includes(String(row.targetCardId ?? ""))) return false;
+	if (filter.targetKeys && !filter.targetKeys.includes(String(row.targetKey ?? ""))) return false;
+	if (filter.fileIds && !filter.fileIds.includes(String(row.fileId ?? ""))) return false;
+	return true;
+}
+
+async function rowsForValues(
+	table: RowTable<Row>,
+	index: string,
+	values: readonly (string | null)[],
+) {
+	if (values.length === 0) return [];
+	if (values.includes(null)) return (await table.toArray()).filter((row) =>
+		values.includes((row[index] ?? null) as string | null),
+	);
+	let rows: Row[][];
+	try {
+		rows = await Promise.all(
+			values.map((value) => table.where(index).equals(value).toArray()),
+		);
+	} catch (error) {
+		throw new InvalidDomainArgumentError(
+			`Invalid indexed filter ${index}: ${JSON.stringify(values)} (${error instanceof Error ? error.message : String(error)})`,
+		);
+	}
+	return [...new Map(rows.flat().map((row) => [row.id, row])).values()];
 }
 
 export async function queryEntities(
@@ -233,12 +326,40 @@ export async function queryEntities(
 		return isActive(row) ? row : null;
 	}
 	const filter = parseListQueryInput(request.input, binding.entityType);
-	if (filter.ids?.length === 0) return [];
+	if (
+		filter.ids?.length === 0 ||
+		filter.whiteboardIds?.length === 0 ||
+		filter.cardIds?.length === 0 ||
+		filter.childWhiteboardIds?.length === 0 ||
+		filter.parentWhiteboardIds?.length === 0 ||
+		filter.sourceCardIds?.length === 0 ||
+		filter.targetCardIds?.length === 0 ||
+		filter.targetKeys?.length === 0 ||
+		filter.fileIds?.length === 0
+	)
+		return [];
 
+	const indexedFilter =
+		filter.whiteboardIds?.every((id): id is string => id !== null) ? ["whiteboardId", filter.whiteboardIds] as const
+		: filter.cardIds && binding.entityType !== "cardRelation" ? ["cardId", filter.cardIds] as const
+		: filter.childWhiteboardIds ? ["childWhiteboardId", filter.childWhiteboardIds] as const
+		: filter.parentWhiteboardIds?.every((id): id is string => id !== null) ? ["parentWhiteboardId", filter.parentWhiteboardIds] as const
+		: filter.sourceCardIds ? ["sourceCardId", filter.sourceCardIds] as const
+		: filter.targetCardIds ? ["targetCardId", filter.targetCardIds] as const
+		: filter.targetKeys ? ["targetKey", filter.targetKeys] as const
+		: filter.fileIds ? ["fileId", filter.fileIds] as const
+		: null;
 	const rows = filter.ids
-		? ((await Promise.all(filter.ids.map((id) => table.get(id)))).filter(
+		? ((await table.bulkGet(filter.ids)).filter(
 				(row): row is Row => !!row,
 			) as Row[])
+		: filter.cardIds && binding.entityType === "cardRelation"
+			? [...new Map((await Promise.all([
+				rowsForValues(table, "sourceCardId", filter.cardIds),
+				rowsForValues(table, "targetCardId", filter.cardIds),
+			])).flat().map((row) => [row.id, row])).values()]
+		: indexedFilter
+			? await rowsForValues(table, indexedFilter[0], indexedFilter[1])
 		: typeof filter.whiteboardId === "string"
 			? ((await table
 					.where("whiteboardId")
@@ -246,11 +367,7 @@ export async function queryEntities(
 					.toArray()) as Row[])
 			: ((await table.toArray()) as Row[]);
 	// Bound to a local so the closure below keeps the narrowed type.
-	const whiteboardId = filter.whiteboardId;
-	const scopedRows =
-		whiteboardId === undefined
-			? rows
-			: rows.filter((row) => hasWhiteboardId(row, whiteboardId));
+	const scopedRows = rows.filter((row) => rowMatchesFilter(row, filter));
 	return scopedRows.filter(isActive).sort((a, b) => a.id.localeCompare(b.id));
 }
 
@@ -381,6 +498,9 @@ export async function executeEntityCommand(
 					...existing,
 					...(write.value ?? {}),
 					id: write.id,
+					...(write.binding.idField
+						? { [write.binding.idField]: write.id }
+						: {}),
 					createdAt:
 						typeof existing?.createdAt === "number"
 							? existing.createdAt

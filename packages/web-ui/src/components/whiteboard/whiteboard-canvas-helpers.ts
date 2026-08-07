@@ -375,14 +375,14 @@ export function hydrateCardShapes(
 		content: unknown;
 		version: number;
 	},
+	shapeIndex?: ReadonlyMap<string, readonly MarkdownCardShape[]>,
 ) {
 	const serializedContent = JSON.stringify(payload.content);
 	const updates: ManagedShapePartial[] = [];
 
-	for (const shape of editor.getCurrentPageShapes()) {
-		if (!isMarkdownCardShape(shape) || shape.props.cardId !== payload.cardId) {
-			continue;
-		}
+	const candidates = shapeIndex?.get(payload.cardId) ?? editor.getCurrentPageShapes();
+	for (const shape of candidates) {
+		if (!isMarkdownCardShape(shape) || shape.props.cardId !== payload.cardId) continue;
 
 		updates.push({
 			id: shape.id,
@@ -401,6 +401,17 @@ export function hydrateCardShapes(
 
 	if (updates.length === 0) return;
 	editor.updateShapes(updates);
+}
+
+export function indexMarkdownCardShapes(editor: Editor) {
+	const index = new Map<string, MarkdownCardShape[]>();
+	for (const shape of editor.getCurrentPageShapes()) {
+		if (!isMarkdownCardShape(shape) || !shape.props.cardId) continue;
+		const bucket = index.get(shape.props.cardId);
+		if (bucket) bucket.push(shape);
+		else index.set(shape.props.cardId, [shape]);
+	}
+	return index;
 }
 
 export function hasPersistableDrawingChange(changes: {

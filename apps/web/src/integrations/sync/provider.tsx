@@ -87,9 +87,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 		if (local.status !== "ready") return;
 		const [pendingCount, conflictCount] = await Promise.all([
 			local.database.changeLog.count(),
+			// Count through the cursor without materializing every conflict row.
 			local.database.conflicts
-				.toArray()
-				.then((rows) => rows.filter((row) => row.resolvedAt === null).length),
+				.filter((row) => row.resolvedAt === null)
+				.count(),
 		]);
 		setState((current) => ({ ...current, pendingCount, conflictCount }));
 	};

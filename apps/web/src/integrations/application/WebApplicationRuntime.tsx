@@ -1,6 +1,7 @@
 import {
 	type ApplicationRuntime,
 	ApplicationRuntimeProvider,
+	ApplicationSyncStatusProvider,
 	createRepositoryCanvasService,
 	createRepositoryCardRelationsService,
 	createRepositoryCardsService,
@@ -18,28 +19,31 @@ export function WebApplicationRuntime({ children }: { children: ReactNode }) {
 	const local = useLocalDatabase();
 	const sync = useSyncRuntime();
 	const router = useRouter();
+	const database = local.status === "ready" ? local.database : null;
+	const workspaceId = local.status === "ready" ? local.workspaceId : null;
+	const deviceId = local.status === "ready" ? local.deviceId : null;
 
 	const runtime = useMemo<ApplicationRuntime | null>(() => {
-		if (local.status !== "ready") return null;
-		const repository = getWebWorkspaceRepository(local.database);
+		if (!database || workspaceId === null || deviceId === null) return null;
+		const repository = getWebWorkspaceRepository(database);
 		return {
 			platform: "web",
-			workspaceId: local.workspaceId,
+			workspaceId,
 			cards: createRepositoryCardsService(repository, {
-				deviceId: local.deviceId,
+				deviceId,
 			}),
 			relations: createRepositoryCardRelationsService(repository, {
-				deviceId: local.deviceId,
+				deviceId,
 			}),
 			whiteboards: createRepositoryWhiteboardsService(repository, {
-				deviceId: local.deviceId,
+				deviceId,
 			}),
 			canvas: createRepositoryCanvasService(repository, {
-				deviceId: local.deviceId,
-				workspaceId: local.workspaceId,
+				deviceId,
+				workspaceId,
 			}),
 			search: createRepositorySearchService(repository),
-			files: createWebFileRuntime(repository, local.deviceId),
+			files: createWebFileRuntime(repository, deviceId),
 			navigation: {
 				cardsHref: () => "/cards?orphan=&sort=title&q=",
 				cardHref: (cardId) => `/cards/${encodeURIComponent(cardId)}`,
@@ -51,18 +55,20 @@ export function WebApplicationRuntime({ children }: { children: ReactNode }) {
 				navigate: (href) => router.history.push(href),
 				replace: (href) => router.history.replace(href),
 			},
-			sync: {
-				state: sync.state.state,
-				message: sync.state.error,
-			},
 		};
-	}, [local, router, sync.state.error, sync.state.state]);
+	}, [database, deviceId, router, workspaceId]);
+	const syncStatus = useMemo(
+		() => ({ state: sync.state.state, message: sync.state.error }),
+		[sync.state.error, sync.state.state],
+	);
 
 	if (!runtime) return null;
 
 	return (
-		<ApplicationRuntimeProvider runtime={runtime}>
-			{children}
-		</ApplicationRuntimeProvider>
+		<ApplicationSyncStatusProvider value={syncStatus}>
+			<ApplicationRuntimeProvider runtime={runtime}>
+				{children}
+			</ApplicationRuntimeProvider>
+		</ApplicationSyncStatusProvider>
 	);
 }

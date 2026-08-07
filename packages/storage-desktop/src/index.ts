@@ -1,9 +1,15 @@
-import type {
-	ApplyResult,
-	DomainCommand,
-	DomainQuery,
-	WorkspaceChangeListener,
-	WorkspaceRepository,
+import {
+	describeDomainCommand,
+	describeRemoteChanges,
+	recordContextboardPerf,
+	workspaceChangeMatches,
+	type ApplyResult,
+	type DomainCommand,
+	type DomainQuery,
+	type WorkspaceChange,
+	type WorkspaceChangeFilter,
+	type WorkspaceChangeListener,
+	type WorkspaceRepository,
 } from "@contextboard/client-core";
 import type {
 	BlobDescriptor,
@@ -26,7 +32,10 @@ type DesktopBlob = {
  * but it cannot submit SQL or arbitrary filesystem paths.
  */
 export class DesktopWorkspaceRepository implements WorkspaceRepository {
-	#listeners = new Set<WorkspaceChangeListener>();
+	#listeners = new Set<{
+		listener: WorkspaceChangeListener;
+		filter?: WorkspaceChangeFilter;
+	}>();
 	#localListeners = new Set<WorkspaceChangeListener>();
 
 	constructor(
@@ -34,7 +43,7 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 		private readonly invoke: DesktopInvoke,
 		private readonly listen?: (
 			event: string,
-			listener: () => void,
+			listener: (payload: unknown) => void,
 		) => Promise<() => void>,
 	) {
 		if (!workspaceId) throw new Error("workspaceId is required");
@@ -50,32 +59,65 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 	 */
 	async connect(): Promise<() => void> {
 		if (!this.listen) return () => undefined;
-		return this.listen("contextboard://workspace-changed", () => {
-			for (const listener of this.#listeners) listener();
-			for (const listener of this.#localListeners) listener();
+		return this.listen("contextboard://workspace-changed", (payload) => {
+			if (!isWorkspaceChange(payload)) return;
+			const change = payload;
+			this.#emit(change);
+			if (change.origin === "local")
+				for (const listener of this.#localListeners) listener(change);
 		});
 	}
 
-	query<T>(query: DomainQuery<T>): Promise<T> {
-		return this.invoke<T>("workspace_query", {
+	async query<T>(query: DomainQuery<T>): Promise<T> {
+		recordContextboardPerf("repository.query", { detail: query.type });
+		const result = await this.invoke<T>("workspace_query", {
 			workspaceId: this.workspaceId,
 			query,
 		});
+		if (Array.isArray(result))
+			recordContextboardPerf("repository.rows", {
+				detail: query.type,
+				value: result.length,
+			});
+		return result;
 	}
 
 	async execute<T>(command: DomainCommand<T>): Promise<T> {
+		recordContextboardPerf("repository.command", { detail: command.type });
 		const result = await this.invoke<T>("workspace_execute", {
 			workspaceId: this.workspaceId,
 			command,
 		});
-		for (const listener of this.#listeners) listener();
-		for (const listener of this.#localListeners) listener();
+		const change: WorkspaceChange = {
+			origin: "local",
+			changes: describeDomainCommand(command, result),
+		};
+		this.#emit(change);
+		for (const listener of this.#localListeners) listener(change);
 		return result;
 	}
 
-	subscribe(listener: WorkspaceChangeListener): () => void {
-		this.#listeners.add(listener);
-		return () => this.#listeners.delete(listener);
+	#emit(change: WorkspaceChange) {
+		if (change.changes.length === 0) return;
+		recordContextboardPerf("repository.notification.emitted", {
+			detail: change.origin,
+		});
+		for (const subscription of this.#listeners) {
+			if (!workspaceChangeMatches(change, subscription.filter)) continue;
+			recordContextboardPerf("repository.notification.delivered", {
+				detail: change.origin,
+			});
+			subscription.listener(change);
+		}
+	}
+
+	subscribe(
+		listener: WorkspaceChangeListener,
+		filter?: WorkspaceChangeFilter,
+	): () => void {
+		const subscription = { listener, filter };
+		this.#listeners.add(subscription);
+		return () => this.#listeners.delete(subscription);
 	}
 
 	/**
@@ -109,11 +151,16 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 		});
 	}
 
-	getPendingBatches(limit: number): Promise<ChangeBatch[]> {
-		return this.invoke("workspace_pending_batches", {
+	async getPendingBatches(limit: number): Promise<ChangeBatch[]> {
+		const batches = await this.invoke<ChangeBatch[]>("workspace_pending_batches", {
 			workspaceId: this.workspaceId,
 			limit,
 		});
+		recordContextboardPerf("repository.rows", {
+			detail: "changeLog.pending",
+			value: batches.length,
+		});
+		return batches;
 	}
 
 	acknowledge(changeIds: string[]): Promise<void> {
@@ -136,9 +183,12 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 			peerId,
 			nextCursor,
 		});
-		// Remote writes must repaint the UI too, otherwise a pulled change sits
-		// in SQLite until the next local edit.
-		for (const listener of this.#listeners) listener();
+		// Native storage reports only rows it actually materialized. This avoids
+		// repainting on duplicate or stale remote batches.
+		this.#emit({
+			origin: "remote",
+			changes: describeRemoteChanges(result.materializedChanges ?? []),
+		});
 		return result;
 	}
 
@@ -146,6 +196,14 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 		return this.invoke("workspace_sync_state", {
 			workspaceId: this.workspaceId,
 			peerId,
+		});
+	}
+
+	updateSyncCursor(peerId: string, cursor: string): Promise<void> {
+		return this.invoke("workspace_update_sync_cursor", {
+			workspaceId: this.workspaceId,
+			peerId,
+			cursor,
 		});
 	}
 
@@ -176,4 +234,19 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 			bytes: Array.from(new Uint8Array(await blob.arrayBuffer())),
 		});
 	}
+}
+
+function isWorkspaceChange(value: unknown): value is WorkspaceChange {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Partial<WorkspaceChange>;
+	return (
+		(candidate.origin === "local" || candidate.origin === "remote") &&
+		Array.isArray(candidate.changes) &&
+		candidate.changes.every(
+			(change) =>
+				!!change &&
+				typeof change.entityType === "string" &&
+				typeof change.entityId === "string",
+		)
+	);
 }

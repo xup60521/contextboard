@@ -7,11 +7,12 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { ApplicationRuntime } from "./runtime";
+import type { ApplicationRuntime, SyncRuntime } from "./runtime";
 
 const ApplicationRuntimeContext = createContext<ApplicationRuntime | null>(
 	null,
 );
+const ApplicationSyncStatusContext = createContext<SyncRuntime | null>(null);
 
 export type ApplicationRuntimeProviderProps = {
 	runtime: ApplicationRuntime;
@@ -36,6 +37,28 @@ export function useApplicationRuntime(): ApplicationRuntime {
 			"useApplicationRuntime must be used inside an ApplicationRuntimeProvider",
 		);
 	return runtime;
+}
+
+export function ApplicationSyncStatusProvider({
+	value,
+	children,
+}: {
+	value: SyncRuntime;
+	children: ReactNode;
+}) {
+	return (
+		<ApplicationSyncStatusContext.Provider value={value}>
+			{children}
+		</ApplicationSyncStatusContext.Provider>
+	);
+}
+
+export function useApplicationSyncStatus(): SyncRuntime {
+	return (
+		useContext(ApplicationSyncStatusContext) ?? {
+			state: "unavailable",
+		}
+	);
 }
 
 export type AsyncState<T> =

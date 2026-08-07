@@ -30,6 +30,7 @@ export function getStaleManagedShapeIds(
 export function useItemsHydration({
 	editor,
 	items,
+	itemsReady,
 	loadedDrawingKey,
 	whiteboardKey,
 	deferredBindingsRef,
@@ -46,6 +47,7 @@ export function useItemsHydration({
 }: {
 	editor: Editor | null;
 	items: BoardItemResult[];
+	itemsReady: boolean;
 	loadedDrawingKey: string | null;
 	whiteboardKey: string;
 	deferredBindingsRef: MutableRefObject<unknown[]>;
@@ -67,6 +69,7 @@ export function useItemsHydration({
 	useEffect(() => {
 		if (!editor) return;
 		if (loadedDrawingKey !== whiteboardKey) return;
+		if (!itemsReady) return;
 
 		const itemIdByShapeId = new Map<string, Id<"boardItems">>();
 		const latestItems = new Map<Id<"boardItems">, BoardItemResult>();
@@ -99,6 +102,9 @@ export function useItemsHydration({
 		const currentManagedShapes = editor
 			.getCurrentPageShapes()
 			.filter(isManagedWhiteboardShape);
+		const currentManagedShapeIds = new Set(
+			currentManagedShapes.map((shape) => shape.id as string),
+		);
 
 		hydratingRef.current = true;
 		editor.run(
@@ -110,8 +116,18 @@ export function useItemsHydration({
 				);
 
 				if (staleShapeIds.length > 0) {
+					recordContextboardPerf("canvas.shape.deleted", {
+						value: staleShapeIds.length,
+					});
 					editor.deleteShapes(staleShapeIds as TLShapeId[]);
 				}
+				const createCount = items.filter(
+					(item) => !currentManagedShapeIds.has(item.shapeId),
+				).length;
+				if (createCount > 0)
+					recordContextboardPerf("canvas.shape.created", {
+						value: createCount,
+					});
 
 				for (const item of items) {
 					const serverFrame = frameFromItem(item);
@@ -141,8 +157,7 @@ export function useItemsHydration({
 			if (
 				pendingShape &&
 				isMarkdownCardShape(pendingShape) &&
-				pendingShape.props.cardId &&
-				!pendingShape.props.contentLoaded
+				pendingShape.props.cardId
 			) {
 				prioritizeCardContent(
 					pendingEditShapeId,
@@ -158,6 +173,7 @@ export function useItemsHydration({
 	}, [
 		editor,
 		items,
+		itemsReady,
 		loadedDrawingKey,
 		prioritizeCardContent,
 		scheduleVisibleCardHydration,
@@ -202,3 +218,4 @@ export function useItemsHydration({
 		whiteboardKey,
 	]);
 }
+import { recordContextboardPerf } from "@contextboard/application";

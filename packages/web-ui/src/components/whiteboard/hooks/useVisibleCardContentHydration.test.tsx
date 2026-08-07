@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { TLShapeId } from "tldraw";
 import type { Id } from "../ids";
 import {
+	createCardContentStore,
+	type CardContentStore,
+} from "../card-content-store";
+import {
 	clearCardContentDirty,
 	markCardContentDirty,
 } from "../dirty-card-content";
@@ -16,6 +20,7 @@ import { useVisibleCardContentHydration } from "./useVisibleCardContentHydration
 const getCardMock = vi.fn();
 
 vi.mock("@contextboard/application", () => ({
+	recordContextboardPerf: vi.fn(),
 	useApplicationRuntime: () => ({
 		cards: {
 			get: getCardMock,
@@ -62,6 +67,7 @@ function createEditor(shape: FakeShape, culledShapeIds: string[] = []) {
 			getCurrentPageShapes: vi.fn(() => shapes),
 			getCurrentPageShapesSorted: vi.fn(() => shapes),
 			getCulledShapes: vi.fn(() => new Set(culledShapeIds)),
+			getViewportPageBounds: vi.fn(() => ({ x: -100, y: -100, w: 800, h: 600 })),
 			getEditingShapeId: vi.fn(() => editingShapeId),
 			select: vi.fn((shapeId: string) => {
 				editingShapeId = shapeId;
@@ -87,6 +93,7 @@ function Harness({
 	editor,
 	items,
 	onReady,
+	contentStore,
 }: {
 	editor: ReturnType<typeof createEditor>["editor"];
 	items: Array<{
@@ -112,6 +119,7 @@ function Harness({
 	onReady?: (
 		prioritizeCardContent: (shapeId: TLShapeId, cardId: Id<"cards">) => void,
 	) => void;
+	contentStore: CardContentStore;
 	children?: ReactNode;
 }) {
 	const pendingEditShapeIdRef = { current: null as TLShapeId | null };
@@ -121,6 +129,7 @@ function Harness({
 		loadedDrawingKey: "whiteboard-1",
 		whiteboardKey: "whiteboard-1",
 		pendingEditShapeIdRef,
+		contentStore,
 	});
 
 	useEffect(() => {
@@ -143,6 +152,7 @@ describe("useVisibleCardContentHydration", () => {
 	});
 
 	test("fetches visible unloaded cards and hydrates their shapes", async () => {
+		const contentStore = createCardContentStore();
 		const { editor, getShapeSnapshot } = createEditor({
 			id: "shape:card-1",
 			type: "markdown-card",
@@ -192,6 +202,7 @@ describe("useVisibleCardContentHydration", () => {
 						childWhiteboard: null,
 					},
 				]}
+				contentStore={contentStore}
 			/>,
 		);
 
@@ -199,12 +210,16 @@ describe("useVisibleCardContentHydration", () => {
 
 		expect(getCardMock).toHaveBeenCalledTimes(1);
 		expect(getCardMock).toHaveBeenCalledWith("card-1");
-		expect(getShapeSnapshot()?.props.contentLoaded).toBe(true);
-		expect(getShapeSnapshot()?.props.contentVersion).toBe(2);
-		expect(getShapeSnapshot()?.props.content).toContain('"type":"doc"');
+		expect(contentStore.getSnapshot("card-1")).toMatchObject({
+			status: "ready",
+			persistedVersion: 2,
+			persistedDocument: { type: "doc" },
+		});
+		expect(getShapeSnapshot()?.props.contentLoaded).toBe(false);
 	});
 
 	test("skips cards with unsaved local edits", async () => {
+		const contentStore = createCardContentStore();
 		const { editor, getShapeSnapshot } = createEditor({
 			id: "shape:card-1",
 			type: "markdown-card",
@@ -253,6 +268,7 @@ describe("useVisibleCardContentHydration", () => {
 						childWhiteboard: null,
 					},
 				]}
+				contentStore={contentStore}
 			/>,
 		);
 
@@ -264,6 +280,7 @@ describe("useVisibleCardContentHydration", () => {
 	});
 
 	test("prioritized cards enter edit mode after content loads", async () => {
+		const contentStore = createCardContentStore();
 		const { editor } = createEditor(
 			{
 				id: "shape:card-1",
@@ -319,6 +336,7 @@ describe("useVisibleCardContentHydration", () => {
 						childWhiteboard: null,
 					},
 				]}
+				contentStore={contentStore}
 				onReady={(callback) => {
 					prioritize = callback;
 				}}

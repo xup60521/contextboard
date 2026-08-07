@@ -1,0 +1,17 @@
+{
+  "manifestVersion": 1,
+  "entities": {
+    "whiteboard": { "operationPrefix": "whiteboards", "mergePolicy": "hierarchy-validated", "protocol": "base", "defaults": { "parentWhiteboardId": null, "archivedAt": null } },
+    "card": { "operationPrefix": "cards", "mergePolicy": "revision-conflict-copy", "protocol": "base", "defaults": { "derivedTitle": "Untitled card", "contentVersion": 1, "archivedAt": null } },
+    "cardContent": { "operationPrefix": "cardContents", "mergePolicy": "revision-conflict-copy", "protocol": "card-content-v1", "defaults": { "document": null, "contentVersion": 1 } },
+    "boardItem": { "operationPrefix": "items", "mergePolicy": "materialize", "protocol": "base", "defaults": { "whiteboardId": null, "cardId": null, "childWhiteboardId": null, "archivedAt": null } },
+    "tldrawDocument": { "operationPrefix": "tldrawDocuments", "mergePolicy": "materialize", "protocol": "base", "defaults": { "whiteboardId": null, "documentVersion": 1, "storageMode": "legacy-snapshot" } },
+    "file": { "operationPrefix": "files", "mergePolicy": "materialize", "protocol": "base", "defaults": { "status": "active", "pendingDeleteAt": null } },
+    "fileReference": { "operationPrefix": "fileReferences", "mergePolicy": "materialize", "protocol": "base", "defaults": { "targetKey": "", "fileId": null } },
+    "cardReference": { "operationPrefix": "cardReferences", "mergePolicy": "materialize", "protocol": "base", "defaults": { "sourceCardId": null, "targetCardId": null } },
+    "cardRelation": { "operationPrefix": "cardRelations", "mergePolicy": "hlc-device", "protocol": "base", "defaults": { "whiteboardId": null, "sourceCardId": null, "targetCardId": null, "arrowShapeId": null, "ordinal": null, "clock": "" } },
+    "canvasRecord": { "operationPrefix": "records", "mergePolicy": "hlc-device", "protocol": "base", "defaults": { "whiteboardId": null, "recordId": "", "recordType": "", "payload": null, "clock": "" } },
+    "conflict": { "operationPrefix": "conflicts", "mergePolicy": "materialize", "protocol": "base", "defaults": { "resolvedAt": null, "resolution": null } },
+    "todo": { "operationPrefix": "todos", "mergePolicy": "materialize", "protocol": "base", "defaults": { "text": "", "completed": false } }
+  }
+}

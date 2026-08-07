@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import mergeConformance from "./merge-conformance.json" with { type: "json" };
 import {
 	conflictCopyCardId,
 	deterministicEntityId,
@@ -12,6 +13,25 @@ import {
 } from "./index";
 
 describe("HybridLogicalClock", () => {
+	test("consumes the shared TypeScript/Rust merge conformance fixtures", () => {
+		for (const fixture of mergeConformance.deterministicIds) {
+			const actual =
+				fixture.kind === "conflictCopyCard"
+					? conflictCopyCardId(fixture.parts[0]!)
+					: deterministicEntityId(fixture.namespace!, ...fixture.parts);
+			expect(actual).toBe(fixture.expected);
+		}
+		expect(mergeConformance.scenarios.map((scenario) => scenario.name)).toEqual([
+			"equal clocks",
+			"stale clocks",
+			"revision conflicts",
+			"hierarchy conflicts",
+			"duplicate batches",
+			"tombstones",
+			"file normalization",
+			"conflict-copy determinism",
+		]);
+	});
 	test("stays monotonic when wall time moves backwards", () => {
 		const clock = new HybridLogicalClock("device-a");
 		expect(clock.tick(200)).toBe("0000000000200:000000:device-a");

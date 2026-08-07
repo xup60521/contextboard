@@ -15,6 +15,7 @@ import {
 	markdownCardShapeProps,
 } from "./MarkdownCardShapeTypes";
 import { MarkdownCardSummaryShell } from "./MarkdownCardShell";
+import { useCardContentEntry } from "./card-content-store";
 import {
 	createSubwhiteboardLinkShape,
 	makeSubwhiteboardId,
@@ -47,13 +48,22 @@ function isPersistedCardLoaded(shape: MarkdownCardShape) {
 
 export function MarkdownCardComponent({ shape }: { shape: MarkdownCardShape }) {
 	if (shape.props.cardId) {
-		if (!shape.props.contentLoaded) {
-			return <MarkdownCardSummaryShell shape={shape} />;
-		}
-		return <PersistedMarkdownCardComponent shape={shape} />;
+		return <ExternalPersistedMarkdownCardComponent shape={shape} />;
 	}
 
 	return <LocalMarkdownCardComponent shape={shape} />;
+}
+
+function ExternalPersistedMarkdownCardComponent({
+	shape,
+}: {
+	shape: MarkdownCardShape;
+}) {
+	const entry = useCardContentEntry(shape.props.cardId ?? "");
+	if (entry.status !== "ready" && !shape.props.contentLoaded) {
+			return <MarkdownCardSummaryShell shape={shape} />;
+	}
+	return <PersistedMarkdownCardComponent shape={shape} />;
 }
 
 export class MarkdownCardShapeUtil extends BaseBoxShapeUtil<MarkdownCardShape> {
@@ -73,7 +83,7 @@ export class MarkdownCardShapeUtil extends BaseBoxShapeUtil<MarkdownCardShape> {
 	}
 
 	override canEdit(shape: MarkdownCardShape) {
-		return isPersistedCardLoaded(shape);
+		return Boolean(shape.props.cardId) || isPersistedCardLoaded(shape);
 	}
 
 	override hideSelectionBoundsBg(shape: MarkdownCardShape) {

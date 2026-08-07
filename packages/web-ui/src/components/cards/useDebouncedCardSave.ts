@@ -1,6 +1,13 @@
-import { useApplicationRuntime } from "@contextboard/application";
+import {
+	recordContextboardPerf,
+	useApplicationRuntime,
+} from "@contextboard/application";
 import type { JSONContent } from "@tiptap/core";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	clearCardContentDirty,
+	markCardContentDirty,
+} from "../whiteboard/dirty-card-content";
 
 type PendingSave = {
 	cardId: string;
@@ -39,11 +46,14 @@ export function useDebouncedCardSave(
 			return;
 
 		void Promise.resolve(
+			(recordContextboardPerf("card.content.write", {
+				detail: pending.cardId,
+			}),
 			runtime.cards.updateContent({
 				cardId: pending.cardId,
 				content: pending.content,
 				expectedVersion: versionByCardRef.current.get(pending.cardId),
-			}),
+			})),
 		)
 			.then((version) => {
 				persistedByCardRef.current.set(pending.cardId, pending.serialized);
@@ -51,7 +61,7 @@ export function useDebouncedCardSave(
 					versionByCardRef.current.set(pending.cardId, version);
 				setError(null);
 				if (pendingRef.current?.cardId !== pending.cardId)
-					runtime.ui?.onCardContentDirtyChange?.(pending.cardId, false);
+					clearCardContentDirty(pending.cardId);
 				if (typeof version === "number")
 					onPersistedRef.current?.({ content: pending.content, version });
 			})
@@ -60,7 +70,7 @@ export function useDebouncedCardSave(
 				if (!pendingRef.current) pendingRef.current = pending;
 				setError(reason instanceof Error ? reason : new Error(String(reason)));
 			});
-	}, [runtime.cards, runtime.ui]);
+	}, [runtime.cards]);
 
 	const scheduleSave = useCallback(
 		(content: JSONContent) => {
@@ -69,15 +79,15 @@ export function useDebouncedCardSave(
 				pendingRef.current = null;
 				if (timerRef.current !== null) window.clearTimeout(timerRef.current);
 				timerRef.current = null;
-				runtime.ui?.onCardContentDirtyChange?.(cardId, false);
+				clearCardContentDirty(cardId);
 				return;
 			}
 			pendingRef.current = { cardId, content, serialized };
-			runtime.ui?.onCardContentDirtyChange?.(cardId, true);
+			markCardContentDirty(cardId);
 			if (timerRef.current !== null) window.clearTimeout(timerRef.current);
 			timerRef.current = window.setTimeout(flushSave, delayMs);
 		},
-		[cardId, delayMs, flushSave, runtime.ui],
+		[cardId, delayMs, flushSave],
 	);
 
 	useEffect(() => {

@@ -73,6 +73,7 @@ function createNativeStub() {
 	let clock = 1_000;
 	const entities: Record<string, string> = {
 		cards: "card",
+		cardContents: "cardContent",
 		whiteboards: "whiteboard",
 		items: "boardItem",
 		records: "canvasRecord",

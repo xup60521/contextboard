@@ -257,8 +257,13 @@ export function createRepositoryWhiteboardsService(
 			await archiveWhiteboardTree(repository, options, id, archiveOptions);
 		},
 
-		subscribe(listener: () => void) {
-			return repository.subscribe(listener);
+		subscribe(listener: () => void, options?: { whiteboardIds?: string[] }) {
+			return repository.subscribe(() => listener(), {
+				entityTypes: ["whiteboard", "boardItem"],
+				...(options?.whiteboardIds
+					? { whiteboardIds: options.whiteboardIds }
+					: {}),
+			});
 		},
 	};
 }
@@ -456,11 +461,19 @@ export function createRepositoryCanvasService(
 						),
 				),
 			];
-			const [boards, cards] = await Promise.all([
+			const [boards, cards, childItems, grandchildBoards] = await Promise.all([
 				listRows(repository, "whiteboards", { ids: childWhiteboardIds }),
 				listRows(repository, "cards", { ids: cardIds }),
+				listRows(repository, "items", {
+					whiteboardIds: childWhiteboardIds,
+				}),
+				listRows(repository, "whiteboards", {
+					parentWhiteboardIds: childWhiteboardIds,
+				}),
 			]);
 			const activeBoards = boards.filter(isActiveRow);
+			const activeChildItems = childItems.filter(isActiveRow);
+			const activeGrandchildBoards = grandchildBoards.filter(isActiveRow);
 			const cardById = new Map(
 				cards.filter(isActiveRow).map((card) => [card.id, card]),
 			);
@@ -516,8 +529,8 @@ export function createRepositoryCanvasService(
 									depth: typeof child.depth === "number" ? child.depth : 0,
 									...deriveWhiteboardCounts(
 										child.id,
-										activeItems as never[],
-										activeBoards as never[],
+										activeChildItems as never[],
+										activeGrandchildBoards as never[],
 									),
 								}
 							: null,
@@ -687,6 +700,7 @@ export function createRepositoryCanvasService(
 						...(existing ?? {
 							createdAt: timestamp,
 							documentVersion: 1,
+							storageMode: "legacy-snapshot",
 						}),
 						id: documentId,
 						whiteboardId,
@@ -712,7 +726,7 @@ export function createRepositoryCanvasService(
 
 			// Once a board has per-record rows they are the source of truth; the
 			// legacy whole-snapshot row only still supplies the store schema.
-			if (recordRows.length > 0) {
+			if (row?.storageMode === "records-v1" || recordRows.length > 0) {
 				const active = recordRows.filter(isActiveRow);
 				const legacy = row?.snapshot as
 					| { schema?: unknown; store?: Record<string, unknown> }
@@ -721,7 +735,7 @@ export function createRepositoryCanvasService(
 					id: row?.id ?? null,
 					whiteboardId,
 					snapshot: {
-						schema: legacy?.schema ?? null,
+						schema: row?.schema ?? legacy?.schema ?? null,
 						store: Object.fromEntries(
 							active.map((record) => [record.recordId, record.payload]),
 						),
@@ -775,9 +789,41 @@ export function createRepositoryCanvasService(
 					if (id) incomingUpserts.set(id, payload);
 				}
 				const incomingRemovals = new Set(removed);
+				const legacy = await readDocumentRow(whiteboardId);
+				if (legacy?.storageMode !== "records-v1") {
+					const documentId = legacy?.id ?? createId();
+					const legacyRecord = legacy as
+						| (typeof legacy & { snapshot?: unknown; schema?: unknown })
+						| null;
+					const legacySnapshot = legacyRecord?.snapshot as
+						| { schema?: unknown }
+						| undefined;
+					const { snapshot: _discardedSnapshot, ...legacyMetadata } =
+						legacyRecord ?? {};
+					writes.push({
+						entity: "tldrawDocument",
+						operation: "upsert",
+						id: documentId,
+						value: {
+							...(legacy
+								? legacyMetadata
+								: {
+								id: documentId,
+								whiteboardId,
+								documentVersion: 1,
+								createdAt: timestamp,
+								}),
+							schema: legacySnapshot?.schema ?? legacyRecord?.schema ?? null,
+							storageMode: "records-v1",
+							updatedAt: timestamp,
+							updatedByDeviceId: deviceId,
+							deletedAt: null,
+						},
+						...(legacy ? { expectedRevision: legacy.revision } : {}),
+					});
+				}
 
 				if (existing.size === 0) {
-					const legacy = await readDocumentRow(whiteboardId);
 					const store = (
 						legacy?.snapshot as { store?: Record<string, unknown> } | undefined
 					)?.store;
@@ -873,8 +919,32 @@ export function createRepositoryCanvasService(
 			});
 		},
 
-		subscribe(listener: () => void) {
-			return repository.subscribe(listener);
+		subscribeItems(whiteboardId, listener, options) {
+			return repository.subscribe(
+				(change) => {
+					if (
+						options?.cardIds &&
+						change.changes.every(
+							(item) =>
+								item.entityType === "card" &&
+								!options.cardIds?.includes(item.entityId),
+						)
+					)
+						return;
+					listener();
+				},
+				{
+					entityTypes: ["boardItem", "card", "cardContent", "whiteboard"],
+					whiteboardIds: [whiteboardId],
+				},
+			);
+		},
+
+		subscribeDocument(whiteboardId, listener) {
+			return repository.subscribe(() => listener(), {
+				entityTypes: ["canvasRecord", "tldrawDocument"],
+				whiteboardIds: [whiteboardId],
+			});
 		},
 	};
 }

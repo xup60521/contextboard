@@ -39,14 +39,16 @@ describe("DesktopWorkspaceRepository", () => {
 	});
 
 	// A bridge write is another local writer, so it must both repaint and push.
-	test("treats a native workspace-changed event as a local write", async () => {
-		let fire = () => undefined as void;
+	test("forwards a structured native workspace change", async () => {
+		let fire = (_payload: unknown) => undefined as void;
 		const unsubscribe = vi.fn();
-		const listen = vi.fn(async (event: string, handler: () => void) => {
+		const listen = vi.fn(
+			async (event: string, handler: (payload: unknown) => void) => {
 			expect(event).toBe("contextboard://workspace-changed");
 			fire = handler;
 			return unsubscribe;
-		});
+			},
+		);
 		const repository = new DesktopWorkspaceRepository(
 			"workspace-1",
 			vi.fn() as never,
@@ -58,7 +60,10 @@ describe("DesktopWorkspaceRepository", () => {
 		repository.subscribeLocal(local);
 
 		const stop = await repository.connect();
-		fire();
+		fire({
+			origin: "local",
+			changes: [{ entityType: "card", entityId: "card-1" }],
+		});
 		expect(changed).toHaveBeenCalledOnce();
 		expect(local).toHaveBeenCalledOnce();
 		stop();

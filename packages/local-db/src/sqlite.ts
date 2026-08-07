@@ -3,6 +3,7 @@ import type {
 	BoardItem,
 	CanvasRecord,
 	Card,
+	CardContent,
 	CardReference,
 	CardRelation,
 	FileReference,
@@ -117,12 +118,13 @@ class SqliteCollection<T> implements RowCollection<T> {
 		private readonly table: SqliteRowTable<T>,
 		private readonly predicate: (row: T) => boolean,
 		private readonly sorter?: (left: T, right: T) => number,
+		private readonly maximum?: number,
 	) {}
 
 	async toArray() {
 		const rows = (await this.table.toArray()).filter(this.predicate);
 		if (this.sorter) rows.sort(this.sorter);
-		return rows;
+		return this.maximum === undefined ? rows : rows.slice(0, this.maximum);
 	}
 
 	async first() {
@@ -131,6 +133,15 @@ class SqliteCollection<T> implements RowCollection<T> {
 
 	async count() {
 		return (await this.toArray()).length;
+	}
+
+	limit(count: number) {
+		return new SqliteCollection(
+			this.table,
+			this.predicate,
+			this.sorter,
+			Math.max(0, count),
+		);
 	}
 }
 
@@ -162,6 +173,10 @@ export class SqliteRowTable<T = any> implements RowTable<T> {
 			.get(String(key)) as { data?: unknown } | null;
 		if (!row || typeof row.data !== "string") return undefined;
 		return decodeValue(JSON.parse(row.data)) as T;
+	}
+
+	async bulkGet(keys: any[]) {
+		return Promise.all(keys.map((key) => this.get(key)));
 	}
 
 	async put(value: T) {
@@ -256,6 +271,7 @@ const TABLE_KEYS = {
 	fileReferences: "id",
 	cardReferences: "id",
 	cardRelations: "id",
+	cardContents: "id",
 	canvasRecords: "id",
 	settings: "key",
 	changeLog: "changeId",
@@ -282,6 +298,7 @@ function createTable(database: Database, name: TableName) {
 export class SqliteContextboardDatabase implements ContextboardDatabaseLike {
 	readonly whiteboards: RowTable<Whiteboard>;
 	readonly cards: RowTable<Card>;
+	readonly cardContents: RowTable<CardContent>;
 	readonly boardItems: RowTable<BoardItem>;
 	readonly tldrawDocuments: RowTable<TldrawDocument>;
 	readonly files: RowTable<LocalFile>;
@@ -304,6 +321,7 @@ export class SqliteContextboardDatabase implements ContextboardDatabaseLike {
 		this.#database.run("PRAGMA journal_mode = WAL");
 		this.whiteboards = createTable(this.#database, "whiteboards");
 		this.cards = createTable(this.#database, "cards");
+		this.cardContents = createTable(this.#database, "cardContents");
 		this.boardItems = createTable(this.#database, "boardItems");
 		this.tldrawDocuments = createTable(this.#database, "tldrawDocuments");
 		this.files = createTable(this.#database, "files");

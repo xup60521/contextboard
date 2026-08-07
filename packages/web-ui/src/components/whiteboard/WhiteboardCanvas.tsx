@@ -9,6 +9,10 @@ import {
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { DeleteCardDialog } from "../cards/DeleteCardDialog";
 import { CardPasteResolutionMenu } from "./CardPasteResolutionMenu";
+import {
+	CardContentStoreProvider,
+	createCardContentStore,
+} from "./card-content-store";
 import { CustomMenuPanel } from "./CustomMenuPanel";
 import {
 	markdownWhiteboardShapeUtils,
@@ -17,6 +21,7 @@ import {
 import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import { EditableWhiteboardTitle } from "./EditableWhiteboardTitle";
 import type { SequencedFrame } from "./frame-sync";
+import { createHydrationGate } from "./hydration-gate";
 import { useCameraReset } from "./hooks/useCameraReset";
 import { useCanvasEvents } from "./hooks/useCanvasEvents";
 import { useCanvasPersistenceInteraction } from "./hooks/useCanvasPersistenceInteraction";
@@ -100,6 +105,7 @@ export function WhiteboardCanvas({
 		breadcrumbs,
 		itemQuery,
 		items,
+		itemsReady,
 		tldrawDocument,
 		createCardItem,
 		createSubwhiteboardItem,
@@ -128,7 +134,8 @@ export function WhiteboardCanvas({
 		useState(false);
 
 	// ── Shared refs (written/read by multiple hooks) ───────────────────────────
-	const hydratingRef = useRef(false);
+	const hydratingRef = useMemo(createHydrationGate, []);
+	const cardContentStore = useMemo(createCardContentStore, []);
 	const interactionActiveRef = useRef(false);
 	const optimisticFramesRef = useRef(
 		new Map<Id<"boardItems">, SequencedFrame>(),
@@ -200,7 +207,7 @@ export function WhiteboardCanvas({
 			void flushDrawingSave().catch(() => undefined);
 		}
 
-		hydratingRef.current = false;
+		hydratingRef.reset();
 		itemIdByShapeIdRef.current = new Map();
 		optimisticFramesRef.current = new Map();
 		protectedPasteShapeIdsRef.current.clear();
@@ -236,11 +243,13 @@ export function WhiteboardCanvas({
 			loadedDrawingKey,
 			whiteboardKey,
 			pendingEditShapeIdRef,
+			contentStore: cardContentStore,
 		});
 
 	useItemsHydration({
 		editor,
 		items,
+		itemsReady,
 		loadedDrawingKey,
 		whiteboardKey,
 		deferredBindingsRef,
@@ -263,6 +272,7 @@ export function WhiteboardCanvas({
 		loadedDrawingKey,
 		reconciliationGeneration,
 		hydratingRef,
+		interactionActiveRef,
 	});
 
 	const { pendingCameraResetRef } = useCameraReset({
@@ -345,7 +355,8 @@ export function WhiteboardCanvas({
 		if (!editor) return;
 
 		setWhiteboardCardDeletePending(null);
-	}, [editor, whiteboardId]);
+		cardContentStore.reset();
+	}, [cardContentStore, editor, whiteboardId]);
 
 	// ── Unmount: flush any pending writes ──────────────────────────────────────
 	// biome-ignore lint/correctness/useExhaustiveDependencies: cleanup reads timer refs at unmount
@@ -465,6 +476,7 @@ export function WhiteboardCanvas({
 					<WhiteboardActionsContext.Provider value={whiteboardActions}>
 						<WhiteboardContextMenuContext.Provider value={contextValue}>
 							<WhiteboardCardContext.Provider value={whiteboardId}>
+								<CardContentStoreProvider store={cardContentStore}>
 								<Tldraw
 									assets={assetStore}
 									assetUrls={tldrawAssetUrls}
@@ -489,6 +501,7 @@ export function WhiteboardCanvas({
 									overrides={singlePageTldrawUiOverrides}
 									shapeUtils={markdownWhiteboardShapeUtils}
 								/>
+								</CardContentStoreProvider>
 							</WhiteboardCardContext.Provider>
 						</WhiteboardContextMenuContext.Provider>
 					</WhiteboardActionsContext.Provider>

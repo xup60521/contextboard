@@ -4,28 +4,33 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::{HashMap, HashSet},
     fs::{self, File},
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i64 = 1;
-const ENTITY_TYPES: &[&str] = &[
-    "whiteboard",
-    "card",
-    "boardItem",
-    "tldrawDocument",
-    "file",
-    "fileReference",
-    "cardReference",
-    "cardRelation",
-    "canvasRecord",
-    "conflict",
-    "todo",
-];
+const SCHEMA_VERSION: i64 = 2;
+const ENTITY_MANIFEST: &str =
+    include_str!("../../../../packages/sync-protocol/src/entity-manifest.json");
+static ENTITY_TYPES: OnceLock<HashSet<String>> = OnceLock::new();
+
+fn entity_type_supported(value: &str) -> bool {
+    ENTITY_TYPES
+        .get_or_init(|| {
+            serde_json::from_str::<Value>(ENTITY_MANIFEST)
+                .expect("checked-in sync entity manifest must be valid JSON")["entities"]
+                .as_object()
+                .expect("sync entity manifest must contain entities")
+                .keys()
+                .cloned()
+                .collect()
+        })
+        .contains(value)
+}
 const MERGE_BATCH_SIZE: usize = 200;
 const LIST_QUERY_CHUNK_SIZE: usize = 400;
 
@@ -162,7 +167,7 @@ impl Storage {
                             .get("entity")
                             .and_then(Value::as_str)
                             .ok_or_else(|| StorageError::Invalid("Invalid entity type".into()))?;
-                        if !ENTITY_TYPES.contains(&entity) {
+                        if !entity_type_supported(entity) {
                             return Err(StorageError::Invalid("Invalid entity type".into()));
                         }
                         let action =
@@ -364,6 +369,8 @@ impl Storage {
         let transaction = connection.transaction()?;
         ensure_workspace(&transaction, workspace)?;
         let mut applied = 0;
+        let mut conflicts = 0;
+        let mut materialized_changes = Vec::<Value>::new();
         for batch in batches {
             validate_batch(batch, workspace)?;
             let change_id = batch["changeId"].as_str().unwrap();
@@ -374,31 +381,217 @@ impl Storage {
             if duplicate {
                 continue;
             }
+            let mut conflict_copy_by_card_id = HashMap::<String, String>::new();
             for change in batch["changes"].as_array().unwrap() {
                 let entity_type = change["entityType"].as_str().unwrap();
                 let entity_id = change["entityId"].as_str().unwrap();
                 let incoming_clock = change["clock"].as_str().unwrap();
-                let local_clock: Option<String> = transaction.query_row(
-                    "SELECT clock FROM entities WHERE workspace_id=?1 AND entity_type=?2 AND entity_id=?3",
-                    params![workspace, entity_type, entity_id], |row| row.get(0),
-                ).optional()?;
-                if local_clock
-                    .as_deref()
-                    .is_some_and(|clock| clock > incoming_clock)
+                let mut materialized = change["value"].clone();
+                normalize_remote_value(entity_type, incoming_clock, &mut materialized);
+                let target_entity_id = if entity_type == "cardContent" {
+                    conflict_copy_by_card_id
+                        .get(entity_id)
+                        .cloned()
+                        .unwrap_or_else(|| entity_id.to_owned())
+                } else {
+                    entity_id.to_owned()
+                };
+                if target_entity_id != entity_id {
+                    if let Some(object) = materialized.as_object_mut() {
+                        object.insert("id".into(), json!(target_entity_id));
+                        object.insert("cardId".into(), json!(target_entity_id));
+                    }
+                }
+                let local =
+                    read_stored_entity(&transaction, workspace, entity_type, &target_entity_id)?;
+                if entity_type == "whiteboard"
+                    && invalid_remote_hierarchy(
+                        &transaction,
+                        workspace,
+                        entity_id,
+                        materialized
+                            .get("parentWhiteboardId")
+                            .and_then(Value::as_str),
+                    )?
                 {
+                    let parent = materialized
+                        .get("parentWhiteboardId")
+                        .and_then(Value::as_str)
+                        .unwrap_or("root");
+                    let conflict_id = format!("hierarchy:{entity_id}:{parent}:{incoming_clock}");
+                    if insert_conflict_entity(
+                        &transaction,
+                        workspace,
+                        &conflict_id,
+                        "whiteboard",
+                        entity_id,
+                        local.as_ref().map(|stored| &stored.value),
+                        &change["value"],
+                        batch,
+                    )? {
+                        conflicts += 1;
+                        materialized_changes.push(json!({
+                            "entityType": "conflict",
+                            "entityId": conflict_id,
+                            "baseRevision": 0,
+                            "revision": 1,
+                            "operation": "upsert",
+                            "clock": incoming_clock,
+                            "value": change["value"].clone()
+                        }));
+                    }
                     continue;
+                }
+                if entity_type == "card"
+                    && local.is_some()
+                    && batch["command"] != "conflicts.resolve"
+                    && change["baseRevision"].as_i64()
+                        != local.as_ref().map(|stored| stored.revision)
+                {
+                    let stored = local.as_ref().unwrap();
+                    let local_device = stored.value["updatedByDeviceId"].as_str().unwrap_or("");
+                    let remote_device = batch["deviceId"].as_str().unwrap_or("");
+                    let mut participants = [
+                        format!("{local_device}:{}", stored.revision),
+                        format!("{remote_device}:{}", change["revision"]),
+                    ];
+                    participants.sort();
+                    let conflict_id = format!(
+                        "conflict:{entity_id}:{}:{}",
+                        participants[0], participants[1]
+                    );
+                    let conflict_card_id = conflict_copy_card_id(&conflict_id);
+                    conflict_copy_by_card_id.insert(entity_id.to_owned(), conflict_card_id.clone());
+                    if insert_conflict_entity(
+                        &transaction,
+                        workspace,
+                        &conflict_id,
+                        "card",
+                        entity_id,
+                        Some(&stored.value),
+                        &change["value"],
+                        batch,
+                    )? {
+                        let placement_count = copy_conflict_dependents(
+                            &transaction,
+                            workspace,
+                            entity_id,
+                            &conflict_card_id,
+                            &conflict_id,
+                        )?;
+                        if let Some(object) = materialized.as_object_mut() {
+                            let title = object["derivedTitle"]
+                                .as_str()
+                                .unwrap_or("Untitled card")
+                                .to_owned();
+                            object.insert("id".into(), json!(conflict_card_id));
+                            object
+                                .insert("derivedTitle".into(), json!(format!("Conflict: {title}")));
+                            object.insert("activePlacementCount".into(), json!(placement_count));
+                        }
+                        put_remote_entity(
+                            &transaction,
+                            workspace,
+                            "card",
+                            &conflict_card_id,
+                            &materialized,
+                            change["revision"].as_i64().unwrap(),
+                            incoming_clock,
+                            false,
+                        )?;
+                        if materialized.get("content").is_some() {
+                            let content = legacy_card_content_value(
+                                &materialized,
+                                &conflict_card_id,
+                                incoming_clock,
+                                remote_device,
+                            );
+                            put_remote_entity(
+                                &transaction,
+                                workspace,
+                                "cardContent",
+                                &conflict_card_id,
+                                &content,
+                                change["revision"].as_i64().unwrap(),
+                                incoming_clock,
+                                false,
+                            )?;
+                        }
+                        let mut conflict_change = change.clone();
+                        conflict_change["entityId"] = json!(conflict_card_id);
+                        conflict_change["value"] = materialized.clone();
+                        materialized_changes.push(conflict_change);
+                        conflicts += 1;
+                    }
+                    continue;
+                }
+                if matches!(entity_type, "canvasRecord" | "cardRelation") {
+                    if let Some(stored) = &local {
+                        let local_device = stored.value["updatedByDeviceId"].as_str().unwrap_or("");
+                        let remote_device = batch["deviceId"].as_str().unwrap_or("");
+                        if stored.clock.as_str() > incoming_clock
+                            || (stored.clock == incoming_clock && local_device >= remote_device)
+                        {
+                            continue;
+                        }
+                    }
                 }
                 merge_hlc(&transaction, workspace, incoming_clock)?;
                 let deleted = change["operation"] == "delete";
-                transaction.execute(
-                    "INSERT INTO entities(workspace_id,entity_type,entity_id,value_json,revision,clock,deleted)
-                     VALUES(?1,?2,?3,?4,?5,?6,?7)
-                     ON CONFLICT(workspace_id,entity_type,entity_id) DO UPDATE SET
-                     value_json=excluded.value_json,revision=excluded.revision,clock=excluded.clock,deleted=excluded.deleted",
-                    params![workspace, entity_type, entity_id, serde_json::to_string(&change["value"])?,
-                        change["revision"].as_i64().unwrap(), incoming_clock, deleted],
+                put_remote_entity(
+                    &transaction,
+                    workspace,
+                    entity_type,
+                    &target_entity_id,
+                    &materialized,
+                    change["revision"].as_i64().unwrap(),
+                    incoming_clock,
+                    deleted,
                 )?;
                 applied += 1;
+                let mut applied_change = change.clone();
+                applied_change["entityId"] = json!(target_entity_id);
+                applied_change["value"] = materialized.clone();
+                materialized_changes.push(applied_change);
+                if entity_type == "card" && materialized.get("content").is_some() {
+                    let existing_content = read_stored_entity(
+                        &transaction,
+                        workspace,
+                        "cardContent",
+                        &target_entity_id,
+                    )?;
+                    if existing_content
+                        .as_ref()
+                        .map(|stored| stored.clock.as_str() < incoming_clock)
+                        .unwrap_or(true)
+                    {
+                        let content = legacy_card_content_value(
+                            &materialized,
+                            &target_entity_id,
+                            incoming_clock,
+                            batch["deviceId"].as_str().unwrap_or(""),
+                        );
+                        put_remote_entity(
+                            &transaction,
+                            workspace,
+                            "cardContent",
+                            &target_entity_id,
+                            &content,
+                            change["revision"].as_i64().unwrap(),
+                            incoming_clock,
+                            deleted,
+                        )?;
+                        materialized_changes.push(json!({
+                            "entityType": "cardContent",
+                            "entityId": target_entity_id,
+                            "baseRevision": change["baseRevision"].clone(),
+                            "revision": change["revision"].clone(),
+                            "operation": change["operation"].clone(),
+                            "clock": incoming_clock,
+                            "value": content
+                        }));
+                    }
+                }
             }
             transaction.execute(
                 "INSERT INTO applied_batches(workspace_id,change_id) VALUES(?1,?2)",
@@ -412,7 +605,11 @@ impl Storage {
             params![workspace, peer, cursor, now],
         )?;
         transaction.commit()?;
-        Ok(json!({ "applied": applied, "conflicts": 0 }))
+        Ok(json!({
+            "applied": applied,
+            "conflicts": conflicts,
+            "materializedChanges": materialized_changes
+        }))
     }
 
     pub fn sync_state(&self, workspace: &str, peer: &str) -> Result<Value, StorageError> {
@@ -431,6 +628,28 @@ impl Storage {
                 json!({"peerId":peer,"cursor":null,"enabled":true,"updatedAt":now_ms(),"lastSyncedAt":null})
             }
         })
+    }
+
+    pub fn update_sync_cursor(
+        &self,
+        workspace: &str,
+        peer: &str,
+        cursor: &str,
+    ) -> Result<(), StorageError> {
+        validate_id(workspace, "workspaceId")?;
+        validate_id(peer, "peerId")?;
+        validate_cursor(cursor)?;
+        let mut connection = self.connection.lock().expect("storage mutex poisoned");
+        let transaction = connection.transaction()?;
+        ensure_workspace(&transaction, workspace)?;
+        let now = now_ms();
+        transaction.execute(
+            "INSERT INTO sync_peers(workspace_id,peer_id,cursor,updated_at,last_synced_at) VALUES(?1,?2,?3,?4,?4)
+             ON CONFLICT(workspace_id,peer_id) DO UPDATE SET cursor=excluded.cursor,updated_at=excluded.updated_at,last_synced_at=excluded.last_synced_at",
+            params![workspace, peer, cursor, now],
+        )?;
+        transaction.commit()?;
+        Ok(())
     }
 
     pub fn store_blob(
@@ -931,18 +1150,310 @@ impl Storage {
     }
 }
 
+struct StoredEntity {
+    clock: String,
+    value: Value,
+    revision: i64,
+}
+
+fn legacy_card_content_value(card: &Value, card_id: &str, clock: &str, device_id: &str) -> Value {
+    json!({
+        "id": card_id,
+        "cardId": card_id,
+        "document": card.get("content").cloned().unwrap_or_else(|| json!({"type":"doc","content":[]})),
+        "contentVersion": card.get("contentVersion").and_then(Value::as_i64).unwrap_or(1),
+        "revision": card.get("revision").and_then(Value::as_i64).unwrap_or(1),
+        "clock": clock,
+        "createdAt": card.get("createdAt").and_then(Value::as_i64).unwrap_or_else(now_ms),
+        "updatedAt": card.get("updatedAt").and_then(Value::as_i64).unwrap_or_else(now_ms),
+        "updatedByDeviceId": card.get("updatedByDeviceId").and_then(Value::as_str).unwrap_or(device_id),
+        "deletedAt": card.get("deletedAt").cloned().unwrap_or(Value::Null)
+    })
+}
+
+fn read_stored_entity(
+    transaction: &Transaction<'_>,
+    workspace: &str,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Option<StoredEntity>, StorageError> {
+    transaction
+        .query_row(
+            "SELECT clock,value_json,revision FROM entities
+             WHERE workspace_id=?1 AND entity_type=?2 AND entity_id=?3",
+            params![workspace, entity_type, entity_id],
+            |row| {
+                let value_json: String = row.get(1)?;
+                Ok(StoredEntity {
+                    clock: row.get(0)?,
+                    value: serde_json::from_str(&value_json).unwrap_or(Value::Null),
+                    revision: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+fn normalize_remote_value(entity_type: &str, clock: &str, value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    if entity_type == "file" {
+        let hash = object
+            .get("hash")
+            .or_else(|| object.get("sha256"))
+            .cloned()
+            .unwrap_or(json!(""));
+        object.insert("sha256".into(), hash);
+        object.remove("blob");
+    }
+    if matches!(entity_type, "canvasRecord" | "cardRelation") {
+        object.insert("clock".into(), json!(clock));
+    }
+}
+
+fn invalid_remote_hierarchy(
+    transaction: &Transaction<'_>,
+    workspace: &str,
+    whiteboard_id: &str,
+    parent_id: Option<&str>,
+) -> Result<bool, StorageError> {
+    let mut seen = HashSet::from([whiteboard_id.to_owned()]);
+    let mut cursor = parent_id.map(str::to_owned);
+    while let Some(parent) = cursor {
+        if !seen.insert(parent.clone()) {
+            return Ok(true);
+        }
+        let stored = read_stored_entity(transaction, workspace, "whiteboard", &parent)?;
+        let Some(stored) = stored else {
+            return Ok(true);
+        };
+        if stored.value["deletedAt"].is_number() {
+            return Ok(true);
+        }
+        cursor = stored.value["parentWhiteboardId"]
+            .as_str()
+            .map(str::to_owned);
+    }
+    Ok(false)
+}
+
+fn copy_conflict_dependents(
+    transaction: &Transaction<'_>,
+    workspace: &str,
+    source_card_id: &str,
+    conflict_card_id: &str,
+    conflict_id: &str,
+) -> Result<usize, StorageError> {
+    let mut copied_placements = 0usize;
+    for (entity_type, predicate, replacement_field, namespace) in [
+        (
+            "boardItem",
+            ("$.cardId", source_card_id.to_owned()),
+            "cardId",
+            "conflict-placement",
+        ),
+        (
+            "cardReference",
+            ("$.sourceCardId", source_card_id.to_owned()),
+            "sourceCardId",
+            "conflict-reference",
+        ),
+        (
+            "fileReference",
+            ("$.targetKey", format!("card:{source_card_id}")),
+            "targetKey",
+            "conflict-file-reference",
+        ),
+    ] {
+        let rows = {
+            let mut statement = transaction.prepare(
+                "SELECT entity_id,value_json,revision,clock FROM entities
+                 WHERE workspace_id=?1 AND entity_type=?2 AND deleted=0
+                   AND json_extract(value_json,?3)=?4",
+            )?;
+            let collected = statement
+                .query_map(
+                    params![workspace, entity_type, predicate.0, predicate.1],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, String>(3)?,
+                        ))
+                    },
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
+            collected
+        };
+        for (index, (source_id, value_json, revision, clock)) in rows.into_iter().enumerate() {
+            let mut value: Value = serde_json::from_str(&value_json)?;
+            if entity_type == "boardItem" && value["archivedAt"].is_number() {
+                continue;
+            }
+            let copied_id = deterministic_entity_id(namespace, &[conflict_id, &source_id]);
+            let copied_shape_id = (entity_type == "boardItem").then(|| {
+                deterministic_entity_id(
+                    "conflict-shape",
+                    &[conflict_id, value["shapeId"].as_str().unwrap_or("")],
+                )
+            });
+            let source_x = value["x"].as_f64().unwrap_or(0.0);
+            let source_y = value["y"].as_f64().unwrap_or(0.0);
+            if let Some(object) = value.as_object_mut() {
+                object.insert("id".into(), json!(copied_id));
+                object.insert(
+                    replacement_field.into(),
+                    json!(if replacement_field == "targetKey" {
+                        format!("card:{conflict_card_id}")
+                    } else {
+                        conflict_card_id.to_owned()
+                    }),
+                );
+                if entity_type == "boardItem" {
+                    let offset = 48.0 * (index as f64 + 1.0);
+                    object.insert("shapeId".into(), json!(copied_shape_id));
+                    object.insert("x".into(), json!(source_x + offset));
+                    object.insert("y".into(), json!(source_y + offset));
+                    copied_placements += 1;
+                }
+            }
+            put_remote_entity(
+                transaction,
+                workspace,
+                entity_type,
+                &copied_id,
+                &value,
+                revision,
+                &clock,
+                false,
+            )?;
+        }
+    }
+    Ok(copied_placements)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn put_remote_entity(
+    transaction: &Transaction<'_>,
+    workspace: &str,
+    entity_type: &str,
+    entity_id: &str,
+    value: &Value,
+    revision: i64,
+    clock: &str,
+    deleted: bool,
+) -> Result<(), StorageError> {
+    transaction.execute(
+        "INSERT INTO entities(workspace_id,entity_type,entity_id,value_json,revision,clock,deleted)
+         VALUES(?1,?2,?3,?4,?5,?6,?7)
+         ON CONFLICT(workspace_id,entity_type,entity_id) DO UPDATE SET
+         value_json=excluded.value_json,revision=excluded.revision,clock=excluded.clock,deleted=excluded.deleted",
+        params![
+            workspace,
+            entity_type,
+            entity_id,
+            serde_json::to_string(value)?,
+            revision,
+            clock,
+            deleted
+        ],
+    )?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn insert_conflict_entity(
+    transaction: &Transaction<'_>,
+    workspace: &str,
+    conflict_id: &str,
+    entity_type: &str,
+    entity_id: &str,
+    local_value: Option<&Value>,
+    remote_value: &Value,
+    batch: &Value,
+) -> Result<bool, StorageError> {
+    if read_stored_entity(transaction, workspace, "conflict", conflict_id)?.is_some() {
+        return Ok(false);
+    }
+    let created_at = batch["createdAt"].as_i64().unwrap_or(0);
+    let device_id = batch["deviceId"].as_str().unwrap_or("");
+    let value = json!({
+        "id": conflict_id,
+        "conflictId": conflict_id,
+        "entityType": entity_type,
+        "entityId": entity_id,
+        "localValue": local_value.cloned().unwrap_or(Value::Null),
+        "remoteValue": remote_value,
+        "createdAt": created_at,
+        "resolvedAt": Value::Null,
+        "resolution": Value::Null,
+        "revision": 1,
+        "updatedAt": created_at,
+        "updatedByDeviceId": device_id,
+        "deletedAt": Value::Null,
+    });
+    put_remote_entity(
+        transaction,
+        workspace,
+        "conflict",
+        conflict_id,
+        &value,
+        1,
+        batch["clock"].as_str().unwrap_or(""),
+        false,
+    )?;
+    Ok(true)
+}
+
+fn hash32(value: &str, seed: u32) -> String {
+    let hash = value.encode_utf16().fold(seed, |hash, unit| {
+        (hash ^ u32::from(unit)).wrapping_mul(0x0100_0193)
+    });
+    format!("{hash:08x}")
+}
+
+fn deterministic_entity_id(namespace: &str, parts: &[&str]) -> String {
+    let value = parts
+        .iter()
+        .map(|part| format!("{}:{part}", part.encode_utf16().count()))
+        .collect::<Vec<_>>()
+        .join("|");
+    format!(
+        "{namespace}:{}{}{}{}",
+        hash32(&value, 0x811c_9dc5),
+        hash32(&value, 0x9e37_79b9),
+        hash32(&value, 0x85eb_ca6b),
+        hash32(&value, 0xc2b2_ae35)
+    )
+}
+
+fn conflict_copy_card_id(conflict_id: &str) -> String {
+    deterministic_entity_id("conflict-card", &[conflict_id])
+}
+
 fn migrate(connection: &Connection) -> Result<(), StorageError> {
     connection.execute_batch("BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS schema_meta(version INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY, device_id TEXT NOT NULL, device_sequence INTEGER NOT NULL DEFAULT 0, hlc_millis INTEGER NOT NULL DEFAULT 0, hlc_counter INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS entities(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, value_json TEXT NOT NULL, revision INTEGER NOT NULL, clock TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(workspace_id,entity_type,entity_id));
       CREATE TABLE IF NOT EXISTS pending_batches(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, change_id TEXT NOT NULL, created_at INTEGER NOT NULL, batch_json TEXT NOT NULL, valid INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(workspace_id,change_id));
+	  CREATE INDEX IF NOT EXISTS pending_batches_poll ON pending_batches(workspace_id,valid,created_at,change_id);
       CREATE TABLE IF NOT EXISTS applied_batches(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, change_id TEXT NOT NULL, PRIMARY KEY(workspace_id,change_id));
       CREATE TABLE IF NOT EXISTS sync_peers(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, peer_id TEXT NOT NULL, cursor TEXT NOT NULL, updated_at INTEGER NOT NULL, last_synced_at INTEGER, PRIMARY KEY(workspace_id,peer_id));
       CREATE TABLE IF NOT EXISTS blobs(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,content_type TEXT NOT NULL,present INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS workspace_blobs(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,hash TEXT NOT NULL REFERENCES blobs(hash) ON DELETE CASCADE,PRIMARY KEY(workspace_id,hash));
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS entities_whiteboard ON entities(workspace_id, entity_type, json_extract(value_json, '$.whiteboardId'));
+      CREATE INDEX IF NOT EXISTS entities_card ON entities(workspace_id, entity_type, json_extract(value_json, '$.cardId'));
+      CREATE INDEX IF NOT EXISTS entities_child_whiteboard ON entities(workspace_id, entity_type, json_extract(value_json, '$.childWhiteboardId'));
+      CREATE INDEX IF NOT EXISTS entities_parent_whiteboard ON entities(workspace_id, entity_type, json_extract(value_json, '$.parentWhiteboardId'));
+      CREATE INDEX IF NOT EXISTS entities_source_card ON entities(workspace_id, entity_type, json_extract(value_json, '$.sourceCardId'));
+      CREATE INDEX IF NOT EXISTS entities_target_card ON entities(workspace_id, entity_type, json_extract(value_json, '$.targetCardId'));
+      CREATE INDEX IF NOT EXISTS entities_target_key ON entities(workspace_id, entity_type, json_extract(value_json, '$.targetKey'));
+      CREATE INDEX IF NOT EXISTS entities_file ON entities(workspace_id, entity_type, json_extract(value_json, '$.fileId'));
       COMMIT;")?;
     let version: Option<i64> = connection
         .query_row("SELECT version FROM schema_meta LIMIT 1", [], |r| r.get(0))
@@ -955,11 +1466,58 @@ fn migrate(connection: &Connection) -> Result<(), StorageError> {
             )?;
         }
         Some(value) if value == SCHEMA_VERSION => {}
+        Some(1) => {
+            migrate_card_content_entities(connection)?;
+            connection.execute("UPDATE schema_meta SET version=?1", [SCHEMA_VERSION])?;
+        }
         Some(value) => {
             return Err(StorageError::Invalid(format!(
                 "Unsupported schema version {value}"
             )))
         }
+    }
+    Ok(())
+}
+
+fn migrate_card_content_entities(connection: &Connection) -> Result<(), StorageError> {
+    let cards = {
+        let mut statement = connection.prepare(
+            "SELECT workspace_id,entity_id,value_json,revision,clock,deleted
+             FROM entities WHERE entity_type='card'",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, bool>(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    for (workspace, card_id, value_json, revision, clock, deleted) in cards {
+        let card: Value = serde_json::from_str(&value_json)?;
+        let content = json!({
+            "id": card_id,
+            "cardId": card_id,
+            "document": card.get("content").cloned().unwrap_or(Value::Null),
+            "contentVersion": card.get("contentVersion").cloned().unwrap_or(json!(1)),
+            "revision": revision,
+            "clock": clock,
+            "createdAt": card.get("createdAt").cloned().unwrap_or(json!(0)),
+            "updatedAt": card.get("updatedAt").cloned().unwrap_or(json!(0)),
+            "updatedByDeviceId": card.get("updatedByDeviceId").cloned().unwrap_or(json!("migration")),
+            "deletedAt": card.get("deletedAt").cloned().unwrap_or(Value::Null),
+        });
+        connection.execute(
+            "INSERT OR IGNORE INTO entities(workspace_id,entity_type,entity_id,value_json,revision,clock,deleted)
+             VALUES(?1,'cardContent',?2,?3,?4,?5,?6)",
+            params![workspace, card_id, serde_json::to_string(&content)?, revision, clock, deleted],
+        )?;
     }
     Ok(())
 }
@@ -1049,6 +1607,8 @@ fn operation(value: &Value) -> Result<&str, StorageError> {
 struct EntityListFilter {
     ids: Option<Vec<String>>,
     whiteboard_id: Option<Option<String>>,
+    predicates: Vec<(String, Vec<Option<String>>)>,
+    card_ids: Option<Vec<String>>,
 }
 
 fn parse_entity_list_filter(
@@ -1100,8 +1660,74 @@ fn parse_entity_list_filter(
             })
         }
     };
+    let mut predicates = Vec::new();
+    let mut card_ids = None;
+    if let Some(input) = input {
+        for (key, value) in input {
+            if matches!(key.as_str(), "ids" | "whiteboardId") {
+                continue;
+            }
+            let field = match (entity_type, key.as_str()) {
+                (
+                    "boardItem" | "canvasRecord" | "tldrawDocument" | "cardRelation",
+                    "whiteboardIds",
+                ) => "whiteboardId",
+                ("boardItem", "cardIds")
+                | ("cardContent", "cardIds")
+                | ("cardRelation", "cardIds") => {
+                    let values = value
+                        .as_array()
+                        .ok_or_else(|| StorageError::Invalid(format!("{key} must be an array")))?;
+                    let parsed = values
+                        .iter()
+                        .map(|entry| {
+                            entry.as_str().map(str::to_owned).ok_or_else(|| {
+                                StorageError::Invalid(format!(
+                                    "{key} must contain non-empty strings"
+                                ))
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    card_ids = Some(parsed);
+                    continue;
+                }
+                ("boardItem", "childWhiteboardIds") => "childWhiteboardId",
+                ("whiteboard", "parentWhiteboardIds") => "parentWhiteboardId",
+                ("cardReference", "sourceCardIds") => "sourceCardId",
+                ("cardReference", "targetCardIds") => "targetCardId",
+                ("fileReference", "targetKeys") => "targetKey",
+                ("fileReference", "fileIds") => "fileId",
+                _ => {
+                    return Err(StorageError::Invalid(format!(
+                        "{key} filtering is not supported for {entity_type}"
+                    )))
+                }
+            };
+            let values = value
+                .as_array()
+                .ok_or_else(|| StorageError::Invalid(format!("{key} must be an array")))?;
+            let allows_null = matches!(key.as_str(), "whiteboardIds" | "parentWhiteboardIds");
+            let parsed = values
+                .iter()
+                .map(|entry| match entry {
+                    Value::Null if allows_null => Ok(None),
+                    Value::String(text) if !text.is_empty() => Ok(Some(text.clone())),
+                    _ => Err(StorageError::Invalid(format!(
+                        "{key} must contain non-empty strings{}",
+                        if allows_null { " or null" } else { "" }
+                    ))),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            predicates.push((field.to_owned(), parsed));
+        }
+    }
 
-    Ok(EntityListFilter { ids, whiteboard_id })
+    Ok(EntityListFilter {
+        ids,
+        whiteboard_id,
+        predicates,
+        card_ids,
+    })
 }
 
 fn query_entity_list(
@@ -1149,6 +1775,48 @@ fn query_entity_list(
             }
         }
 
+        for (field, values) in &filter.predicates {
+            if values.is_empty() {
+                sql.push_str(" AND 0=1");
+                continue;
+            }
+            let strings = values.iter().flatten().collect::<Vec<_>>();
+            let has_null = values.iter().any(Option::is_none);
+            sql.push_str(" AND (");
+            if !strings.is_empty() {
+                sql.push_str(&format!(
+                    "json_extract(value_json, '$.{field}') IN ({})",
+                    vec!["?"; strings.len()].join(",")
+                ));
+                parameters.extend(strings.into_iter().cloned().map(SqlValue::Text));
+                if has_null {
+                    sql.push_str(" OR ");
+                }
+            }
+            if has_null {
+                sql.push_str(&format!("json_extract(value_json, '$.{field}') IS NULL"));
+            }
+            sql.push(')');
+        }
+
+        if let Some(card_ids) = &filter.card_ids {
+            if card_ids.is_empty() {
+                sql.push_str(" AND 0=1");
+            } else {
+                let placeholders = vec!["?"; card_ids.len()].join(",");
+                if entity_type == "cardRelation" {
+                    sql.push_str(&format!(" AND (json_extract(value_json, '$.sourceCardId') IN ({placeholders}) OR json_extract(value_json, '$.targetCardId') IN ({placeholders}))"));
+                    parameters.extend(card_ids.iter().cloned().map(SqlValue::Text));
+                    parameters.extend(card_ids.iter().cloned().map(SqlValue::Text));
+                } else {
+                    sql.push_str(&format!(
+                        " AND json_extract(value_json, '$.cardId') IN ({placeholders})"
+                    ));
+                    parameters.extend(card_ids.iter().cloned().map(SqlValue::Text));
+                }
+            }
+        }
+
         sql.push_str(" ORDER BY entity_id");
         let mut statement = connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(parameters.iter()), |row| {
@@ -1168,6 +1836,7 @@ fn query_operation(value: &str) -> Option<(&'static str, &'static str)> {
     let (prefix, action) = value.split_once('.')?;
     let entity = match prefix {
         "cards" => "card",
+        "cardContents" => "cardContent",
         "whiteboards" => "whiteboard",
         "items" => "boardItem",
         "records" => "canvasRecord",
@@ -1176,6 +1845,8 @@ fn query_operation(value: &str) -> Option<(&'static str, &'static str)> {
         "fileReferences" => "fileReference",
         "cardReferences" => "cardReference",
         "cardRelations" => "cardRelation",
+        "conflicts" => "conflict",
+        "todos" => "todo",
         _ => return None,
     };
     match action {
@@ -1188,6 +1859,7 @@ fn command_operation(value: &str) -> Option<(&'static str, &'static str)> {
     let (prefix, action) = value.split_once('.')?;
     let entity = match prefix {
         "cards" => "card",
+        "cardContents" => "cardContent",
         "whiteboards" => "whiteboard",
         "items" => "boardItem",
         "records" => "canvasRecord",
@@ -1196,6 +1868,8 @@ fn command_operation(value: &str) -> Option<(&'static str, &'static str)> {
         "fileReferences" => "fileReference",
         "cardReferences" => "cardReference",
         "cardRelations" => "cardRelation",
+        "conflicts" => "conflict",
+        "todos" => "todo",
         _ => return None,
     };
     match action {
@@ -1291,7 +1965,7 @@ fn validate_batch(value: &Value, workspace: &str) -> Result<(), StorageError> {
         .ok_or_else(|| StorageError::Invalid("Invalid change list".into()))?;
     for change in changes {
         let entity_type = change["entityType"].as_str().unwrap_or("");
-        if !ENTITY_TYPES.contains(&entity_type) {
+        if !entity_type_supported(entity_type) {
             return Err(StorageError::Invalid("Invalid entity type".into()));
         }
         validate_id(change["entityId"].as_str().unwrap_or(""), "entityId")?;
@@ -1323,11 +1997,33 @@ fn sync_directory(path: &Path) -> Result<(), StorageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const MERGE_CONFORMANCE: &str =
+        include_str!("../../../../packages/sync-protocol/src/merge-conformance.json");
 
     fn storage() -> (tempfile::TempDir, Storage) {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::open(dir.path()).unwrap();
         (dir, storage)
+    }
+
+    #[test]
+    fn consumes_shared_merge_conformance_fixtures() {
+        let fixtures: Value = serde_json::from_str(MERGE_CONFORMANCE).unwrap();
+        for fixture in fixtures["deterministicIds"].as_array().unwrap() {
+            let parts = fixture["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|part| part.as_str().unwrap())
+                .collect::<Vec<_>>();
+            let actual = if fixture["kind"] == "conflictCopyCard" {
+                conflict_copy_card_id(parts[0])
+            } else {
+                deterministic_entity_id(fixture["namespace"].as_str().unwrap(), &parts)
+            };
+            assert_eq!(actual, fixture["expected"]);
+        }
+        assert_eq!(fixtures["scenarios"].as_array().unwrap().len(), 8);
     }
 
     #[test]
@@ -1371,7 +2067,9 @@ mod tests {
                         {"entity":"boardItem","operation":"upsert","id":"item-b","value":{"whiteboardId":"board-b"}},
                         {"entity":"boardItem","operation":"upsert","id":"item-root","value":{"whiteboardId":null}},
                         {"entity":"card","operation":"upsert","id":"card-a","value":{"title":"A"}},
-                        {"entity":"card","operation":"upsert","id":"card-b","value":{"title":"B"}}
+                        {"entity":"card","operation":"upsert","id":"card-b","value":{"title":"B"}},
+                        {"entity":"cardContent","operation":"upsert","id":"content-a","value":{"cardId":"card-a","document":{"type":"doc"}}},
+                        {"entity":"cardContent","operation":"upsert","id":"content-b","value":{"cardId":"card-b","document":{"type":"doc"}}}
                     ]}
                 }),
             )
@@ -1434,6 +2132,20 @@ mod tests {
                 .unwrap(),
             json!([])
         );
+        assert_eq!(
+            store
+                .query(
+                    "one",
+                    &json!({"type":"cardContents.list","input":{"cardIds":["card-b"]}}),
+                )
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["content-b"]
+        );
         let large_ids = (0..1_100)
             .map(|index| Value::String(format!("missing-{index}")))
             .chain(std::iter::once(Value::String("card-a".into())))
@@ -1480,6 +2192,71 @@ mod tests {
             0
         );
         assert_eq!(store.sync_state("one", "cloud").unwrap()["cursor"], "2");
+    }
+
+    #[test]
+    fn remote_card_revision_and_hierarchy_conflicts_are_materialized() {
+        let (_dir, store) = storage();
+        store
+            .execute(
+                "one",
+                &json!({"type":"cards.create","input":{"writes":[{
+                    "entity":"card","operation":"upsert","id":"card-1",
+                    "value":{"derivedTitle":"Local","content":null}
+                }]}}),
+            )
+            .unwrap();
+        let card_batch = json!({
+            "protocolVersion":1,"schemaVersion":2,"changeId":"remote-card-conflict",
+            "workspaceId":"one","deviceId":"remote","deviceSequence":1,
+            "clock":"0000000000002:000000:remote","command":"cards.update","createdAt":2,
+            "changes":[{"entityType":"card","entityId":"card-1","baseRevision":0,
+                "revision":2,"operation":"upsert","clock":"0000000000002:000000:remote",
+                "value":{"id":"card-1","derivedTitle":"Remote","content":null,"revision":2}}]
+        });
+        let result = store
+            .apply_remote("one", &json!([card_batch]), "cloud", "1")
+            .unwrap();
+        assert_eq!(result["applied"], 0);
+        assert_eq!(result["conflicts"], 1);
+        assert_eq!(
+            store
+                .query("one", &json!({"type":"conflicts.list","input":{}}))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .query("one", &json!({"type":"cards.list","input":{}}))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+
+        let hierarchy_batch = json!({
+            "protocolVersion":1,"schemaVersion":2,"changeId":"remote-hierarchy-conflict",
+            "workspaceId":"one","deviceId":"remote","deviceSequence":2,
+            "clock":"0000000000003:000000:remote","command":"whiteboards.create","createdAt":3,
+            "changes":[{"entityType":"whiteboard","entityId":"board-1","baseRevision":null,
+                "revision":1,"operation":"upsert","clock":"0000000000003:000000:remote",
+                "value":{"id":"board-1","title":"Orphan","parentWhiteboardId":"missing"}}]
+        });
+        let result = store
+            .apply_remote("one", &json!([hierarchy_batch]), "cloud", "2")
+            .unwrap();
+        assert_eq!(result["conflicts"], 1);
+        assert!(store
+            .query(
+                "one",
+                &json!({"type":"whiteboards.get","input":{"id":"board-1"}})
+            )
+            .unwrap()
+            .is_null());
     }
 
     #[test]

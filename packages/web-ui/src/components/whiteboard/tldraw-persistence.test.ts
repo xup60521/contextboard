@@ -97,6 +97,21 @@ describe("resolveHydrationSnapshot", () => {
 });
 
 describe("tldraw persistence", () => {
+	test("uses unchanged canvas-record versions before legacy deep comparison", () => {
+		const result = planCanvasReconciliation({
+			persistedStore: {
+				"shape:a": { id: "shape:a", typeName: "shape", x: 2 },
+			},
+			editorStore: {
+				"shape:a": { id: "shape:a", typeName: "shape", x: 1 },
+			},
+			previouslyAppliedRecordIds: new Set(["shape:a"]),
+			previouslyAppliedRecordVersions: { "shape:a": 7 },
+			persistedRecordVersions: { "shape:a": 7 },
+			availableShapeIds: new Set(),
+		});
+		expect(result.upserts).toEqual([]);
+	});
 	test("identifies managed whiteboard shape records", () => {
 		expect(
 			isManagedWhiteboardShapeRecord({

@@ -1,5 +1,9 @@
+import entityManifest from "./entity-manifest.json" with { type: "json" };
+
 export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const SYNC_SCHEMA_VERSION = 2 as const;
+export const ENTITY_MANIFEST = entityManifest;
+export type SyncCapability = "card-content-v1";
 
 function hash32(value: string, seed: number): string {
 	let hash = seed;
@@ -40,18 +44,7 @@ export type DeviceIdentity = {
 	displayName: string;
 };
 
-export type SyncEntityType =
-	| "whiteboard"
-	| "card"
-	| "boardItem"
-	| "tldrawDocument"
-	| "file"
-	| "fileReference"
-	| "cardReference"
-	| "cardRelation"
-	| "canvasRecord"
-	| "conflict"
-	| "todo";
+export type SyncEntityType = keyof typeof entityManifest.entities;
 
 export type EntityChange = {
 	entityType: SyncEntityType;
@@ -92,6 +85,7 @@ export type PushChangesRequest = {
 	workspaceId: string;
 	batches: ChangeBatch[];
 	cursor: SyncCursor | null;
+	capabilities?: readonly SyncCapability[];
 };
 export type PushChangesResponse = {
 	cursor: SyncCursor;
@@ -102,6 +96,7 @@ export type PullChangesRequest = {
 	workspaceId: string;
 	cursor: SyncCursor | null;
 	limit: number;
+	capabilities?: readonly SyncCapability[];
 };
 export type PullChangesResponse = {
 	cursor: SyncCursor;
@@ -352,20 +347,7 @@ export function parseChangeBatch(value: unknown): ChangeBatch {
 		if (!isRecord(change))
 			throw new SyncProtocolError(`Change ${index} must be an object`);
 		const entityType = change.entityType;
-		const allowedEntityTypes: SyncEntityType[] = [
-			"whiteboard",
-			"card",
-			"boardItem",
-			"tldrawDocument",
-			"file",
-			"fileReference",
-			"cardReference",
-			"cardRelation",
-			"canvasRecord",
-			"conflict",
-			"todo",
-		];
-		if (!allowedEntityTypes.includes(entityType as SyncEntityType))
+		if (!(String(entityType) in ENTITY_MANIFEST.entities))
 			throw new SyncProtocolError(`Change ${index} has an invalid entity type`);
 		if (change.operation !== "upsert" && change.operation !== "delete")
 			throw new SyncProtocolError(`Change ${index} has an invalid operation`);
@@ -416,7 +398,12 @@ export function parsePushChangesRequest(value: unknown): PushChangesRequest {
 	const batches = value.batches.map(parseChangeBatch);
 	if (batches.some((batch) => batch.workspaceId !== workspaceId))
 		throw new SyncProtocolError("Workspace mismatch");
-	return { workspaceId, batches, cursor: parseSyncCursor(value.cursor) };
+	return {
+		workspaceId,
+		batches,
+		cursor: parseSyncCursor(value.cursor),
+		capabilities: parseCapabilities(value.capabilities),
+	};
 }
 
 export function parsePullChangesRequest(value: unknown): PullChangesRequest {
@@ -426,7 +413,18 @@ export function parsePullChangesRequest(value: unknown): PullChangesRequest {
 		workspaceId: parseWorkspaceId(value.workspaceId),
 		cursor: parseSyncCursor(value.cursor),
 		limit: parsePaginationLimit(value.limit),
+		capabilities: parseCapabilities(value.capabilities),
 	};
+}
+
+function parseCapabilities(value: unknown): readonly SyncCapability[] {
+	if (value === undefined) return [];
+	if (!Array.isArray(value) || value.length > 16)
+		throw new SyncProtocolError("capabilities is invalid");
+	const supported: SyncCapability[] = ["card-content-v1"];
+	if (value.some((entry) => !supported.includes(entry as SyncCapability)))
+		throw new SyncProtocolError("capabilities contains an unsupported value");
+	return [...new Set(value as SyncCapability[])];
 }
 
 export function parseClaimWorkspaceRequest(
