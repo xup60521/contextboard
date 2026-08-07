@@ -26,8 +26,26 @@ let cardDocumentEditorProps: Record<string, unknown> | null = null;
 let richTextEditorProps: Record<string, unknown> | null = null;
 let staticRendererProps: Record<string, unknown> | null = null;
 const useDebouncedCardSaveMock = vi.fn();
+const contentStoreMock = {
+	setDraft: vi.fn(),
+	acknowledge: vi.fn(),
+	setError: vi.fn(),
+};
+let contentEntry: Record<string, unknown>;
 
 vi.mock("@contextboard/application", () => ({
+	DEFAULT_CARD_CONTENT: {
+		type: "doc",
+		content: [
+			{
+				type: "heading",
+				attrs: { level: 1 },
+				content: [{ type: "text", text: "New card" }],
+			},
+		],
+	},
+	normalizeImageSources: (value: unknown) => value,
+	serializeCardContent: (value: unknown) => JSON.stringify(value ?? null),
 	useApplicationRuntime: () => ({
 		whiteboards: { rename: vi.fn() },
 		navigation: {
@@ -38,6 +56,11 @@ vi.mock("@contextboard/application", () => ({
 			replace: vi.fn(),
 		},
 	}),
+}));
+
+vi.mock("./card-content-store", () => ({
+	useCardContentEntry: () => contentEntry,
+	useCardContentStore: () => contentStoreMock,
 }));
 
 vi.mock("jotai", () => ({
@@ -162,6 +185,19 @@ beforeEach(() => {
 		scheduleSave: vi.fn(),
 		flushSave: vi.fn(),
 	});
+	contentEntry = {
+		status: "ready",
+		persistedDocument: CONTENT_A,
+		persistedSerialized: JSON.stringify(CONTENT_A),
+		persistedVersion: 1,
+		draft: CONTENT_A,
+		draftSerialized: JSON.stringify(CONTENT_A),
+		dirty: false,
+		error: null,
+	};
+	contentStoreMock.setDraft.mockReset();
+	contentStoreMock.acknowledge.mockReset();
+	contentStoreMock.setError.mockReset();
 	editorMock.updateShape.mockReset();
 	editorMock.run.mockClear();
 	editorMock.setEditingShape.mockReset();
@@ -193,6 +229,12 @@ function createShape(
 
 describe("MarkdownCardComponent", () => {
 	test("renders a summary shell for unloaded Convex-backed cards", () => {
+		contentEntry = {
+			...contentEntry,
+			status: "loading",
+			persistedDocument: null,
+			draft: null,
+		};
 		render(
 			<MarkdownCardComponent
 				shape={createShape({
@@ -230,6 +272,13 @@ describe("MarkdownCardComponent", () => {
 		expect(cardDocumentEditorProps?.content).toEqual(CONTENT_A);
 
 		isEditing = false;
+		contentEntry = {
+			...contentEntry,
+			persistedDocument: CONTENT_B,
+			persistedSerialized: JSON.stringify(CONTENT_B),
+			draft: CONTENT_B,
+			draftSerialized: JSON.stringify(CONTENT_B),
+		};
 		rerender(<MarkdownCardComponent shape={shapeB} />);
 
 		expect(staticRendererProps?.content).toEqual(CONTENT_B);
@@ -250,6 +299,11 @@ describe("MarkdownCardComponent", () => {
 		expect(richTextEditorProps?.content).toEqual(CONTENT_A);
 
 		isEditing = false;
+		contentEntry = {
+			...contentEntry,
+			draft: CONTENT_B,
+			draftSerialized: JSON.stringify(CONTENT_B),
+		};
 		rerender(<MarkdownCardComponent shape={shapeB} />);
 
 		expect(staticRendererProps?.content).toEqual(CONTENT_B);
@@ -271,6 +325,13 @@ describe("MarkdownCardComponent", () => {
 		});
 
 		isEditing = true;
+		contentEntry = {
+			...contentEntry,
+			persistedDocument: EMPTY_CARD_CONTENT,
+			persistedSerialized: JSON.stringify(EMPTY_CARD_CONTENT),
+			draft: EMPTY_CARD_CONTENT,
+			draftSerialized: JSON.stringify(EMPTY_CARD_CONTENT),
+		};
 		const { rerender } = render(<MarkdownCardComponent shape={emptyShape} />);
 
 		expect(cardDocumentEditorProps?.content).toEqual(EMPTY_CARD_CONTENT);
@@ -278,6 +339,13 @@ describe("MarkdownCardComponent", () => {
 		expect(cardDocumentEditorProps?.selectContentOnFocus).toBe(true);
 
 		isEditing = false;
+		contentEntry = {
+			...contentEntry,
+			persistedDocument: CONTENT_B,
+			persistedSerialized: JSON.stringify(CONTENT_B),
+			draft: CONTENT_B,
+			draftSerialized: JSON.stringify(CONTENT_B),
+		};
 		rerender(<MarkdownCardComponent shape={filledShape} />);
 
 		isEditing = true;
@@ -331,19 +399,16 @@ describe("MarkdownCardComponent", () => {
 			CONTENT_B,
 		);
 
-		expect(editorMock.run).toHaveBeenCalledWith(expect.any(Function), {
-			history: "ignore",
-		});
-		expect(editorMock.updateShape).toHaveBeenCalledWith(
-			expect.objectContaining({
-				id: "shape:card-1",
-				type: "markdown-card",
-				props: expect.objectContaining({
-					content: JSON.stringify(CONTENT_A),
-				}),
-			}),
+		expect(editorMock.updateShape).not.toHaveBeenCalled();
+		expect(contentStoreMock.setDraft).toHaveBeenCalledWith(
+			"card-1",
+			CONTENT_B,
+			JSON.stringify(CONTENT_B),
 		);
-		expect(scheduleSave).toHaveBeenCalledWith(CONTENT_B);
+		expect(scheduleSave).toHaveBeenCalledWith({
+			content: CONTENT_B,
+			serialized: JSON.stringify(CONTENT_B),
+		});
 	});
 
 	test("updates local card content without adding tldraw history", () => {
@@ -357,17 +422,11 @@ describe("MarkdownCardComponent", () => {
 			CONTENT_B,
 		);
 
-		expect(editorMock.run).toHaveBeenCalledWith(expect.any(Function), {
-			history: "ignore",
-		});
-		expect(editorMock.updateShape).toHaveBeenCalledWith(
-			expect.objectContaining({
-				id: "shape:card-1",
-				type: "markdown-card",
-				props: expect.objectContaining({
-					content: JSON.stringify(CONTENT_B),
-				}),
-			}),
+		expect(editorMock.updateShape).not.toHaveBeenCalled();
+		expect(contentStoreMock.setDraft).toHaveBeenCalledWith(
+			"shape:card-1",
+			CONTENT_B,
+			JSON.stringify(CONTENT_B),
 		);
 	});
 });

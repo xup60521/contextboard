@@ -9,8 +9,10 @@ import {
 export type CardContentEntry = {
 	status: "idle" | "loading" | "ready" | "error";
 	persistedDocument: JSONContent | null;
+	persistedSerialized: string | null;
 	persistedVersion: number | null;
 	draft: JSONContent | null;
+	draftSerialized: string | null;
 	dirty: boolean;
 	error: Error | null;
 };
@@ -18,15 +20,13 @@ export type CardContentEntry = {
 const EMPTY_ENTRY: CardContentEntry = {
 	status: "idle",
 	persistedDocument: null,
+	persistedSerialized: null,
 	persistedVersion: null,
 	draft: null,
+	draftSerialized: null,
 	dirty: false,
 	error: null,
 };
-
-function documentsEqual(left: unknown, right: unknown) {
-	return JSON.stringify(left) === JSON.stringify(right);
-}
 
 export class CardContentStore {
 	readonly #entries = new Map<string, CardContentEntry>();
@@ -56,40 +56,59 @@ export class CardContentStore {
 		this.#commit(cardId, { ...current, status: "loading", error: null });
 	}
 
-	setPersisted(cardId: string, document: unknown, version: number) {
+	setPersisted(
+		cardId: string,
+		document: unknown,
+		version: number,
+		serialized = JSON.stringify(document ?? null),
+	) {
 		const current = this.getSnapshot(cardId);
 		const normalized = (document ?? null) as JSONContent | null;
 		this.#commit(cardId, {
 			...current,
 			status: "ready",
 			persistedDocument: normalized,
+			persistedSerialized: serialized,
 			persistedVersion: version,
 			draft: current.dirty ? current.draft : normalized,
+			draftSerialized: current.dirty ? current.draftSerialized : serialized,
 			error: null,
 		});
 	}
 
-	setDraft(cardId: string, document: JSONContent) {
+	setDraft(
+		cardId: string,
+		document: JSONContent,
+		serialized = JSON.stringify(document ?? null),
+	) {
 		const current = this.getSnapshot(cardId);
 		this.#commit(cardId, {
 			...current,
 			status: "ready",
 			draft: document,
-			dirty: !documentsEqual(document, current.persistedDocument),
+			draftSerialized: serialized,
+			dirty: serialized !== current.persistedSerialized,
 			error: null,
 		});
 	}
 
-	acknowledge(cardId: string, document: JSONContent, version: number) {
+	acknowledge(
+		cardId: string,
+		document: JSONContent,
+		version: number,
+		serialized = JSON.stringify(document ?? null),
+	) {
 		const current = this.getSnapshot(cardId);
 		const draftMatches =
-			current.draft === null || documentsEqual(current.draft, document);
+			current.draft === null || current.draftSerialized === serialized;
 		this.#commit(cardId, {
 			...current,
 			status: "ready",
 			persistedDocument: document,
+			persistedSerialized: serialized,
 			persistedVersion: version,
 			draft: draftMatches ? document : current.draft,
+			draftSerialized: draftMatches ? serialized : current.draftSerialized,
 			dirty: !draftMatches,
 			error: null,
 		});

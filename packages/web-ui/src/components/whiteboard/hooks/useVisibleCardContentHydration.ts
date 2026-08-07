@@ -2,14 +2,21 @@ import {
 	recordContextboardPerf,
 	useApplicationRuntime,
 } from "@contextboard/application";
-import { useCallback, useEffect, useMemo, useRef, type MutableRefObject } from "react";
-import { react as tldrawReact, type Editor, type TLShapeId } from "tldraw";
-import type { Id } from "../ids";
-import { isCardContentDirty } from "../dirty-card-content";
-import type { CardContentStore } from "../card-content-store";
+import { useThrottledCallback } from "@tanstack/react-pacer";
 import {
-	isMarkdownCardShape,
+	type MutableRefObject,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+} from "react";
+import { type Editor, type TLShapeId, react as tldrawReact } from "tldraw";
+import type { CardContentStore } from "../card-content-store";
+import { isCardContentDirty } from "../dirty-card-content";
+import type { Id } from "../ids";
+import {
 	type BoardItemResult,
+	isMarkdownCardShape,
 } from "../whiteboard-canvas-helpers";
 
 class LRUCache {
@@ -38,6 +45,7 @@ const cardContentCache = new LRUCache(100);
 const MAX_CARD_CONTENT_BATCH = 30;
 const SPATIAL_CELL_SIZE = 1_000;
 const VIEWPORT_PREFETCH = 500;
+const CAMERA_HYDRATION_INTERVAL_MS = 50;
 
 function spatialCell(value: number) {
 	return Math.floor(value / SPATIAL_CELL_SIZE);
@@ -61,7 +69,6 @@ export function useVisibleCardContentHydration({
 	const { cards } = useApplicationRuntime();
 	const inFlightCardIdsRef = useRef(new Set<Id<"cards">>());
 	const priorityCardIdsRef = useRef<Id<"cards">[]>([]);
-	const flushTimerRef = useRef<number | null>(null);
 	const runningRef = useRef(false);
 
 	const serverVersionByCardId = useMemo(() => {
@@ -151,7 +158,8 @@ export function useVisibleCardContentHydration({
 
 		for (const item of candidateItems.values()) {
 			const shape = editor.getShape(item.shapeId as TLShapeId);
-			if (!shape || !isMarkdownCardShape(shape) || !shape.props.cardId) continue;
+			if (!shape || !isMarkdownCardShape(shape) || !shape.props.cardId)
+				continue;
 			if (shape.id === editingShapeId) continue;
 
 			const cardId = shape.props.cardId as Id<"cards">;
@@ -282,13 +290,18 @@ export function useVisibleCardContentHydration({
 		whiteboardKey,
 	]);
 
-	const scheduleHydration = useCallback(() => {
-		if (!editor || flushTimerRef.current !== null) return;
-		flushTimerRef.current = window.setTimeout(() => {
-			flushTimerRef.current = null;
-			void runHydration();
-		}, 0);
-	}, [editor, runHydration]);
+	// Camera signals can arrive once per pointer event. Keep hydration responsive
+	// on the leading edge while bounding spatial-index walks during a long pan.
+	const scheduleHydration = useThrottledCallback(
+		() => {
+			if (editor) void runHydration();
+		},
+		{
+			wait: CAMERA_HYDRATION_INTERVAL_MS,
+			leading: true,
+			trailing: true,
+		},
+	);
 
 	const prioritizeCardContent = useCallback(
 		(shapeId: TLShapeId, cardId: Id<"cards">) => {
@@ -308,6 +321,7 @@ export function useVisibleCardContentHydration({
 		[contentStore, editor, pendingEditShapeIdRef, scheduleHydration],
 	);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when the board identity changes
 	useEffect(() => {
 		inFlightCardIdsRef.current = new Set();
 		priorityCardIdsRef.current = [];
@@ -326,18 +340,10 @@ export function useVisibleCardContentHydration({
 		});
 	}, [editor, loadedDrawingKey, scheduleHydration, whiteboardKey]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: server versions invalidate cached hydration work
 	useEffect(() => {
 		scheduleHydration();
 	}, [scheduleHydration, serverVersionByCardId]);
-
-	useEffect(() => {
-		return () => {
-			if (flushTimerRef.current !== null) {
-				window.clearTimeout(flushTimerRef.current);
-				flushTimerRef.current = null;
-			}
-		};
-	}, []);
 
 	return {
 		prioritizeCardContent,

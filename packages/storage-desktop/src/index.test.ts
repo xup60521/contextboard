@@ -44,9 +44,9 @@ describe("DesktopWorkspaceRepository", () => {
 		const unsubscribe = vi.fn();
 		const listen = vi.fn(
 			async (event: string, handler: (payload: unknown) => void) => {
-			expect(event).toBe("contextboard://workspace-changed");
-			fire = handler;
-			return unsubscribe;
+				expect(event).toBe("contextboard://workspace-changed");
+				fire = handler;
+				return unsubscribe;
 			},
 		);
 		const repository = new DesktopWorkspaceRepository(
@@ -62,7 +62,9 @@ describe("DesktopWorkspaceRepository", () => {
 		const stop = await repository.connect();
 		fire({
 			origin: "local",
-			changes: [{ entityType: "card", entityId: "card-1" }],
+			changes: [
+				{ entityType: "card", entityId: "card-1", operation: "upsert" },
+			],
 		});
 		expect(changed).toHaveBeenCalledOnce();
 		expect(local).toHaveBeenCalledOnce();

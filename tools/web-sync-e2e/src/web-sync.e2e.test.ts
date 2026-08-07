@@ -271,8 +271,12 @@ describe("Web to Web vertical sync", () => {
 		await syncB.syncNow();
 
 		expect((await browserB.cards.get(mainCard.cardId))?.content).toEqual(
-			initialContent,
+			null,
 		);
+		expect(
+			(await browserB.cardContents.get(mainCard.cardId))?.document,
+		).toEqual(initialContent);
+		expect((await cardsB.get(mainCard.cardId))?.content).toEqual(initialContent);
 		expect(await browserB.cardReferences.count()).toBe(1);
 		expect(await browserB.fileReferences.count()).toBe(1);
 		expect(

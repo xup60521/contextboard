@@ -74,7 +74,6 @@ export class MarkdownCardShapeUtil extends BaseBoxShapeUtil<MarkdownCardShape> {
 		return {
 			w: 360,
 			h: 240,
-			content: "",
 		};
 	}
 

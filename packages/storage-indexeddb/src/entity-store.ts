@@ -1,4 +1,5 @@
 import {
+	ContextboardDatabase,
 	type ContextboardDatabaseLike,
 	ensureLocalIdentity,
 	type RowTable,
@@ -9,6 +10,7 @@ import {
 	HybridLogicalClock,
 	type SyncEntityType,
 } from "@contextboard/sync-protocol";
+import Dexie from "dexie";
 
 type Row = Record<string, unknown> & {
 	id: string;
@@ -159,6 +161,12 @@ const BINDINGS: Record<string, EntityBinding> = {
 	},
 };
 
+export const SUPPORTED_ENTITY_TYPES = Object.freeze(
+	Object.values(BINDINGS)
+		.map((binding) => binding.entityType)
+		.sort(),
+);
+
 const QUERY_ACTIONS = new Set(["list", "get"]);
 const COMMAND_ACTIONS: Record<string, "upsert" | "delete"> = {
 	create: "upsert",
@@ -212,19 +220,28 @@ type ListQueryInput = {
 	targetCardIds?: string[];
 	targetKeys?: string[];
 	fileIds?: string[];
+	searchTerm?: string;
+	limit?: number;
+	projection?: "full" | "summary";
 };
 
 const FILTERS_BY_ENTITY: Record<string, ReadonlySet<keyof ListQueryInput>> = {
-	card: new Set(["ids"]),
+	card: new Set(["ids", "searchTerm", "limit", "projection"]),
 	cardContent: new Set(["ids", "cardIds"]),
-	boardItem: new Set(["ids", "whiteboardId", "whiteboardIds", "cardIds", "childWhiteboardIds"]),
-	whiteboard: new Set(["ids", "parentWhiteboardIds"]),
+	boardItem: new Set([
+		"ids",
+		"whiteboardId",
+		"whiteboardIds",
+		"cardIds",
+		"childWhiteboardIds",
+	]),
+	whiteboard: new Set(["ids", "parentWhiteboardIds", "searchTerm", "limit"]),
 	cardReference: new Set(["ids", "sourceCardIds", "targetCardIds"]),
 	fileReference: new Set(["ids", "targetKeys", "fileIds"]),
 	cardRelation: new Set(["ids", "whiteboardId", "whiteboardIds", "cardIds"]),
 	canvasRecord: new Set(["ids", "whiteboardId", "whiteboardIds"]),
 	tldrawDocument: new Set(["ids", "whiteboardId", "whiteboardIds"]),
-	file: new Set(["ids"]),
+	file: new Set(["ids", "projection"]),
 	conflict: new Set(["ids"]),
 	todo: new Set(["ids"]),
 };
@@ -245,6 +262,33 @@ function parseListQueryInput(
 			throw new InvalidDomainArgumentError(
 				`${key} filtering is not supported for ${entityType}`,
 			);
+		if (key === "searchTerm") {
+			if (typeof raw !== "string")
+				throw new InvalidDomainArgumentError("searchTerm must be a string");
+			result.searchTerm = raw.trim().toLocaleLowerCase();
+			continue;
+		}
+		if (key === "limit") {
+			if (
+				typeof raw !== "number" ||
+				!Number.isSafeInteger(raw) ||
+				raw < 1 ||
+				raw > 100
+			)
+				throw new InvalidDomainArgumentError(
+					"limit must be an integer between 1 and 100",
+				);
+			result.limit = raw;
+			continue;
+		}
+		if (key === "projection") {
+			if (raw !== "full" && raw !== "summary")
+				throw new InvalidDomainArgumentError(
+					"projection must be full or summary",
+				);
+			result.projection = raw;
+			continue;
+		}
 		if (key === "whiteboardId") {
 			if (raw !== null && typeof raw !== "string")
 				throw new InvalidDomainArgumentError(
@@ -276,15 +320,59 @@ function hasWhiteboardId(row: Row, whiteboardId: string | null) {
 }
 
 function rowMatchesFilter(row: Row, filter: ListQueryInput) {
-	if (filter.whiteboardId !== undefined && !hasWhiteboardId(row, filter.whiteboardId)) return false;
-	if (filter.whiteboardIds && !filter.whiteboardIds.includes((row.whiteboardId ?? null) as string | null)) return false;
-	if (filter.cardIds && !filter.cardIds.includes(String(row.cardId ?? "")) && !filter.cardIds.includes(String(row.sourceCardId ?? "")) && !filter.cardIds.includes(String(row.targetCardId ?? ""))) return false;
-	if (filter.childWhiteboardIds && !filter.childWhiteboardIds.includes(String(row.childWhiteboardId ?? ""))) return false;
-	if (filter.parentWhiteboardIds && !filter.parentWhiteboardIds.includes((row.parentWhiteboardId ?? null) as string | null)) return false;
-	if (filter.sourceCardIds && !filter.sourceCardIds.includes(String(row.sourceCardId ?? ""))) return false;
-	if (filter.targetCardIds && !filter.targetCardIds.includes(String(row.targetCardId ?? ""))) return false;
-	if (filter.targetKeys && !filter.targetKeys.includes(String(row.targetKey ?? ""))) return false;
-	if (filter.fileIds && !filter.fileIds.includes(String(row.fileId ?? ""))) return false;
+	if (filter.searchTerm) {
+		const text =
+			row.derivedTitle !== undefined
+				? `${String(row.derivedTitle)} ${String(row.plainText ?? "")} ${String(row.preview ?? "")}`
+				: String(row.title ?? "");
+		if (!text.toLocaleLowerCase().includes(filter.searchTerm)) return false;
+	}
+	if (
+		filter.whiteboardId !== undefined &&
+		!hasWhiteboardId(row, filter.whiteboardId)
+	)
+		return false;
+	if (
+		filter.whiteboardIds &&
+		!filter.whiteboardIds.includes((row.whiteboardId ?? null) as string | null)
+	)
+		return false;
+	if (
+		filter.cardIds &&
+		!filter.cardIds.includes(String(row.cardId ?? "")) &&
+		!filter.cardIds.includes(String(row.sourceCardId ?? "")) &&
+		!filter.cardIds.includes(String(row.targetCardId ?? ""))
+	)
+		return false;
+	if (
+		filter.childWhiteboardIds &&
+		!filter.childWhiteboardIds.includes(String(row.childWhiteboardId ?? ""))
+	)
+		return false;
+	if (
+		filter.parentWhiteboardIds &&
+		!filter.parentWhiteboardIds.includes(
+			(row.parentWhiteboardId ?? null) as string | null,
+		)
+	)
+		return false;
+	if (
+		filter.sourceCardIds &&
+		!filter.sourceCardIds.includes(String(row.sourceCardId ?? ""))
+	)
+		return false;
+	if (
+		filter.targetCardIds &&
+		!filter.targetCardIds.includes(String(row.targetCardId ?? ""))
+	)
+		return false;
+	if (
+		filter.targetKeys &&
+		!filter.targetKeys.includes(String(row.targetKey ?? ""))
+	)
+		return false;
+	if (filter.fileIds && !filter.fileIds.includes(String(row.fileId ?? "")))
+		return false;
 	return true;
 }
 
@@ -294,9 +382,10 @@ async function rowsForValues(
 	values: readonly (string | null)[],
 ) {
 	if (values.length === 0) return [];
-	if (values.includes(null)) return (await table.toArray()).filter((row) =>
-		values.includes((row[index] ?? null) as string | null),
-	);
+	if (values.includes(null))
+		return (await table.toArray()).filter((row) =>
+			values.includes((row[index] ?? null) as string | null),
+		);
 	let rows: Row[][];
 	try {
 		rows = await Promise.all(
@@ -339,36 +428,91 @@ export async function queryEntities(
 	)
 		return [];
 
-	const indexedFilter =
-		filter.whiteboardIds?.every((id): id is string => id !== null) ? ["whiteboardId", filter.whiteboardIds] as const
-		: filter.cardIds && binding.entityType !== "cardRelation" ? ["cardId", filter.cardIds] as const
-		: filter.childWhiteboardIds ? ["childWhiteboardId", filter.childWhiteboardIds] as const
-		: filter.parentWhiteboardIds?.every((id): id is string => id !== null) ? ["parentWhiteboardId", filter.parentWhiteboardIds] as const
-		: filter.sourceCardIds ? ["sourceCardId", filter.sourceCardIds] as const
-		: filter.targetCardIds ? ["targetCardId", filter.targetCardIds] as const
-		: filter.targetKeys ? ["targetKey", filter.targetKeys] as const
-		: filter.fileIds ? ["fileId", filter.fileIds] as const
-		: null;
+	if (
+		binding.entityType === "file" &&
+		filter.projection === "summary" &&
+		filter.ids &&
+		database instanceof ContextboardDatabase
+	) {
+		const metadata = await Promise.all(
+			filter.ids.map(async (id) => {
+				const key = (await database.files
+					.where("[id+revision]")
+					.between([id, Dexie.minKey], [id, Dexie.maxKey])
+					.firstKey()) as [string, number] | undefined;
+				return key ? { id: key[0], revision: key[1] } : null;
+			}),
+		);
+		return metadata.filter((row) => row !== null);
+	}
+
+	const indexedFilter = filter.whiteboardIds?.every(
+		(id): id is string => id !== null,
+	)
+		? (["whiteboardId", filter.whiteboardIds] as const)
+		: filter.cardIds && binding.entityType !== "cardRelation"
+			? (["cardId", filter.cardIds] as const)
+			: filter.childWhiteboardIds
+				? (["childWhiteboardId", filter.childWhiteboardIds] as const)
+				: filter.parentWhiteboardIds?.every((id): id is string => id !== null)
+					? (["parentWhiteboardId", filter.parentWhiteboardIds] as const)
+					: filter.sourceCardIds
+						? (["sourceCardId", filter.sourceCardIds] as const)
+						: filter.targetCardIds
+							? (["targetCardId", filter.targetCardIds] as const)
+							: filter.targetKeys
+								? (["targetKey", filter.targetKeys] as const)
+								: filter.fileIds
+									? (["fileId", filter.fileIds] as const)
+									: null;
 	const rows = filter.ids
 		? ((await table.bulkGet(filter.ids)).filter(
 				(row): row is Row => !!row,
 			) as Row[])
 		: filter.cardIds && binding.entityType === "cardRelation"
-			? [...new Map((await Promise.all([
-				rowsForValues(table, "sourceCardId", filter.cardIds),
-				rowsForValues(table, "targetCardId", filter.cardIds),
-			])).flat().map((row) => [row.id, row])).values()]
-		: indexedFilter
-			? await rowsForValues(table, indexedFilter[0], indexedFilter[1])
-		: typeof filter.whiteboardId === "string"
-			? ((await table
-					.where("whiteboardId")
-					.equals(filter.whiteboardId)
-					.toArray()) as Row[])
-			: ((await table.toArray()) as Row[]);
+			? [
+					...new Map(
+						(
+							await Promise.all([
+								rowsForValues(table, "sourceCardId", filter.cardIds),
+								rowsForValues(table, "targetCardId", filter.cardIds),
+							])
+						)
+							.flat()
+							.map((row) => [row.id, row]),
+					).values(),
+				]
+			: indexedFilter
+				? await rowsForValues(table, indexedFilter[0], indexedFilter[1])
+				: typeof filter.whiteboardId === "string"
+					? ((await table
+							.where("whiteboardId")
+							.equals(filter.whiteboardId)
+							.toArray()) as Row[])
+					: filter.searchTerm && filter.limit
+						? ((await table
+								.orderBy("updatedAt")
+								.reverse()
+								.filter(
+									(row) =>
+										isActive(row as Row) &&
+										rowMatchesFilter(row as Row, filter),
+								)
+								.limit(filter.limit)
+								.toArray()) as Row[])
+						: ((await table.toArray()) as Row[]);
 	// Bound to a local so the closure below keeps the narrowed type.
 	const scopedRows = rows.filter((row) => rowMatchesFilter(row, filter));
-	return scopedRows.filter(isActive).sort((a, b) => a.id.localeCompare(b.id));
+	const active = scopedRows.filter(isActive);
+	if (filter.searchTerm)
+		active.sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0));
+	else active.sort((a, b) => a.id.localeCompare(b.id));
+	const limited = filter.limit ? active.slice(0, filter.limit) : active;
+	if (filter.projection === "summary" && binding.entityType === "card")
+		return limited.map(({ content: _content, ...summary }) => summary);
+	if (filter.projection === "summary" && binding.entityType === "file")
+		return limited.map(({ blob: _blob, ...summary }) => summary);
+	return limited;
 }
 
 const clocks = new Map<string, HybridLogicalClock>();

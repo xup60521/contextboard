@@ -11,9 +11,9 @@ import type {
 	PullChangesResponse,
 	PushChangesRequest,
 	PushChangesResponse,
+	SyncEntityType,
 	SyncStatus,
 	SyncTransport,
-	SyncEntityType,
 	WorkspaceMembership,
 } from "@contextboard/sync-protocol";
 import { syncVersionHeaders } from "@contextboard/sync-protocol";
@@ -26,6 +26,8 @@ export type ContextboardPerfMetric =
 	| "repository.notification.delivered"
 	| "canvas.items.reload"
 	| "canvas.document.reload"
+	| "canvas.document.patch"
+	| "canvas.document.recovery"
 	| "canvas.shape.created"
 	| "canvas.shape.deleted"
 	| "canvas.relation.reconcile"
@@ -131,6 +133,7 @@ export type WorkspaceChangeOrigin = "local" | "remote";
 export type WorkspaceEntityChange = {
 	entityType: SyncEntityType;
 	entityId: string;
+	operation: "upsert" | "delete";
 	whiteboardId?: string | null;
 	cardId?: string | null;
 	parentWhiteboardId?: string | null;
@@ -143,6 +146,7 @@ export type WorkspaceChangeFilter = {
 	entityTypes?: readonly SyncEntityType[];
 	entityIds?: readonly string[];
 	whiteboardIds?: readonly (string | null)[];
+	cardIds?: readonly string[];
 };
 export type WorkspaceChangeListener = (change: WorkspaceChange) => void;
 export type Unsubscribe = () => void;
@@ -191,9 +195,10 @@ const OPERATION_ENTITY_TYPES: Record<string, SyncEntityType> = {
 };
 
 function scopeFromValue(value: unknown) {
-	const row = value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
+	const row =
+		value && typeof value === "object"
+			? (value as Record<string, unknown>)
+			: {};
 	return {
 		...(Object.hasOwn(row, "whiteboardId") &&
 		(row.whiteboardId === null || typeof row.whiteboardId === "string")
@@ -204,7 +209,8 @@ function scopeFromValue(value: unknown) {
 			? { cardId: row.cardId as string | null }
 			: {}),
 		...(Object.hasOwn(row, "parentWhiteboardId") &&
-		(row.parentWhiteboardId === null || typeof row.parentWhiteboardId === "string")
+		(row.parentWhiteboardId === null ||
+			typeof row.parentWhiteboardId === "string")
 			? { parentWhiteboardId: row.parentWhiteboardId as string | null }
 			: {}),
 	};
@@ -214,32 +220,48 @@ export function describeDomainCommand(
 	command: DomainCommand<unknown>,
 	result?: unknown,
 ) {
-	const input = command.input && typeof command.input === "object"
-		? (command.input as Record<string, unknown>)
-		: {};
+	const input =
+		command.input && typeof command.input === "object"
+			? (command.input as Record<string, unknown>)
+			: {};
 	const writes = Array.isArray(input.writes) ? input.writes : null;
 	if (writes) {
-		return writes.flatMap((candidate): WorkspaceEntityChange[] => {
+		const materialized = Array.isArray(result) ? result : [];
+		return writes.flatMap((candidate, index): WorkspaceEntityChange[] => {
 			if (!candidate || typeof candidate !== "object") return [];
 			const write = candidate as Record<string, unknown>;
 			if (typeof write.entity !== "string" || typeof write.id !== "string")
 				return [];
-			return [{
-				entityType: write.entity as SyncEntityType,
-				entityId: write.id,
-				...scopeFromValue(write.value),
-			}];
+			return [
+				{
+					entityType: write.entity as SyncEntityType,
+					entityId: write.id,
+					operation: write.operation === "delete" ? "delete" : "upsert",
+					// Deletes intentionally omit a value from the command contract. Both
+					// stores return their materialized tombstone in matching write order,
+					// which preserves scope metadata for filtered invalidations.
+					...scopeFromValue(write.value ?? materialized[index]),
+				},
+			];
 		});
 	}
 	const prefix = command.type.split(".")[0] ?? "";
 	const entityType = OPERATION_ENTITY_TYPES[prefix];
 	const value = input.value ?? input;
-	const row = value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: input;
+	const row =
+		value && typeof value === "object"
+			? (value as Record<string, unknown>)
+			: input;
 	const id = row.id ?? row.conflictId ?? result;
 	return entityType && typeof id === "string"
-		? [{ entityType, entityId: id, ...scopeFromValue(value) }]
+		? [
+				{
+					entityType,
+					entityId: id,
+					operation: "upsert" as const,
+					...scopeFromValue(value),
+				},
+			]
 		: [];
 }
 
@@ -249,10 +271,11 @@ export function describeRemoteBatches(batches: readonly ChangeBatch[]) {
 
 export function describeRemoteChanges(changes: readonly EntityChange[]) {
 	return changes.map((change) => ({
-			entityType: change.entityType,
-			entityId: change.entityId,
-			...scopeFromValue(change.value),
-		}));
+		entityType: change.entityType,
+		entityId: change.entityId,
+		operation: change.operation,
+		...scopeFromValue(change.value),
+	}));
 }
 
 export function workspaceChangeMatches(
@@ -265,14 +288,16 @@ export function workspaceChangeMatches(
 			return false;
 		if (filter.entityIds && !filter.entityIds.includes(entity.entityId))
 			return false;
+		if (filter.cardIds) {
+			if (typeof entity.cardId !== "string") return false;
+			if (!filter.cardIds.includes(entity.cardId)) return false;
+		}
 		if (filter.whiteboardIds) {
 			const scopes = [entity.whiteboardId, entity.parentWhiteboardId].filter(
 				(value): value is string | null => value !== undefined,
 			);
-			if (
-				scopes.length > 0 &&
-				!scopes.some((id) => filter.whiteboardIds?.includes(id))
-			)
+			if (scopes.length === 0) return false;
+			if (!scopes.some((id) => filter.whiteboardIds?.includes(id)))
 				return false;
 		}
 		return true;

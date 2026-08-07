@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { createRepositoryCardsService } from "../cards/repository-cards-service";
 import { createMemoryWorkspaceRepository } from "../testing";
+import { applyWrites } from "../repository/entities";
 import {
 	createRepositoryCanvasService,
 	createRepositoryWhiteboardsService,
@@ -854,5 +855,94 @@ describe("pasted card content", () => {
 
 		const [item] = await canvas.listItems(boardId);
 		expect((await cards.get(item!.cardId!))?.content).toEqual(document);
+	});
+});
+
+describe("canvas document subscriptions", () => {
+	test("patches matching records and ignores cross-board records in one change", async () => {
+		const { canvas, repository, whiteboards } = setup();
+		const boardA = await whiteboards.createRoot();
+		const boardB = await whiteboards.createRoot();
+		const event = new Promise<Parameters<Parameters<typeof canvas.subscribeDocument>[1]>[0]>((resolve) => {
+			canvas.subscribeDocument(boardA, resolve);
+		});
+		await applyWrites(repository, "records.mixed-board-test", [
+			{
+				entity: "canvasRecord",
+				operation: "upsert",
+				id: `${boardA}:shape:a`,
+				value: {
+					id: `${boardA}:shape:a`,
+					whiteboardId: boardA,
+					recordId: "shape:a",
+					recordType: "shape",
+					payload: { id: "shape:a", typeName: "shape" },
+					clock: "",
+				},
+			},
+			{
+				entity: "canvasRecord",
+				operation: "upsert",
+				id: `${boardB}:shape:b`,
+				value: {
+					id: `${boardB}:shape:b`,
+					whiteboardId: boardB,
+					recordId: "shape:b",
+					recordType: "shape",
+					payload: { id: "shape:b", typeName: "shape" },
+					clock: "",
+				},
+			},
+		]);
+		expect(await event).toMatchObject({
+			kind: "patch",
+			whiteboardId: boardA,
+			upserts: [expect.objectContaining({ recordId: "shape:a" })],
+		});
+	});
+
+	test("does not notify a subscriber for a pure cross-board change", async () => {
+		const { canvas, repository, whiteboards } = setup();
+		const boardA = await whiteboards.createRoot();
+		const boardB = await whiteboards.createRoot();
+		const events: unknown[] = [];
+		canvas.subscribeDocument(boardA, (event) => events.push(event));
+		await applyWrites(repository, "records.cross-board-test", [
+			{
+				entity: "canvasRecord",
+				operation: "upsert",
+				id: `${boardB}:shape:b`,
+				value: {
+					id: `${boardB}:shape:b`,
+					whiteboardId: boardB,
+					recordId: "shape:b",
+					recordType: "shape",
+					payload: { id: "shape:b", typeName: "shape" },
+					clock: "",
+				},
+			},
+		]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(events).toEqual([]);
+	});
+
+	test("reloads a root subscriber only for a root document change", async () => {
+		const { canvas, repository } = setup();
+		const events: unknown[] = [];
+		canvas.subscribeDocument(null, (event) => events.push(event));
+		await applyWrites(repository, "tldrawDocuments.rootTest", [
+			{
+				entity: "tldrawDocument",
+				operation: "upsert",
+				id: "root-document",
+				value: {
+					id: "root-document",
+					whiteboardId: null,
+					documentVersion: 1,
+					storageMode: "legacy-snapshot",
+				},
+			},
+		]);
+		expect(events).toEqual([{ kind: "reload" }]);
 	});
 });

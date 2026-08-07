@@ -1,3 +1,7 @@
+import {
+	normalizeImageSources,
+	serializeCardContent,
+} from "@contextboard/application";
 import { ReadonlyRichTextPreview, useDeferredEditorMount } from "@contextboard/editor";
 import type { JSONContent } from "@tiptap/core";
 import { useState } from "react";
@@ -20,8 +24,10 @@ export function CardDetailDocumentSurface({
 	const [previewCardId, setPreviewCardId] = useState<string | null>(null);
 	const { shouldMountEditor, promoteMount } = useDeferredEditorMount(cardId, true);
 	const resolvedContent = useResolvedCardContent(content);
+	const initialSerialized = serializeCardContent(content);
 	const save = useDebouncedCardSave(cardId, 450, {
 		initialContent: content,
+		initialSerialized,
 		initialVersion: version,
 	});
 
@@ -37,7 +43,13 @@ export function CardDetailDocumentSurface({
 					key={cardId}
 					cardId={cardId}
 					content={resolvedContent}
-					onChange={save.scheduleSave}
+					onChange={(value) => {
+						const normalized = normalizeImageSources(value);
+						save.scheduleSave({
+							content: normalized,
+							serialized: serializeCardContent(normalized),
+						});
+					}}
 					onOpenPreview={setPreviewCardId}
 					className="notion-editor seamless"
 					contentClassName="min-h-[60vh]"

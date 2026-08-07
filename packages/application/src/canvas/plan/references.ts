@@ -77,8 +77,8 @@ export function planReferences(
 			upsertWrite(
 				"file",
 				{
-				...file,
-				refCount,
+					id: file.id,
+					refCount,
 				status: refCount > 0 ? "active" : "pending_delete",
 				pendingDeleteAt: refCount > 0 ? null : context.now,
 				},

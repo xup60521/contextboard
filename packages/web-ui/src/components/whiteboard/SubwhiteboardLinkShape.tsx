@@ -150,9 +150,11 @@ function SubwhiteboardLinkComponent({
 					/>
 				</div>
 				<div className="truncate font-mono text-[11px] leading-4 text-[var(--muted-foreground)]">
-					{shape.props.depth !== undefined
-						? `depth ${shape.props.depth} - ${displayedId}`
-						: displayedId}
+					{shape.props.cardCount !== undefined
+						? `${shape.props.cardCount} cards · ${shape.props.childWhiteboardCount ?? 0} boards`
+						: shape.props.depth !== undefined
+							? `depth ${shape.props.depth} - ${displayedId}`
+							: displayedId}
 				</div>
 			</div>
 		</HTMLContainer>

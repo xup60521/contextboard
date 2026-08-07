@@ -1,4 +1,3 @@
-import type { WhiteboardNavigation } from "./navigation";
 import {
 	type Editor,
 	pointInPolygon,
@@ -10,15 +9,15 @@ import {
 	Vec,
 	type VecLike,
 } from "tldraw";
-import type { Id } from "./ids";
 import type { ThemeMode } from "../../lib/theme";
 import type {
 	MarkdownCardShape,
 	SubwhiteboardLinkShape,
 } from "./custom-shapes";
-import { isCardContentDirty } from "./dirty-card-content";
 import { frameFromItem } from "./frame-sync";
+import type { Id } from "./ids";
 import { getHydratedMarkdownCardHeight } from "./markdown-card-sizing";
+import type { WhiteboardNavigation } from "./navigation";
 import { isManagedWhiteboardShapeRecord } from "./tldraw-persistence";
 
 // ── Shared types ──────────────────────────────────────────────────────────────
@@ -224,7 +223,6 @@ export function itemToShape(
 					serverHeight: frame.h,
 					minHeight: 96,
 				}),
-				content: "",
 				cardId: item.cardId ?? undefined,
 				originWorkspaceId: item.workspaceId,
 				title: item.card?.derivedTitle,
@@ -248,6 +246,8 @@ export function itemToShape(
 			subwhiteboardId: item.childWhiteboardId ?? "",
 			childWhiteboardId: item.childWhiteboardId ?? undefined,
 			depth: item.childWhiteboard?.depth,
+			cardCount: item.childWhiteboard?.cardCount,
+			childWhiteboardCount: item.childWhiteboard?.childWhiteboardCount,
 		},
 	};
 }
@@ -267,7 +267,6 @@ function managedShapeChanged(
 	if (isMarkdownCardShape(existing) && next.type === "markdown-card") {
 		return (
 			existing.props.w !== next.props.w ||
-			existing.props.content !== next.props.content ||
 			existing.props.cardId !== next.props.cardId ||
 			existing.props.originWorkspaceId !== next.props.originWorkspaceId ||
 			existing.props.title !== next.props.title ||
@@ -285,15 +284,18 @@ function managedShapeChanged(
 			existing.props.w !== next.props.w ||
 			existing.props.h !== next.props.h ||
 			existing.props.label !== next.props.label ||
-			existing.props.childWhiteboardId !== next.props.childWhiteboardId
+			existing.props.childWhiteboardId !== next.props.childWhiteboardId ||
+			existing.props.depth !== next.props.depth ||
+			existing.props.cardCount !== next.props.cardCount ||
+			existing.props.childWhiteboardCount !== next.props.childWhiteboardCount
 		);
 	}
 
 	return false;
 }
 
-function preserveEditingCardContent(
-	editor: Editor,
+function preserveManagedCardHeight(
+	_editor: Editor,
 	existingShape: TLShape,
 	nextShape: ManagedShapePartial,
 ): ManagedShapePartial {
@@ -304,45 +306,9 @@ function preserveEditingCardContent(
 		return nextShape;
 	}
 
-	const preserve: { h: number; content?: string } = {
-		h: existingShape.props.h,
-	};
-
-	if (
-		existingShape.props.contentLoaded &&
-		existingShape.props.contentVersion === nextShape.props.contentVersion
-	) {
-		return {
-			...nextShape,
-			props: {
-				...nextShape.props,
-				h: existingShape.props.h,
-				content: existingShape.props.content,
-				contentLoaded: true,
-				contentVersion: existingShape.props.contentVersion,
-			},
-		};
-	}
-
-	const cardId = existingShape.props.cardId as Id<"cards"> | undefined;
-	const hasUnsavedLocalEdits = Boolean(cardId && isCardContentDirty(cardId));
-
-	if (existingShape.id === editor.getEditingShapeId() || hasUnsavedLocalEdits) {
-		return {
-			...nextShape,
-			props: {
-				...nextShape.props,
-				h: existingShape.props.h,
-				content: existingShape.props.content,
-				contentLoaded: existingShape.props.contentLoaded,
-				contentVersion: existingShape.props.contentVersion,
-			},
-		};
-	}
-
 	return {
 		...nextShape,
-		props: { ...nextShape.props, ...preserve },
+		props: { ...nextShape.props, h: existingShape.props.h },
 	};
 }
 
@@ -355,7 +321,7 @@ export function rehydrateItemShape(
 	const existingShape = editor.getShape(nextShape.id);
 
 	if (existingShape) {
-		const updatedShape = preserveEditingCardContent(
+		const updatedShape = preserveManagedCardHeight(
 			editor,
 			existingShape,
 			nextShape,
@@ -366,41 +332,6 @@ export function rehydrateItemShape(
 	} else {
 		editor.createShape(nextShape);
 	}
-}
-
-export function hydrateCardShapes(
-	editor: Editor,
-	payload: {
-		cardId: Id<"cards">;
-		content: unknown;
-		version: number;
-	},
-	shapeIndex?: ReadonlyMap<string, readonly MarkdownCardShape[]>,
-) {
-	const serializedContent = JSON.stringify(payload.content);
-	const updates: ManagedShapePartial[] = [];
-
-	const candidates = shapeIndex?.get(payload.cardId) ?? editor.getCurrentPageShapes();
-	for (const shape of candidates) {
-		if (!isMarkdownCardShape(shape) || shape.props.cardId !== payload.cardId) continue;
-
-		updates.push({
-			id: shape.id,
-			type: "markdown-card",
-			x: shape.x,
-			y: shape.y,
-			rotation: shape.rotation,
-			props: {
-				...shape.props,
-				content: serializedContent,
-				contentLoaded: true,
-				contentVersion: payload.version,
-			},
-		});
-	}
-
-	if (updates.length === 0) return;
-	editor.updateShapes(updates);
 }
 
 export function indexMarkdownCardShapes(editor: Editor) {

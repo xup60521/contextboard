@@ -1,15 +1,15 @@
 import {
-	describeDomainCommand,
-	describeRemoteChanges,
-	recordContextboardPerf,
-	workspaceChangeMatches,
 	type ApplyResult,
 	type DomainCommand,
 	type DomainQuery,
+	describeDomainCommand,
+	describeRemoteChanges,
+	recordContextboardPerf,
 	type WorkspaceChange,
 	type WorkspaceChangeFilter,
 	type WorkspaceChangeListener,
 	type WorkspaceRepository,
+	workspaceChangeMatches,
 } from "@contextboard/client-core";
 import type {
 	BlobDescriptor,
@@ -63,7 +63,7 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 			if (!isWorkspaceChange(payload)) return;
 			const change = payload;
 			this.#emit(change);
-			if (change.origin === "local")
+			if (change.origin === "local" && change.changes.length > 0)
 				for (const listener of this.#localListeners) listener(change);
 		});
 	}
@@ -93,7 +93,8 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 			changes: describeDomainCommand(command, result),
 		};
 		this.#emit(change);
-		for (const listener of this.#localListeners) listener(change);
+		if (change.changes.length > 0)
+			for (const listener of this.#localListeners) listener(change);
 		return result;
 	}
 
@@ -152,10 +153,13 @@ export class DesktopWorkspaceRepository implements WorkspaceRepository {
 	}
 
 	async getPendingBatches(limit: number): Promise<ChangeBatch[]> {
-		const batches = await this.invoke<ChangeBatch[]>("workspace_pending_batches", {
-			workspaceId: this.workspaceId,
-			limit,
-		});
+		const batches = await this.invoke<ChangeBatch[]>(
+			"workspace_pending_batches",
+			{
+				workspaceId: this.workspaceId,
+				limit,
+			},
+		);
 		recordContextboardPerf("repository.rows", {
 			detail: "changeLog.pending",
 			value: batches.length,
@@ -246,7 +250,8 @@ function isWorkspaceChange(value: unknown): value is WorkspaceChange {
 			(change) =>
 				!!change &&
 				typeof change.entityType === "string" &&
-				typeof change.entityId === "string",
+				typeof change.entityId === "string" &&
+				(change.operation === "upsert" || change.operation === "delete"),
 		)
 	);
 }

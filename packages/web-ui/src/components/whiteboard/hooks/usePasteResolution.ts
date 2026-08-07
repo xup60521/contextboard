@@ -1,4 +1,9 @@
 import {
+	DEFAULT_CARD_CONTENT,
+	serializeCardContent,
+} from "@contextboard/application";
+import type { JSONContent } from "@tiptap/core";
+import {
 	type MutableRefObject,
 	useCallback,
 	useEffect,
@@ -7,8 +12,10 @@ import {
 } from "react";
 import type { Editor, TLShapeId, TLUiEventHandler } from "tldraw";
 import type { MarkdownCardShape } from "../custom-shapes";
+import type { CardContentStore } from "../card-content-store";
 import type { Id } from "../ids";
 import { isMarkdownCardShape } from "../whiteboard-canvas-helpers";
+import { parseMarkdownContent } from "../MarkdownCardShell";
 
 export type PastePlacement = "link" | "duplicate";
 
@@ -43,12 +50,20 @@ export type PendingPasteResolution = {
 	anchor: { x: number; y: number };
 };
 
-function snapshotCard(shape: MarkdownCardShape): PastedCard {
+function snapshotCard(
+	shape: MarkdownCardShape,
+	contentStore?: CardContentStore,
+): PastedCard {
+	const entry = contentStore?.getSnapshot(shape.props.cardId ?? shape.id);
 	return {
 		shapeId: shape.id,
 		sourceCardId: shape.props.cardId,
 		sourceWorkspaceId: shape.props.originWorkspaceId,
-		content: shape.props.content,
+		content:
+			shape.props.content ??
+			entry?.draftSerialized ??
+			entry?.persistedSerialized ??
+			"",
 		x: shape.x,
 		y: shape.y,
 		w: shape.props.w,
@@ -72,12 +87,14 @@ export function usePasteResolution({
 	workspaceId,
 	restoreOrAdoptCardItem,
 	protectedPasteShapeIdsRef,
+	contentStore,
 }: {
 	editor: Editor | null;
 	whiteboardId: Id<"whiteboards"> | null;
 	workspaceId: string;
 	restoreOrAdoptCardItem: RestoreOrAdoptCardItem;
 	protectedPasteShapeIdsRef: MutableRefObject<Set<string>>;
+	contentStore?: CardContentStore;
 }) {
 	const [pending, setPending] = useState<PendingPasteResolution | null>(null);
 	const pendingRef = useRef<
@@ -122,7 +139,7 @@ export function usePasteResolution({
 			}
 			const latestCard =
 				currentShape && isMarkdownCardShape(currentShape)
-					? snapshotCard(currentShape)
+					? snapshotCard(currentShape, contentStore)
 					: card;
 			if (placement === "duplicate") sanitizeForDuplicate(latestCard.shapeId);
 
@@ -149,7 +166,7 @@ export function usePasteResolution({
 				console.warn("Failed to persist pasted card", error);
 			}
 		},
-		[protectedPasteShapeIdsRef, sanitizeForDuplicate, whiteboardId],
+		[contentStore, protectedPasteShapeIdsRef, sanitizeForDuplicate, whiteboardId],
 	);
 
 	const commitPending = useCallback(
@@ -184,7 +201,24 @@ export function usePasteResolution({
 		(cards: MarkdownCardShape[], isPaste: boolean) => {
 			if (!whiteboardId || cards.length === 0) return;
 
-			const snapshots = cards.map(snapshotCard);
+			const snapshots = cards.map((card) => snapshotCard(card, contentStore));
+			for (const card of cards) {
+				const content =
+					parseMarkdownContent(card.props.content) ??
+					(DEFAULT_CARD_CONTENT as JSONContent);
+				contentStore?.setDraft(
+					card.id,
+					content,
+					serializeCardContent(content),
+				);
+			}
+			editorRef.current?.updateShapes(
+				cards.map((card) => ({
+					id: card.id,
+					type: "markdown-card" as const,
+					props: { content: undefined },
+				})),
+			);
 			if (!isPaste) {
 				for (const card of snapshots) void persistCard(card, "auto");
 				return;
@@ -225,6 +259,7 @@ export function usePasteResolution({
 		},
 		[
 			commitPending,
+			contentStore,
 			persistCard,
 			protectedPasteShapeIdsRef,
 			whiteboardId,

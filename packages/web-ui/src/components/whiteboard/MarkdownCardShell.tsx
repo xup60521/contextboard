@@ -7,7 +7,7 @@ import type { Id } from "./ids";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import { getShapeContainerStyle } from "./MarkdownCardShapeTypes";
 
-export function parseMarkdownContent(content: string): JSONContent | null {
+export function parseMarkdownContent(content?: string): JSONContent | null {
 	if (!content) return null;
 
 	try {

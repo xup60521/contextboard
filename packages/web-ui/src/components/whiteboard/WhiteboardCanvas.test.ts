@@ -72,7 +72,7 @@ describe("itemToShape", () => {
 		expect(shape.type).toBe("markdown-card");
 		expect(shape.props.h).toBeGreaterThan(64);
 		if (shape.type === "markdown-card") {
-			expect(shape.props.content).toBe("");
+		expect(shape.props.content).toBeUndefined();
 			expect(shape.props.contentLoaded).toBe(false);
 		}
 	});
@@ -105,7 +105,6 @@ describe("itemToShape", () => {
 				cardId: "card-1",
 				title: "Card",
 				preview: "Preview text",
-				content: "",
 				contentLoaded: false,
 				contentVersion: 7,
 			});

@@ -35,6 +35,14 @@ describe("repository card capability", () => {
 		expect(repository.pendingCommands).toEqual(["cards.create"]);
 		const card = await cards.get(cardId);
 		expect(card?.title).toBe("New card");
+		expect(
+			(
+				await repository.query<Record<string, unknown>>({
+					type: "cards.get",
+					input: { id: cardId },
+				})
+			).content,
+		).toBeNull();
 	});
 
 	test("updates content, bumps the version and rejects stale writes", async () => {
@@ -69,6 +77,52 @@ describe("repository card capability", () => {
 		});
 		expect(version).toBe(1);
 		expect(repository.pendingCommands).toEqual(["cards.create"]);
+		expect(
+			(
+				await repository.query<Record<string, unknown>>({
+					type: "cardContents.get",
+					input: { id: cardId },
+				})
+			).contentVersion,
+		).toBe(1);
+	});
+
+	test("migrates legacy content once and preserves authoritative external content", async () => {
+		const { cards, repository } = service();
+		const original = textToCardContent("Original external body");
+		const cardId = await cards.create({ content: original });
+		const authoritative = await cards.ensureLegacyContent({
+			cardId,
+			content: textToCardContent("Stale shape body"),
+			contentVersion: 1,
+		});
+		expect(authoritative).toEqual({ content: original, version: 1 });
+		expect(repository.pendingCommands).toEqual(["cards.create"]);
+
+		const contentRow = await repository.query<Record<string, unknown>>({
+			type: "cardContents.get",
+			input: { id: cardId },
+		});
+		await repository.execute({
+			type: "cardContents.update",
+			input: { value: { ...contentRow, document: null } },
+		});
+		const migratedDocument = textToCardContent("Recovered shape body");
+		const migrated = await cards.ensureLegacyContent({
+			cardId,
+			content: migratedDocument,
+			contentVersion: 1,
+		});
+		expect(migrated).toEqual({ content: migratedDocument, version: 1 });
+		expect((await cards.get(cardId))?.content).toEqual(migratedDocument);
+		expect(
+			(
+				await repository.query<Record<string, unknown>>({
+					type: "cards.get",
+					input: { id: cardId },
+				})
+			).content,
+		).toBeNull();
 	});
 
 	test("tombstones a card so it leaves every read path", async () => {
@@ -424,6 +478,14 @@ describe("recovering cards stored with a serialized document", () => {
 			type: "cardContents.get",
 			input: { id: cardId },
 		});
+		const cardRow = await repository.query<Record<string, unknown>>({
+			type: "cards.get",
+			input: { id: cardId },
+		});
+		await repository.execute({
+			type: "cards.update",
+			input: { value: { ...cardRow, content: document } },
+		});
 		await repository.execute({
 			type: "cardContents.update",
 			input: { value: { ...contentRow, document: null } },
@@ -431,6 +493,11 @@ describe("recovering cards stored with a serialized document", () => {
 
 		expect((await cards.get(cardId))?.content).toEqual(document);
 		expect((await cards.getMany([cardId]))[0]?.content).toEqual(document);
+		repository.pendingCommands.length = 0;
+		expect(
+			await cards.updateContent({ cardId, content: document }),
+		).toBe(1);
+		expect(repository.pendingCommands).toEqual([]);
 	});
 
 	test("reads a double-encoded row back as a document", async () => {

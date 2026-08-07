@@ -1,11 +1,12 @@
 import {
 	type CanvasItem,
+	type CanvasRecordPatch,
 	fileSrc,
+	recordContextboardPerf,
 	useApplicationRuntime,
 	type WhiteboardBreadcrumb,
 	type WhiteboardDetail,
 } from "@contextboard/application";
-import { recordContextboardPerf } from "@contextboard/application";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Id } from "../ids";
 import type {
@@ -72,14 +73,20 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	const [documentData, setDocumentData] = useState<
 		{ key: string; value: TldrawDocumentResult } | undefined
 	>();
+	const [documentPatches, setDocumentPatches] = useState<{
+		key: string;
+		value: CanvasRecordPatch[];
+	}>({ key: canvasKey, value: [] });
+	const [documentReloadGeneration, setDocumentReloadGeneration] = useState(0);
+	const reloadDocument = useCallback(
+		() => setDocumentReloadGeneration((value) => value + 1),
+		[],
+	);
 	const items = itemsData?.key === canvasKey ? itemsData.value : undefined;
 	const tldrawDocument =
 		documentData?.key === canvasKey ? documentData.value : undefined;
 	const itemCardIds = useMemo(
-		() =>
-			(items ?? []).flatMap((item) =>
-				item.cardId ? [item.cardId] : [],
-			),
+		() => (items ?? []).flatMap((item) => (item.cardId ? [item.cardId] : [])),
 		[items],
 	);
 	const itemCardIdsKey = itemCardIds.join("\0");
@@ -100,7 +107,9 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			setBreadcrumbs(detail?.breadcrumbs ?? []);
 		};
 		void load();
-		const unsubscribe = whiteboards.subscribe(() => void load());
+		const unsubscribe = whiteboards.subscribe(() => void load(), {
+			whiteboardIds: [whiteboardId],
+		});
 		return () => {
 			active = false;
 			unsubscribe();
@@ -141,6 +150,8 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 
 	useEffect(() => {
 		if (!canvas) return;
+		// An explicit recovery request restarts this load/subscription effect.
+		void documentReloadGeneration;
 		let active = true;
 		let running = false;
 		let dirty = false;
@@ -170,15 +181,29 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			running = false;
 		};
 		void load();
+		setDocumentPatches({ key: canvasKey, value: [] });
 		const unsubscribe = canvas.subscribeDocument(
 			whiteboardId ?? null,
-			() => void load(),
+			(change) => {
+				if (change.kind === "reload") {
+					recordContextboardPerf("canvas.document.recovery", {
+						detail: canvasKey,
+					});
+					void load();
+					return;
+				}
+				setDocumentPatches((current) => ({
+					key: canvasKey,
+					value:
+						current.key === canvasKey ? [...current.value, change] : [change],
+				}));
+			},
 		);
 		return () => {
 			active = false;
 			unsubscribe();
 		};
-	}, [canvas, canvasKey, whiteboardId]);
+	}, [canvas, canvasKey, documentReloadGeneration, whiteboardId]);
 
 	const requireCanvas = useCallback(() => {
 		if (!canvas) throw new Error("This platform has no canvas capability");
@@ -298,6 +323,9 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		items: boardItems,
 		itemsReady: items !== undefined,
 		tldrawDocument,
+		documentPatches:
+			documentPatches.key === canvasKey ? documentPatches.value : [],
+		reloadDocument,
 		createCardItem,
 		createSubwhiteboardItem,
 		updateItemFrame,

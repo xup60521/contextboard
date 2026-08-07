@@ -1,4 +1,7 @@
-import type { WorkspaceRepository } from "@contextboard/client-core";
+import {
+	recordContextboardPerf,
+	type WorkspaceRepository,
+} from "@contextboard/client-core";
 import {
 	DEFAULT_CARD_CONTENT,
 	normalizeCardContent,
@@ -16,6 +19,7 @@ import type {
 	CanvasItem,
 	CanvasItemFrameUpdate,
 	CanvasRecordDelta,
+	CanvasRecordPatch,
 	CanvasRecordSaveResult,
 	CanvasService,
 	CreateCardItemResult,
@@ -258,12 +262,23 @@ export function createRepositoryWhiteboardsService(
 		},
 
 		subscribe(listener: () => void, options?: { whiteboardIds?: string[] }) {
-			return repository.subscribe(() => listener(), {
-				entityTypes: ["whiteboard", "boardItem"],
-				...(options?.whiteboardIds
-					? { whiteboardIds: options.whiteboardIds }
-					: {}),
-			});
+			if (!options?.whiteboardIds)
+				return repository.subscribe(() => listener(), {
+					entityTypes: ["whiteboard", "boardItem"],
+				});
+			const unsubscribes = [
+				repository.subscribe(() => listener(), {
+					entityTypes: ["whiteboard"],
+					entityIds: options.whiteboardIds,
+				}),
+				repository.subscribe(() => listener(), {
+					entityTypes: ["whiteboard", "boardItem"],
+					whiteboardIds: options.whiteboardIds,
+				}),
+			];
+			return () => {
+				for (const unsubscribe of unsubscribes) unsubscribe();
+			};
 		},
 	};
 }
@@ -773,12 +788,6 @@ export function createRepositoryCanvasService(
 
 			return withRetry(async () => {
 				const timestamp = now();
-				const existing = new Map(
-					(await readRecordRows(whiteboardId)).map((row) => [
-						row.recordId as string,
-						row,
-					]),
-				);
 				const writes: Parameters<typeof applyWrites>[2] = [];
 				const versions: Record<string, number> = {};
 				const clock = `${String(timestamp).padStart(13, "0")}:000000:${deviceId}`;
@@ -790,6 +799,22 @@ export function createRepositoryCanvasService(
 				}
 				const incomingRemovals = new Set(removed);
 				const legacy = await readDocumentRow(whiteboardId);
+				const touchedRecordIds = [
+					...new Set([...incomingUpserts.keys(), ...incomingRemovals]),
+				];
+				const existing = new Map<string, EntityRow>();
+				if (legacy?.storageMode === "records-v1") {
+					const rowIds = touchedRecordIds.map((id) => `${whiteboardId}:${id}`);
+					for (const row of await listRows(repository, "records", {
+						ids: rowIds,
+					}))
+						if (typeof row.recordId === "string")
+							existing.set(row.recordId, row);
+				} else {
+					for (const row of await readRecordRows(whiteboardId))
+						if (typeof row.recordId === "string")
+							existing.set(row.recordId, row);
+				}
 				if (legacy?.storageMode !== "records-v1") {
 					const documentId = legacy?.id ?? createId();
 					const legacyRecord = legacy as
@@ -808,11 +833,11 @@ export function createRepositoryCanvasService(
 							...(legacy
 								? legacyMetadata
 								: {
-								id: documentId,
-								whiteboardId,
-								documentVersion: 1,
-								createdAt: timestamp,
-								}),
+										id: documentId,
+										whiteboardId,
+										documentVersion: 1,
+										createdAt: timestamp,
+									}),
 							schema: legacySnapshot?.schema ?? legacyRecord?.schema ?? null,
 							storageMode: "records-v1",
 							updatedAt: timestamp,
@@ -920,31 +945,91 @@ export function createRepositoryCanvasService(
 		},
 
 		subscribeItems(whiteboardId, listener, options) {
-			return repository.subscribe(
-				(change) => {
-					if (
-						options?.cardIds &&
-						change.changes.every(
-							(item) =>
-								item.entityType === "card" &&
-								!options.cardIds?.includes(item.entityId),
-						)
-					)
-						return;
-					listener();
-				},
-				{
-					entityTypes: ["boardItem", "card", "cardContent", "whiteboard"],
+			const unsubscribes = [
+				repository.subscribe(() => listener(), {
+					entityTypes: ["boardItem", "whiteboard"],
 					whiteboardIds: [whiteboardId],
-				},
-			);
+				}),
+			];
+			const cardIds = options?.cardIds ?? [];
+			if (cardIds.length) {
+				unsubscribes.push(
+					repository.subscribe(() => listener(), {
+						entityTypes: ["cardContent"],
+						cardIds,
+					}),
+				);
+				unsubscribes.push(
+					repository.subscribe(() => listener(), {
+						entityTypes: ["card"],
+						entityIds: cardIds,
+					}),
+				);
+			}
+			return () => {
+				for (const unsubscribe of unsubscribes) unsubscribe();
+			};
 		},
 
 		subscribeDocument(whiteboardId, listener) {
-			return repository.subscribe(() => listener(), {
-				entityTypes: ["canvasRecord", "tldrawDocument"],
-				whiteboardIds: [whiteboardId],
-			});
+			return repository.subscribe(
+				(change) => {
+					const scoped = change.changes.filter(
+						(item) => item.whiteboardId === whiteboardId,
+					);
+					if (scoped.length === 0) return;
+					if (scoped.some((item) => item.entityType === "tldrawDocument"))
+						return listener({ kind: "reload" });
+					const changed = scoped.filter(
+						(item) => item.entityType === "canvasRecord",
+					);
+					if (changed.length === 0) return;
+					void Promise.all(
+						changed.map(async (item) => ({
+							item,
+							row: await getRow(repository, "records", item.entityId),
+						})),
+					)
+						.then((entries) => {
+							const upserts: CanvasRecordPatch["upserts"] = [];
+							const removals: CanvasRecordPatch["removals"] = [];
+							for (const { item, row } of entries) {
+								const recordId =
+									row && typeof row.recordId === "string"
+										? row.recordId
+										: whiteboardId !== null &&
+												item.entityId.startsWith(`${whiteboardId}:`)
+											? item.entityId.slice(whiteboardId.length + 1)
+											: null;
+								if (!recordId) return listener({ kind: "reload" });
+								if (item.operation === "delete" || !row || !isActiveRow(row))
+									removals.push({ recordId, revision: row?.revision ?? 0 });
+								else if (
+									!row.payload ||
+									typeof row.payload !== "object" ||
+									recordIdOf(row.payload) !== recordId
+								)
+									return listener({ kind: "reload" });
+								else
+									upserts.push({
+										recordId,
+										payload: row.payload,
+										revision: row.revision,
+									});
+							}
+							recordContextboardPerf("canvas.document.patch", {
+								detail: whiteboardId ?? "root",
+								value: entries.length,
+							});
+							listener({ kind: "patch", whiteboardId, upserts, removals });
+						})
+						.catch(() => listener({ kind: "reload" }));
+				},
+				{
+					entityTypes: ["canvasRecord", "tldrawDocument"],
+					whiteboardIds: [whiteboardId],
+				},
+			);
 		},
 	};
 }

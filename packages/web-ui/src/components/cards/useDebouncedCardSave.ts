@@ -1,5 +1,6 @@
 import {
 	recordContextboardPerf,
+	serializeCardContent,
 	useApplicationRuntime,
 } from "@contextboard/application";
 import type { JSONContent } from "@tiptap/core";
@@ -13,18 +14,21 @@ type PendingSave = {
 	cardId: string;
 	content: JSONContent;
 	serialized: string;
+	prepared: boolean;
 };
-
-const serialize = (content: JSONContent | null | undefined) =>
-	JSON.stringify(content ?? null);
 
 export function useDebouncedCardSave(
 	cardId: string,
 	delayMs = 450,
 	options?: {
 		initialContent?: JSONContent | null;
+		initialSerialized?: string | null;
 		initialVersion?: number | null;
-		onPersisted?: (result: { content: JSONContent; version: number }) => void;
+		onPersisted?: (result: {
+			content: JSONContent;
+			serialized?: string;
+			version: number;
+		}) => void;
 	},
 ) {
 	const runtime = useApplicationRuntime();
@@ -45,15 +49,18 @@ export function useDebouncedCardSave(
 		if (persistedByCardRef.current.get(pending.cardId) === pending.serialized)
 			return;
 
+		recordContextboardPerf("card.content.write", {
+			detail: pending.cardId,
+		});
 		void Promise.resolve(
-			(recordContextboardPerf("card.content.write", {
-				detail: pending.cardId,
-			}),
 			runtime.cards.updateContent({
 				cardId: pending.cardId,
 				content: pending.content,
+				...(pending.prepared
+					? { serializedContent: pending.serialized }
+					: {}),
 				expectedVersion: versionByCardRef.current.get(pending.cardId),
-			})),
+			}),
 		)
 			.then((version) => {
 				persistedByCardRef.current.set(pending.cardId, pending.serialized);
@@ -63,7 +70,13 @@ export function useDebouncedCardSave(
 				if (pendingRef.current?.cardId !== pending.cardId)
 					clearCardContentDirty(pending.cardId);
 				if (typeof version === "number")
-					onPersistedRef.current?.({ content: pending.content, version });
+					onPersistedRef.current?.({
+						content: pending.content,
+						...(pending.prepared
+							? { serialized: pending.serialized }
+							: {}),
+						version,
+					});
 			})
 			.catch((reason: unknown) => {
 				// Do not overwrite a newer edit queued while this request was in flight.
@@ -73,8 +86,20 @@ export function useDebouncedCardSave(
 	}, [runtime.cards]);
 
 	const scheduleSave = useCallback(
-		(content: JSONContent) => {
-			const serialized = serialize(content);
+		(
+			input:
+				| JSONContent
+				| { content: JSONContent; serialized: string },
+		) => {
+			const preparedInput = input as {
+				content: JSONContent;
+				serialized?: unknown;
+			};
+			const prepared = typeof preparedInput.serialized === "string";
+			const content = prepared ? preparedInput.content : (input as JSONContent);
+			const serialized = prepared
+				? (preparedInput.serialized as string)
+				: serializeCardContent(content);
 			if (persistedByCardRef.current.get(cardId) === serialized) {
 				pendingRef.current = null;
 				if (timerRef.current !== null) window.clearTimeout(timerRef.current);
@@ -82,7 +107,7 @@ export function useDebouncedCardSave(
 				clearCardContentDirty(cardId);
 				return;
 			}
-			pendingRef.current = { cardId, content, serialized };
+			pendingRef.current = { cardId, content, serialized, prepared };
 			markCardContentDirty(cardId);
 			if (timerRef.current !== null) window.clearTimeout(timerRef.current);
 			timerRef.current = window.setTimeout(flushSave, delayMs);
@@ -97,9 +122,17 @@ export function useDebouncedCardSave(
 			if (versionByCardRef.current.get(cardId) === version || hasPending) return;
 			versionByCardRef.current.set(cardId, version);
 		}
-		persistedByCardRef.current.set(cardId, serialize(options?.initialContent));
+		persistedByCardRef.current.set(
+			cardId,
+			options?.initialSerialized ?? serializeCardContent(options?.initialContent),
+		);
 		setError(null);
-	}, [cardId, options?.initialContent, options?.initialVersion]);
+	}, [
+		cardId,
+		options?.initialContent,
+		options?.initialSerialized,
+		options?.initialVersion,
+	]);
 
 	useEffect(
 		() => () => {

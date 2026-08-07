@@ -1,26 +1,26 @@
-import { useWhiteboardNavigation } from "./navigation";
+import {
+	normalizeImageSources,
+	serializeCardContent,
+} from "@contextboard/application";
+import { StaticRichTextRenderer } from "@contextboard/editor";
 import type { JSONContent } from "@tiptap/core";
 import { useSetAtom } from "jotai";
 import { useCallback, useContext, useEffect, useMemo, useRef } from "react";
-import { useEditor, useIsEditing } from "tldraw";
+import { useIsEditing } from "tldraw";
+import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
 import { CardDocumentEditor } from "../cards/CardDocumentEditor";
 import { useDebouncedCardSave } from "../cards/useDebouncedCardSave";
-import { StaticRichTextRenderer } from "@contextboard/editor";
+import { useCardContentEntry, useCardContentStore } from "./card-content-store";
 import type { Id } from "./ids";
-import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import {
 	isEmptyCardContent,
 	MarkdownCardOpenLink,
 	MarkdownCardShell,
-	parseMarkdownContent,
 } from "./MarkdownCardShell";
+import { useWhiteboardNavigation } from "./navigation";
 import { useMarkdownCardAutoHeight } from "./useMarkdownCardAutoHeight";
 import { WhiteboardCardContext } from "./WhiteboardCardContext";
-import {
-	useCardContentEntry,
-	useCardContentStore,
-} from "./card-content-store";
 
 const MIN_HEIGHT = 96;
 
@@ -29,7 +29,6 @@ export function PersistedMarkdownCardComponent({
 }: {
 	shape: MarkdownCardShape;
 }) {
-	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
 	const navigation = useWhiteboardNavigation();
 	const cardId = shape.props.cardId as Id<"cards">;
@@ -38,30 +37,35 @@ export function PersistedMarkdownCardComponent({
 	const contentStore = useCardContentStore();
 	const contentEntry = useCardContentEntry(cardId);
 	const currentContent = useMemo(
-		() =>
-			contentEntry.draft ??
-			contentEntry.persistedDocument ??
-			parseMarkdownContent(shape.props.content),
-		[contentEntry, shape.props.content],
+		() => contentEntry.draft ?? contentEntry.persistedDocument,
+		[contentEntry.draft, contentEntry.persistedDocument],
 	);
-	const { scheduleSave: schedulePersistedSave, flushSave, error: saveError } =
-		useDebouncedCardSave(cardId, 450, {
-			initialContent: currentContent,
-			initialVersion:
-				contentEntry.persistedVersion ?? shape.props.contentVersion ?? null,
-			onPersisted: ({ content, version }) => {
-				contentStore.acknowledge(cardId, content, version);
-			},
-		});
+	const {
+		scheduleSave: schedulePersistedSave,
+		flushSave,
+		error: saveError,
+	} = useDebouncedCardSave(cardId, 450, {
+		initialContent: currentContent,
+		initialSerialized: contentEntry.draftSerialized,
+		initialVersion:
+			contentEntry.persistedVersion ?? shape.props.contentVersion ?? null,
+		onPersisted: ({ content, serialized, version }) => {
+			contentStore.acknowledge(
+				cardId,
+				content,
+				version,
+				serialized ?? serializeCardContent(content),
+			);
+		},
+	});
 	useEffect(() => {
 		if (saveError) contentStore.setError(cardId, saveError);
 	}, [cardId, contentStore, saveError]);
-	const { cardRef, setIsContentReady, latestPropsRef, measureNextHeight } =
-		useMarkdownCardAutoHeight({
-			shape,
-			minHeight: MIN_HEIGHT,
-			isEditing,
-		});
+	const { cardRef, setIsContentReady } = useMarkdownCardAutoHeight({
+		shape,
+		minHeight: MIN_HEIGHT,
+		isEditing,
+	});
 
 	// On tap-out the card stops being the editing shape, which removes the guard
 	// that protects unsaved local content. Flush the pending save immediately so
@@ -78,35 +82,12 @@ export function PersistedMarkdownCardComponent({
 
 	const scheduleSave = useCallback(
 		(value: JSONContent) => {
-			contentStore.setDraft(cardId, value);
-			const latestProps = latestPropsRef.current;
-			const nextHeight = measureNextHeight();
-
-			editor.run(
-				() => {
-					editor.updateShape<MarkdownCardShape>({
-						id: shape.id,
-						type: "markdown-card",
-						props: {
-							...latestProps,
-							h: nextHeight,
-						},
-					});
-				},
-				{ history: "ignore" },
-			);
-
-			schedulePersistedSave(value);
+			const content = normalizeImageSources(value);
+			const serialized = serializeCardContent(content);
+			contentStore.setDraft(cardId, content, serialized);
+			schedulePersistedSave({ content, serialized });
 		},
-		[
-			cardId,
-			contentStore,
-			editor,
-			latestPropsRef,
-			measureNextHeight,
-			schedulePersistedSave,
-			shape.id,
-		],
+		[cardId, contentStore, schedulePersistedSave],
 	);
 
 	return (
