@@ -143,6 +143,23 @@ class SqliteCollection<T> implements RowCollection<T> {
 			Math.max(0, count),
 		);
 	}
+
+	reverse() {
+		const currentSorter = this.sorter;
+		const sorter = currentSorter
+			? (left: T, right: T) => -currentSorter(left, right)
+			: undefined;
+		return new SqliteCollection(this.table, this.predicate, sorter, this.maximum);
+	}
+
+	filter(predicate: (row: T) => boolean) {
+		return new SqliteCollection(
+			this.table,
+			(row) => this.predicate(row) && predicate(row),
+			this.sorter,
+			this.maximum,
+		);
+	}
 }
 
 class SqliteWhereClause<T> implements RowWhereClause<T> {

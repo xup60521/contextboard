@@ -250,7 +250,8 @@ function isWorkspaceChange(value: unknown): value is WorkspaceChange {
 			(change) =>
 				!!change &&
 				typeof change.entityType === "string" &&
-				typeof change.entityId === "string",
+				typeof change.entityId === "string" &&
+				(change.operation === "upsert" || change.operation === "delete"),
 		)
 	);
 }

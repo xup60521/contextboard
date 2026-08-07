@@ -9,7 +9,44 @@ import {
 	HttpSyncTransport,
 	SyncCoordinator,
 	type WorkspaceRepository,
+	workspaceChangeMatches,
 } from "./index";
+
+describe("workspaceChangeMatches", () => {
+	test("does not deliver unscoped changes to board subscriptions", () => {
+		expect(
+			workspaceChangeMatches(
+				{
+					origin: "local",
+					changes: [
+						{
+							entityType: "card",
+							entityId: "card-1",
+							operation: "upsert",
+						},
+					],
+				},
+				{ whiteboardIds: ["board-1"] },
+			),
+		).toBe(false);
+	});
+
+	test("scopes card content notifications by card id", () => {
+		const change = {
+			origin: "remote" as const,
+			changes: [
+				{
+					entityType: "cardContent" as const,
+					entityId: "content-1",
+					operation: "upsert" as const,
+					cardId: "card-1",
+				},
+			],
+		};
+		expect(workspaceChangeMatches(change, { cardIds: ["card-1"] })).toBe(true);
+		expect(workspaceChangeMatches(change, { cardIds: ["card-2"] })).toBe(false);
+	});
+});
 
 const batch: ChangeBatch = {
 	protocolVersion: SYNC_PROTOCOL_VERSION,
@@ -40,6 +77,7 @@ describe("SyncCoordinator", () => {
 				enabled: true,
 				updatedAt: 1,
 				lastSyncedAt: null,
+				lastAckAt: null,
 			}),
 			applyRemote: async (_batches, _peerId, cursor) => {
 				applied.push(cursor);
@@ -80,6 +118,7 @@ describe("SyncCoordinator", () => {
 				enabled: true,
 				updatedAt: 1,
 				lastSyncedAt: null,
+				lastAckAt: null,
 			}),
 			applyRemote: async () => {
 				applyCalls += 1;
@@ -120,6 +159,7 @@ describe("SyncCoordinator", () => {
 				enabled: true,
 				updatedAt: 1,
 				lastSyncedAt: null,
+				lastAckAt: null,
 			}),
 			applyRemote: async () => ({ applied: 0, conflicts: 0 }),
 			updateSyncCursor: async () => undefined,
@@ -162,6 +202,7 @@ describe("SyncCoordinator", () => {
 				enabled: true,
 				updatedAt: 1,
 				lastSyncedAt: null,
+				lastAckAt: null,
 			}),
 			applyRemote: async () => ({ applied: 0, conflicts: 0 }),
 			updateSyncCursor: async () => undefined,

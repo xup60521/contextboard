@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
 	acknowledgeBatches,
 	applyRemoteBatches,
+	compactUnpeeredPendingBatches,
 	ContextboardDatabase,
 	ensureLocalIdentity,
 	getPendingBatches,
@@ -79,6 +80,7 @@ describe("local database", () => {
 			enabled: true,
 			updatedAt: 1,
 			lastSyncedAt: 1,
+			lastAckAt: null,
 		});
 
 		await rebindWorkspaceId(db, identity.workspaceId, "canonical-workspace");
@@ -491,6 +493,59 @@ describe("local database", () => {
 		);
 	});
 
+	test("leases live peers and snapshots once their acknowledgement is stale", async () => {
+		const db = makeDb();
+		const identity = await ensureLocalIdentity(db);
+		const now = 40 * 24 * 60 * 60 * 1_000;
+		await db.todos.put({
+			id: "leased-todo",
+			text: "Preserved",
+			completed: false,
+			revision: 1,
+			createdAt: 1,
+			updatedAt: 1,
+			updatedByDeviceId: identity.deviceId,
+			deletedAt: null,
+		});
+		await db.changeLog.put({
+			protocolVersion: SYNC_PROTOCOL_VERSION,
+			schemaVersion: SYNC_SCHEMA_VERSION,
+			changeId: "leased-change",
+			workspaceId: identity.workspaceId,
+			deviceId: identity.deviceId,
+			deviceSequence: 1,
+			clock: "0000000000001:000000:device",
+			command: "todos.add",
+			createdAt: 1,
+			changes: [],
+		});
+		await db.syncPeers.put({
+			peerId: "contextboard-cloud",
+			url: "",
+			cursor: null,
+			enabled: true,
+			updatedAt: now,
+			lastSyncedAt: null,
+			lastAckAt: now,
+		});
+
+		await compactUnpeeredPendingBatches(db, now);
+		expect((await db.changeLog.toArray())[0]?.command).toBe("todos.add");
+
+		await db.syncPeers.update("contextboard-cloud", {
+			lastAckAt: now - 31 * 24 * 60 * 60 * 1_000,
+			lastSyncedAt: null,
+			updatedAt: now - 31 * 24 * 60 * 60 * 1_000,
+		});
+		await compactUnpeeredPendingBatches(db, now);
+		const pending = await db.changeLog.toArray();
+		expect(pending).toHaveLength(1);
+		expect(pending[0]?.command).toBe("maintenance.compactPendingChanges");
+		expect(pending[0]?.changes).toContainEqual(
+			expect.objectContaining({ entityId: "leased-todo" }),
+		);
+	});
+
 	test("skips an echoed local batch while atomically advancing the cursor", async () => {
 		const db = makeDb();
 		const identity = await ensureLocalIdentity(db);
@@ -530,6 +585,9 @@ describe("local database", () => {
 		);
 		const [localBatch] = await db.changeLog.toArray();
 		await acknowledgeBatches(db, [localBatch.changeId]);
+		expect(
+			(await db.syncPeers.get("contextboard-cloud"))?.lastAckAt,
+		).toEqual(expect.any(Number));
 		const result = await applyRemoteBatches(
 			db,
 			[localBatch],

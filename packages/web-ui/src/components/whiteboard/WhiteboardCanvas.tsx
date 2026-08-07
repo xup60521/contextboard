@@ -32,6 +32,7 @@ import { useFocusShape } from "./hooks/useFocusShape";
 import { useFrameSync } from "./hooks/useFrameSync";
 import { useItemCreation } from "./hooks/useItemCreation";
 import { useItemsHydration } from "./hooks/useItemsHydration";
+import { useLegacyCardContentMigration } from "./hooks/useLegacyCardContentMigration";
 import { usePasteResolution } from "./hooks/usePasteResolution";
 import { useRightDragPan } from "./hooks/useRightDragPan";
 import { useStoreListener } from "./hooks/useStoreListener";
@@ -107,6 +108,8 @@ export function WhiteboardCanvas({
 		items,
 		itemsReady,
 		tldrawDocument,
+		documentPatches,
+		reloadDocument,
 		createCardItem,
 		createSubwhiteboardItem,
 		updateItemFrames,
@@ -230,6 +233,8 @@ export function WhiteboardCanvas({
 		whiteboardId,
 		whiteboardKey,
 		tldrawDocument,
+		documentPatches,
+		reloadDocument,
 		itemsReady: itemQuery.status !== "LoadingFirstPage",
 		hydratingRef,
 		drawingSaveState,
@@ -246,10 +251,17 @@ export function WhiteboardCanvas({
 			contentStore: cardContentStore,
 		});
 
+	const legacyCardContentReady = useLegacyCardContentMigration({
+		editor,
+		loadedDrawingKey,
+		whiteboardKey,
+		contentStore: cardContentStore,
+	});
+
 	useItemsHydration({
 		editor,
 		items,
-		itemsReady,
+		itemsReady: itemsReady && legacyCardContentReady,
 		loadedDrawingKey,
 		whiteboardKey,
 		deferredBindingsRef,
@@ -309,6 +321,7 @@ export function WhiteboardCanvas({
 		workspaceId,
 		restoreOrAdoptCardItem,
 		protectedPasteShapeIdsRef,
+		contentStore: cardContentStore,
 	});
 
 	useStoreListener({

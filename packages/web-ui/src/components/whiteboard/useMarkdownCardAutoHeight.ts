@@ -76,7 +76,8 @@ export function useMarkdownCardAutoHeight({
 		}
 
 		if (
-			Math.abs(nextHeight - latestProps.h) < (isOneShot ? ONE_SHOT_MIN_DELTA : 1)
+			Math.abs(nextHeight - latestProps.h) <
+			(isOneShot ? ONE_SHOT_MIN_DELTA : 1)
 		) {
 			return;
 		}
@@ -142,8 +143,5 @@ export function useMarkdownCardAutoHeight({
 		cardRef,
 		isContentReady,
 		setIsContentReady,
-		latestPropsRef,
-		measureNextHeight,
-		scheduleSyncHeight,
 	};
 }

@@ -20,8 +20,11 @@ type BaseEntityListFilter = {
 	ids?: readonly string[];
 };
 
+type SummaryProjection = { projection?: "full" | "summary" };
+
 export type EntityListFilterByCollection = {
-	cards: BaseEntityListFilter;
+	cards: BaseEntityListFilter &
+		SummaryProjection & { searchTerm?: string; limit?: number };
 	cardContents: BaseEntityListFilter & { cardIds?: readonly string[] };
 	items: BaseEntityListFilter & {
 		whiteboardId?: string | null;
@@ -29,13 +32,33 @@ export type EntityListFilterByCollection = {
 		cardIds?: readonly string[];
 		childWhiteboardIds?: readonly string[];
 	};
-	whiteboards: BaseEntityListFilter & { parentWhiteboardIds?: readonly (string | null)[] };
-	cardReferences: BaseEntityListFilter & { sourceCardIds?: readonly string[]; targetCardIds?: readonly string[] };
-	fileReferences: BaseEntityListFilter & { targetKeys?: readonly string[]; fileIds?: readonly string[] };
-	cardRelations: BaseEntityListFilter & { whiteboardId?: string | null; whiteboardIds?: readonly (string | null)[]; cardIds?: readonly string[] };
-	records: BaseEntityListFilter & { whiteboardId?: string | null; whiteboardIds?: readonly (string | null)[] };
-	tldrawDocuments: BaseEntityListFilter & { whiteboardId?: string | null; whiteboardIds?: readonly (string | null)[] };
-	files: BaseEntityListFilter;
+	whiteboards: BaseEntityListFilter & {
+		parentWhiteboardIds?: readonly (string | null)[];
+		searchTerm?: string;
+		limit?: number;
+	};
+	cardReferences: BaseEntityListFilter & {
+		sourceCardIds?: readonly string[];
+		targetCardIds?: readonly string[];
+	};
+	fileReferences: BaseEntityListFilter & {
+		targetKeys?: readonly string[];
+		fileIds?: readonly string[];
+	};
+	cardRelations: BaseEntityListFilter & {
+		whiteboardId?: string | null;
+		whiteboardIds?: readonly (string | null)[];
+		cardIds?: readonly string[];
+	};
+	records: BaseEntityListFilter & {
+		whiteboardId?: string | null;
+		whiteboardIds?: readonly (string | null)[];
+	};
+	tldrawDocuments: BaseEntityListFilter & {
+		whiteboardId?: string | null;
+		whiteboardIds?: readonly (string | null)[];
+	};
+	files: BaseEntityListFilter & SummaryProjection;
 	conflicts: BaseEntityListFilter;
 	todos: BaseEntityListFilter;
 };

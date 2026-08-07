@@ -172,6 +172,7 @@ export type PersistedSyncState = {
 	enabled: boolean;
 	updatedAt: number;
 	lastSyncedAt: number | null;
+	lastAckAt: number | null;
 };
 
 export type WorkspaceCheckpoint = {

@@ -14,7 +14,7 @@ export type MarkdownCardShape = TLBaseShape<
 	{
 		w: number;
 		h: number;
-		content: string;
+		content?: string;
 		cardId?: string;
 		originWorkspaceId?: string;
 		title?: string;
@@ -33,6 +33,8 @@ export type SubwhiteboardLinkShape = TLBaseShape<
 		subwhiteboardId: string;
 		childWhiteboardId?: string;
 		depth?: number;
+		cardCount?: number;
+		childWhiteboardCount?: number;
 	}
 >;
 
@@ -45,7 +47,7 @@ export const textCardShapeProps = {
 export const markdownCardShapeProps = {
 	w: T.number,
 	h: T.number,
-	content: T.string,
+	content: T.string.optional(),
 	cardId: T.string.optional(),
 	originWorkspaceId: T.string.optional(),
 	title: T.string.optional(),
@@ -61,6 +63,8 @@ export const subwhiteboardLinkShapeProps = {
 	subwhiteboardId: T.string,
 	childWhiteboardId: T.string.optional(),
 	depth: T.number.optional(),
+	cardCount: T.number.optional(),
+	childWhiteboardCount: T.number.optional(),
 } satisfies RecordProps<SubwhiteboardLinkShape>;
 
 export function getBoxIndicatorPath(width: number, height: number) {

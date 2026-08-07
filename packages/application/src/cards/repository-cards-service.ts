@@ -23,6 +23,7 @@ import type {
 	CardSortOrder,
 	CardSummary,
 	CardsService,
+	EnsureLegacyCardContentInput,
 	ListCardsOptions,
 	UpdateCardContentInput,
 } from "../runtime";
@@ -32,6 +33,7 @@ import {
 	DEFAULT_CARD_TITLE,
 	deriveCardMetadata,
 	normalizeCardContent,
+	serializeCardContent,
 } from "./card-content";
 import { estimateCardHeight } from "./estimate-card-height";
 
@@ -202,10 +204,17 @@ export function createRepositoryCardsService(
 		return row && isActive(row) ? row : null;
 	}
 
-	async function listCards(): Promise<CardEntity[]> {
+	async function listCards(
+		filter: {
+			ids?: readonly string[];
+			searchTerm?: string;
+			limit?: number;
+			projection?: "full" | "summary";
+		} = {},
+	): Promise<CardEntity[]> {
 		const raw = await repository.query<unknown>({
 			type: "cards.list",
-			input: {},
+			input: filter,
 		});
 		return (Array.isArray(raw) ? raw : [])
 			.map(normalize)
@@ -413,7 +422,10 @@ export function createRepositoryCardsService(
 				? listRows(repository, "fileReferences", { fileIds: affectedFileIds })
 				: Promise.resolve([]),
 			affectedFileIds.length
-				? listRows(repository, "files", { ids: affectedFileIds })
+				? listRows(repository, "files", {
+						ids: affectedFileIds,
+						projection: "summary",
+					})
 				: Promise.resolve([]),
 		]);
 		const plan = planReferences(
@@ -432,9 +444,9 @@ export function createRepositoryCardsService(
 	async function archive(cardIds: string[], commandType: string) {
 		if (cardIds.length === 0) return;
 		const [cards, items, relations] = await Promise.all([
-			listCards(),
-			listRows(repository, "items"),
-			listRows(repository, "cardRelations"),
+			listCards({ ids: cardIds, projection: "summary" }),
+			listRows(repository, "items", { cardIds }),
+			listRows(repository, "cardRelations", { cardIds }),
 		]);
 		const cardById = new Map(cards.map((card) => [card.id, card]));
 		const snapshots: ArchiveCardSnapshot[] = [];
@@ -527,7 +539,13 @@ export function createRepositoryCardsService(
 
 	return {
 		async list(listOptions: ListCardsOptions = {}) {
-			const rows = await listCards();
+			const rows = await listCards({
+				...(listOptions.ids ? { ids: listOptions.ids } : {}),
+				...(listOptions.searchTerm
+					? { searchTerm: listOptions.searchTerm }
+					: {}),
+				projection: "summary",
+			});
 			const term = listOptions.searchTerm?.trim().toLocaleLowerCase() ?? "";
 			let filtered = term
 				? rows.filter((row) =>
@@ -605,9 +623,12 @@ export function createRepositoryCardsService(
 		async updateContent({
 			cardId,
 			content,
+			serializedContent,
 			expectedVersion,
 		}: UpdateCardContentInput) {
 			const normalizedContent = normalizeImageSources(content);
+			const normalizedSerialized =
+				serializedContent ?? serializeCardContent(normalizedContent);
 			return withRetry(async () => {
 				const row = await read(cardId);
 				if (!row) throw new Error("Card not found");
@@ -623,10 +644,10 @@ export function createRepositoryCardsService(
 					expectedVersion !== row.contentVersion
 				)
 					throw new Error("Card was updated elsewhere");
-				if (
-					contentRow &&
-					JSON.stringify(normalizedContent) === JSON.stringify(row.content)
-				)
+				const storedContent = hasMaterializedCardContent(contentRow)
+					? contentRow.document
+					: row.content;
+				if (normalizedSerialized === serializeCardContent(storedContent))
 					return row.contentVersion;
 				const contentVersion = row.contentVersion + 1;
 				const value: CardEntity = {
@@ -670,6 +691,75 @@ export function createRepositoryCardsService(
 			});
 		},
 
+		async ensureLegacyContent({
+			cardId,
+			content,
+			contentVersion: legacyVersion,
+		}: EnsureLegacyCardContentInput) {
+			return withRetry(async () => {
+				const [rawCard, contentRow] = await Promise.all([
+					repository.query<Record<string, unknown> | null>({
+						type: "cards.get",
+						input: { id: cardId },
+					}),
+					repository.query<Record<string, unknown> | null>({
+						type: "cardContents.get",
+						input: { id: cardId },
+					}),
+				]);
+				const existingContentRevision =
+					typeof contentRow?.revision === "number" ? contentRow.revision : 0;
+				if (hasMaterializedCardContent(contentRow)) {
+					return {
+						content: contentRow.document,
+						version: Number(contentRow.contentVersion ?? 1),
+					};
+				}
+				const row = normalize(rawCard);
+				if (!row || !isActive(row)) throw new Error("Card not found");
+				const normalizedContent = normalizeImageSources(
+					normalizeCardContent(content),
+				);
+				const contentVersion = Math.max(
+					1,
+					Number(legacyVersion ?? row.contentVersion ?? 1),
+				);
+				const referenceWrites = await planReferenceWrites(
+					cardId,
+					normalizedContent,
+				);
+				await applyWrites(repository, "cards.ensureLegacyContent", [
+					{
+						entity: "card",
+						operation: "upsert",
+						id: cardId,
+						value: {
+							...row,
+							content: null,
+							...deriveCardMetadata(normalizedContent),
+							contentVersion,
+						},
+						expectedRevision: row.revision,
+					},
+					{
+						entity: "cardContent",
+						operation: "upsert",
+						id: cardId,
+						value: {
+							id: cardId,
+							cardId,
+							document: normalizedContent,
+							contentVersion,
+							clock: "",
+						},
+						expectedRevision: existingContentRevision,
+					},
+					...referenceWrites,
+				]);
+				return { content: normalizedContent, version: contentVersion };
+			});
+		},
+
 		async delete(cardId: string) {
 			await archive([cardId], "cards.delete");
 		},
@@ -693,10 +783,28 @@ export function createRepositoryCardsService(
 			whiteboardId,
 		}) {
 			const term = query.trim().toLocaleLowerCase();
-			const [cards, items] = await Promise.all([
-				listCards(),
-				listRows(repository, "items"),
-			]);
+			const scopedItems =
+				!term && whiteboardId
+					? await listRows(repository, "items", { whiteboardId })
+					: [];
+			const scopedCardIds = [
+				...new Set(
+					scopedItems.flatMap((item) =>
+						typeof item.cardId === "string" ? [item.cardId] : [],
+					),
+				),
+			];
+			const cards = await listCards({
+				...(term ? { searchTerm: term } : {}),
+				...(!term && whiteboardId ? { ids: scopedCardIds } : {}),
+				limit: term || !whiteboardId ? limit : undefined,
+				projection: "summary",
+			});
+			const items = term
+				? await listRows(repository, "items", {
+						cardIds: cards.map((card) => card.id),
+					})
+				: scopedItems;
 			const activeItems = items.filter(isActiveRow);
 			// An empty query is "show me this board's recent cards"; typing makes
 			// the search global.

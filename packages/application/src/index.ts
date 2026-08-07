@@ -1,7 +1,8 @@
+export { recordContextboardPerf } from "@contextboard/client-core";
 export {
 	ApplicationRuntimeProvider,
-	ApplicationSyncStatusProvider,
 	type ApplicationRuntimeProviderProps,
+	ApplicationSyncStatusProvider,
 	type AsyncState,
 	useApplicationRuntime,
 	useApplicationSyncStatus,
@@ -14,6 +15,7 @@ export {
 	DEFAULT_CARD_CONTENT,
 	DEFAULT_CARD_TITLE,
 	deriveCardMetadata,
+	serializeCardContent,
 	textToCardContent,
 } from "./cards/card-content";
 export {
@@ -33,9 +35,9 @@ export { createRepositoryCardRelationsService } from "./relations/repository-car
 export {
 	applyWrites,
 	type EntityCollection,
-	type EntityRow,
 	type EntityListFilter,
 	type EntityListFilterByCollection,
+	type EntityRow,
 	getRow,
 	isActiveRow,
 	listActiveRows,
@@ -45,10 +47,12 @@ export type {
 	AppendCardPlacement,
 	ApplicationPlatform,
 	ApplicationRuntime,
+	CanvasDocumentChange,
 	CanvasItem,
 	CanvasItemCard,
 	CanvasItemFrameUpdate,
 	CanvasItemWhiteboard,
+	CanvasRecordPatch,
 	CanvasService,
 	CardBacklink,
 	CardDetail,
@@ -62,6 +66,7 @@ export type {
 	CardsService,
 	CreateCardItemResult,
 	CreateSubwhiteboardResult,
+	EnsureLegacyCardContentInput,
 	FileDescriptor,
 	FileRuntime,
 	GlobalCardSearchResult,
@@ -83,4 +88,3 @@ export type {
 } from "./runtime";
 export { createRepositorySearchService } from "./search/repository-search-service";
 export * from "./workspace";
-export { recordContextboardPerf } from "@contextboard/client-core";

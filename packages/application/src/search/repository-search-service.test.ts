@@ -62,7 +62,7 @@ describe("repository search performance", () => {
 		});
 		expect(repository.queryLog).toContainEqual({
 			type: "cards.list",
-			input: { ids: ["card-1"] },
+			input: { ids: ["card-1"], projection: "summary" },
 		});
 	});
 });

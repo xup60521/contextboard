@@ -1,3 +1,7 @@
+import {
+	normalizeImageSources,
+	serializeCardContent,
+} from "@contextboard/application";
 import type { JSONContent } from "@tiptap/core";
 import { CardDocumentEditor } from "../cards/CardDocumentEditor";
 import { useDebouncedCardSave } from "../cards/useDebouncedCardSave";
@@ -32,6 +36,7 @@ export function CardEditorPane({
 		useCardReferenceSupport(whiteboardId);
 	const { scheduleSave } = useDebouncedCardSave(cardId, 450, {
 		initialContent: content,
+		initialSerialized: serializeCardContent(content),
 	});
 
 	return (
@@ -39,7 +44,13 @@ export function CardEditorPane({
 			<CardDocumentEditor
 				key={cardId}
 				content={content}
-				onChange={scheduleSave}
+				onChange={(value) => {
+					const normalized = normalizeImageSources(value);
+					scheduleSave({
+						content: normalized,
+						serialized: serializeCardContent(normalized),
+					});
+				}}
 				onReady={onEditorReady}
 				whiteboardId={whiteboardId}
 				cardReferenceSupport={support}

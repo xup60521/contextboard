@@ -119,3 +119,8 @@ export function normalizeCardContent(value: unknown): unknown {
 		return DEFAULT_CARD_CONTENT;
 	}
 }
+
+/** Canonical representation reused across the editor and persistence path. */
+export function serializeCardContent(value: unknown): string {
+	return JSON.stringify(value ?? null);
+}

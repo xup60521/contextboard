@@ -1,13 +1,18 @@
-import { useMemo } from "react";
-import { stopEventPropagation, useEditor, useIsEditing } from "tldraw";
-import { StaticRichTextRenderer } from "@contextboard/editor";
-import { RichTextEditor } from "@contextboard/editor";
+import {
+	DEFAULT_CARD_CONTENT,
+	normalizeImageSources,
+	serializeCardContent,
+} from "@contextboard/application";
+import { RichTextEditor, StaticRichTextRenderer } from "@contextboard/editor";
+import type { JSONContent } from "@tiptap/core";
+import { useEffect } from "react";
+import { stopEventPropagation, useIsEditing } from "tldraw";
+import { useCardContentEntry, useCardContentStore } from "./card-content-store";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import {
 	isEmptyCardContent,
 	MarkdownCardOpenLink,
 	MarkdownCardShell,
-	parseMarkdownContent,
 } from "./MarkdownCardShell";
 import { useMarkdownCardAutoHeight } from "./useMarkdownCardAutoHeight";
 
@@ -18,19 +23,25 @@ export function LocalMarkdownCardComponent({
 }: {
 	shape: MarkdownCardShape;
 }) {
-	const editor = useEditor();
 	const isEditing = useIsEditing(shape.id);
-	const currentContent = useMemo(
-		() => parseMarkdownContent(shape.props.content),
-		[shape.props.content],
-	);
+	const contentStore = useCardContentStore();
+	const contentEntry = useCardContentEntry(shape.id);
+	const initialContent = DEFAULT_CARD_CONTENT as JSONContent;
+	const currentContent = contentEntry.draft ?? initialContent;
+	useEffect(() => {
+		if (contentEntry.status !== "idle") return;
+		contentStore.setDraft(
+			shape.id,
+			initialContent,
+			serializeCardContent(initialContent),
+		);
+	}, [contentEntry.status, contentStore, shape.id]);
 	const staticContent = currentContent;
-	const { cardRef, setIsContentReady, latestPropsRef, measureNextHeight } =
-		useMarkdownCardAutoHeight({
-			shape,
-			minHeight: MIN_HEIGHT,
-			isEditing,
-		});
+	const { cardRef, setIsContentReady } = useMarkdownCardAutoHeight({
+		shape,
+		minHeight: MIN_HEIGHT,
+		isEditing,
+	});
 	const selectInitialContent = isEmptyCardContent(currentContent);
 
 	return (
@@ -63,22 +74,11 @@ export function LocalMarkdownCardComponent({
 						contentClassName="min-h-6"
 						placeholder="Type '/' for commands"
 						onChange={(value) => {
-							const latestProps = latestPropsRef.current;
-							const nextHeight = measureNextHeight();
-
-							editor.run(
-								() => {
-									editor.updateShape<MarkdownCardShape>({
-										id: shape.id,
-										type: "markdown-card",
-										props: {
-											...latestProps,
-											content: JSON.stringify(value),
-											h: nextHeight,
-										},
-									});
-								},
-								{ history: "ignore" },
+							const content = normalizeImageSources(value);
+							contentStore.setDraft(
+								shape.id,
+								content,
+								serializeCardContent(content),
 							);
 						}}
 						onReady={() => setIsContentReady(true)}

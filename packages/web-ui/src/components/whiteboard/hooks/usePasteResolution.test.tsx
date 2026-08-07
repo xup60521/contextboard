@@ -36,6 +36,7 @@ function renderResolution({
 		pageToScreen: vi.fn(() => ({ x: 100, y: 120 })),
 		getShape: vi.fn(() => shape),
 		updateShape: vi.fn(),
+		updateShapes: vi.fn(),
 	} as unknown as Editor;
 	const protectedPasteShapeIdsRef = { current: new Set<string>() };
 	const seen: {

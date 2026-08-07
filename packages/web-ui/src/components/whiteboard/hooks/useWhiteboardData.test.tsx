@@ -10,7 +10,7 @@ import {
 import { createMemoryWorkspaceRepository } from "@contextboard/application/testing";
 import { render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { useWhiteboardData } from "./useWhiteboardData";
 
 function createRuntime() {
@@ -103,6 +103,37 @@ describe("useWhiteboardData", () => {
 				"shape:a": { id: "shape:a", typeName: "shape" },
 			});
 		});
+	});
+
+	test("streams later drawing writes as patches without reloading the document", async () => {
+		const runtime = createRuntime();
+		const boardId = await runtime.whiteboards!.createRoot();
+		await runtime.canvas!.applyRecordChanges({
+			whiteboardId: boardId,
+			added: [{ id: "shape:a", typeName: "shape", x: 1 }],
+			updated: [],
+			removed: [],
+		});
+		const getDocument = vi.spyOn(runtime.canvas!, "getDocument");
+		const seen = renderData(runtime, boardId);
+		await waitFor(() =>
+			expect(seen.current?.tldrawDocument).not.toBeUndefined(),
+		);
+		getDocument.mockClear();
+
+		await runtime.canvas!.applyRecordChanges({
+			whiteboardId: boardId,
+			added: [],
+			updated: [{ id: "shape:a", typeName: "shape", x: 2 }],
+			removed: [],
+		});
+
+		await waitFor(() => expect(seen.current?.documentPatches).toHaveLength(1));
+		expect(seen.current?.documentPatches[0]?.upserts[0]).toMatchObject({
+			recordId: "shape:a",
+			revision: 2,
+		});
+		expect(getDocument).not.toHaveBeenCalled();
 	});
 
 	test("reports a missing board as not found", async () => {

@@ -63,6 +63,7 @@ export type CardDetail = CardSummary & {
 };
 
 export type ListCardsOptions = {
+	ids?: readonly string[];
 	searchTerm?: string;
 	sortBy?: CardSortOrder;
 	orphanOnly?: boolean;
@@ -71,7 +72,15 @@ export type ListCardsOptions = {
 export type UpdateCardContentInput = {
 	cardId: string;
 	content: unknown;
+	/** Canonical serialization of `content`, when prepared by the caller. */
+	serializedContent?: string;
 	expectedVersion?: number;
+};
+
+export type EnsureLegacyCardContentInput = {
+	cardId: string;
+	content: unknown;
+	contentVersion?: number;
 };
 
 /**
@@ -120,6 +129,15 @@ export type SearchResults = {
 	whiteboards: WhiteboardSearchResult[];
 };
 
+export type CanvasRecordPatch = {
+	kind: "patch";
+	whiteboardId: string | null;
+	upserts: Array<{ recordId: string; payload: unknown; revision: number }>;
+	removals: Array<{ recordId: string; revision: number }>;
+};
+
+export type CanvasDocumentChange = CanvasRecordPatch | { kind: "reload" };
+
 export interface SearchService {
 	search(input: {
 		term: string;
@@ -135,6 +153,9 @@ export interface CardsService {
 	getMany(cardIds: string[]): Promise<Array<CardDetail | null>>;
 	create(input?: { content?: unknown }): Promise<string>;
 	updateContent(input: UpdateCardContentInput): Promise<number>;
+	ensureLegacyContent(
+		input: EnsureLegacyCardContentInput,
+	): Promise<{ content: unknown; version: number }>;
 	delete(cardId: string): Promise<void>;
 	deleteMany(cardIds: string[]): Promise<void>;
 	appendToWhiteboard(
@@ -383,7 +404,7 @@ export interface CanvasService {
 	): () => void;
 	subscribeDocument(
 		whiteboardId: string | null,
-		listener: () => void,
+		listener: (change: CanvasDocumentChange) => void,
 	): () => void;
 }
 

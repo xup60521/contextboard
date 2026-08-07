@@ -38,6 +38,8 @@ export interface RowCollection<T> {
 	toArray(): Promise<T[]>;
 	count(): Promise<number>;
 	limit(count: number): RowCollection<T>;
+	reverse(): RowCollection<T>;
+	filter(predicate: (row: T) => boolean): RowCollection<T>;
 }
 
 export interface RowWhereClause<T> {
@@ -98,6 +100,7 @@ export type SyncPeer = {
 	enabled: boolean;
 	updatedAt: number;
 	lastSyncedAt: number | null;
+	lastAckAt: number | null;
 };
 export type AppliedChangeBatch = {
 	changeId: string;
@@ -254,6 +257,44 @@ export class ContextboardDatabase extends Dexie {
 					});
 				}
 			});
+		this.version(8)
+			.stores({
+				files:
+					"id, &sha256, status, pendingDeleteAt, deletedAt, [id+revision]",
+			})
+			.upgrade(async (transaction) => {
+				const cards = transaction.table("cards");
+				const contents = transaction.table("cardContents");
+				for (const card of await cards.toArray()) {
+					if (card.content === null || card.content === undefined) continue;
+					const existing = await contents.get(card.id);
+					if (existing?.document === null || existing?.document === undefined) {
+						const updatedAt = Number(
+							card.updatedAt ?? card.createdAt ?? Date.now(),
+						);
+						const deviceId = String(card.updatedByDeviceId ?? "migration");
+						await contents.put({
+							...existing,
+							id: card.id,
+							cardId: card.id,
+							document: card.content,
+							contentVersion: Number(
+								existing?.contentVersion ?? card.contentVersion ?? 1,
+							),
+							revision: Number(existing?.revision ?? card.revision ?? 1),
+							clock: String(
+								existing?.clock ??
+									`${String(updatedAt).padStart(13, "0")}:000000:${deviceId}`,
+							),
+							createdAt: Number(existing?.createdAt ?? card.createdAt ?? updatedAt),
+							updatedAt: Number(existing?.updatedAt ?? updatedAt),
+							updatedByDeviceId: String(existing?.updatedByDeviceId ?? deviceId),
+							deletedAt: existing?.deletedAt ?? card.deletedAt ?? null,
+						});
+					}
+					await cards.update(card.id, { content: null });
+				}
+			});
 	}
 }
 
@@ -348,10 +389,22 @@ export async function runLocalCommand<T>(
 
 const UNPEERED_COMPACTION_BATCHES = 1_000;
 const UNPEERED_COMPACTION_BYTES = 10 * 1024 * 1024;
+export const SYNC_PEER_LEASE_MS = 30 * 24 * 60 * 60 * 1_000;
 
-async function compactUnpeeredPendingBatches(db: ContextboardDatabaseLike) {
+export async function compactUnpeeredPendingBatches(
+	db: ContextboardDatabaseLike,
+	now = Date.now(),
+) {
 	const peers = await db.syncPeers.toArray();
-	if (peers.some((peer) => peer.enabled)) return;
+	const cutoff = now - SYNC_PEER_LEASE_MS;
+	if (
+		peers.some(
+			(peer) =>
+				peer.enabled &&
+				(peer.lastAckAt ?? peer.lastSyncedAt ?? peer.updatedAt) >= cutoff,
+		)
+	)
+		return;
 	await rebuildPendingBatches(db, {
 		command: "maintenance.compactPendingChanges",
 		requireLegacy: false,
@@ -663,7 +716,21 @@ export async function acknowledgeBatches(
 	db: ContextboardDatabaseLike,
 	changeIds: string[],
 ) {
-	await db.changeLog.bulkDelete(changeIds);
+	await db.transaction("rw", [db.changeLog, db.syncPeers], async () => {
+		await db.changeLog.bulkDelete(changeIds);
+		const peerId = "contextboard-cloud";
+		const existing = await db.syncPeers.get(peerId);
+		const now = Date.now();
+		await db.syncPeers.put({
+			peerId,
+			url: existing?.url ?? "",
+			cursor: existing?.cursor ?? null,
+			enabled: existing?.enabled ?? true,
+			updatedAt: now,
+			lastSyncedAt: existing?.lastSyncedAt ?? null,
+			lastAckAt: now,
+		});
+	});
 }
 
 const remoteTable = (
@@ -1000,15 +1067,19 @@ async function applyRemoteBatchChunk(
 				appliedAt: Date.now(),
 			});
 		}
-		if (nextCursor !== undefined)
+		if (nextCursor !== undefined) {
+			const existingPeer = await db.syncPeers.get(peerId);
 			await db.syncPeers.put({
+				...existingPeer,
 				peerId,
 				url: "",
 				cursor: nextCursor,
 				enabled: true,
 				updatedAt: Date.now(),
 				lastSyncedAt: Date.now(),
+				lastAckAt: existingPeer?.lastAckAt ?? null,
 			});
+		}
 		if (newlyAppliedBatches) {
 			const count = await db.settings.get("checkpointChangeCount");
 			const bytes = await db.settings.get("checkpointChangeBytes");
@@ -1075,13 +1146,14 @@ export async function getSyncState(
 ) {
 	const existing = await db.syncPeers.get(peerId);
 	return (
-		existing ?? {
+			existing ?? {
 			peerId,
 			url: "",
 			cursor: null,
 			enabled: true,
 			updatedAt: Date.now(),
 			lastSyncedAt: null,
+			lastAckAt: null,
 		}
 	);
 }
@@ -1100,6 +1172,7 @@ export async function updateSyncCursor(
 		enabled: existing?.enabled ?? true,
 		updatedAt: now,
 		lastSyncedAt: now,
+		lastAckAt: existing?.lastAckAt ?? null,
 	});
 }
 
@@ -1172,6 +1245,7 @@ export async function rebindWorkspaceId(
 					...peer,
 					cursor: null,
 					lastSyncedAt: null,
+					lastAckAt: peer.lastAckAt ?? null,
 					updatedAt: Date.now(),
 				});
 		},
@@ -1311,6 +1385,7 @@ export async function importCheckpointEntities(
 				enabled: true,
 				updatedAt: Date.now(),
 				lastSyncedAt: Date.now(),
+				lastAckAt: null,
 			});
 		},
 	);

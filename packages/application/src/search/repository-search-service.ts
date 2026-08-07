@@ -25,13 +25,24 @@ export function createRepositorySearchService(
 							ids: [...localCardIds].filter(
 								(id): id is string => typeof id === "string",
 							),
+							projection: "summary",
 						})
-					: listRows(repository, "cards"),
+					: listRows(
+							repository,
+							"cards",
+							normalized
+								? { searchTerm: normalized, limit, projection: "summary" }
+								: { projection: "summary" },
+						),
 				whiteboardId
 					? listRows(repository, "whiteboards", {
 							parentWhiteboardIds: [whiteboardId],
 						})
-					: listRows(repository, "whiteboards"),
+					: listRows(
+							repository,
+							"whiteboards",
+							normalized ? { searchTerm: normalized, limit } : {},
+						),
 			]);
 			const activeCards = cards
 				.filter(

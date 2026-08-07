@@ -622,10 +622,10 @@ impl Storage {
         ).optional()?;
         Ok(match row {
             Some((cursor, updated, synced)) => {
-                json!({"peerId":peer,"cursor":cursor,"enabled":true,"updatedAt":updated,"lastSyncedAt":synced})
+				json!({"peerId":peer,"cursor":cursor,"enabled":true,"updatedAt":updated,"lastSyncedAt":synced,"lastAckAt":null})
             }
             None => {
-                json!({"peerId":peer,"cursor":null,"enabled":true,"updatedAt":now_ms(),"lastSyncedAt":null})
+				json!({"peerId":peer,"cursor":null,"enabled":true,"updatedAt":now_ms(),"lastSyncedAt":null,"lastAckAt":null})
             }
         })
     }
@@ -1609,12 +1609,61 @@ struct EntityListFilter {
     whiteboard_id: Option<Option<String>>,
     predicates: Vec<(String, Vec<Option<String>>)>,
     card_ids: Option<Vec<String>>,
+    search_term: Option<String>,
+    limit: Option<usize>,
+    summary: bool,
 }
 
 fn parse_entity_list_filter(
     input: Option<&serde_json::Map<String, Value>>,
     entity_type: &str,
 ) -> Result<EntityListFilter, StorageError> {
+    let summary = match input.and_then(|value| value.get("projection")) {
+        None => false,
+        Some(Value::String(value))
+            if value == "full" && matches!(entity_type, "card" | "file") =>
+        {
+            false
+        }
+        Some(Value::String(value))
+            if value == "summary" && matches!(entity_type, "card" | "file") =>
+        {
+            true
+        }
+        Some(_) => {
+            return Err(StorageError::Invalid(format!(
+                "projection is not supported for {entity_type}"
+            )))
+        }
+    };
+    let search_term = match input.and_then(|value| value.get("searchTerm")) {
+        None => None,
+        Some(Value::String(value)) if matches!(entity_type, "card" | "whiteboard") => {
+            Some(value.trim().to_lowercase())
+        }
+        Some(_) => {
+            return Err(StorageError::Invalid(format!(
+                "searchTerm filtering is not supported for {entity_type}"
+            )))
+        }
+    };
+    let limit = match input.and_then(|value| value.get("limit")) {
+        None => None,
+        Some(Value::Number(value)) if matches!(entity_type, "card" | "whiteboard") => {
+            let value = value
+                .as_u64()
+                .filter(|value| (1..=100).contains(value))
+                .ok_or_else(|| {
+                    StorageError::Invalid("limit must be an integer between 1 and 100".into())
+                })?;
+            Some(value as usize)
+        }
+        Some(_) => {
+            return Err(StorageError::Invalid(format!(
+                "limit filtering is not supported for {entity_type}"
+            )))
+        }
+    };
     let ids = match input.and_then(|value| value.get("ids")) {
         None => None,
         Some(value) => {
@@ -1664,7 +1713,10 @@ fn parse_entity_list_filter(
     let mut card_ids = None;
     if let Some(input) = input {
         for (key, value) in input {
-            if matches!(key.as_str(), "ids" | "whiteboardId") {
+            if matches!(
+                key.as_str(),
+                "ids" | "whiteboardId" | "searchTerm" | "limit" | "projection"
+            ) {
                 continue;
             }
             let field = match (entity_type, key.as_str()) {
@@ -1727,6 +1779,9 @@ fn parse_entity_list_filter(
         whiteboard_id,
         predicates,
         card_ids,
+        search_term,
+        limit,
+        summary,
     })
 }
 
@@ -1750,8 +1805,13 @@ fn query_entity_list(
     let mut values = Vec::<(String, Value)>::new();
 
     for ids in chunks {
-        let mut sql = String::from(
-            "SELECT entity_id, value_json FROM entities WHERE workspace_id=? AND entity_type=? AND deleted=0",
+        let selected_json = match (filter.summary, entity_type) {
+            (true, "card") => "json_remove(value_json, '$.content')",
+            (true, "file") => "json_remove(value_json, '$.blob')",
+            _ => "value_json",
+        };
+        let mut sql = format!(
+            "SELECT entity_id, {selected_json} FROM entities WHERE workspace_id=? AND entity_type=? AND deleted=0",
         );
         let mut parameters = vec![
             SqlValue::Text(workspace.to_owned()),
@@ -1817,7 +1877,25 @@ fn query_entity_list(
             }
         }
 
-        sql.push_str(" ORDER BY entity_id");
+        if let Some(term) = &filter.search_term {
+            if entity_type == "card" {
+                sql.push_str(" AND instr(lower(coalesce(json_extract(value_json, '$.derivedTitle'), '') || ' ' || coalesce(json_extract(value_json, '$.plainText'), '') || ' ' || coalesce(json_extract(value_json, '$.preview'), '')), ?) > 0");
+            } else {
+                sql.push_str(
+                    " AND instr(lower(coalesce(json_extract(value_json, '$.title'), '')), ?) > 0",
+                );
+            }
+            parameters.push(SqlValue::Text(term.clone()));
+        }
+
+        if filter.search_term.is_some() {
+            sql.push_str(" ORDER BY CAST(json_extract(value_json, '$.updatedAt') AS INTEGER) DESC, entity_id");
+        } else {
+            sql.push_str(" ORDER BY entity_id");
+        }
+        if let Some(limit) = filter.limit {
+            sql.push_str(&format!(" LIMIT {limit}"));
+        }
         let mut statement = connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(parameters.iter()), |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -2024,6 +2102,21 @@ mod tests {
             assert_eq!(actual, fixture["expected"]);
         }
         assert_eq!(fixtures["scenarios"].as_array().unwrap().len(), 8);
+    }
+
+    #[test]
+    fn sqlite_allowlist_exactly_matches_shared_entity_manifest() {
+        let manifest: Value = serde_json::from_str(ENTITY_MANIFEST).unwrap();
+        let entities = manifest["entities"].as_object().unwrap();
+        let mut supported = HashSet::new();
+        for (entity_type, definition) in entities {
+            let prefix = definition["operationPrefix"].as_str().unwrap();
+            let (listed_entity, mode) = query_operation(&format!("{prefix}.list")).unwrap();
+            assert_eq!(listed_entity, entity_type);
+            assert_eq!(mode, "list");
+            supported.insert(listed_entity);
+        }
+        assert_eq!(supported.len(), entities.len());
     }
 
     #[test]

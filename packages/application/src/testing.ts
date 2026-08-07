@@ -238,6 +238,7 @@ export function createMemoryWorkspaceRepository(
 				enabled: false,
 				updatedAt: 0,
 				lastSyncedAt: null,
+				lastAckAt: null,
 			};
 		},
 	};

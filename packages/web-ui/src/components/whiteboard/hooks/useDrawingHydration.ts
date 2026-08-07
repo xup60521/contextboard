@@ -1,3 +1,4 @@
+import type { CanvasRecordPatch } from "@contextboard/application";
 import {
 	type MutableRefObject,
 	useCallback,
@@ -28,6 +29,8 @@ export function useDrawingHydration({
 	whiteboardId,
 	whiteboardKey,
 	tldrawDocument,
+	documentPatches = [],
+	reloadDocument,
 	itemsReady,
 	hydratingRef,
 	drawingSaveState,
@@ -37,6 +40,8 @@ export function useDrawingHydration({
 	whiteboardId: Id<"whiteboards"> | null;
 	whiteboardKey: string;
 	tldrawDocument: TldrawDocumentResult | undefined;
+	documentPatches: CanvasRecordPatch[];
+	reloadDocument?: () => void;
 	itemsReady: boolean;
 	hydratingRef: MutableRefObject<boolean>;
 	drawingSaveState: DrawingSaveState;
@@ -55,6 +60,7 @@ export function useDrawingHydration({
 	const latestDrawingSnapshotRef = useRef<TLStoreSnapshot | null>(null);
 	const activeWhiteboardKeyRef = useRef(whiteboardKey);
 	const hydrationGenerationRef = useRef(0);
+	const appliedPatchCountRef = useRef(0);
 
 	if (activeWhiteboardKeyRef.current !== whiteboardKey) {
 		activeWhiteboardKeyRef.current = whiteboardKey;
@@ -68,9 +74,108 @@ export function useDrawingHydration({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: whiteboardKey intentionally resets per-board state
 	useEffect(() => {
 		loadedDrawingKeyRef.current = null;
+		appliedPatchCountRef.current = 0;
 		setLoadedDrawingKey(null);
 		setHydrationError(null);
 	}, [whiteboardKey]);
+
+	useEffect(() => {
+		if (!editor || loadedDrawingKey !== whiteboardKey) return;
+		const pending = documentPatches.slice(appliedPatchCountRef.current);
+		if (pending.length === 0) return;
+		const latest = new Map<
+			string,
+			{ payload?: unknown; revision: number; removed: boolean }
+		>();
+		for (const patch of pending) {
+			if (patch.whiteboardId !== whiteboardId) continue;
+			for (const row of patch.upserts) {
+				const prior = latest.get(row.recordId);
+				if (!prior || row.revision >= prior.revision)
+					latest.set(row.recordId, {
+						payload: row.payload,
+						revision: row.revision,
+						removed: false,
+					});
+			}
+			for (const row of patch.removals) {
+				const prior = latest.get(row.recordId);
+				if (!prior || row.revision >= prior.revision)
+					latest.set(row.recordId, { revision: row.revision, removed: true });
+			}
+		}
+		appliedPatchCountRef.current = documentPatches.length;
+		const upserts: TLRecord[] = [];
+		const removals: TLRecord["id"][] = [];
+		const patchIds = new Set(
+			[...latest.entries()]
+				.filter(([, change]) => !change.removed)
+				.map(([recordId]) => recordId),
+		);
+		for (const [recordId, change] of latest) {
+			const appliedRevision =
+				appliedCanvasRecordVersionsRef.current[recordId] ?? 0;
+			if (change.revision > 0 && change.revision <= appliedRevision) continue;
+			if (change.removed) removals.push(recordId as TLRecord["id"]);
+			else if (change.payload && typeof change.payload === "object") {
+				const record = change.payload as TLRecord & {
+					fromId?: string;
+					toId?: string;
+				};
+				const endpointMissing =
+					record.typeName === "binding" &&
+					[record.fromId, record.toId].some(
+						(id) =>
+							typeof id === "string" &&
+							!patchIds.has(id) &&
+							!editor.store.has(id as TLRecord["id"]),
+					);
+				if (endpointMissing) {
+					const deferred = new Map(
+						deferredBindingsRef.current
+							.filter(
+								(value): value is TLRecord =>
+									!!value && typeof value === "object" && "id" in value,
+							)
+							.map((value) => [value.id, value]),
+					);
+					deferred.set(record.id, record);
+					deferredBindingsRef.current = [...deferred.values()];
+				} else upserts.push(record);
+			}
+			appliedCanvasRecordVersionsRef.current[recordId] = change.revision;
+		}
+		if (upserts.length === 0 && removals.length === 0) return;
+		hydratingRef.current = true;
+		try {
+			editor.run(
+				() => {
+					if (removals.length) editor.store.remove(removals);
+					if (upserts.length) editor.store.put(upserts);
+				},
+				{ history: "ignore" },
+			);
+			setReconciliationGeneration((value) => value + 1);
+		} catch (error) {
+			console.error("Failed to apply incremental drawing patch", {
+				whiteboardKey,
+				error,
+			});
+			reloadDocument?.();
+		} finally {
+			window.setTimeout(() => {
+				hydratingRef.current = false;
+			}, 0);
+		}
+	}, [
+		documentPatches,
+		editor,
+		hydratingRef,
+		loadedDrawingKey,
+		reloadDocument,
+		whiteboardId,
+		whiteboardKey,
+	]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: retryGeneration intentionally retriggers hydration
 	useEffect(() => {
@@ -78,10 +183,7 @@ export function useDrawingHydration({
 		if (loadedDrawingKeyRef.current === whiteboardKey) return;
 
 		const generation = hydrationGenerationRef.current;
-		if (
-			tldrawDocument &&
-			tldrawDocument.whiteboardId !== whiteboardId
-		) {
+		if (tldrawDocument && tldrawDocument.whiteboardId !== whiteboardId) {
 			setHydrationError({
 				whiteboardKey,
 				stage: "identity",
@@ -101,8 +203,7 @@ export function useDrawingHydration({
 
 		try {
 			const snapshot = resolveHydrationSnapshot({
-				persistedSnapshot:
-					tldrawDocument?.snapshot ?? currentEmptySnapshot,
+				persistedSnapshot: tldrawDocument?.snapshot ?? currentEmptySnapshot,
 				currentEmptySnapshot,
 			});
 			// Bindings to managed cards reference shapes that are hydrated
@@ -157,18 +258,13 @@ export function useDrawingHydration({
 
 	useEffect(() => {
 		if (!editor || loadedDrawingKey !== whiteboardKey) return;
-		if (
-			tldrawDocument &&
-			tldrawDocument.whiteboardId !== whiteboardId
-		)
-			return;
+		if (tldrawDocument && tldrawDocument.whiteboardId !== whiteboardId) return;
 		const currentEmptySnapshot = emptyDrawingSnapshotRef.current;
 		if (!currentEmptySnapshot) return;
 		let snapshot: TLStoreSnapshot;
 		try {
 			snapshot = resolveHydrationSnapshot({
-				persistedSnapshot:
-					tldrawDocument?.snapshot ?? currentEmptySnapshot,
+				persistedSnapshot: tldrawDocument?.snapshot ?? currentEmptySnapshot,
 				currentEmptySnapshot,
 			});
 		} catch (error) {

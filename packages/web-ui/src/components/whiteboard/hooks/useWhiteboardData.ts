@@ -1,5 +1,6 @@
 import {
 	type CanvasItem,
+	type CanvasRecordPatch,
 	fileSrc,
 	recordContextboardPerf,
 	useApplicationRuntime,
@@ -72,6 +73,15 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	const [documentData, setDocumentData] = useState<
 		{ key: string; value: TldrawDocumentResult } | undefined
 	>();
+	const [documentPatches, setDocumentPatches] = useState<{
+		key: string;
+		value: CanvasRecordPatch[];
+	}>({ key: canvasKey, value: [] });
+	const [documentReloadGeneration, setDocumentReloadGeneration] = useState(0);
+	const reloadDocument = useCallback(
+		() => setDocumentReloadGeneration((value) => value + 1),
+		[],
+	);
 	const items = itemsData?.key === canvasKey ? itemsData.value : undefined;
 	const tldrawDocument =
 		documentData?.key === canvasKey ? documentData.value : undefined;
@@ -140,6 +150,8 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 
 	useEffect(() => {
 		if (!canvas) return;
+		// An explicit recovery request restarts this load/subscription effect.
+		void documentReloadGeneration;
 		let active = true;
 		let running = false;
 		let dirty = false;
@@ -169,15 +181,29 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			running = false;
 		};
 		void load();
+		setDocumentPatches({ key: canvasKey, value: [] });
 		const unsubscribe = canvas.subscribeDocument(
 			whiteboardId ?? null,
-			() => void load(),
+			(change) => {
+				if (change.kind === "reload") {
+					recordContextboardPerf("canvas.document.recovery", {
+						detail: canvasKey,
+					});
+					void load();
+					return;
+				}
+				setDocumentPatches((current) => ({
+					key: canvasKey,
+					value:
+						current.key === canvasKey ? [...current.value, change] : [change],
+				}));
+			},
 		);
 		return () => {
 			active = false;
 			unsubscribe();
 		};
-	}, [canvas, canvasKey, whiteboardId]);
+	}, [canvas, canvasKey, documentReloadGeneration, whiteboardId]);
 
 	const requireCanvas = useCallback(() => {
 		if (!canvas) throw new Error("This platform has no canvas capability");
@@ -297,6 +323,9 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		items: boardItems,
 		itemsReady: items !== undefined,
 		tldrawDocument,
+		documentPatches:
+			documentPatches.key === canvasKey ? documentPatches.value : [],
+		reloadDocument,
 		createCardItem,
 		createSubwhiteboardItem,
 		updateItemFrame,

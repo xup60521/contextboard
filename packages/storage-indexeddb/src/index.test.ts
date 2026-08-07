@@ -1,17 +1,26 @@
 import "fake-indexeddb/auto";
 import {
 	type ChangeBatch,
+	ENTITY_MANIFEST,
 	HybridLogicalClock,
 	SYNC_PROTOCOL_VERSION,
 	SYNC_SCHEMA_VERSION,
 } from "@contextboard/sync-protocol";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import Dexie from "dexie";
+import { SUPPORTED_ENTITY_TYPES } from "./entity-store";
 import {
 	createContextboardDatabase,
 	ensureLocalIdentity,
 	IndexedDbWorkspaceRepository,
 	runLocalCommand,
 } from "./index";
+
+test("the IndexedDB allowlist exactly matches the shared entity manifest", () => {
+	expect(SUPPORTED_ENTITY_TYPES).toEqual(
+		Object.keys(ENTITY_MANIFEST.entities).sort(),
+	);
+});
 
 const databases: Array<ReturnType<typeof createContextboardDatabase>> = [];
 const makeRepository = async () => {
@@ -30,6 +39,37 @@ afterEach(async () => {
 });
 
 describe("IndexedDbWorkspaceRepository conformance", () => {
+	test("version 8 externalizes legacy card bodies before clearing them", async () => {
+		const name = `contextboard-v7-${crypto.randomUUID()}`;
+		const legacy = new Dexie(name);
+		legacy.version(7).stores({
+			cards: "id, updatedAt, deletedAt",
+			cardContents: "id, &cardId, contentVersion, clock, updatedAt, deletedAt",
+			files: "id, &sha256, status, pendingDeleteAt, deletedAt",
+		});
+		await legacy.open();
+		const document = { type: "doc", content: [{ type: "paragraph" }] };
+		await legacy.table("cards").put({
+			id: "legacy-card",
+			content: document,
+			contentVersion: 4,
+			revision: 3,
+			createdAt: 1,
+			updatedAt: 2,
+			updatedByDeviceId: "legacy-device",
+			deletedAt: null,
+		});
+		legacy.close();
+
+		const database = createContextboardDatabase(name);
+		databases.push(database);
+		await database.open();
+		expect((await database.cards.get("legacy-card" as never))?.content).toBeNull();
+		expect(
+			(await database.cardContents.get("legacy-card" as never))?.document,
+		).toEqual(document);
+	});
+
 	test("persists an atomic local mutation and pending batch across reopen", async () => {
 		const { database, identity, repository } = await makeRepository();
 		await runLocalCommand(
@@ -361,6 +401,64 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 				input: { whiteboardId: "board-a" },
 			}),
 		).rejects.toThrow("whiteboardId filtering");
+	});
+
+	test("bounds indexed search results and projects card summaries", async () => {
+		const { database, repository } = await makeRepository();
+		await repository.execute({
+			type: "cards.seedSearch",
+			input: {
+				writes: Array.from({ length: 20 }, (_, index) => ({
+					entity: "card",
+					operation: "upsert",
+					id: `search-${index}`,
+					value: {
+						derivedTitle: `Needle ${index}`,
+						plainText: "needle",
+						content: { large: "x".repeat(1_000) },
+						updatedAt: index + 1,
+					},
+				})),
+			},
+		});
+		const fullTableRead = vi.spyOn(database.cards, "toArray");
+		const rows = await repository.query<Array<Record<string, unknown>>>({
+			type: "cards.list",
+			input: { searchTerm: "needle", limit: 3, projection: "summary" },
+		});
+		expect(rows).toHaveLength(3);
+		expect(rows.map((row) => Number(row.updatedAt))).toEqual(
+			[...rows]
+				.map((row) => Number(row.updatedAt))
+				.sort((left, right) => right - left),
+		);
+		expect(rows.every((row) => !("content" in row))).toBe(true);
+		expect(fullTableRead).not.toHaveBeenCalled();
+	});
+
+	test("reads file reference metadata without returning the blob", async () => {
+		const { database, repository } = await makeRepository();
+		await database.files.put({
+			id: "file-1" as never,
+			sha256: "a".repeat(64),
+			name: "large.bin",
+			mimeType: "application/octet-stream",
+			size: 4,
+			blob: new Blob(["data"]),
+			status: "active",
+			refCount: 1,
+			pendingDeleteAt: null,
+			revision: 7,
+			createdAt: 1,
+			updatedAt: 1,
+			updatedByDeviceId: "device",
+			deletedAt: null,
+		});
+		const rows = await repository.query<Array<Record<string, unknown>>>({
+			type: "files.list",
+			input: { ids: ["file-1"], projection: "summary" },
+		});
+		expect(rows).toEqual([{ id: "file-1", revision: 7 }]);
 	});
 
 	test("commits every cascade entity type in one sync batch", async () => {
