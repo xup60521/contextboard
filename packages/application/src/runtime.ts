@@ -256,6 +256,12 @@ export type WhiteboardArchiveOptions = {
 
 export interface WhiteboardsService {
 	list(): Promise<WhiteboardSummary[]>;
+	search(input: { query: string; limit?: number }): Promise<WhiteboardSummary[]>;
+	listBacklinks(whiteboardId: string): Promise<Array<{
+		cardId: string;
+		title: string;
+		preview: string;
+	}>>;
 	get(id: string): Promise<WhiteboardDetail | null>;
 	createRoot(): Promise<string>;
 	createSubwhiteboard(input: {
@@ -271,7 +277,7 @@ export interface WhiteboardsService {
 	archive(id: string, options?: WhiteboardArchiveOptions): Promise<void>;
 	subscribe(
 		listener: () => void,
-		options?: { whiteboardIds?: string[] },
+		options?: { whiteboardIds?: string[]; backlinksToWhiteboardId?: string },
 	): () => void;
 }
 

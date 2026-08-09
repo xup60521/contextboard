@@ -165,7 +165,7 @@ counts as space to keep clear of. `style` may be `auto` (default),
 
 ## References vs relations
 
-Card text is markdown: headings, bullet and numbered lists, blockquotes, fenced code, pipe tables and $…$ math all round trip. To cite another card, write [label](contextboard:card/<cardId>) inline, in the sentence that makes the claim; this creates a real reference and a backlink on the target card, and travels with the card to every whiteboard it appears on. Prefer citing sources this way over listing them at the end.
+Card text is markdown: headings, bullet and numbered lists, blockquotes, fenced code, pipe tables and inline math all round trip. To cite another card, write [label](contextboard:card/<cardId>) inline; to cite a whiteboard, write [label](contextboard:whiteboard/<whiteboardId>). Put references in the sentence that makes the claim; each creates a real reference and a backlink on its target. Prefer citing sources this way over listing them at the end.
 
 References live in card body text and travel with the card. Canvas relations
 are visible arrows scoped to one whiteboard, are undirected, and require both

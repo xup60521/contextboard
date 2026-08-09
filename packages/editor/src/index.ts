@@ -24,6 +24,8 @@ export {
 export type {
 	CardReferenceSuggestion,
 	CardReferenceSupport,
+	ReferenceSuggestion,
+	WhiteboardReferenceSuggestion,
 } from "./card-reference/types";
 export type { UploadedImage } from "./ImageUpload";
 export { uploadImageLocally } from "./ImageUpload";

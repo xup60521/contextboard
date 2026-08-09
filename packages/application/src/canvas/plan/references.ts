@@ -13,6 +13,11 @@ type CardReference = {
 	revision: number;
 	targetCardId: string;
 };
+type WhiteboardReference = {
+	id: string;
+	revision: number;
+	targetWhiteboardId: string;
+};
 type FileRow = Record<string, unknown> & {
 	id: string;
 	revision: number;
@@ -23,6 +28,7 @@ export function planReferences(
 		targetFileReferences: FileReference[];
 		allFileReferences: FileReference[];
 		cardReferences: CardReference[];
+		whiteboardReferences: WhiteboardReference[];
 		files: FileRow[];
 	},
 	input: {
@@ -119,6 +125,43 @@ export function planReferences(
 					deletedAt: null,
 					sourceCardId: input.targetId,
 					targetCardId,
+				},
+			});
+		}
+
+		const nextWhiteboardIds = collectReferenceIds(
+			input.content,
+			"whiteboardRefId",
+		);
+		for (const ref of snapshot.whiteboardReferences) {
+			if (!nextWhiteboardIds.has(ref.targetWhiteboardId))
+				writes.push({
+					entity: "whiteboardReference",
+					operation: "delete",
+					id: ref.id,
+					expectedRevision: ref.revision,
+				});
+		}
+		for (const targetWhiteboardId of nextWhiteboardIds) {
+			if (
+				snapshot.whiteboardReferences.some(
+					(ref) => ref.targetWhiteboardId === targetWhiteboardId,
+				)
+			)
+				continue;
+			const referenceId = `${input.targetId}:${targetWhiteboardId}`;
+			writes.push({
+				entity: "whiteboardReference",
+				operation: "upsert",
+				id: referenceId,
+				value: {
+					id: referenceId,
+					createdAt: context.now,
+					updatedAt: context.now,
+					updatedByDeviceId: context.deviceId,
+					deletedAt: null,
+					sourceCardId: input.targetId,
+					targetWhiteboardId,
 				},
 			});
 		}

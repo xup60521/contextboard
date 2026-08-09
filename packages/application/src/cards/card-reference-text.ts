@@ -20,10 +20,12 @@
  */
 
 export const CARD_REFERENCE_SCHEME = "contextboard:card/";
+export const WHITEBOARD_REFERENCE_SCHEME = "contextboard:whiteboard/";
 const CARD_PATH_PREFIX = "/cards/";
+const WHITEBOARD_PATH_PREFIX = "/whiteboard/";
 
 /** Matches `[label](contextboard:card/<id>)`, capturing label and id. */
-const REFERENCE_PATTERN = /\[([^\]]*)\]\(contextboard:card\/([^)\s]+)\)/g;
+const REFERENCE_PATTERN = /\[([^\]]*)\]\(contextboard:(card|whiteboard)\/([^)\s]+)\)/g;
 /** Matches `$latex$`, rejecting `$$` so block math is not caught here. */
 const INLINE_MATH_PATTERN = /\$([^$\n]+)\$/g;
 
@@ -51,6 +53,18 @@ function cardLinkMark(cardId: string, label: string): Mark {
 	};
 }
 
+function whiteboardLinkMark(whiteboardId: string, label: string): Mark {
+	return {
+		type: "link",
+		attrs: {
+			href: `${WHITEBOARD_PATH_PREFIX}${whiteboardId}`,
+			whiteboardRefId: whiteboardId,
+			cardLabelMode: "custom",
+			resolvedTitle: label,
+		},
+	};
+}
+
 // ---------------------------------------------------------------------------
 // Text -> document
 // ---------------------------------------------------------------------------
@@ -66,12 +80,20 @@ function inlineNodes(line: string): Node[] {
 	REFERENCE_PATTERN.lastIndex = 0;
 	let match = REFERENCE_PATTERN.exec(line);
 	while (match) {
-		const [raw, rawLabel, cardId] = match;
-		const label = rawLabel.trim() || cardId;
+		const [raw, rawLabel, referenceType, referenceId] = match;
+		const label = rawLabel.trim() || referenceId;
 		hits.push({
 			index: match.index,
 			length: raw.length,
-			node: { type: "text", text: label, marks: [cardLinkMark(cardId, label)] },
+			node: {
+				type: "text",
+				text: label,
+				marks: [
+					referenceType === "whiteboard"
+						? whiteboardLinkMark(referenceId, label)
+						: cardLinkMark(referenceId, label),
+				],
+			},
 		});
 		match = REFERENCE_PATTERN.exec(line);
 	}
@@ -380,6 +402,21 @@ function readCardId(node: Node): string | null {
 	return null;
 }
 
+function readWhiteboardId(node: Node): string | null {
+	for (const mark of node.marks ?? []) {
+		if (mark.type !== "link") continue;
+		const attrs = mark.attrs ?? {};
+		const id = attrs.whiteboardRefId;
+		if (typeof id === "string" && id) return id;
+		const href = attrs.href;
+		if (typeof href === "string" && href.startsWith(WHITEBOARD_PATH_PREFIX)) {
+			const parsed = href.slice(WHITEBOARD_PATH_PREFIX.length);
+			if (parsed && !/[/#?]/.test(parsed)) return parsed;
+		}
+	}
+	return null;
+}
+
 /** Renders an inline run: text, references and inline math. */
 function inlineToText(nodes: Node[] | undefined): string {
 	if (!nodes) return "";
@@ -387,9 +424,12 @@ function inlineToText(nodes: Node[] | undefined): string {
 	for (const node of nodes) {
 		if (node.type === "text" && typeof node.text === "string") {
 			const cardId = readCardId(node);
-			out += cardId
-				? `[${node.text}](${CARD_REFERENCE_SCHEME}${cardId})`
-				: node.text;
+			const whiteboardId = readWhiteboardId(node);
+			out += whiteboardId
+				? `[${node.text}](${WHITEBOARD_REFERENCE_SCHEME}${whiteboardId})`
+				: cardId
+					? `[${node.text}](${CARD_REFERENCE_SCHEME}${cardId})`
+					: node.text;
 			continue;
 		}
 		if (node.type === "inlineMath") {
@@ -515,7 +555,18 @@ export function referencedCardIds(text: string): string[] {
 	REFERENCE_PATTERN.lastIndex = 0;
 	let match = REFERENCE_PATTERN.exec(text);
 	while (match) {
-		ids.add(match[2]);
+		if (match[2] === "card") ids.add(match[3]);
+		match = REFERENCE_PATTERN.exec(text);
+	}
+	return [...ids];
+}
+
+export function referencedWhiteboardIds(text: string): string[] {
+	const ids = new Set<string>();
+	REFERENCE_PATTERN.lastIndex = 0;
+	let match = REFERENCE_PATTERN.exec(text);
+	while (match) {
+		if (match[2] === "whiteboard") ids.add(match[3]);
 		match = REFERENCE_PATTERN.exec(text);
 	}
 	return [...ids];

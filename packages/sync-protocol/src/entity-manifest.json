@@ -9,6 +9,7 @@
     "file": { "operationPrefix": "files", "mergePolicy": "materialize", "protocol": "base", "defaults": { "status": "active", "pendingDeleteAt": null } },
     "fileReference": { "operationPrefix": "fileReferences", "mergePolicy": "materialize", "protocol": "base", "defaults": { "targetKey": "", "fileId": null } },
     "cardReference": { "operationPrefix": "cardReferences", "mergePolicy": "materialize", "protocol": "base", "defaults": { "sourceCardId": null, "targetCardId": null } },
+    "whiteboardReference": { "operationPrefix": "whiteboardReferences", "mergePolicy": "materialize", "protocol": "base", "defaults": { "sourceCardId": null, "targetWhiteboardId": null } },
     "cardRelation": { "operationPrefix": "cardRelations", "mergePolicy": "hlc-device", "protocol": "base", "defaults": { "whiteboardId": null, "sourceCardId": null, "targetCardId": null, "arrowShapeId": null, "ordinal": null, "clock": "" } },
     "canvasRecord": { "operationPrefix": "records", "mergePolicy": "hlc-device", "protocol": "base", "defaults": { "whiteboardId": null, "recordId": "", "recordType": "", "payload": null, "clock": "" } },
     "conflict": { "operationPrefix": "conflicts", "mergePolicy": "materialize", "protocol": "base", "defaults": { "resolvedAt": null, "resolution": null } },

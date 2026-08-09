@@ -2,9 +2,13 @@ import {
 	normalizeImageSources,
 	serializeCardContent,
 } from "@contextboard/application";
-import { ReadonlyRichTextPreview, useDeferredEditorMount } from "@contextboard/editor";
+import {
+	ReadonlyRichTextPreview,
+	useDeferredEditorMount,
+} from "@contextboard/editor";
 import type { JSONContent } from "@tiptap/core";
-import { useState } from "react";
+import { useCardReferenceSupport } from "../editor/useCardReferenceSupport";
+import { WhiteboardPreviewDialog } from "../whiteboard/WhiteboardPreviewDialog";
 import { CardDocumentEditor } from "./CardDocumentEditor";
 import { CardPreviewDialog } from "./CardPreviewDialog";
 import { useDebouncedCardSave } from "./useDebouncedCardSave";
@@ -21,8 +25,17 @@ export function CardDetailDocumentSurface({
 	version: number;
 	whiteboardId: string | null;
 }) {
-	const [previewCardId, setPreviewCardId] = useState<string | null>(null);
-	const { shouldMountEditor, promoteMount } = useDeferredEditorMount(cardId, true);
+	const {
+		support,
+		previewCardId,
+		closePreview,
+		previewWhiteboardId,
+		closeWhiteboardPreview,
+	} = useCardReferenceSupport(whiteboardId);
+	const { shouldMountEditor, promoteMount } = useDeferredEditorMount(
+		cardId,
+		true,
+	);
 	const resolvedContent = useResolvedCardContent(content);
 	const initialSerialized = serializeCardContent(content);
 	const save = useDebouncedCardSave(cardId, 450, {
@@ -34,7 +47,10 @@ export function CardDetailDocumentSurface({
 	return (
 		<>
 			{save.error ? (
-				<div role="alert" className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
+				<div
+					role="alert"
+					className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700"
+				>
 					{save.error.message}
 				</div>
 			) : null}
@@ -43,6 +59,7 @@ export function CardDetailDocumentSurface({
 					key={cardId}
 					cardId={cardId}
 					content={resolvedContent}
+					cardReferenceSupport={support}
 					onChange={(value) => {
 						const normalized = normalizeImageSources(value);
 						save.scheduleSave({
@@ -50,7 +67,6 @@ export function CardDetailDocumentSurface({
 							serialized: serializeCardContent(normalized),
 						});
 					}}
-					onOpenPreview={setPreviewCardId}
 					className="notion-editor seamless"
 					contentClassName="min-h-[60vh]"
 				/>
@@ -70,8 +86,14 @@ export function CardDetailDocumentSurface({
 			<CardPreviewDialog
 				cardId={previewCardId}
 				currentWhiteboardId={whiteboardId}
-				onClose={() => setPreviewCardId(null)}
+				onClose={closePreview}
 			/>
+			{previewWhiteboardId ? (
+				<WhiteboardPreviewDialog
+					whiteboardId={previewWhiteboardId}
+					onClose={closeWhiteboardPreview}
+				/>
+			) : null}
 		</>
 	);
 }

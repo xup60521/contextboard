@@ -118,6 +118,15 @@ export type GlobalCardDeleteShortcutEvent = {
 	repeat: boolean;
 };
 
+export type SubwhiteboardEnterShortcutEvent = {
+	key: string;
+	ctrlKey: boolean;
+	altKey: boolean;
+	shiftKey: boolean;
+	metaKey: boolean;
+	repeat: boolean;
+};
+
 type TLColorScheme = "light" | "dark" | "system";
 
 // ── Shape ID helpers ──────────────────────────────────────────────────────────
@@ -479,6 +488,19 @@ export function isGlobalCardDeleteShortcut(
 		event.ctrlKey &&
 		!event.altKey &&
 		!event.shiftKey &&
+		!event.repeat
+	);
+}
+
+export function isSubwhiteboardEnterShortcut(
+	event: SubwhiteboardEnterShortcutEvent,
+) {
+	return (
+		event.key === "Enter" &&
+		!event.altKey &&
+		!event.shiftKey &&
+		!event.ctrlKey &&
+		!event.metaKey &&
 		!event.repeat
 	);
 }

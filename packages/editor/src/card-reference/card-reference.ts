@@ -1,16 +1,16 @@
 import type { Editor, Range } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
 import Suggestion from "@tiptap/suggestion";
-import { cardHref } from "./path";
+import { cardHref, whiteboardHref } from "./path";
 import { cardReferencePluginKey } from "./plugin-key";
 import { createCardReferenceRenderer } from "./renderer";
-import type { CardReferenceSuggestion } from "./types";
+import type { ReferenceSuggestion } from "./types";
 
 export type CardReferenceExtensionOptions = {
 	search: (
 		query: string,
 		signal: AbortSignal,
-	) => Promise<CardReferenceSuggestion[]>;
+	) => Promise<ReferenceSuggestion[]>;
 };
 
 /**
@@ -30,7 +30,7 @@ export const CardReferenceExtension =
 		addProseMirrorPlugins() {
 			const options = this.options;
 			return [
-				Suggestion<CardReferenceSuggestion, CardReferenceSuggestion>({
+				Suggestion<ReferenceSuggestion, ReferenceSuggestion>({
 					editor: this.editor,
 					pluginKey: cardReferencePluginKey,
 					char: "@",
@@ -45,7 +45,7 @@ export const CardReferenceExtension =
 						}
 					},
 					command: ({ editor, range, props }) => {
-						insertCardReference(editor, range, props);
+						insertReference(editor, range, props);
 					},
 					render: createCardReferenceRenderer,
 				}),
@@ -54,11 +54,12 @@ export const CardReferenceExtension =
 	});
 
 /** Replaces the `@query` range with the card's title as an `auto` card link. */
-function insertCardReference(
+function insertReference(
 	editor: Editor,
 	range: Range,
-	item: CardReferenceSuggestion,
+	item: ReferenceSuggestion,
 ) {
+	const isWhiteboard = item.kind === "whiteboard";
 	editor
 		.chain()
 		.focus()
@@ -66,13 +67,15 @@ function insertCardReference(
 		.insertContent([
 			{
 				type: "text",
-				text: item.title || "Untitled card",
+				text: item.title || (isWhiteboard ? "Untitled whiteboard" : "Untitled card"),
 				marks: [
 					{
 						type: "link",
 						attrs: {
-							href: cardHref(item.id),
-							cardId: item.id,
+							href: isWhiteboard ? whiteboardHref(item.id) : cardHref(item.id),
+							...(isWhiteboard
+								? { whiteboardRefId: item.id }
+								: { cardId: item.id }),
 							cardLabelMode: "auto",
 							resolvedTitle: item.title,
 						},

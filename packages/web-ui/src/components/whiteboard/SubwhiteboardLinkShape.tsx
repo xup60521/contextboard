@@ -10,7 +10,6 @@ import {
 	stopEventPropagation,
 	type TLResizeInfo,
 	useEditor,
-	useIsEditing,
 	type VecLike,
 } from "tldraw";
 import type { Id } from "./ids";
@@ -35,7 +34,6 @@ function SubwhiteboardLinkComponent({
 	shape: SubwhiteboardLinkShape;
 }) {
 	const editor = useEditor();
-	const isEditing = useIsEditing(shape.id);
 	const { whiteboards } = useApplicationRuntime();
 	const updateTitle = useCallback(
 		async (input: { whiteboardId: string; title: string }) => {
@@ -54,16 +52,6 @@ function SubwhiteboardLinkComponent({
 		if (isFocusedRef.current) return;
 		setDraftTitle(shape.props.label);
 	}, [shape.props.label]);
-
-	useEffect(() => {
-		if (!isEditing) return;
-
-		const input = inputRef.current;
-		if (!input) return;
-
-		input.focus();
-		input.select();
-	}, [isEditing]);
 
 	const saveTitle = useCallback(() => {
 		const nextTitle =
@@ -179,7 +167,7 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 	}
 
 	override canEdit() {
-		return true;
+		return false;
 	}
 
 	override isAspectRatioLocked() {

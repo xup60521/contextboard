@@ -13,7 +13,7 @@ use std::{
 };
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const ENTITY_MANIFEST: &str =
     include_str!("../../../../packages/sync-protocol/src/entity-manifest.json");
 static ENTITY_TYPES: OnceLock<HashSet<String>> = OnceLock::new();
@@ -622,10 +622,10 @@ impl Storage {
         ).optional()?;
         Ok(match row {
             Some((cursor, updated, synced)) => {
-				json!({"peerId":peer,"cursor":cursor,"enabled":true,"updatedAt":updated,"lastSyncedAt":synced,"lastAckAt":null})
+                json!({"peerId":peer,"cursor":cursor,"enabled":true,"updatedAt":updated,"lastSyncedAt":synced,"lastAckAt":null})
             }
             None => {
-				json!({"peerId":peer,"cursor":null,"enabled":true,"updatedAt":now_ms(),"lastSyncedAt":null,"lastAckAt":null})
+                json!({"peerId":peer,"cursor":null,"enabled":true,"updatedAt":now_ms(),"lastSyncedAt":null,"lastAckAt":null})
             }
         })
     }
@@ -1452,6 +1452,7 @@ fn migrate(connection: &Connection) -> Result<(), StorageError> {
       CREATE INDEX IF NOT EXISTS entities_parent_whiteboard ON entities(workspace_id, entity_type, json_extract(value_json, '$.parentWhiteboardId'));
       CREATE INDEX IF NOT EXISTS entities_source_card ON entities(workspace_id, entity_type, json_extract(value_json, '$.sourceCardId'));
       CREATE INDEX IF NOT EXISTS entities_target_card ON entities(workspace_id, entity_type, json_extract(value_json, '$.targetCardId'));
+      CREATE INDEX IF NOT EXISTS entities_target_whiteboard ON entities(workspace_id, entity_type, json_extract(value_json, '$.targetWhiteboardId'));
       CREATE INDEX IF NOT EXISTS entities_target_key ON entities(workspace_id, entity_type, json_extract(value_json, '$.targetKey'));
       CREATE INDEX IF NOT EXISTS entities_file ON entities(workspace_id, entity_type, json_extract(value_json, '$.fileId'));
       COMMIT;")?;
@@ -1468,6 +1469,11 @@ fn migrate(connection: &Connection) -> Result<(), StorageError> {
         Some(value) if value == SCHEMA_VERSION => {}
         Some(1) => {
             migrate_card_content_entities(connection)?;
+            migrate_whiteboard_reference_indexes(connection)?;
+            connection.execute("UPDATE schema_meta SET version=?1", [SCHEMA_VERSION])?;
+        }
+        Some(2) => {
+            migrate_whiteboard_reference_indexes(connection)?;
             connection.execute("UPDATE schema_meta SET version=?1", [SCHEMA_VERSION])?;
         }
         Some(value) => {
@@ -1476,6 +1482,14 @@ fn migrate(connection: &Connection) -> Result<(), StorageError> {
             )))
         }
     }
+    Ok(())
+}
+
+fn migrate_whiteboard_reference_indexes(connection: &Connection) -> Result<(), StorageError> {
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS entities_source_card ON entities(workspace_id, entity_type, json_extract(value_json, '$.sourceCardId'));
+         CREATE INDEX IF NOT EXISTS entities_target_whiteboard ON entities(workspace_id, entity_type, json_extract(value_json, '$.targetWhiteboardId'));",
+    )?;
     Ok(())
 }
 
@@ -1620,9 +1634,7 @@ fn parse_entity_list_filter(
 ) -> Result<EntityListFilter, StorageError> {
     let summary = match input.and_then(|value| value.get("projection")) {
         None => false,
-        Some(Value::String(value))
-            if value == "full" && matches!(entity_type, "card" | "file") =>
-        {
+        Some(Value::String(value)) if value == "full" && matches!(entity_type, "card" | "file") => {
             false
         }
         Some(Value::String(value))
@@ -1747,6 +1759,8 @@ fn parse_entity_list_filter(
                 ("whiteboard", "parentWhiteboardIds") => "parentWhiteboardId",
                 ("cardReference", "sourceCardIds") => "sourceCardId",
                 ("cardReference", "targetCardIds") => "targetCardId",
+                ("whiteboardReference", "sourceCardIds") => "sourceCardId",
+                ("whiteboardReference", "targetWhiteboardIds") => "targetWhiteboardId",
                 ("fileReference", "targetKeys") => "targetKey",
                 ("fileReference", "fileIds") => "fileId",
                 _ => {
@@ -1922,6 +1936,7 @@ fn query_operation(value: &str) -> Option<(&'static str, &'static str)> {
         "files" => "file",
         "fileReferences" => "fileReference",
         "cardReferences" => "cardReference",
+        "whiteboardReferences" => "whiteboardReference",
         "cardRelations" => "cardRelation",
         "conflicts" => "conflict",
         "todos" => "todo",
@@ -1945,6 +1960,7 @@ fn command_operation(value: &str) -> Option<(&'static str, &'static str)> {
         "files" => "file",
         "fileReferences" => "fileReference",
         "cardReferences" => "cardReference",
+        "whiteboardReferences" => "whiteboardReference",
         "cardRelations" => "cardRelation",
         "conflicts" => "conflict",
         "todos" => "todo",

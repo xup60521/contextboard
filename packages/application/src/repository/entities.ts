@@ -41,6 +41,10 @@ export type EntityListFilterByCollection = {
 		sourceCardIds?: readonly string[];
 		targetCardIds?: readonly string[];
 	};
+	whiteboardReferences: BaseEntityListFilter & {
+		sourceCardIds?: readonly string[];
+		targetWhiteboardIds?: readonly string[];
+	};
 	fileReferences: BaseEntityListFilter & {
 		targetKeys?: readonly string[];
 		fileIds?: readonly string[];

@@ -10,6 +10,7 @@ import { useIsEditing } from "tldraw";
 import { whiteboardPreviewCardIdAtom } from "../../lib/atoms";
 import { CardDocumentEditor } from "../cards/CardDocumentEditor";
 import { useDebouncedCardSave } from "../cards/useDebouncedCardSave";
+import { useCardReferenceSupport } from "../editor/useCardReferenceSupport";
 import { useCardContentEntry, useCardContentStore } from "./card-content-store";
 import type { Id } from "./ids";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
@@ -21,6 +22,7 @@ import {
 import { useWhiteboardNavigation } from "./navigation";
 import { useMarkdownCardAutoHeight } from "./useMarkdownCardAutoHeight";
 import { WhiteboardCardContext } from "./WhiteboardCardContext";
+import { WhiteboardPreviewDialog } from "./WhiteboardPreviewDialog";
 
 const MIN_HEIGHT = 96;
 
@@ -34,6 +36,13 @@ export function PersistedMarkdownCardComponent({
 	const cardId = shape.props.cardId as Id<"cards">;
 	const boardWhiteboardId = useContext(WhiteboardCardContext);
 	const openWhiteboardPreview = useSetAtom(whiteboardPreviewCardIdAtom);
+	const {
+		support: cardReferenceSupport,
+		previewWhiteboardId,
+		closeWhiteboardPreview,
+	} = useCardReferenceSupport(boardWhiteboardId, {
+		onOpenPreview: openWhiteboardPreview,
+	});
 	const contentStore = useCardContentStore();
 	const contentEntry = useCardContentEntry(cardId);
 	const currentContent = useMemo(
@@ -91,38 +100,46 @@ export function PersistedMarkdownCardComponent({
 	);
 
 	return (
-		<MarkdownCardShell
-			shape={shape}
-			isEditing={isEditing}
-			contentRef={cardRef}
-			contentClassName="w-full px-8 py-8"
-			header={
-				<MarkdownCardOpenLink
-					href={navigation.cardHref(cardId)}
-					ariaLabel="Open card editor"
+		<>
+			<MarkdownCardShell
+				shape={shape}
+				isEditing={isEditing}
+				contentRef={cardRef}
+				contentClassName="w-full px-8 py-8"
+				header={
+					<MarkdownCardOpenLink
+						href={navigation.cardHref(cardId)}
+						ariaLabel="Open card editor"
+					/>
+				}
+			>
+				{isEditing ? (
+					<CardDocumentEditor
+						editable
+						content={currentContent}
+						whiteboardId={boardWhiteboardId}
+						cardReferenceSupport={cardReferenceSupport}
+						contentClassName="min-h-12 pr-7"
+						placeholder="Type '/' for commands"
+						onChange={scheduleSave}
+						onReady={() => setIsContentReady(true)}
+						defaultFocusPosition={selectInitialContent ? "start" : "end"}
+						selectContentOnFocus={selectInitialContent}
+					/>
+				) : (
+					<StaticRichTextRenderer
+						content={staticContent}
+						contentClassName="min-h-12 pr-7"
+						onReady={() => setIsContentReady(true)}
+					/>
+				)}
+			</MarkdownCardShell>
+			{previewWhiteboardId ? (
+				<WhiteboardPreviewDialog
+					whiteboardId={previewWhiteboardId}
+					onClose={closeWhiteboardPreview}
 				/>
-			}
-		>
-			{isEditing ? (
-				<CardDocumentEditor
-					editable
-					content={currentContent}
-					whiteboardId={boardWhiteboardId}
-					onOpenPreview={openWhiteboardPreview}
-					contentClassName="min-h-12 pr-7"
-					placeholder="Type '/' for commands"
-					onChange={scheduleSave}
-					onReady={() => setIsContentReady(true)}
-					defaultFocusPosition={selectInitialContent ? "start" : "end"}
-					selectContentOnFocus={selectInitialContent}
-				/>
-			) : (
-				<StaticRichTextRenderer
-					content={staticContent}
-					contentClassName="min-h-12 pr-7"
-					onReady={() => setIsContentReady(true)}
-				/>
-			)}
-		</MarkdownCardShell>
+			) : null}
+		</>
 	);
 }

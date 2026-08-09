@@ -1,6 +1,6 @@
 export function collectReferenceIds(
 	value: unknown,
-	field: "fileId" | "cardId",
+	field: "fileId" | "cardId" | "whiteboardRefId",
 	result = new Set<string>(),
 ): Set<string> {
 	if (Array.isArray(value)) {

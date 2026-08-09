@@ -1,4 +1,4 @@
-import { FileText } from "lucide-react";
+import { FileText, PanelsTopLeft } from "lucide-react";
 import {
 	forwardRef,
 	useEffect,
@@ -8,15 +8,15 @@ import {
 	useState,
 } from "react";
 import { cn } from "../platform/utils";
-import type { CardReferenceSuggestion } from "./types";
+import type { ReferenceSuggestion } from "./types";
 
 export type CardReferenceListHandle = {
 	onKeyDown: (event: KeyboardEvent) => boolean;
 };
 
 export type CardReferenceListProps = {
-	items: CardReferenceSuggestion[];
-	command: (item: CardReferenceSuggestion) => void;
+	items: ReferenceSuggestion[];
+	command: (item: ReferenceSuggestion) => void;
 };
 
 export const CardReferenceList = forwardRef<
@@ -79,7 +79,7 @@ export const CardReferenceList = forwardRef<
 		>
 			{items.length === 0 ? (
 				<div className="px-3 py-2 text-sm text-[var(--sea-ink-soft)]">
-					No cards found
+					No results
 				</div>
 			) : (
 				items.map((item, index) => {
@@ -87,7 +87,7 @@ export const CardReferenceList = forwardRef<
 					return (
 						<button
 							type="button"
-							key={item.id}
+							key={`${item.kind ?? "card"}:${item.id}`}
 							data-index={index}
 							data-active={isActive}
 							onClick={() => selectItem(index)}
@@ -100,11 +100,11 @@ export const CardReferenceList = forwardRef<
 							)}
 						>
 							<span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)]">
-								<FileText className="size-4" />
+								{item.kind === "whiteboard" ? <PanelsTopLeft className="size-4" /> : <FileText className="size-4" />}
 							</span>
 							<span className="min-w-0">
 								<span className="block truncate text-sm font-semibold text-[var(--sea-ink)]">
-									{item.title || "Untitled card"}
+									{item.title || (item.kind === "whiteboard" ? "Untitled whiteboard" : "Untitled card")}
 								</span>
 								{item.preview ? (
 									<span className="block truncate text-xs text-[var(--sea-ink-soft)]">

@@ -3,6 +3,7 @@ import type {
 	BoardItem,
 	Card,
 	CardReference,
+	WhiteboardReference,
 	FileReference,
 	LocalFile,
 	TldrawDocument,
@@ -19,6 +20,7 @@ const TABLES = [
 	"files",
 	"fileReferences",
 	"cardReferences",
+	"whiteboardReferences",
 	"todos",
 ] as const;
 type TableName = (typeof TABLES)[number];
@@ -56,6 +58,7 @@ export async function exportLocalArchive(
 		files: [],
 		fileReferences: await db.fileReferences.toArray(),
 		cardReferences: await db.cardReferences.toArray(),
+		whiteboardReferences: await db.whiteboardReferences.toArray(),
 		todos: await db.todos.toArray(),
 	};
 	const files = await db.files.toArray();
@@ -202,7 +205,7 @@ export async function importArchive(
 			data[table] = tableBytes
 				? (JSON.parse(strFromU8(tableBytes)) as Record<string, unknown>[])
 				: [];
-			if (data[table].length !== manifest.counts[table])
+			if (data[table].length !== (manifest.counts[table] ?? 0))
 				throw new Error(`Archive count mismatch for ${table}`);
 		}
 	} else {
@@ -292,6 +295,7 @@ export async function importArchive(
 			db.files,
 			db.fileReferences,
 			db.cardReferences,
+			db.whiteboardReferences,
 			db.todos,
 			db.changeLog,
 			db.conflicts,
@@ -307,6 +311,7 @@ export async function importArchive(
 				db.files.clear(),
 				db.fileReferences.clear(),
 				db.cardReferences.clear(),
+				db.whiteboardReferences.clear(),
 				db.todos.clear(),
 				db.changeLog.clear(),
 				db.conflicts.clear(),
@@ -324,6 +329,9 @@ export async function importArchive(
 			);
 			await db.cardReferences.bulkAdd(
 				data.cardReferences as unknown as CardReference[],
+			);
+			await db.whiteboardReferences.bulkAdd(
+				(data.whiteboardReferences ?? []) as unknown as WhiteboardReference[],
 			);
 			await db.todos.bulkAdd(data.todos as unknown as Todo[]);
 			await db.settings.bulkPut([

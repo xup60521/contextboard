@@ -5,9 +5,11 @@ import type { Id } from "./ids";
 export function EditableWhiteboardTitle({
 	whiteboardId,
 	title,
+	readOnly = false,
 }: {
 	whiteboardId: Id<"whiteboards">;
 	title: string;
+	readOnly?: boolean;
 }) {
 	const { whiteboards } = useApplicationRuntime();
 	const updateTitle = useCallback(
@@ -35,6 +37,10 @@ export function EditableWhiteboardTitle({
 			void updateTitle({ whiteboardId, title: nextTitle });
 		}
 	}, [draftTitle, title, updateTitle, whiteboardId]);
+
+	if (readOnly) {
+		return <span className="truncate px-1 py-0.5 font-semibold">{title}</span>;
+	}
 
 	return (
 		<span className="relative inline-block min-w-0 max-w-[min(42vw,28rem)] align-middle">

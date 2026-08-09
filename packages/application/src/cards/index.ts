@@ -14,8 +14,10 @@ export {
 export { estimateCardHeight } from "./estimate-card-height";
 export {
 	CARD_REFERENCE_SCHEME,
+	WHITEBOARD_REFERENCE_SCHEME,
 	cardContentToTextWithReferences,
 	referencedCardIds,
+	referencedWhiteboardIds,
 	textToCardContentWithReferences,
 } from "./card-reference-text";
 export { type ConformanceCase, cardsServiceConformance } from "./conformance";

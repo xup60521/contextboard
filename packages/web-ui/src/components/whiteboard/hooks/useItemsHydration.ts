@@ -1,3 +1,4 @@
+import { recordContextboardPerf } from "@contextboard/application";
 import { type MutableRefObject, useEffect } from "react";
 import type { Editor, TLRecord, TLShapeId } from "tldraw";
 import {
@@ -44,6 +45,7 @@ export function useItemsHydration({
 	hydratingRef,
 	protectedPasteShapeIdsRef,
 	reconciliationGeneration,
+	readOnly = false,
 }: {
 	editor: Editor | null;
 	items: BoardItemResult[];
@@ -63,6 +65,7 @@ export function useItemsHydration({
 	hydratingRef: MutableRefObject<boolean>;
 	protectedPasteShapeIdsRef: MutableRefObject<Set<string>>;
 	reconciliationGeneration: number;
+	readOnly?: boolean;
 }) {
 	// Sync persisted board items → tldraw shapes
 	// biome-ignore lint/correctness/useExhaustiveDependencies: items drives this; all refs are stable
@@ -107,8 +110,11 @@ export function useItemsHydration({
 		);
 
 		hydratingRef.current = true;
-		editor.run(
-			() => {
+		const restoreReadOnly = readOnly && editor.getIsReadonly();
+		if (restoreReadOnly) editor.updateInstanceState({ isReadonly: false });
+		try {
+			editor.run(
+				() => {
 				const staleShapeIds = getStaleManagedShapeIds(
 					currentManagedShapes,
 					wantedShapeIds,
@@ -143,9 +149,12 @@ export function useItemsHydration({
 
 					rehydrateItemShape(editor, item, frameResolution.frame);
 				}
-			},
-			{ history: "ignore" },
-		);
+				},
+				{ history: "ignore" },
+			);
+		} finally {
+			if (restoreReadOnly) editor.updateInstanceState({ isReadonly: true });
+		}
 
 		window.setTimeout(() => {
 			hydratingRef.current = false;
@@ -176,6 +185,7 @@ export function useItemsHydration({
 		itemsReady,
 		loadedDrawingKey,
 		prioritizeCardContent,
+		readOnly,
 		scheduleVisibleCardHydration,
 		whiteboardKey,
 	]);
@@ -201,12 +211,9 @@ export function useItemsHydration({
 		if (ready.length === 0) return;
 
 		hydratingRef.current = true;
-		editor.run(
-			() => {
-				editor.store.put(ready);
-			},
-			{ history: "ignore" },
-		);
+		editor.store.mergeRemoteChanges(() => {
+			editor.store.put(ready);
+		});
 		window.setTimeout(() => {
 			hydratingRef.current = false;
 		}, 0);
@@ -218,4 +225,3 @@ export function useItemsHydration({
 		whiteboardKey,
 	]);
 }
-import { recordContextboardPerf } from "@contextboard/application";

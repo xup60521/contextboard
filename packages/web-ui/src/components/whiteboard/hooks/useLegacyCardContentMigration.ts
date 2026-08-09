@@ -19,11 +19,13 @@ export function useLegacyCardContentMigration({
 	loadedDrawingKey,
 	whiteboardKey,
 	contentStore,
+	enabled = true,
 }: {
 	editor: Editor | null;
 	loadedDrawingKey: string | null;
 	whiteboardKey: string;
 	contentStore: CardContentStore;
+	enabled?: boolean;
 }) {
 	const { cards } = useApplicationRuntime();
 	const [readyKey, setReadyKey] = useState<string | null>(null);
@@ -32,6 +34,7 @@ export function useLegacyCardContentMigration({
 	// `retry` is an explicit timer-driven trigger after a failed durable migration.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the value intentionally retriggers this effect.
 	useEffect(() => {
+		if (!enabled) return;
 		if (!editor || loadedDrawingKey !== whiteboardKey) return;
 		let cancelled = false;
 		let retryTimer: number | null = null;
@@ -100,7 +103,15 @@ export function useLegacyCardContentMigration({
 			cancelled = true;
 			if (retryTimer !== null) window.clearTimeout(retryTimer);
 		};
-	}, [cards, contentStore, editor, loadedDrawingKey, retry, whiteboardKey]);
+	}, [
+		cards,
+		contentStore,
+		editor,
+		enabled,
+		loadedDrawingKey,
+		retry,
+		whiteboardKey,
+	]);
 
-	return readyKey === whiteboardKey;
+	return !enabled || readyKey === whiteboardKey;
 }

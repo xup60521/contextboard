@@ -189,6 +189,7 @@ const OPERATION_ENTITY_TYPES: Record<string, SyncEntityType> = {
 	files: "file",
 	fileReferences: "fileReference",
 	cardReferences: "cardReference",
+	whiteboardReferences: "whiteboardReference",
 	cardRelations: "cardRelation",
 	conflicts: "conflict",
 	todos: "todo",

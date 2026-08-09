@@ -200,6 +200,18 @@ const CARD_REFERENCE_CONTENT: JSONContent = {
 	],
 };
 
+const WHITEBOARD_REFERENCE_CONTENT: JSONContent = {
+	type: "doc",
+	content: [{
+		type: "paragraph",
+		content: [{
+			type: "text",
+			text: "My Board",
+			marks: [{ type: "link", attrs: { href: "/whiteboard/board-1", whiteboardRefId: "board-1" } }],
+		}],
+	}],
+};
+
 afterEach(() => {
 	cleanup();
 });
@@ -313,6 +325,24 @@ describe("ReadonlyRichTextPreview", () => {
 		fireEvent.click(link, { ctrlKey: true });
 
 		expect(onOpenPreview).toHaveBeenCalledWith("abc123");
+	});
+
+	test("opens whiteboard references without opening a card preview", async () => {
+		const onOpenPreview = vi.fn<(cardId: string) => void>();
+		const onOpenWhiteboard = vi.fn<(whiteboardId: string) => void>();
+		const search = vi.fn(async () => []);
+		render(
+			<ReadonlyRichTextPreview
+				content={WHITEBOARD_REFERENCE_CONTENT}
+				cardReferenceSupport={{ search, onOpenPreview, onOpenWhiteboard }}
+			/>,
+		);
+		const link = await screen.findByRole("link", { name: "My Board" });
+		fireEvent.mouseDown(link, { ctrlKey: true });
+		fireEvent.mouseUp(link, { ctrlKey: true });
+		fireEvent.click(link, { ctrlKey: true });
+		expect(onOpenWhiteboard).toHaveBeenCalledWith("board-1");
+		expect(onOpenPreview).not.toHaveBeenCalled();
 	});
 
 	test("does not open the math editor in readonly mode", async () => {

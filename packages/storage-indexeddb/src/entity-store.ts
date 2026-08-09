@@ -119,6 +119,11 @@ const BINDINGS: Record<string, EntityBinding> = {
 		table: (db) => db.cardReferences as RowTable<Row>,
 		defaults: () => ({ sourceCardId: null, targetCardId: null }),
 	},
+	whiteboardReferences: {
+		entityType: "whiteboardReference",
+		table: (db) => db.whiteboardReferences as RowTable<Row>,
+		defaults: () => ({ sourceCardId: null, targetWhiteboardId: null }),
+	},
 	cardRelations: {
 		entityType: "cardRelation",
 		table: (db) => db.cardRelations as RowTable<Row>,
@@ -218,6 +223,7 @@ type ListQueryInput = {
 	parentWhiteboardIds?: Array<string | null>;
 	sourceCardIds?: string[];
 	targetCardIds?: string[];
+	targetWhiteboardIds?: string[];
 	targetKeys?: string[];
 	fileIds?: string[];
 	searchTerm?: string;
@@ -237,6 +243,7 @@ const FILTERS_BY_ENTITY: Record<string, ReadonlySet<keyof ListQueryInput>> = {
 	]),
 	whiteboard: new Set(["ids", "parentWhiteboardIds", "searchTerm", "limit"]),
 	cardReference: new Set(["ids", "sourceCardIds", "targetCardIds"]),
+	whiteboardReference: new Set(["ids", "sourceCardIds", "targetWhiteboardIds"]),
 	fileReference: new Set(["ids", "targetKeys", "fileIds"]),
 	cardRelation: new Set(["ids", "whiteboardId", "whiteboardIds", "cardIds"]),
 	canvasRecord: new Set(["ids", "whiteboardId", "whiteboardIds"]),
@@ -367,6 +374,11 @@ function rowMatchesFilter(row: Row, filter: ListQueryInput) {
 	)
 		return false;
 	if (
+		filter.targetWhiteboardIds &&
+		!filter.targetWhiteboardIds.includes(String(row.targetWhiteboardId ?? ""))
+	)
+		return false;
+	if (
 		filter.targetKeys &&
 		!filter.targetKeys.includes(String(row.targetKey ?? ""))
 	)
@@ -423,6 +435,7 @@ export async function queryEntities(
 		filter.parentWhiteboardIds?.length === 0 ||
 		filter.sourceCardIds?.length === 0 ||
 		filter.targetCardIds?.length === 0 ||
+		filter.targetWhiteboardIds?.length === 0 ||
 		filter.targetKeys?.length === 0 ||
 		filter.fileIds?.length === 0
 	)
@@ -460,6 +473,8 @@ export async function queryEntities(
 						? (["sourceCardId", filter.sourceCardIds] as const)
 						: filter.targetCardIds
 							? (["targetCardId", filter.targetCardIds] as const)
+							: filter.targetWhiteboardIds
+								? (["targetWhiteboardId", filter.targetWhiteboardIds] as const)
 							: filter.targetKeys
 								? (["targetKey", filter.targetKeys] as const)
 								: filter.fileIds

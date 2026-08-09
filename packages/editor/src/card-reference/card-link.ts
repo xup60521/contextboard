@@ -4,6 +4,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 export type CardLinkOptions = {
 	/** Called on modifier-click of a card reference; null disables the gesture. */
 	onOpenPreview: ((cardId: string) => void) | null;
+	onOpenWhiteboard: ((whiteboardId: string) => void) | null;
 };
 
 /**
@@ -16,7 +17,7 @@ export const CardLink = Extension.create<CardLinkOptions>({
 	name: "cardLink",
 
 	addOptions() {
-		return { onOpenPreview: null };
+		return { onOpenPreview: null, onOpenWhiteboard: null };
 	},
 
 	addGlobalAttributes() {
@@ -25,6 +26,10 @@ export const CardLink = Extension.create<CardLinkOptions>({
 				types: ["link"],
 				attributes: {
 					cardId: dataAttribute("data-card-id", "cardId"),
+					whiteboardRefId: dataAttribute(
+						"data-whiteboard-id",
+						"whiteboardRefId",
+					),
 					cardLabelMode: dataAttribute("data-card-label-mode", "cardLabelMode"),
 					resolvedTitle: dataAttribute("data-resolved-title", "resolvedTitle"),
 				},
@@ -39,8 +44,6 @@ export const CardLink = Extension.create<CardLinkOptions>({
 				key: new PluginKey("cardLinkClick"),
 				props: {
 					handleClick(_view, _pos, event) {
-						const onOpenPreview = options.onOpenPreview;
-						if (!onOpenPreview) return false;
 						// Plain click keeps normal cursor behavior; only the modifier
 						// gesture opens the preview.
 						if (!(event.metaKey || event.ctrlKey)) return false;
@@ -48,10 +51,19 @@ export const CardLink = Extension.create<CardLinkOptions>({
 						const target = event.target as HTMLElement | null;
 						const anchor = target?.closest<HTMLElement>("a[data-card-id]");
 						const cardId = anchor?.getAttribute("data-card-id");
-						if (!cardId) return false;
-
+						if (cardId && options.onOpenPreview) {
+							event.preventDefault();
+							options.onOpenPreview(cardId);
+							return true;
+						}
+						const whiteboardAnchor =
+							target?.closest<HTMLElement>("a[data-whiteboard-id]");
+						const whiteboardId = whiteboardAnchor?.getAttribute(
+							"data-whiteboard-id",
+						);
+						if (!whiteboardId || !options.onOpenWhiteboard) return false;
 						event.preventDefault();
-						onOpenPreview(cardId);
+						options.onOpenWhiteboard(whiteboardId);
 						return true;
 					},
 				},

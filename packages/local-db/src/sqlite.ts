@@ -10,6 +10,7 @@ import type {
 	LocalFile,
 	TldrawDocument,
 	Whiteboard,
+	WhiteboardReference,
 } from "@contextboard/domain";
 import type { ChangeBatch, ConflictRecord } from "@contextboard/sync-protocol";
 import type {
@@ -287,6 +288,7 @@ const TABLE_KEYS = {
 	files: "id",
 	fileReferences: "id",
 	cardReferences: "id",
+	whiteboardReferences: "id",
 	cardRelations: "id",
 	cardContents: "id",
 	canvasRecords: "id",
@@ -321,6 +323,7 @@ export class SqliteContextboardDatabase implements ContextboardDatabaseLike {
 	readonly files: RowTable<LocalFile>;
 	readonly fileReferences: RowTable<FileReference>;
 	readonly cardReferences: RowTable<CardReference>;
+	readonly whiteboardReferences: RowTable<WhiteboardReference>;
 	readonly cardRelations: RowTable<CardRelation>;
 	readonly canvasRecords: RowTable<CanvasRecord>;
 	readonly settings: RowTable<Setting>;
@@ -344,6 +347,7 @@ export class SqliteContextboardDatabase implements ContextboardDatabaseLike {
 		this.files = createTable(this.#database, "files");
 		this.fileReferences = createTable(this.#database, "fileReferences");
 		this.cardReferences = createTable(this.#database, "cardReferences");
+		this.whiteboardReferences = createTable(this.#database, "whiteboardReferences");
 		this.cardRelations = createTable(this.#database, "cardRelations");
 		this.canvasRecords = createTable(this.#database, "canvasRecords");
 		this.settings = createTable(this.#database, "settings");

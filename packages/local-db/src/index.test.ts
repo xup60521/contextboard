@@ -280,6 +280,12 @@ describe("local database", () => {
 			sourceCardId: "card-1",
 			targetCardId: "card-2",
 		} as never);
+		await db.whiteboardReferences.put({
+			...base,
+			id: "whiteboard-reference-1",
+			sourceCardId: "card-1",
+			targetWhiteboardId: "board-1",
+		} as never);
 		await db.cardRelations.put({
 			...base,
 			id: "relation-1",
@@ -363,7 +369,8 @@ describe("local database", () => {
 				"boardItem",
 				"file",
 				"fileReference",
-				"cardReference",
+			"cardReference",
+			"whiteboardReference",
 				"cardRelation",
 				"canvasRecord",
 			]),

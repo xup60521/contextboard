@@ -1,7 +1,7 @@
-import type { WhiteboardNavigation } from "../navigation";
-import { useEffect, type MutableRefObject } from "react";
+import { type MutableRefObject, useEffect } from "react";
 import type { Editor, TLEventInfo, TLShapeId, VecLike } from "tldraw";
 import type { Id } from "../ids";
+import type { WhiteboardNavigation } from "../navigation";
 import {
 	getWhiteboardDoubleClickShape,
 	isMarkdownCardShape,
@@ -18,6 +18,7 @@ export function useCanvasEvents({
 	prioritizeCardContent,
 	pendingEditShapeIdRef,
 	navigate,
+	readOnly = false,
 }: {
 	editor: Editor | null;
 	whiteboardId: Id<"whiteboards"> | null;
@@ -27,6 +28,7 @@ export function useCanvasEvents({
 	prioritizeCardContent: (shapeId: TLShapeId, cardId: Id<"cards">) => void;
 	pendingEditShapeIdRef: MutableRefObject<TLShapeId | null>;
 	navigate: WhiteboardNavigation;
+	readOnly?: boolean;
 }) {
 	// Canvas interactions (right-click point capture, double-click to open a
 	// sub-whiteboard or create an item). Registered in an effect rather than
@@ -48,14 +50,12 @@ export function useCanvasEvents({
 			) {
 				return;
 			}
+			if (readOnly) return;
 
 			const point = editor.inputs.currentPagePoint;
 
 			if (info.target === "shape") {
-				if (
-					isMarkdownCardShape(info.shape) &&
-					info.shape.props.cardId
-				) {
+				if (isMarkdownCardShape(info.shape) && info.shape.props.cardId) {
 					pendingEditShapeIdRef.current = info.shape.id;
 					prioritizeCardContent(
 						info.shape.id,
@@ -73,10 +73,7 @@ export function useCanvasEvents({
 			const hitShape = getWhiteboardDoubleClickShape(editor, point);
 
 			if (hitShape) {
-				if (
-					isMarkdownCardShape(hitShape) &&
-					hitShape.props.cardId
-				) {
+				if (isMarkdownCardShape(hitShape) && hitShape.props.cardId) {
 					pendingEditShapeIdRef.current = hitShape.id;
 					prioritizeCardContent(
 						hitShape.id,
@@ -113,6 +110,7 @@ export function useCanvasEvents({
 		navigate,
 		pendingEditShapeIdRef,
 		prioritizeCardContent,
+		readOnly,
 		whiteboardId,
 	]);
 }
