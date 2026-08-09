@@ -21,6 +21,7 @@ import {
 import { DeleteWhiteboardDialog } from "./DeleteWhiteboardDialog";
 import { EditableWhiteboardTitle } from "./EditableWhiteboardTitle";
 import type { SequencedFrame } from "./frame-sync";
+import { useCameraPersistence } from "./hooks/useCameraPersistence";
 import { useCameraReset } from "./hooks/useCameraReset";
 import { useCanvasEvents } from "./hooks/useCanvasEvents";
 import { useCanvasPersistenceInteraction } from "./hooks/useCanvasPersistenceInteraction";
@@ -37,6 +38,7 @@ import { usePasteResolution } from "./hooks/usePasteResolution";
 import { useRightDragPan } from "./hooks/useRightDragPan";
 import { useStoreListener } from "./hooks/useStoreListener";
 import { useSubwhiteboardEnterShortcut } from "./hooks/useSubwhiteboardEnterShortcut";
+import { useSubwhiteboardPrefetch } from "./hooks/useSubwhiteboardPrefetch";
 import { useThemeSync } from "./hooks/useThemeSync";
 import { useVisibleCardContentHydration } from "./hooks/useVisibleCardContentHydration";
 import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
@@ -119,7 +121,9 @@ export function WhiteboardCanvas({
 		items,
 		itemsReady,
 		tldrawDocument,
-		documentPatches,
+		documentPatchGeneration,
+		takeDocumentPatches,
+		prefetchWhiteboard,
 		reloadDocument,
 		createCardItem,
 		createSubwhiteboardItem,
@@ -244,7 +248,8 @@ export function WhiteboardCanvas({
 		whiteboardId,
 		whiteboardKey,
 		tldrawDocument,
-		documentPatches,
+		documentPatchGeneration,
+		takeDocumentPatches,
 		reloadDocument,
 		itemsReady: itemQuery.status !== "LoadingFirstPage",
 		hydratingRef,
@@ -306,6 +311,16 @@ export function WhiteboardCanvas({
 		itemQueryStatus: itemQuery.status,
 		loadedDrawingKey,
 		whiteboardKey,
+		workspaceId,
+	});
+
+	useCameraPersistence({
+		editor,
+		workspaceId,
+		whiteboardKey,
+		loadedDrawingKey,
+		pendingCameraResetRef,
+		enabled: !readOnly,
 	});
 
 	useFocusShape({
@@ -322,6 +337,7 @@ export function WhiteboardCanvas({
 		useCardDeleteShortcut({ editor, enabled: !readOnly });
 
 	useSubwhiteboardEnterShortcut({ editor, navigate, enabled: !readOnly });
+	useSubwhiteboardPrefetch({ editor, prefetchWhiteboard });
 
 	const {
 		pending: pendingPaste,
@@ -488,6 +504,8 @@ export function WhiteboardCanvas({
 							// biome-ignore lint/a11y/noStaticElementInteractions: platform-aware linkProps supplies href and keyboard behavior.
 							<a
 								{...navigate.linkProps(navigate.rootWhiteboardHref())}
+								onPointerEnter={() => prefetchWhiteboard(null)}
+								onFocus={() => prefetchWhiteboard(null)}
 								className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
 							>
 								Root
@@ -510,6 +528,8 @@ export function WhiteboardCanvas({
 									// biome-ignore lint/a11y/noStaticElementInteractions: platform-aware linkProps supplies href and keyboard behavior.
 									<a
 										{...navigate.linkProps(navigate.whiteboardHref(crumb._id))}
+										onPointerEnter={() => prefetchWhiteboard(crumb._id)}
+										onFocus={() => prefetchWhiteboard(crumb._id)}
 										className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
 									>
 										{crumb.title}

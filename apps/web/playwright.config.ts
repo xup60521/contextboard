@@ -5,6 +5,10 @@ export default defineConfig({
 	fullyParallel: false,
 	workers: 1,
 	retries: process.env.CI ? 1 : 0,
+	reporter: [
+		["line"],
+		["html", { outputFolder: "playwright-report", open: "never" }],
+	],
 	use: {
 		baseURL: "http://127.0.0.1:3000",
 		trace: "on-first-retry",

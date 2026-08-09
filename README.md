@@ -61,6 +61,43 @@ bun run generate-routes
 bun run --filter @contextboard/web preview
 ```
 
+## Browser tests
+
+The web app uses Playwright for browser automation. Install Chromium once after
+installing the repository dependencies:
+
+```powershell
+bun install
+bunx playwright install chromium
+```
+
+Run the complete browser suite from the repository root:
+
+```powershell
+bun run test:browser
+```
+
+Playwright starts the web development server automatically, so a separate
+`bun run dev:web` process is not required. Other useful commands are:
+
+```powershell
+bun run test:browser:headed
+bun run test:browser:ui
+bun run test:browser:debug
+bun run test:browser -- persistence.spec.ts
+bun run test:browser -- --grep "card text survives reload"
+bun run test:browser:report
+```
+
+Browser specs live in `apps/web/e2e`. Failure screenshots, traces, and other
+test artifacts are written to `apps/web/test-results`; the HTML report is
+written to `apps/web/playwright-report`.
+
+Prefer selectors based on accessible roles, labels, placeholders, or stable
+test IDs. Every test must create its own data and remain independent of test
+order. When setup is needed before the first navigation, use Playwright
+fixtures or `page.addInitScript` rather than state left by another test.
+
 ## Windows desktop shell
 
 The Phase 7 desktop shell uses Tauri 2, React, and the shared

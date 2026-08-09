@@ -29,7 +29,8 @@ export function useDrawingHydration({
 	whiteboardId,
 	whiteboardKey,
 	tldrawDocument,
-	documentPatches = [],
+	documentPatchGeneration = 0,
+	takeDocumentPatches,
 	reloadDocument,
 	itemsReady,
 	hydratingRef,
@@ -40,7 +41,10 @@ export function useDrawingHydration({
 	whiteboardId: Id<"whiteboards"> | null;
 	whiteboardKey: string;
 	tldrawDocument: TldrawDocumentResult | undefined;
-	documentPatches: CanvasRecordPatch[];
+	/** Bumped whenever new patches are queued; the queue itself lives in a ref. */
+	documentPatchGeneration?: number;
+	/** Drains the queued patches. Returns `[]` when there is nothing pending. */
+	takeDocumentPatches?: () => CanvasRecordPatch[];
 	reloadDocument?: () => void;
 	itemsReady: boolean;
 	hydratingRef: MutableRefObject<boolean>;
@@ -60,7 +64,6 @@ export function useDrawingHydration({
 	const latestDrawingSnapshotRef = useRef<TLStoreSnapshot | null>(null);
 	const activeWhiteboardKeyRef = useRef(whiteboardKey);
 	const hydrationGenerationRef = useRef(0);
-	const appliedPatchCountRef = useRef(0);
 
 	if (activeWhiteboardKeyRef.current !== whiteboardKey) {
 		activeWhiteboardKeyRef.current = whiteboardKey;
@@ -74,14 +77,13 @@ export function useDrawingHydration({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: whiteboardKey intentionally resets per-board state
 	useEffect(() => {
 		loadedDrawingKeyRef.current = null;
-		appliedPatchCountRef.current = 0;
 		setLoadedDrawingKey(null);
 		setHydrationError(null);
 	}, [whiteboardKey]);
 
 	useEffect(() => {
 		if (!editor || loadedDrawingKey !== whiteboardKey) return;
-		const pending = documentPatches.slice(appliedPatchCountRef.current);
+		const pending = takeDocumentPatches?.() ?? [];
 		if (pending.length === 0) return;
 		const latest = new Map<
 			string,
@@ -104,7 +106,6 @@ export function useDrawingHydration({
 					latest.set(row.recordId, { revision: row.revision, removed: true });
 			}
 		}
-		appliedPatchCountRef.current = documentPatches.length;
 		const upserts: TLRecord[] = [];
 		const removals: TLRecord["id"][] = [];
 		const patchIds = new Set(
@@ -168,11 +169,12 @@ export function useDrawingHydration({
 			}, 0);
 		}
 	}, [
-		documentPatches,
+		documentPatchGeneration,
 		editor,
 		hydratingRef,
 		loadedDrawingKey,
 		reloadDocument,
+		takeDocumentPatches,
 		whiteboardId,
 		whiteboardKey,
 	]);
@@ -319,6 +321,14 @@ export function useDrawingHydration({
 		};
 
 		const persistedIds = reconciliation.nextAppliedRecordIds;
+		const previousDeferredIds = deferredBindingsRef.current
+			.map((record) =>
+				record && typeof record === "object" && "id" in record
+					? String((record as { id: unknown }).id)
+					: "",
+			)
+			.sort()
+			.join(",");
 		const deferredById = new Map<string, TLRecord>();
 		for (const record of deferredBindingsRef.current) {
 			if (
@@ -340,7 +350,14 @@ export function useDrawingHydration({
 			reconciliation.removals.length === 0 &&
 			reconciliation.upserts.length === 0
 		) {
-			setReconciliationGeneration((value) => value + 1);
+			// Nothing moved. Bumping the generation unconditionally re-ran the
+			// deferred-binding effect and the whole relation sync on every echoed
+			// save, which is once per stroke while drawing. Only newly deferred
+			// bindings still need downstream work.
+			const nextDeferredIds = [...deferredById.keys()].sort().join(",");
+			if (nextDeferredIds !== previousDeferredIds) {
+				setReconciliationGeneration((value) => value + 1);
+			}
 			return;
 		}
 

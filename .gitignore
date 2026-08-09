@@ -20,6 +20,10 @@ apps/*/src-tauri/target
 .vinxi
 .data
 .backups
+apps/web/playwright-report/
+apps/web/test-results/
+playwright-report/
+test-results/
 __unconfig*
 todos.json
 package-lock.json

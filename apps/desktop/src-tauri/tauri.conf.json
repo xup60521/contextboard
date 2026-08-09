@@ -25,6 +25,9 @@
     ]
   },
   "bundle": {
-    "active": false
+    "active": false,
+    "icon": [
+      "../web/public/contextboard_logo.png"
+    ]
   }
 }
