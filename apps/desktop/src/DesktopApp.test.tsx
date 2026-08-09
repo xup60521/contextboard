@@ -81,6 +81,7 @@ function createNativeStub() {
 		files: "file",
 		fileReferences: "fileReference",
 		cardReferences: "cardReference",
+		whiteboardReferences: "whiteboardReference",
 		cardRelations: "cardRelation",
 	};
 	const table = (entityType: string) => {

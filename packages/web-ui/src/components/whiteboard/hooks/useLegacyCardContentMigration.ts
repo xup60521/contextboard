@@ -38,18 +38,22 @@ export function useLegacyCardContentMigration({
 		if (!editor || loadedDrawingKey !== whiteboardKey) return;
 		let cancelled = false;
 		let retryTimer: number | null = null;
+
+		// Almost every board has no legacy shapes left. Deciding that synchronously
+		// keeps the gate from costing an extra render plus a microtask on the
+		// critical path — `useItemsHydration` is blocked on this flag.
+		const legacyShapes = editor
+			.getCurrentPageShapes()
+			.filter(isMarkdownCardShape)
+			.filter((shape) => typeof shape.props.content === "string");
+		if (legacyShapes.length === 0) {
+			setReadyKey(whiteboardKey);
+			return;
+		}
+
 		setReadyKey(null);
 
 		void (async () => {
-			const legacyShapes = editor
-				.getCurrentPageShapes()
-				.filter(isMarkdownCardShape)
-				.filter((shape) => typeof shape.props.content === "string");
-			if (legacyShapes.length === 0) {
-				if (!cancelled) setReadyKey(whiteboardKey);
-				return;
-			}
-
 			try {
 				for (const shape of legacyShapes) {
 					const legacyDocument =

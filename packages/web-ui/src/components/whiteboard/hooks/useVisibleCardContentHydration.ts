@@ -13,39 +13,26 @@ import {
 import { type Editor, type TLShapeId, react as tldrawReact } from "tldraw";
 import type { CardContentStore } from "../card-content-store";
 import { isCardContentDirty } from "../dirty-card-content";
+import { LRUCache } from "../lru-cache";
 import type { Id } from "../ids";
 import {
 	type BoardItemResult,
 	isMarkdownCardShape,
 } from "../whiteboard-canvas-helpers";
 
-class LRUCache {
-	private readonly map = new Map<string, unknown>();
-	constructor(private readonly capacity: number) {}
-
-	get(key: string): unknown | undefined {
-		if (!this.map.has(key)) return undefined;
-		const value = this.map.get(key);
-		this.map.delete(key);
-		this.map.set(key, value);
-		return value;
-	}
-
-	set(key: string, value: unknown): void {
-		if (this.map.has(key)) {
-			this.map.delete(key);
-		} else if (this.map.size >= this.capacity) {
-			this.map.delete(this.map.keys().next().value!);
-		}
-		this.map.set(key, value);
-	}
-}
-
 const cardContentCache = new LRUCache(100);
 const MAX_CARD_CONTENT_BATCH = 30;
 const SPATIAL_CELL_SIZE = 1_000;
 const VIEWPORT_PREFETCH = 500;
 const CAMERA_HYDRATION_INTERVAL_MS = 50;
+/**
+ * Above this many grid cells the walk costs more than the items themselves.
+ *
+ * The grid is indexed by absolute page position, so a zoomed-out viewport spans
+ * thousands of cells and the nested loop grows with viewport *area* rather than
+ * with board size — on every throttled camera tick during a pan.
+ */
+const MAX_SPATIAL_CELL_SCAN = 400;
 
 function spatialCell(value: number) {
 	return Math.floor(value / SPATIAL_CELL_SIZE);
@@ -126,19 +113,37 @@ export function useVisibleCardContentHydration({
 		const batch: Id<"cards">[] = [];
 		const editingShapeId = editor.getEditingShapeId();
 		const viewport = editor.getViewportPageBounds();
+		const minX = spatialCell(viewport.x - VIEWPORT_PREFETCH);
+		const maxX = spatialCell(viewport.x + viewport.w + VIEWPORT_PREFETCH);
+		const minY = spatialCell(viewport.y - VIEWPORT_PREFETCH);
+		const maxY = spatialCell(viewport.y + viewport.h + VIEWPORT_PREFETCH);
 		const candidateItems = new Map<string, BoardItemResult>();
-		for (
-			let x = spatialCell(viewport.x - VIEWPORT_PREFETCH);
-			x <= spatialCell(viewport.x + viewport.w + VIEWPORT_PREFETCH);
-			x++
-		) {
-			for (
-				let y = spatialCell(viewport.y - VIEWPORT_PREFETCH);
-				y <= spatialCell(viewport.y + viewport.h + VIEWPORT_PREFETCH);
-				y++
-			) {
-				for (const item of itemSpatialIndex.get(`${x}:${y}`) ?? [])
-					candidateItems.set(item.shapeId, item);
+
+		if ((maxX - minX + 1) * (maxY - minY + 1) > MAX_SPATIAL_CELL_SCAN) {
+			// Zoomed far enough out that the grid is the slow path; test the items
+			// directly against the viewport instead.
+			const left = viewport.x - VIEWPORT_PREFETCH;
+			const right = viewport.x + viewport.w + VIEWPORT_PREFETCH;
+			const top = viewport.y - VIEWPORT_PREFETCH;
+			const bottom = viewport.y + viewport.h + VIEWPORT_PREFETCH;
+			for (const item of items) {
+				if (!item.cardId) continue;
+				if (
+					item.x > right ||
+					item.x + item.w < left ||
+					item.y > bottom ||
+					item.y + item.h < top
+				) {
+					continue;
+				}
+				candidateItems.set(item.shapeId, item);
+			}
+		} else {
+			for (let x = minX; x <= maxX; x++) {
+				for (let y = minY; y <= maxY; y++) {
+					for (const item of itemSpatialIndex.get(`${x}:${y}`) ?? [])
+						candidateItems.set(item.shapeId, item);
+				}
 			}
 		}
 
@@ -179,7 +184,7 @@ export function useVisibleCardContentHydration({
 		}
 
 		return batch;
-	}, [contentStore, editor, itemSpatialIndex, serverVersionByCardId]);
+	}, [contentStore, editor, items, itemSpatialIndex, serverVersionByCardId]);
 
 	const runHydration = useCallback(async () => {
 		if (!editor || loadedDrawingKey !== whiteboardKey || runningRef.current) {

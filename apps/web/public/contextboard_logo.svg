@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Contextboard logo</title>
+  <desc id="desc">Three connected document cards surrounding a blue code card.</desc>
+
+  <defs>
+    <linearGradient id="core-blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4392F7" />
+      <stop offset="1" stop-color="#4291F6" />
+    </linearGradient>
+    <linearGradient id="top-node-blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4393F7" />
+      <stop offset="1" stop-color="#4391F6" />
+    </linearGradient>
+    <linearGradient id="bottom-node-blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8BD0FA" />
+      <stop offset="1" stop-color="#8BD2FB" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="176" ry="176" fill="#FFFFFF" />
+
+  <g fill="none" stroke="#3E495B" stroke-width="27" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M480 258L756 222" stroke-linecap="butt" />
+    <path d="M764 231L652 346" />
+    <path d="M514 694L800 807" />
+    <path d="M414 749L801 811" />
+    <path d="M807 248V375" />
+    <path d="M826 650V758" />
+    <path d="M224 455V560" />
+  </g>
+
+  <path d="M318 455H202c-21 0-32-14-32-37V204c0-19 14-29 34-29h251c20 0 31 13 31 33v95" fill="none" stroke="#3E495B" stroke-width="27" stroke-linecap="round" stroke-linejoin="round" />
+  <g fill="none" stroke="#3E495B" stroke-width="16" stroke-linecap="round">
+    <path d="M244 248H399" />
+    <path d="M244 302H350" />
+    <path d="M244 357H312" />
+  </g>
+
+  <path d="M318 560H113c-18 0-27 13-27 32v198c0 22 13 34 36 34h256c22 0 35-13 35-34v-51" fill="none" stroke="#3E495B" stroke-width="27" stroke-linecap="round" stroke-linejoin="round" />
+  <g fill="none" stroke="#3E495B" stroke-width="16" stroke-linecap="round">
+    <path d="M157 633H286" />
+    <path d="M157 687H309" />
+    <path d="M157 742H332" />
+  </g>
+
+  <path d="M768 376h138c19 0 29 14 29 33v210c0 20-13 32-32 32H768" fill="none" stroke="#3E495B" stroke-width="27" stroke-linecap="round" stroke-linejoin="round" />
+  <g fill="none" stroke="#3E495B" stroke-width="16" stroke-linecap="round">
+    <path d="M775 437H873" />
+    <path d="M775 490H873" />
+    <path d="M775 543H873" />
+  </g>
+
+  <circle cx="795" cy="202" r="54" fill="url(#top-node-blue)" />
+  <circle cx="841" cy="809" r="54" fill="url(#bottom-node-blue)" />
+  <rect x="347" y="332" width="392" height="376" rx="50" fill="url(#core-blue)" />
+
+  <g fill="none" stroke="#FFFFFF" stroke-width="27" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M490 425H461c-13 0-22 10-22 24v145c0 14 9 25 23 25h28" />
+    <path d="M595 425h28c15 0 24 10 24 24v145c0 14-10 25-24 25h-28" />
+  </g>
+  <circle cx="511" cy="526" r="18" fill="#FFFFFF" />
+  <circle cx="575" cy="526" r="18" fill="#FFFFFF" />
+</svg>

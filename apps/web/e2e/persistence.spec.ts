@@ -18,21 +18,21 @@ async function storeCount(page: Page, storeName: string) {
 	);
 }
 
-async function cardsContain(page: Page, value: string) {
+async function storeContains(page: Page, storeName: string, value: string) {
 	return page.evaluate(
-		(expected) =>
+		({ name, expected }) =>
 			new Promise<boolean>((resolve, reject) => {
 				const request = indexedDB.open("contextboard");
 				request.onerror = () => reject(request.error);
 				request.onsuccess = () => {
-					const transaction = request.result.transaction("cards", "readonly");
-					const rows = transaction.objectStore("cards").getAll();
+					const transaction = request.result.transaction(name, "readonly");
+					const rows = transaction.objectStore(name).getAll();
 					rows.onerror = () => reject(rows.error);
 					rows.onsuccess = () =>
 						resolve(JSON.stringify(rows.result).includes(expected));
 				};
 			}),
-		value,
+		{ name: storeName, expected: value },
 	);
 }
 
@@ -111,7 +111,9 @@ test("paste an image asset, reload, and retain its file record", async ({ page }
 		),
 	});
 	await expect.poll(() => storeCount(page, "files")).toBeGreaterThan(0);
-	await expect.poll(() => cardsContain(page, "contextboard-file:")).toBe(true);
+	await expect
+		.poll(() => storeContains(page, "cardContents", "contextboard-file:"))
+		.toBe(true);
 	await page.reload();
 	await expect(page.locator(".ProseMirror img")).toBeVisible();
 });
@@ -122,9 +124,10 @@ test("card text survives reload", async ({ page }) => {
 	await editor.click();
 	await page.keyboard.press("Control+A");
 	await page.keyboard.type("Persistent browser card");
-	await expect.poll(() => storeCount(page, "cards")).toBeGreaterThan(0);
+	await expect
+		.poll(() => storeContains(page, "cardContents", "Persistent browser card"))
+		.toBe(true);
 	await page.locator("main").click({ position: { x: 10, y: 10 } });
-	await page.waitForTimeout(700);
 	await page.reload();
 	await expect(
 		page.locator('.ProseMirror[contenteditable="true"]'),

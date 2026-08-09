@@ -18,6 +18,28 @@ const config = defineConfig({
     viteReact(),
     babel({ presets: [reactCompilerPreset()] }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        // The canvas dependencies were bundled into the same multi-megabyte
+        // chunk as the app shell, so every route paid for tldraw and TipTap and
+        // any app change invalidated them in cache. Rolldown's `advancedChunks`
+        // replaces Rollup's `manualChunks`.
+        advancedChunks: {
+          groups: [
+            {
+              name: 'tldraw',
+              test: /[\\/]node_modules[\\/](tldraw|@tldraw)[\\/]/,
+            },
+            {
+              name: 'tiptap',
+              test: /[\\/]node_modules[\\/](@tiptap|prosemirror-[^\\/]+)[\\/]/,
+            },
+          ],
+        },
+      },
+    },
+  },
   // Keep tldraw's `?url` asset imports out of Rolldown's Windows dependency
   // optimizer; Vite's normal transform handles them correctly.
   optimizeDeps: { exclude: ['@tldraw/assets'] },

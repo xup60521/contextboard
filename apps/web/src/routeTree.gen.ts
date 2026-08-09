@@ -21,6 +21,7 @@ import { Route as CardsIndexRouteImport } from './routes/cards/index'
 import { Route as CardsCardIdRouteImport } from './routes/cards/$cardId'
 import { Route as CardsOrphansRouteImport } from './routes/cards/orphans'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
+import { Route as TestLogoRouteImport } from './routes/test/logo'
 import { Route as WhiteboardIndexRouteImport } from './routes/whiteboard/index'
 import { Route as WhiteboardWhiteboardIdRouteImport } from './routes/whiteboard/$whiteboardId'
 
@@ -84,6 +85,11 @@ const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
   path: '/demo/tanstack-query',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TestLogoRoute = TestLogoRouteImport.update({
+  id: '/test/logo',
+  path: '/test/logo',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WhiteboardIndexRoute = WhiteboardIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/test/logo': typeof TestLogoRoute
   '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/cards/': typeof CardsIndexRoute
   '/whiteboard/': typeof WhiteboardIndexRoute
@@ -121,6 +128,7 @@ export interface FileRoutesByTo {
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/test/logo': typeof TestLogoRoute
   '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/cards': typeof CardsIndexRoute
   '/whiteboard': typeof WhiteboardIndexRoute
@@ -138,6 +146,7 @@ export interface FileRoutesById {
   '/cards/$cardId': typeof CardsCardIdRoute
   '/cards/orphans': typeof CardsOrphansRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/test/logo': typeof TestLogoRoute
   '/whiteboard/$whiteboardId': typeof WhiteboardWhiteboardIdRoute
   '/cards/': typeof CardsIndexRoute
   '/whiteboard/': typeof WhiteboardIndexRoute
@@ -156,6 +165,7 @@ export interface FileRouteTypes {
     | '/cards/$cardId'
     | '/cards/orphans'
     | '/demo/tanstack-query'
+    | '/test/logo'
     | '/whiteboard/$whiteboardId'
     | '/cards/'
     | '/whiteboard/'
@@ -170,6 +180,7 @@ export interface FileRouteTypes {
     | '/cards/$cardId'
     | '/cards/orphans'
     | '/demo/tanstack-query'
+    | '/test/logo'
     | '/whiteboard/$whiteboardId'
     | '/cards'
     | '/whiteboard'
@@ -186,6 +197,7 @@ export interface FileRouteTypes {
     | '/cards/$cardId'
     | '/cards/orphans'
     | '/demo/tanstack-query'
+    | '/test/logo'
     | '/whiteboard/$whiteboardId'
     | '/cards/'
     | '/whiteboard/'
@@ -201,6 +213,7 @@ export interface RootRouteChildren {
   DesktopAuthRoute: typeof DesktopAuthRoute
   DeviceRoute: typeof DeviceRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
+  TestLogoRoute: typeof TestLogoRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -289,6 +302,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoTanstackQueryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/test/logo': {
+      id: '/test/logo'
+      path: '/test/logo'
+      fullPath: '/test/logo'
+      preLoaderRoute: typeof TestLogoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/whiteboard/': {
       id: '/whiteboard/'
       path: '/'
@@ -346,6 +366,7 @@ const rootRouteChildren: RootRouteChildren = {
   DesktopAuthRoute: DesktopAuthRoute,
   DeviceRoute: DeviceRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
+  TestLogoRoute: TestLogoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

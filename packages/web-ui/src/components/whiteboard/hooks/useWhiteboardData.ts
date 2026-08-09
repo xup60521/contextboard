@@ -9,10 +9,103 @@ import {
 } from "@contextboard/application";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Id } from "../ids";
+import { LRUCache } from "../lru-cache";
 import type {
 	BoardItemResult,
 	TldrawDocumentResult,
 } from "../whiteboard-canvas-helpers";
+
+type CanvasCapability = NonNullable<
+	ReturnType<typeof useApplicationRuntime>["canvas"]
+>;
+
+type CachedBoard = {
+	items?: CanvasItem[];
+	document?: TldrawDocumentResult;
+};
+
+/**
+ * Boards recently read from the local database.
+ *
+ * Re-entering a board — the common navigation, since sub-whiteboards are opened
+ * and left constantly — otherwise re-reads every `canvasRecords` row before a
+ * single shape can appear. A cache hit lets hydration start in the first commit
+ * while the authoritative read runs behind it; `planCanvasReconciliation`
+ * already handles the data having moved on since the cached copy.
+ */
+const boardDataCaches = new WeakMap<object, LRUCache<CachedBoard>>();
+
+const EMPTY_PATCHES: CanvasRecordPatch[] = [];
+
+/**
+ * Scoped to the canvas capability rather than kept in one global map: a
+ * different runtime means a different workspace or database, and board ids are
+ * only unique within one of those.
+ */
+function getBoardCache(canvas: CanvasCapability): LRUCache<CachedBoard> {
+	let cache = boardDataCaches.get(canvas);
+	if (!cache) {
+		cache = new LRUCache<CachedBoard>(8);
+		boardDataCaches.set(canvas, cache);
+	}
+	return cache;
+}
+
+function cacheBoard(
+	canvas: CanvasCapability | null | undefined,
+	key: string,
+	patch: CachedBoard,
+) {
+	if (!canvas) return;
+	const cache = getBoardCache(canvas);
+	cache.set(key, { ...cache.get(key), ...patch });
+}
+
+/**
+ * Warms the board cache for a board the user is about to open.
+ *
+ * Deduplicated so hovering a sub-whiteboard tile repeatedly costs one read.
+ */
+const inFlightPrefetches = new Set<string>();
+
+export function prefetchWhiteboardData(
+	canvas: CanvasCapability | null | undefined,
+	whiteboardId: string | null,
+) {
+	if (!canvas) return;
+	const canvasKey = whiteboardId ?? "__root__";
+	if (inFlightPrefetches.has(canvasKey)) return;
+	if (getBoardCache(canvas).get(canvasKey)) return;
+
+	inFlightPrefetches.add(canvasKey);
+	void Promise.all([
+		canvas.listItems(whiteboardId).then((items) => {
+			cacheBoard(canvas, canvasKey, { items });
+		}),
+		canvas.getDocument(whiteboardId).then((next) => {
+			cacheBoard(canvas, canvasKey, { document: toDocumentResult(next) });
+		}),
+	])
+		.catch(() => {
+			// A warm-up failure is not an error; the real read will report it.
+		})
+		.finally(() => {
+			inFlightPrefetches.delete(canvasKey);
+		});
+}
+
+function toDocumentResult(
+	next: Awaited<ReturnType<CanvasCapability["getDocument"]>>,
+): TldrawDocumentResult {
+	return next
+		? ({
+				whiteboardId: next.whiteboardId,
+				snapshot: next.snapshot,
+				revision: next.revision,
+				canvasRecordVersions: next.canvasRecordVersions,
+			} as NonNullable<TldrawDocumentResult>)
+		: null;
+}
 
 function toBoardItem(item: CanvasItem, workspaceId: string): BoardItemResult {
 	return {
@@ -73,18 +166,41 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	const [documentData, setDocumentData] = useState<
 		{ key: string; value: TldrawDocumentResult } | undefined
 	>();
-	const [documentPatches, setDocumentPatches] = useState<{
+	// Patches queue in a ref rather than in state: appending them to state grew a
+	// per-board array without bound and re-rendered the whole canvas subtree on
+	// every remote or echoed change. The counter is the only render signal, and
+	// the consumer drains the queue.
+	const documentPatchQueueRef = useRef<{
 		key: string;
 		value: CanvasRecordPatch[];
 	}>({ key: canvasKey, value: [] });
+	const [documentPatchGeneration, setDocumentPatchGeneration] = useState(0);
 	const [documentReloadGeneration, setDocumentReloadGeneration] = useState(0);
 	const reloadDocument = useCallback(
 		() => setDocumentReloadGeneration((value) => value + 1),
 		[],
 	);
-	const items = itemsData?.key === canvasKey ? itemsData.value : undefined;
+	const cachedBoard = canvas ? getBoardCache(canvas).get(canvasKey) : undefined;
+	const items =
+		itemsData?.key === canvasKey ? itemsData.value : cachedBoard?.items;
 	const tldrawDocument =
-		documentData?.key === canvasKey ? documentData.value : undefined;
+		documentData?.key === canvasKey
+			? documentData.value
+			: cachedBoard?.document;
+
+	const prefetchWhiteboard = useCallback(
+		(targetWhiteboardId: string | null) => {
+			prefetchWhiteboardData(canvas, targetWhiteboardId);
+		},
+		[canvas],
+	);
+
+	const takeDocumentPatches = useCallback(() => {
+		const queue = documentPatchQueueRef.current;
+		if (queue.key !== canvasKey || queue.value.length === 0) return [];
+		documentPatchQueueRef.current = { key: queue.key, value: [] };
+		return queue.value;
+	}, [canvasKey]);
 	const itemCardIds = useMemo(
 		() => (items ?? []).flatMap((item) => (item.cardId ? [item.cardId] : [])),
 		[items],
@@ -131,6 +247,7 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 				const nextItems = await canvas.listItems(whiteboardId ?? null);
 				if (active) {
 					loadedItemsKeyRef.current = canvasKey;
+					cacheBoard(canvas, canvasKey, { items: nextItems });
 					setItemsData({ key: canvasKey, value: nextItems });
 				}
 			} while (active && dirty);
@@ -165,23 +282,16 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 					detail: canvasKey,
 				});
 				const next = await canvas.getDocument(whiteboardId ?? null);
-				if (active)
-					setDocumentData({
-						key: canvasKey,
-						value: next
-							? ({
-									whiteboardId: next.whiteboardId,
-									snapshot: next.snapshot,
-									revision: next.revision,
-									canvasRecordVersions: next.canvasRecordVersions,
-								} as NonNullable<TldrawDocumentResult>)
-							: null,
-					});
+				if (active) {
+					const value = toDocumentResult(next);
+					cacheBoard(canvas, canvasKey, { document: value });
+					setDocumentData({ key: canvasKey, value });
+				}
 			} while (active && dirty);
 			running = false;
 		};
 		void load();
-		setDocumentPatches({ key: canvasKey, value: [] });
+		documentPatchQueueRef.current = { key: canvasKey, value: [] };
 		const unsubscribe = canvas.subscribeDocument(
 			whiteboardId ?? null,
 			(change) => {
@@ -192,11 +302,15 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 					void load();
 					return;
 				}
-				setDocumentPatches((current) => ({
-					key: canvasKey,
-					value:
-						current.key === canvasKey ? [...current.value, change] : [change],
-				}));
+				// The cached snapshot is now behind the database. Items are left
+				// alone; `subscribeItems` re-caches those on its own.
+				cacheBoard(canvas, canvasKey, { document: undefined });
+				const queue = documentPatchQueueRef.current;
+				documentPatchQueueRef.current =
+					queue.key === canvasKey
+						? { key: canvasKey, value: [...queue.value, change] }
+						: { key: canvasKey, value: [change] };
+				setDocumentPatchGeneration((value) => value + 1);
 			},
 		);
 		return () => {
@@ -324,7 +438,12 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		itemsReady: items !== undefined,
 		tldrawDocument,
 		documentPatches:
-			documentPatches.key === canvasKey ? documentPatches.value : [],
+			documentPatchQueueRef.current.key === canvasKey
+				? documentPatchQueueRef.current.value
+				: EMPTY_PATCHES,
+		documentPatchGeneration,
+		takeDocumentPatches,
+		prefetchWhiteboard,
 		reloadDocument,
 		createCardItem,
 		createSubwhiteboardItem,
