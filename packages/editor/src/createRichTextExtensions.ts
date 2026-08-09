@@ -97,6 +97,10 @@ export function createRichTextExtensions(options: RichTextExtensionOptions) {
 			onOpenPreview: (cardId) =>
 				runtime.cardReferenceSupportRef.current?.onOpenPreview(cardId) ??
 				undefined,
+			onOpenWhiteboard: (whiteboardId) =>
+				runtime.cardReferenceSupportRef.current?.onOpenWhiteboard?.(
+					whiteboardId,
+				) ?? undefined,
 		}),
 		EditorImage.configure({
 			inline: false,

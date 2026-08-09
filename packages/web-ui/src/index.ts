@@ -84,6 +84,7 @@ export type {
 export { WhiteboardPickerDialog } from "./components/whiteboard/WhiteboardPickerDialog.tsx";
 
 export { WhiteboardCanvas } from "./components/whiteboard/WhiteboardCanvas.tsx";
+export { WhiteboardPreviewDialog } from "./components/whiteboard/WhiteboardPreviewDialog.tsx";
 export { DeleteWhiteboardDialog } from "./components/whiteboard/DeleteWhiteboardDialog.tsx";
 export { EditableWhiteboardTitle } from "./components/whiteboard/EditableWhiteboardTitle.tsx";
 export { WhiteboardCardPreviewLayer } from "./components/whiteboard/WhiteboardCardPreviewLayer.tsx";

@@ -34,6 +34,7 @@ export function createStaticRichTextExtensions() {
 
 		CardLink.configure({
 			onOpenPreview: null,
+			onOpenWhiteboard: null,
 		}),
 
 		StaticEditorImage.configure({

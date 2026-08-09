@@ -4,10 +4,10 @@ import {
 } from "@contextboard/application";
 import type { JSONContent } from "@tiptap/core";
 import { CardDocumentEditor } from "../cards/CardDocumentEditor";
-import { useDebouncedCardSave } from "../cards/useDebouncedCardSave";
-import { useCardReferenceSupport } from "./useCardReferenceSupport";
 import { CardPreviewDialog } from "../cards/CardPreviewDialog";
-
+import { useDebouncedCardSave } from "../cards/useDebouncedCardSave";
+import { WhiteboardPreviewDialog } from "../whiteboard/WhiteboardPreviewDialog";
+import { useCardReferenceSupport } from "./useCardReferenceSupport";
 
 type CardEditorPaneProps = {
 	cardId: string;
@@ -32,8 +32,13 @@ export function CardEditorPane({
 	contentClassName = "min-h-[60vh]",
 	onEditorReady,
 }: CardEditorPaneProps) {
-	const { support, previewCardId, closePreview } =
-		useCardReferenceSupport(whiteboardId);
+	const {
+		support,
+		previewCardId,
+		closePreview,
+		previewWhiteboardId,
+		closeWhiteboardPreview,
+	} = useCardReferenceSupport(whiteboardId);
 	const { scheduleSave } = useDebouncedCardSave(cardId, 450, {
 		initialContent: content,
 		initialSerialized: serializeCardContent(content),
@@ -62,6 +67,12 @@ export function CardEditorPane({
 				currentWhiteboardId={whiteboardId ?? null}
 				onClose={closePreview}
 			/>
+			{previewWhiteboardId ? (
+				<WhiteboardPreviewDialog
+					whiteboardId={previewWhiteboardId}
+					onClose={closeWhiteboardPreview}
+				/>
+			) : null}
 		</>
 	);
 }

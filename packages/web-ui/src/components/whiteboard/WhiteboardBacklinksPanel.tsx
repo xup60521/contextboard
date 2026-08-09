@@ -1,0 +1,63 @@
+import { useApplicationRuntime } from "@contextboard/application";
+import { ChevronDown, Link2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useSidebarContext } from "./SidebarContext";
+import { useWhiteboardNavigation } from "./navigation";
+
+type Backlink = { cardId: string; title: string; preview: string };
+
+export function WhiteboardBacklinksPanel({ whiteboardId }: { whiteboardId: string }) {
+	const { whiteboards } = useApplicationRuntime();
+	const navigation = useWhiteboardNavigation();
+	const { isOpen: sidebarOpen } = useSidebarContext();
+	const [expanded, setExpanded] = useState(false);
+	const [backlinks, setBacklinks] = useState<Backlink[]>([]);
+
+	const load = useCallback(async () => {
+		setBacklinks((await whiteboards?.listBacklinks(whiteboardId)) ?? []);
+	}, [whiteboardId, whiteboards]);
+
+	useEffect(() => {
+		if (!sidebarOpen || !expanded || !whiteboards) return;
+		void load();
+		return whiteboards.subscribe(() => void load(), {
+			backlinksToWhiteboardId: whiteboardId,
+		});
+	}, [expanded, load, sidebarOpen, whiteboardId, whiteboards]);
+
+	return (
+		<section className="mt-2 border-t border-[var(--border)] pt-2">
+			<button
+				type="button"
+				className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-semibold hover:bg-[var(--accent)]"
+				onClick={() => setExpanded((value) => !value)}
+				aria-expanded={expanded}
+			>
+				<Link2 className="size-3.5 text-[var(--muted-foreground)]" />
+				<span>Backlinks ({backlinks.length})</span>
+				<ChevronDown className={`ml-auto size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+			</button>
+			{expanded ? (
+				<div className="mt-1 space-y-px">
+					{backlinks.length === 0 ? (
+						<p className="px-2 py-2 text-xs text-[var(--muted-foreground)]">No backlinks yet</p>
+					) : (
+						backlinks.map((backlink) => {
+							const href = navigation.cardHref(backlink.cardId);
+							return (
+								<a
+									key={backlink.cardId}
+									{...navigation.linkProps(href)}
+									className="block rounded-md px-2 py-1.5 hover:bg-[var(--accent)]"
+								>
+									<span className="block truncate text-xs font-medium">{backlink.title}</span>
+									{backlink.preview ? <span className="block truncate text-[10px] text-[var(--muted-foreground)]">{backlink.preview}</span> : null}
+								</a>
+							);
+						})
+					)}
+				</div>
+			) : null}
+		</section>
+	);
+}

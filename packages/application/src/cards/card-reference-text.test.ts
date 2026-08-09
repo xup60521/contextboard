@@ -4,6 +4,7 @@ import { deriveCardMetadata } from "./card-content";
 import {
 	cardContentToTextWithReferences,
 	referencedCardIds,
+	referencedWhiteboardIds,
 	textToCardContentWithReferences,
 } from "./card-reference-text";
 
@@ -99,6 +100,23 @@ describe("card reference text", () => {
 		expect(cardContentToTextWithReferences(content)).toBe(
 			"Plain title\nJust prose.\n\nAnother paragraph.",
 		);
+	});
+
+	test("round trips whiteboard references and derives their ids", () => {
+		const text = "Map\nSee [Architecture](contextboard:whiteboard/board-7).";
+		const content = textToCardContentWithReferences(text);
+		expect(collectReferenceIds(content, "whiteboardRefId")).toEqual(
+			new Set(["board-7"]),
+		);
+		expect(referencedWhiteboardIds(text)).toEqual(["board-7"]);
+		expect(cardContentToTextWithReferences(content)).toBe(text);
+	});
+
+	test("round trips mixed card and whiteboard references", () => {
+		const text = "Map\nCompare [Card](contextboard:card/card-1) with [Board](contextboard:whiteboard/board-1).";
+		expect(
+			cardContentToTextWithReferences(textToCardContentWithReferences(text)),
+		).toBe(text);
 	});
 });
 

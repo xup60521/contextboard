@@ -28,6 +28,7 @@ const ENTITY_TYPES: Record<string, string> = {
 	files: "file",
 	fileReferences: "fileReference",
 	cardReferences: "cardReference",
+	whiteboardReferences: "whiteboardReference",
 	cardRelations: "cardRelation",
 	conflicts: "conflict",
 	todos: "todo",

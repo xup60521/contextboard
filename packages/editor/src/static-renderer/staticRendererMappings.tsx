@@ -170,6 +170,7 @@ export function createStaticRendererOptions({
 
 				const href = toSafeHref(attrs.href);
 				const cardId = toDataAttribute(attrs.cardId);
+				const whiteboardRefId = toDataAttribute(attrs.whiteboardRefId);
 				const cardLabelMode = toDataAttribute(attrs.cardLabelMode);
 				const resolvedTitle = toDataAttribute(attrs.resolvedTitle);
 				const external = isExternalHref(href);
@@ -178,6 +179,7 @@ export function createStaticRendererOptions({
 					<a
 						href={href}
 						data-card-id={cardId}
+						data-whiteboard-id={whiteboardRefId}
 						data-card-label-mode={cardLabelMode}
 						data-resolved-title={resolvedTitle}
 						target={external ? "_blank" : undefined}

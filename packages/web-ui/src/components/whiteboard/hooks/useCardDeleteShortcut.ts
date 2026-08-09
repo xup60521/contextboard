@@ -7,13 +7,19 @@ import {
 	isGlobalCardDeleteShortcut,
 } from "../whiteboard-canvas-helpers";
 
-export function useCardDeleteShortcut({ editor }: { editor: Editor | null }) {
+export function useCardDeleteShortcut({
+	editor,
+	enabled = true,
+}: {
+	editor: Editor | null;
+	enabled?: boolean;
+}) {
 	const [whiteboardCardDeletePending, setWhiteboardCardDeletePending] =
 		useState<{ cardIds: Id<"cards">[] } | null>(null);
 
 	// Ctrl+Delete: confirm permanent delete for selected markdown cards.
 	useEffect(() => {
-		if (!editor) return;
+		if (!editor || !enabled) return;
 
 		const ownerDocument = editor.getContainer().ownerDocument;
 
@@ -40,7 +46,7 @@ export function useCardDeleteShortcut({ editor }: { editor: Editor | null }) {
 		return () => {
 			ownerDocument.removeEventListener("keydown", handleKeyDown, true);
 		};
-	}, [editor, whiteboardCardDeletePending]);
+	}, [editor, enabled, whiteboardCardDeletePending]);
 
 	return { whiteboardCardDeletePending, setWhiteboardCardDeletePending };
 }

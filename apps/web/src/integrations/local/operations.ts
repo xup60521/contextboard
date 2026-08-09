@@ -85,11 +85,19 @@ async function reconcileReferences(
 		targetType === "card"
 			? await db.cardReferences.where("sourceCardId").equals(targetId).toArray()
 			: [];
+	const currentWhiteboards =
+		targetType === "card"
+			? await db.whiteboardReferences
+					.where("sourceCardId")
+					.equals(targetId)
+					.toArray()
+			: [];
 	const plan = planReferences(
 		{
 			targetFileReferences: current,
 			allFileReferences,
 			cardReferences: currentCards,
+			whiteboardReferences: currentWhiteboards,
 			files: await db.files.toArray(),
 		},
 		{ targetType, targetId, content },
@@ -110,6 +118,14 @@ async function reconcileReferences(
 			else
 				await db.cardReferences.add({
 					...(write.value as CardReference),
+					revision: 1,
+				});
+		} else if (write.entity === "whiteboardReference") {
+			if (write.operation === "delete")
+				await db.whiteboardReferences.delete(write.id);
+			else
+				await db.whiteboardReferences.add({
+					...(write.value as import("@contextboard/domain").WhiteboardReference),
 					revision: 1,
 				});
 		} else if (write.entity === "file") {
@@ -1282,6 +1298,7 @@ export async function localMutation(
 		db.files,
 		db.fileReferences,
 		db.cardReferences,
+		db.whiteboardReferences,
 		db.cardRelations,
 		db.canvasRecords,
 		db.conflicts,
@@ -1294,6 +1311,7 @@ export async function localMutation(
 		["file", db.files],
 		["fileReference", db.fileReferences],
 		["cardReference", db.cardReferences],
+		["whiteboardReference", db.whiteboardReferences],
 		["cardRelation", db.cardRelations],
 		["canvasRecord", db.canvasRecords],
 		["conflict", db.conflicts],

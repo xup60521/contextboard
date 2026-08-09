@@ -436,6 +436,23 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 		expect(fullTableRead).not.toHaveBeenCalled();
 	});
 
+	test("round trips and filters whiteboard references", async () => {
+		const { repository } = await makeRepository();
+		await repository.execute({
+			type: "whiteboardReferences.update",
+			input: {
+				writes: [
+					{ entity: "whiteboardReference", operation: "upsert", id: "card-1:board-1", value: { sourceCardId: "card-1", targetWhiteboardId: "board-1" } },
+					{ entity: "whiteboardReference", operation: "upsert", id: "card-2:board-2", value: { sourceCardId: "card-2", targetWhiteboardId: "board-2" } },
+				],
+			},
+		});
+		const bySource = await repository.query<Array<Record<string, unknown>>>({ type: "whiteboardReferences.list", input: { sourceCardIds: ["card-1"] } });
+		const byTarget = await repository.query<Array<Record<string, unknown>>>({ type: "whiteboardReferences.list", input: { targetWhiteboardIds: ["board-2"] } });
+		expect(bySource.map((row) => row.id)).toEqual(["card-1:board-1"]);
+		expect(byTarget.map((row) => row.id)).toEqual(["card-2:board-2"]);
+	});
+
 	test("reads file reference metadata without returning the blob", async () => {
 		const { database, repository } = await makeRepository();
 		await database.files.put({

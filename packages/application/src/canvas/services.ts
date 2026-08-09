@@ -208,6 +208,37 @@ export function createRepositoryWhiteboardsService(
 				.sort((a, b) => a.title.localeCompare(b.title));
 		},
 
+		async search({ query, limit = 5 }) {
+			const term = query.trim();
+			const rows = await listRows(repository, "whiteboards", {
+				...(term ? { searchTerm: term } : {}),
+				limit,
+			});
+			const { items, boards } = await readBoardSnapshot(repository);
+			const ids = new Set(rows.map((row) => row.id));
+			return boards
+				.filter((board) => ids.has(board.id))
+				.map((board) => toSummary(board, items, boards))
+				.slice(0, limit);
+		},
+
+		async listBacklinks(whiteboardId) {
+			const references = (
+				await listRows(repository, "whiteboardReferences", {
+					targetWhiteboardIds: [whiteboardId],
+				})
+			).filter(isActiveRow);
+			const sourceIds = [...new Set(references.map((row) => String(row.sourceCardId)))];
+			if (sourceIds.length === 0) return [];
+			return (await listRows(repository, "cards", { ids: sourceIds }))
+				.filter(isActiveRow)
+				.map((card) => ({
+					cardId: card.id,
+					title: String(card.derivedTitle ?? "Untitled card"),
+					preview: String(card.preview ?? ""),
+				}));
+		},
+
 		async get(id: string): Promise<WhiteboardDetail | null> {
 			return readWhiteboardDetail(repository, id);
 		},
@@ -261,7 +292,18 @@ export function createRepositoryWhiteboardsService(
 			await archiveWhiteboardTree(repository, options, id, archiveOptions);
 		},
 
-		subscribe(listener: () => void, options?: { whiteboardIds?: string[] }) {
+		subscribe(
+			listener: () => void,
+			options?: {
+				whiteboardIds?: string[];
+				backlinksToWhiteboardId?: string;
+			},
+		) {
+			if (options?.backlinksToWhiteboardId) {
+				return repository.subscribe(() => listener(), {
+					entityTypes: ["whiteboardReference", "card"],
+				});
+			}
 			if (!options?.whiteboardIds)
 				return repository.subscribe(() => listener(), {
 					entityTypes: ["whiteboard", "boardItem"],
@@ -351,9 +393,10 @@ export function createRepositoryCanvasService(
 		targetId: string,
 		content: unknown,
 	) {
-		const [fileReferences, cardReferences, files] = await Promise.all([
+		const [fileReferences, cardReferences, whiteboardReferences, files] = await Promise.all([
 			listRows(repository, "fileReferences"),
 			listRows(repository, "cardReferences"),
+			listRows(repository, "whiteboardReferences"),
 			listRows(repository, "files"),
 		]);
 		const targetKey = `${targetType}:${targetId}`;
@@ -366,6 +409,12 @@ export function createRepositoryCanvasService(
 				cardReferences:
 					targetType === "card"
 						? (cardReferences.filter(
+								(row) => row.sourceCardId === targetId,
+							) as never[])
+						: [],
+				whiteboardReferences:
+					targetType === "card"
+						? (whiteboardReferences.filter(
 								(row) => row.sourceCardId === targetId,
 							) as never[])
 						: [],

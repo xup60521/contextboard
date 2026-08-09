@@ -11,14 +11,16 @@ import {
 export function useSubwhiteboardEnterShortcut({
 	editor,
 	navigate,
+	enabled = true,
 }: {
 	editor: Editor | null;
 	navigate: WhiteboardNavigation;
+	enabled?: boolean;
 }) {
 	// Enter: navigate into the selected sub-whiteboard link, matching the
 	// existing double-click / context-menu "enter" behavior.
 	useEffect(() => {
-		if (!editor) return;
+		if (!editor || !enabled) return;
 
 		const ownerDocument = editor.getContainer().ownerDocument;
 
@@ -42,5 +44,5 @@ export function useSubwhiteboardEnterShortcut({
 		return () => {
 			ownerDocument.removeEventListener("keydown", handleKeyDown, true);
 		};
-	}, [editor, navigate]);
+	}, [editor, enabled, navigate]);
 }

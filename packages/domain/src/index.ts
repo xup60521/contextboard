@@ -8,6 +8,7 @@ export type TldrawDocumentId = Brand<string, "TldrawDocumentId">;
 export type FileId = Brand<string, "FileId">;
 export type FileReferenceId = Brand<string, "FileReferenceId">;
 export type CardReferenceId = Brand<string, "CardReferenceId">;
+export type WhiteboardReferenceId = Brand<string, "WhiteboardReferenceId">;
 export type CardRelationId = Brand<string, "CardRelationId">;
 export type CanvasRecordId = Brand<string, "CanvasRecordId">;
 
@@ -94,6 +95,11 @@ export type FileReference = EntityBase<FileReferenceId> & {
 export type CardReference = EntityBase<CardReferenceId> & {
 	sourceCardId: CardId;
 	targetCardId: CardId;
+};
+
+export type WhiteboardReference = EntityBase<WhiteboardReferenceId> & {
+	sourceCardId: CardId;
+	targetWhiteboardId: WhiteboardId;
 };
 
 /**

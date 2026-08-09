@@ -18,17 +18,43 @@ export function useCardReferenceSupport(
 	support: CardReferenceSupport;
 	previewCardId: string | null;
 	closePreview: () => void;
+	previewWhiteboardId: string | null;
+	closeWhiteboardPreview: () => void;
 } {
-	const { cards } = useApplicationRuntime();
+	const { cards, whiteboards } = useApplicationRuntime();
 	const [previewCardId, setPreviewCardId] = useState<string | null>(null);
+	const [previewWhiteboardId, setPreviewWhiteboardId] = useState<string | null>(
+		null,
+	);
 
 	const search = useCallback(
-		async (query: string) =>
-			await cards.search({
-				query: query.trim(),
-				whiteboardId: whiteboardId ?? undefined,
-			}),
-		[cards, whiteboardId],
+		async (query: string) => {
+			const trimmed = query.trim();
+			const [cardResults, whiteboardResults, allBoards] = await Promise.all([
+				cards.search({
+					query: trimmed,
+					whiteboardId: whiteboardId ?? undefined,
+					limit: 8,
+				}),
+				whiteboards?.search({ query: trimmed, limit: 5 }) ??
+					Promise.resolve([]),
+				whiteboards?.list() ?? Promise.resolve([]),
+			]);
+			const titles = new Map(allBoards.map((board) => [board.id, board.title]));
+			return [
+				...cardResults.map((card) => ({ ...card, kind: "card" as const })),
+				...whiteboardResults.map((board) => ({
+					kind: "whiteboard" as const,
+					id: board.id,
+					title: board.title,
+					preview: board.ancestorIds
+						.map((id) => titles.get(id))
+						.filter(Boolean)
+						.join(" / "),
+				})),
+			];
+		},
+		[cards, whiteboardId, whiteboards],
 	);
 
 	const onOpenPreview = useCallback(
@@ -43,11 +69,25 @@ export function useCardReferenceSupport(
 	);
 
 	const support = useMemo<CardReferenceSupport>(
-		() => ({ search, onOpenPreview }),
+		() => ({
+			search,
+			onOpenPreview,
+			onOpenWhiteboard: setPreviewWhiteboardId,
+		}),
 		[search, onOpenPreview],
 	);
 
 	const closePreview = useCallback(() => setPreviewCardId(null), []);
+	const closeWhiteboardPreview = useCallback(
+		() => setPreviewWhiteboardId(null),
+		[],
+	);
 
-	return { support, previewCardId, closePreview };
+	return {
+		support,
+		previewCardId,
+		closePreview,
+		previewWhiteboardId,
+		closeWhiteboardPreview,
+	};
 }

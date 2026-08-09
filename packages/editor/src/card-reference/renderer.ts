@@ -11,11 +11,11 @@ import {
 	type CardReferenceListProps,
 } from "./CardReferenceList";
 import { cardReferencePluginKey } from "./plugin-key";
-import type { CardReferenceSuggestion } from "./types";
+import type { ReferenceSuggestion } from "./types";
 
 type CardReferenceSuggestionProps = SuggestionProps<
-	CardReferenceSuggestion,
-	CardReferenceSuggestion
+	ReferenceSuggestion,
+	ReferenceSuggestion
 >;
 
 export function createCardReferenceRenderer() {

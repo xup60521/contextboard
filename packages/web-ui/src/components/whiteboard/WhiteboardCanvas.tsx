@@ -25,7 +25,6 @@ import { useCameraReset } from "./hooks/useCameraReset";
 import { useCanvasEvents } from "./hooks/useCanvasEvents";
 import { useCanvasPersistenceInteraction } from "./hooks/useCanvasPersistenceInteraction";
 import { useCardDeleteShortcut } from "./hooks/useCardDeleteShortcut";
-import { useSubwhiteboardEnterShortcut } from "./hooks/useSubwhiteboardEnterShortcut";
 import { useCardRelationSync } from "./hooks/useCardRelationSync";
 import { useDrawingHydration } from "./hooks/useDrawingHydration";
 import { useDrawingSync } from "./hooks/useDrawingSync";
@@ -37,6 +36,7 @@ import { useLegacyCardContentMigration } from "./hooks/useLegacyCardContentMigra
 import { usePasteResolution } from "./hooks/usePasteResolution";
 import { useRightDragPan } from "./hooks/useRightDragPan";
 import { useStoreListener } from "./hooks/useStoreListener";
+import { useSubwhiteboardEnterShortcut } from "./hooks/useSubwhiteboardEnterShortcut";
 import { useThemeSync } from "./hooks/useThemeSync";
 import { useVisibleCardContentHydration } from "./hooks/useVisibleCardContentHydration";
 import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
@@ -87,15 +87,25 @@ const whiteboardComponents = {
 	MenuPanel: CustomMenuPanel,
 } satisfies TLComponents;
 
+const whiteboardPreviewComponents = {
+	...whiteboardComponents,
+	ContextMenu: null,
+	MainMenu: null,
+	MenuPanel: null,
+} satisfies TLComponents;
+
 const LOADING_INDICATOR_DELAY_MS = 200;
 
 export function WhiteboardCanvas({
 	whiteboardId,
 	focusShapeId = null,
+	mode = "edit",
 }: {
 	whiteboardId: Id<"whiteboards"> | null;
 	focusShapeId?: string | null;
+	mode?: "edit" | "preview";
 }) {
+	const readOnly = mode === "preview";
 	const navigate = useWhiteboardNavigation();
 	const themeMode = useThemeMode();
 	const whiteboardKey = getWhiteboardKey(whiteboardId);
@@ -257,6 +267,7 @@ export function WhiteboardCanvas({
 		loadedDrawingKey,
 		whiteboardKey,
 		contentStore: cardContentStore,
+		enabled: !readOnly,
 	});
 
 	useItemsHydration({
@@ -276,11 +287,12 @@ export function WhiteboardCanvas({
 		hydratingRef,
 		protectedPasteShapeIdsRef,
 		reconciliationGeneration,
+		readOnly,
 	});
 
 	useCardRelationSync({
 		editor,
-		whiteboardId,
+		whiteboardId: readOnly ? null : whiteboardId,
 		whiteboardKey,
 		loadedDrawingKey,
 		reconciliationGeneration,
@@ -307,9 +319,9 @@ export function WhiteboardCanvas({
 	});
 
 	const { whiteboardCardDeletePending, setWhiteboardCardDeletePending } =
-		useCardDeleteShortcut({ editor });
+		useCardDeleteShortcut({ editor, enabled: !readOnly });
 
-	useSubwhiteboardEnterShortcut({ editor, navigate });
+	useSubwhiteboardEnterShortcut({ editor, navigate, enabled: !readOnly });
 
 	const {
 		pending: pendingPaste,
@@ -350,6 +362,7 @@ export function WhiteboardCanvas({
 		prioritizeCardContent,
 		pendingEditShapeIdRef,
 		navigate,
+		readOnly,
 	});
 
 	useRightDragPan({ editor });
@@ -392,26 +405,31 @@ export function WhiteboardCanvas({
 	// ── Derived display values ─────────────────────────────────────────────────
 	const contextValue = useMemo(
 		() => ({
-			createCardAt: whiteboardId ? createCardAt : null,
+			createCardAt: !readOnly && whiteboardId ? createCardAt : null,
 			createSubwhiteboardAt,
 			pointRef: contextMenuPointRef,
 		}),
-		[createCardAt, createSubwhiteboardAt, whiteboardId],
+		[createCardAt, createSubwhiteboardAt, readOnly, whiteboardId],
 	);
 
 	const whiteboardActions = useMemo(
 		() => ({
-			canDelete: whiteboardId !== null && Boolean(whiteboard),
+			canDelete: !readOnly && whiteboardId !== null && Boolean(whiteboard),
 			requestDelete: () => setCurrentWhiteboardDeletePending(true),
 		}),
-		[whiteboard, whiteboardId],
+		[readOnly, whiteboard, whiteboardId],
 	);
 
 	// Render as an overlay above the persistent <Tldraw> instead of replacing it,
 	// so the editor is never unmounted while a board's data is (re)loading.
+	// The drawing key matters as much as the metadata: the editor instance is
+	// deliberately shared across boards, so until the new board's snapshot has
+	// loaded the canvas is still showing the *previous* board's shapes.
 	const whiteboardIsLoading =
 		whiteboardId !== null &&
-		(whiteboard === undefined || breadcrumbs === undefined);
+		(whiteboard === undefined ||
+			breadcrumbs === undefined ||
+			loadedDrawingKey !== whiteboardKey);
 	const showLoadingIndicator = useDelayedVisibility(
 		whiteboardIsLoading,
 		LOADING_INDICATOR_DELAY_MS,
@@ -452,16 +470,29 @@ export function WhiteboardCanvas({
 	};
 
 	return (
-		<main className="flex h-dvh min-h-[620px] w-full overflow-hidden bg-[var(--background)]">
+		<main
+			className={
+				readOnly
+					? "flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)]"
+					: "flex h-dvh min-h-[620px] w-full overflow-hidden bg-[var(--background)]"
+			}
+		>
 			<div className="relative flex-1 overflow-hidden bg-[var(--background)]">
 				<div className="pointer-events-none absolute left-1/2 top-2 z-10 flex max-w-[min(92vw,40rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-sm text-[var(--card-foreground)] shadow-sm">
 					<nav className="pointer-events-auto flex min-w-0 items-center gap-2">
-						<a
-							{...navigate.linkProps(navigate.rootWhiteboardHref())}
-							className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
-						>
-							Root
-						</a>
+						{readOnly ? (
+							<span className="truncate font-semibold text-[var(--card-foreground)]">
+								Root
+							</span>
+						) : (
+							// biome-ignore lint/a11y/noStaticElementInteractions: platform-aware linkProps supplies href and keyboard behavior.
+							<a
+								{...navigate.linkProps(navigate.rootWhiteboardHref())}
+								className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
+							>
+								Root
+							</a>
+						)}
 						{displayedBreadcrumbs.map((crumb, index) => (
 							<span key={crumb._id} className="flex min-w-0 items-center gap-2">
 								<span className="text-[var(--muted-foreground)]">/</span>
@@ -469,8 +500,14 @@ export function WhiteboardCanvas({
 									<EditableWhiteboardTitle
 										whiteboardId={crumb._id}
 										title={crumb.title}
+										readOnly={readOnly}
 									/>
+								) : readOnly ? (
+									<span className="truncate font-semibold text-[var(--card-foreground)]">
+										{crumb.title}
+									</span>
 								) : (
+									// biome-ignore lint/a11y/noStaticElementInteractions: platform-aware linkProps supplies href and keyboard behavior.
 									<a
 										{...navigate.linkProps(navigate.whiteboardHref(crumb._id))}
 										className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
@@ -499,8 +536,15 @@ export function WhiteboardCanvas({
 									<Tldraw
 										assets={assetStore}
 										assetUrls={tldrawAssetUrls}
-										components={whiteboardComponents}
+										components={
+											readOnly
+												? whiteboardPreviewComponents
+												: whiteboardComponents
+										}
 										onMount={(mountedEditor) => {
+											mountedEditor.updateInstanceState({
+												isReadonly: readOnly,
+											});
 											try {
 												if (typeof performance !== "undefined")
 													performance.mark("contextboard:tldraw-mounted");
@@ -516,7 +560,7 @@ export function WhiteboardCanvas({
 											};
 										}}
 										options={whiteboardOptions}
-										onUiEvent={handleUiEvent}
+										onUiEvent={readOnly ? undefined : handleUiEvent}
 										overrides={singlePageTldrawUiOverrides}
 										shapeUtils={markdownWhiteboardShapeUtils}
 									/>
@@ -525,7 +569,7 @@ export function WhiteboardCanvas({
 						</WhiteboardContextMenuContext.Provider>
 					</WhiteboardActionsContext.Provider>
 				</div>
-				{pendingPaste ? (
+				{!readOnly && pendingPaste ? (
 					<CardPasteResolutionMenu
 						pending={pendingPaste}
 						onResolve={resolvePaste}
@@ -537,46 +581,52 @@ export function WhiteboardCanvas({
 					<WhiteboardLoadingOverlay label={overlayLabel} />
 				) : null}
 			</div>
-			<DeleteWhiteboardDialog
-				open={
-					whiteboardDeletePending !== null || currentWhiteboardDeletePending
-				}
-				onCancel={() => {
-					if (whiteboardDeletePending) {
-						hydratingRef.current = true;
-						editor?.createShape(whiteboardDeletePending.shape);
-						window.setTimeout(() => {
-							hydratingRef.current = false;
-						}, 0);
+			{!readOnly ? (
+				<DeleteWhiteboardDialog
+					open={
+						whiteboardDeletePending !== null || currentWhiteboardDeletePending
 					}
-					setWhiteboardDeletePending(null);
-					setCurrentWhiteboardDeletePending(false);
-				}}
-				onKeepCards={() => finishWhiteboardDelete(false)}
-				onDeleteCards={() => finishWhiteboardDelete(true)}
-			/>
-			<DeleteCardDialog
-				open={whiteboardCardDeletePending !== null}
-				cardCount={whiteboardCardDeletePending?.cardIds.length ?? 1}
-				onCancel={() => {
-					setWhiteboardCardDeletePending(null);
-				}}
-				onConfirm={() => {
-					if (!whiteboardCardDeletePending) return;
+					onCancel={() => {
+						if (whiteboardDeletePending) {
+							hydratingRef.current = true;
+							editor?.createShape(whiteboardDeletePending.shape);
+							window.setTimeout(() => {
+								hydratingRef.current = false;
+							}, 0);
+						}
+						setWhiteboardDeletePending(null);
+						setCurrentWhiteboardDeletePending(false);
+					}}
+					onKeepCards={() => finishWhiteboardDelete(false)}
+					onDeleteCards={() => finishWhiteboardDelete(true)}
+				/>
+			) : null}
+			{!readOnly ? (
+				<DeleteCardDialog
+					open={whiteboardCardDeletePending !== null}
+					cardCount={whiteboardCardDeletePending?.cardIds.length ?? 1}
+					onCancel={() => {
+						setWhiteboardCardDeletePending(null);
+					}}
+					onConfirm={() => {
+						if (!whiteboardCardDeletePending) return;
 
-					void archiveCardsGlobally({
-						cardIds: whiteboardCardDeletePending.cardIds,
-					}).catch((error) => {
-						console.warn(
-							"Failed to archive cards from whiteboard shortcut",
-							error,
-						);
-					});
+						void archiveCardsGlobally({
+							cardIds: whiteboardCardDeletePending.cardIds,
+						}).catch((error) => {
+							console.warn(
+								"Failed to archive cards from whiteboard shortcut",
+								error,
+							);
+						});
 
-					setWhiteboardCardDeletePending(null);
-				}}
-			/>
-			<WhiteboardCardPreviewLayer currentWhiteboardId={whiteboardId} />
+						setWhiteboardCardDeletePending(null);
+					}}
+				/>
+			) : null}
+			{!readOnly ? (
+				<WhiteboardCardPreviewLayer currentWhiteboardId={whiteboardId} />
+			) : null}
 		</main>
 	);
 }

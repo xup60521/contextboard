@@ -9,6 +9,7 @@ import type {
 	LocalFile,
 	TldrawDocument,
 	Whiteboard,
+	WhiteboardReference,
 } from "@contextboard/domain";
 import {
 	type BlobDescriptor,
@@ -75,6 +76,7 @@ export interface ContextboardDatabaseLike {
 	files: RowTable<LocalFile>;
 	fileReferences: RowTable<FileReference>;
 	cardReferences: RowTable<CardReference>;
+	whiteboardReferences: RowTable<WhiteboardReference>;
 	cardRelations: RowTable<CardRelation>;
 	canvasRecords: RowTable<CanvasRecord>;
 	settings: RowTable<Setting>;
@@ -131,6 +133,7 @@ export class ContextboardDatabase extends Dexie {
 	files!: EntityTable<LocalFile, any>;
 	fileReferences!: EntityTable<FileReference, any>;
 	cardReferences!: EntityTable<CardReference, any>;
+	whiteboardReferences!: EntityTable<WhiteboardReference, any>;
 	cardRelations!: EntityTable<CardRelation, any>;
 	canvasRecords!: EntityTable<CanvasRecord, any>;
 	settings!: EntityTable<Setting, "key">;
@@ -295,6 +298,10 @@ export class ContextboardDatabase extends Dexie {
 					await cards.update(card.id, { content: null });
 				}
 			});
+		this.version(9).stores({
+			whiteboardReferences:
+				"id, sourceCardId, targetWhiteboardId, [sourceCardId+targetWhiteboardId], deletedAt",
+		});
 	}
 }
 
@@ -528,6 +535,7 @@ async function rebuildPendingBatches(
 		db.files,
 		db.fileReferences,
 		db.cardReferences,
+		db.whiteboardReferences,
 		db.cardRelations,
 		db.canvasRecords,
 		db.conflicts,
@@ -638,6 +646,7 @@ async function rebuildPendingBatches(
 			["file", db.files],
 			["fileReference", db.fileReferences],
 			["cardReference", db.cardReferences],
+			["whiteboardReference", db.whiteboardReferences],
 			["cardRelation", db.cardRelations],
 			["canvasRecord", db.canvasRecords],
 			["conflict", db.conflicts],
@@ -753,6 +762,8 @@ const remoteTable = (
 								? db.fileReferences
 								: entityType === "cardReference"
 									? db.cardReferences
+									: entityType === "whiteboardReference"
+										? db.whiteboardReferences
 									: entityType === "cardRelation"
 										? db.cardRelations
 										: entityType === "canvasRecord"
@@ -811,6 +822,7 @@ async function applyRemoteBatchChunk(
 		db.files,
 		db.fileReferences,
 		db.cardReferences,
+		db.whiteboardReferences,
 		db.cardRelations,
 		db.canvasRecords,
 		db.todos,
@@ -1186,6 +1198,7 @@ export async function hasWorkspaceData(db: ContextboardDatabaseLike) {
 		db.fileReferences.count(),
 		db.files.count(),
 		db.cardReferences.count(),
+		db.whiteboardReferences.count(),
 		db.cardRelations.count(),
 		db.tldrawDocuments.count(),
 		db.todos.count(),
@@ -1298,6 +1311,7 @@ export async function exportCheckpointEntities(db: ContextboardDatabaseLike) {
 		files,
 		fileReferences,
 		cardReferences,
+		whiteboardReferences,
 		cardRelations,
 		canvasRecords,
 		todos,
@@ -1310,6 +1324,7 @@ export async function exportCheckpointEntities(db: ContextboardDatabaseLike) {
 		db.files.toArray(),
 		db.fileReferences.toArray(),
 		db.cardReferences.toArray(),
+		db.whiteboardReferences.toArray(),
 		db.cardRelations.toArray(),
 		db.canvasRecords.toArray(),
 		db.todos.toArray(),
@@ -1323,6 +1338,7 @@ export async function exportCheckpointEntities(db: ContextboardDatabaseLike) {
 		files: files.map(({ blob: _blob, ...metadata }) => metadata),
 		fileReferences,
 		cardReferences,
+		whiteboardReferences,
 		cardRelations,
 		canvasRecords,
 		todos,
@@ -1350,6 +1366,7 @@ export async function importCheckpointEntities(
 			db.files,
 			db.fileReferences,
 			db.cardReferences,
+			db.whiteboardReferences,
 			db.cardRelations,
 			db.canvasRecords,
 			db.todos,
@@ -1372,6 +1389,9 @@ export async function importCheckpointEntities(
 				),
 				db.fileReferences.bulkPut((entities.fileReferences ?? []) as never[]),
 				db.cardReferences.bulkPut((entities.cardReferences ?? []) as never[]),
+				db.whiteboardReferences.bulkPut(
+					(entities.whiteboardReferences ?? []) as never[],
+				),
 				db.cardRelations.bulkPut((entities.cardRelations ?? []) as never[]),
 				db.canvasRecords.bulkPut((entities.canvasRecords ?? []) as never[]),
 				db.todos.bulkPut((entities.todos ?? []) as never[]),

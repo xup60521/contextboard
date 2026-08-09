@@ -407,9 +407,10 @@ export function createRepositoryCardsService(
 	 */
 	async function planReferenceWrites(cardId: string, content: unknown) {
 		const targetKey = `card:${cardId}`;
-		const [targetFileReferences, cardReferences] = await Promise.all([
+		const [targetFileReferences, cardReferences, whiteboardReferences] = await Promise.all([
 			listRows(repository, "fileReferences", { targetKeys: [targetKey] }),
 			listRows(repository, "cardReferences", { sourceCardIds: [cardId] }),
+			listRows(repository, "whiteboardReferences", { sourceCardIds: [cardId] }),
 		]);
 		const affectedFileIds = [
 			...new Set([
@@ -433,6 +434,7 @@ export function createRepositoryCardsService(
 				targetFileReferences: targetFileReferences as never[],
 				allFileReferences: allFileReferences as never[],
 				cardReferences: cardReferences as never[],
+				whiteboardReferences: whiteboardReferences as never[],
 				files: files as never[],
 			},
 			{ targetType: "card", targetId: cardId, content },
