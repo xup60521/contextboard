@@ -136,6 +136,34 @@ describe("local database", () => {
 		expect(await db.changeLog.count()).toBe(1);
 	});
 
+	test("recovers when the cached device sequence is behind persisted batches", async () => {
+		const db = makeDb();
+		const identity = await ensureLocalIdentity(db);
+		await db.settings.put({ key: "deviceSequence", value: 1 });
+		await db.appliedChangeBatches.put({
+			changeId: "existing-change",
+			workspaceId: identity.workspaceId,
+			deviceId: identity.deviceId,
+			deviceSequence: 2,
+			appliedAt: 1,
+		});
+
+		await runLocalCommand(
+			db,
+			{ ...identity, clock: new HybridLogicalClock(identity.deviceId) },
+			"todos.add",
+			[db.todos],
+			async () => ({ result: undefined, changes: [] }),
+		);
+
+		expect((await db.settings.get("deviceSequence"))?.value).toBe(3);
+		expect(
+			(await db.changeLog.toArray()).some(
+				(batch) => batch.deviceSequence === 3,
+			),
+		).toBe(true);
+	});
+
 	test("rebuilds legacy argument logs as a valid materialized post-state batch", async () => {
 		const db = makeDb();
 		const identity = await ensureLocalIdentity(db);
