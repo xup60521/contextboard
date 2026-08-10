@@ -59,6 +59,7 @@ import {
 	WhiteboardContextMenuContext,
 } from "./WhiteboardContextMenu";
 import { WhiteboardMainMenu } from "./WhiteboardMainMenu";
+import { WhiteboardStylePanel } from "./WhiteboardStylePanel";
 import {
 	type BoardItemResult,
 	getWhiteboardKey,
@@ -87,6 +88,7 @@ const whiteboardComponents = {
 	ContextMenu: WhiteboardContextMenu,
 	MainMenu: WhiteboardMainMenu,
 	MenuPanel: CustomMenuPanel,
+	StylePanel: WhiteboardStylePanel,
 } satisfies TLComponents;
 
 const whiteboardPreviewComponents = {
