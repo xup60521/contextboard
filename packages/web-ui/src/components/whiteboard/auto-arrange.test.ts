@@ -109,6 +109,7 @@ describe("buildAutoArrangePlan", () => {
 		"tree-horizontal",
 		"tree-vertical",
 		"mindmap",
+		"graph",
 	] as const)("forwards the explicit %s style", (style: ArrangeStyle) => {
 		const editor = stubEditor(
 			[cardShape("a"), cardShape("b", 900)],

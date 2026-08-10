@@ -35,6 +35,7 @@ const CARD_ARRANGEMENT_OPTIONS = [
 		style: "tree-vertical",
 	},
 	{ id: "arrange-cards-mindmap", label: "Mindmap", style: "mindmap" },
+	{ id: "arrange-cards-graph", label: "Graph", style: "graph" },
 ] as const satisfies readonly {
 	id: string;
 	label: string;

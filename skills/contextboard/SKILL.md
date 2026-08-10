@@ -152,16 +152,22 @@ independent placements on several whiteboards.
 When several cards belong to one structure, do not compute coordinates for them.
 Create the cards, draw the arrows with `create_relation`, then call
 `arrange_cards` once. It reads the arrow directions — the card an arrow starts
-at becomes the parent — and produces a left-to-right tree, or a mindmap when one
-card is a well-branched hub. It also keeps arrows from crossing, which hand-placed
-coordinates almost never do.
+at becomes the parent — and produces a left-to-right tree, a mindmap when one
+card is a well-branched hub, or a compact graph for a cross-linked structure.
+Graph layout keeps related cards near one another, snaps every card onto one
+shared grid of columns and rows so the result stays aligned rather than organic,
+gives heavily-linked cards extra room for their spokes, and then shuffles cards
+between cells to pull crossing arrows apart. Because it is seeded from where the
+cards already are, arranging the same board twice keeps tidying it rather than
+returning an identical result.
 
 `arrange_cards` only moves cards that have a relation. Cards with none, and
 anything the user drew by hand, stay exactly where they are, and the result is
 centred on where the cards already were, so the board does not jump. Pass
 `cardIds` to arrange one structure on a busy board; the rest of the board then
 counts as space to keep clear of. `style` may be `auto` (default),
-`tree-horizontal`, `tree-vertical` or `mindmap`.
+`tree-horizontal`, `tree-vertical`, `mindmap` or `graph`. Auto preserves genuine
+tree and mindmap layouts and selects graph for larger or denser non-tree inputs.
 
 ## References vs relations
 

@@ -544,7 +544,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		{
 			name: "arrange_cards",
 			description:
-				"Lay the cards on a whiteboard out from the arrows between them, as a tree or a mindmap. Draw the relations you want with create_relation and then call this instead of working out coordinates yourself. It reads the arrow directions, so the card an arrow starts at becomes the parent. Cards with no relation are left exactly where they are, as is anything the user drew by hand, and the arrangement is centred on where the cards already were so the board does not jump. Pass cardIds to arrange only part of the board; everything else then counts as an obstacle to keep clear of.",
+				"Lay the cards on a whiteboard out from the arrows between them, as a tree, mindmap, or compact graph. Draw the relations you want with create_relation and then call this instead of working out coordinates yourself. It reads the arrow directions for tree layouts. Cards with no relation are left exactly where they are, as is anything the user drew by hand, and the arrangement is centred on where the cards already were so the board does not jump. Pass cardIds to arrange only part of the board; everything else then counts as an obstacle to keep clear of.",
 			inputSchema: object(
 				{
 					whiteboardId: string("The whiteboard to arrange."),
@@ -556,9 +556,15 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 					},
 					style: {
 						type: "string",
-						enum: ["auto", "tree-horizontal", "tree-vertical", "mindmap"],
+						enum: [
+							"auto",
+							"tree-horizontal",
+							"tree-vertical",
+							"mindmap",
+							"graph",
+						],
 						description:
-							"Layout to use. Defaults to auto, which picks a mindmap for a single well-branched hub and a left-to-right tree otherwise.",
+							"Layout to use. Defaults to auto, which keeps tree-shaped structures as trees or mindmaps and picks graph for dense, cross-linked structures.",
 					},
 				},
 				["whiteboardId"],

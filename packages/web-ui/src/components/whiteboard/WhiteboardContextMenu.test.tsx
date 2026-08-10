@@ -120,6 +120,7 @@ describe("WhiteboardContextMenu arrangement options", () => {
 		expect(screen.getByTestId("arrange-cards-tree-horizontal")).toBeTruthy();
 		expect(screen.getByTestId("arrange-cards-tree-vertical")).toBeTruthy();
 		expect(screen.getByTestId("arrange-cards-mindmap")).toBeTruthy();
+		expect(screen.getByTestId("arrange-cards-graph")).toBeTruthy();
 	});
 
 	test.each([
@@ -127,6 +128,7 @@ describe("WhiteboardContextMenu arrangement options", () => {
 		["arrange-cards-tree-horizontal", "tree-horizontal"],
 		["arrange-cards-tree-vertical", "tree-vertical"],
 		["arrange-cards-mindmap", "mindmap"],
+		["arrange-cards-graph", "graph"],
 	] as const)("passes %s to the arrange adapter", (id, style) => {
 		renderContextMenu();
 
