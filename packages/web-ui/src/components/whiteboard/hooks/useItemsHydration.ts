@@ -195,6 +195,7 @@ export function useItemsHydration({
 	useEffect(() => {
 		if (!editor) return;
 		if (loadedDrawingKey !== whiteboardKey) return;
+		if (!itemsReady) return;
 		if (deferredBindingsRef.current.length === 0) return;
 
 		const ready: TLRecord[] = [];
@@ -220,6 +221,7 @@ export function useItemsHydration({
 	}, [
 		editor,
 		items,
+		itemsReady,
 		loadedDrawingKey,
 		reconciliationGeneration,
 		whiteboardKey,
