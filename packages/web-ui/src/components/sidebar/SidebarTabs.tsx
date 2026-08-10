@@ -17,7 +17,6 @@ import { Layers, Library } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "../ui/button";
 import { ClearOpenTabsDialog } from "./ClearOpenTabsDialog";
-import { WhiteboardBacklinksPanel } from "../whiteboard/WhiteboardBacklinksPanel";
 import { SidebarTabRow } from "./SidebarTabRow";
 import { useSidebarTabs } from "./SidebarTabsContext";
 import {
@@ -78,7 +77,6 @@ export function SidebarTabs() {
 	const runtime = useApplicationRuntime();
 	const {
 		pathname,
-		whiteboardId,
 		tabs,
 		activeTabKey,
 		navigateToTab,
@@ -291,9 +289,6 @@ export function SidebarTabs() {
 						</DndContext>
 					</div>
 				)}
-				{whiteboardId ? (
-					<WhiteboardBacklinksPanel whiteboardId={whiteboardId} />
-				) : null}
 			</div>
 
 			<ClearOpenTabsDialog
