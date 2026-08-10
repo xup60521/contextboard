@@ -325,10 +325,29 @@ export async function runLocalCommand<T>(
 		[...tables, db.changeLog, db.settings, db.appliedChangeBatches],
 		async (transaction: LocalTransaction) => {
 			const sequenceSetting = await db.settings.get("deviceSequence");
+			// The setting is a cache, not the source of truth. Older clients and
+			// workspace rebinding can leave it behind rows that already occupy the
+			// unique workspace/device/sequence index. Recover from that state rather
+			// than aborting every subsequent local mutation with ConstraintError.
+			const [pending, applied] = await Promise.all([
+				db.changeLog.toArray(),
+				db.appliedChangeBatches.toArray(),
+			]);
+			const usedSequences = [...pending, ...applied]
+				.filter(
+					(batch) =>
+						batch.workspaceId === context.workspaceId &&
+						batch.deviceId === context.deviceId,
+				)
+				.map((batch) => batch.deviceSequence);
 			const sequence =
-				typeof sequenceSetting?.value === "number"
-					? sequenceSetting.value + 1
-					: 1;
+				Math.max(
+					0,
+					typeof sequenceSetting?.value === "number"
+						? sequenceSetting.value
+						: 0,
+					...usedSequences,
+				) + 1;
 			const { result, changes } = await execute(transaction);
 			const now = Date.now();
 			const batchClock = context.clock.tick(now);
