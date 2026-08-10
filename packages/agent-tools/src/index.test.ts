@@ -76,6 +76,15 @@ describe("tool surface", () => {
 		const { tools } = makeTools();
 		expect(new Set(tools.map((tool) => tool.name)).size).toBe(tools.length);
 	});
+
+	test("advertises graph as an arrange_cards style", () => {
+		const { tools } = makeTools();
+		const arrange = tools.find((tool) => tool.name === "arrange_cards");
+		const properties = arrange?.inputSchema.properties as
+			| Record<string, { enum?: string[] }>
+			| undefined;
+		expect(properties?.style.enum).toContain("graph");
+	});
 });
 
 describe("whiteboards and cards", () => {

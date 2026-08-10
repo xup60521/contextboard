@@ -1,6 +1,6 @@
 /**
  * "Auto arrange" on the canvas: turns a selection of cards and the arrows
- * between them into a tidy tree or mindmap.
+ * between them into a tidy tree, mindmap, or graph.
  *
  * The layout itself lives in `@contextboard/application` so the headless agent
  * server runs exactly the same algorithm. This file is only the adapter: it

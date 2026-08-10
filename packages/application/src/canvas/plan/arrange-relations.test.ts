@@ -4,6 +4,7 @@ import {
 	type ArrangeNode,
 	arrangeRelationLayout,
 } from "./arrange-relations";
+import researchGraph from "./arrange-relations.fixture.json";
 import type { Frame } from "./place-card-frame";
 
 const CARD = { w: 576, h: 180 };
@@ -274,5 +275,321 @@ describe("arrangeRelationLayout", () => {
 			[...edges].reverse(),
 		);
 		expect([...shuffled.positions].sort()).toEqual([...first.positions].sort());
+	});
+
+	test("keeps a dense 200-card graph compact, local, deterministic, and clear", () => {
+		const graphNodes = Array.from({ length: 200 }, (_, index) =>
+			card(
+				`node-${index.toString().padStart(3, "0")}`,
+				(index % 12) * 700,
+				Math.floor(index / 12) * 2100,
+				{ w: 576, h: 180 + (index % 5) * 40 },
+			),
+		);
+		const graphEdges: ArrangeEdge[] = [];
+		for (let index = 1; index < graphNodes.length; index += 1) {
+			graphEdges.push({
+				source: `node-${Math.floor((index - 1) / 2)
+					.toString()
+					.padStart(3, "0")}`,
+				target: `node-${index.toString().padStart(3, "0")}`,
+			});
+		}
+		// 260 undirected edges is about 1.3x the spanning-tree density.
+		for (let index = 0; index < 61; index += 1) {
+			graphEdges.push({
+				source: `node-${index.toString().padStart(3, "0")}`,
+				target: `node-${(index + 37).toString().padStart(3, "0")}`,
+			});
+		}
+		const obstacles: Frame[] = Array.from({ length: 20 }, (_, index) => ({
+			x: (index % 5) * 2400,
+			y: Math.floor(index / 5) * 2400,
+			w: 576,
+			h: 300,
+		}));
+
+		const first = arrangeRelationLayout(graphNodes, graphEdges, { obstacles });
+		const second = arrangeRelationLayout(graphNodes, graphEdges, { obstacles });
+		expect(first.style).toBe("graph");
+		expect([...second.positions]).toEqual([...first.positions]);
+
+		const frames = framesOf(graphNodes, first);
+		expectNoOverlaps(frames.values());
+		for (const frame of frames.values()) {
+			for (const obstacle of obstacles)
+				expect(overlap(frame, obstacle)).toBe(false);
+		}
+
+		const values = [...frames.values()];
+		const minX = Math.min(...values.map((frame) => frame.x));
+		const minY = Math.min(...values.map((frame) => frame.y));
+		const maxX = Math.max(...values.map((frame) => frame.x + frame.w));
+		const maxY = Math.max(...values.map((frame) => frame.y + frame.h));
+		const ratio = (maxX - minX) / (maxY - minY);
+		expect(ratio).toBeGreaterThanOrEqual(0.4);
+		expect(ratio).toBeLessThanOrEqual(2.5);
+
+		// One column of the graph grid. The longest arrows are hub spokes, which
+		// are deliberately stretched to give busy cards room to fan out.
+		const idealLength = 576 + 360;
+		let maxEdgeLength = 0;
+		for (const edge of graphEdges) {
+			const source = frames.get(edge.source) as Frame;
+			const target = frames.get(edge.target) as Frame;
+			maxEdgeLength = Math.max(
+				maxEdgeLength,
+				Math.hypot(
+					source.x + source.w / 2 - target.x - target.w / 2,
+					source.y + source.h / 2 - target.y - target.h / 2,
+				),
+			);
+		}
+		expect(maxEdgeLength).toBeLessThan(10 * idealLength);
+	});
+
+	test("repairs the real 249-card research graph regression fixture", () => {
+		expect(researchGraph.nodes).toHaveLength(249);
+		expect(researchGraph.edges).toHaveLength(254);
+		expect(
+			Math.max(...researchGraph.nodes.map((node) => node.x)) -
+				Math.min(...researchGraph.nodes.map((node) => node.x)),
+		).toBe(4176);
+		expect(
+			Math.max(...researchGraph.nodes.map((node) => node.y)) -
+				Math.min(...researchGraph.nodes.map((node) => node.y)),
+		).toBe(35_948);
+
+		const result = arrangeRelationLayout(
+			researchGraph.nodes,
+			researchGraph.edges,
+		);
+		expect(result.style).toBe("graph");
+		expect(result.skippedIds).toHaveLength(51);
+		const frames = framesOf(researchGraph.nodes, result);
+		const relatedIds = new Set(
+			researchGraph.edges.flatMap((edge) => [edge.source, edge.target]),
+		);
+		const relatedFrames = [...frames]
+			.filter(([id]) => relatedIds.has(id))
+			.map(([, frame]) => frame);
+		expectNoOverlaps(relatedFrames);
+		for (const [id, frame] of frames) {
+			if (!relatedIds.has(id)) continue;
+			for (const [otherId, obstacle] of frames) {
+				if (relatedIds.has(otherId)) continue;
+				expect(overlap(frame, obstacle)).toBe(false);
+			}
+		}
+
+		const minX = Math.min(...relatedFrames.map((frame) => frame.x));
+		const minY = Math.min(...relatedFrames.map((frame) => frame.y));
+		const maxX = Math.max(...relatedFrames.map((frame) => frame.x + frame.w));
+		const maxY = Math.max(...relatedFrames.map((frame) => frame.y + frame.h));
+		const width = maxX - minX;
+		const height = maxY - minY;
+		expect(width).toBeLessThan(22_000);
+		expect(height).toBeLessThan(22_000);
+		expect(width / height).toBeGreaterThanOrEqual(0.4);
+		expect(width / height).toBeLessThanOrEqual(2.5);
+		// The whole board lands on one shared grid: a handful of columns and rows
+		// that every card lines up with. This is what separates the arrangement
+		// from a force-directed cloud, so assert it tightly.
+		const sharedCount = (values: readonly number[]) => {
+			const counts = new Map<number, number>();
+			for (const value of values)
+				counts.set(value, (counts.get(value) ?? 0) + 1);
+			return [...counts.values()]
+				.filter((count) => count > 1)
+				.reduce((sum, count) => sum + count, 0);
+		};
+		const xValues = relatedFrames.map((frame) => frame.x);
+		const yValues = relatedFrames.map((frame) => frame.y);
+		expect(new Set(xValues).size).toBeLessThanOrEqual(30);
+		expect(new Set(yValues).size).toBeLessThanOrEqual(40);
+		// Almost every card shares its column and its row with another card.
+		expect(sharedCount(xValues)).toBeGreaterThanOrEqual(190);
+		expect(sharedCount(yValues)).toBeGreaterThanOrEqual(180);
+		// Columns and rows are evenly pitched, not merely clustered.
+		const pitchOf = (values: readonly number[]) => {
+			const distinct = [...new Set(values)].sort((a, b) => a - b);
+			const steps = distinct
+				.slice(1)
+				.map((value, index) => value - distinct[index]);
+			return Math.min(...steps);
+		};
+		for (const value of xValues) {
+			expect((value - Math.min(...xValues)) % pitchOf(xValues)).toBe(0);
+		}
+		for (const value of yValues) {
+			expect((value - Math.min(...yValues)) % pitchOf(yValues)).toBe(0);
+		}
+		// A good share of arrows therefore come out exactly horizontal or vertical.
+		const axisAligned = researchGraph.edges.filter((edge) => {
+			const source = frames.get(edge.source) as Frame;
+			const target = frames.get(edge.target) as Frame;
+			return source.x === target.x || source.y === target.y;
+		});
+		expect(axisAligned.length).toBeGreaterThanOrEqual(60);
+
+		const edgeLengths = researchGraph.edges
+			.map((edge) => {
+				const source = frames.get(edge.source) as Frame;
+				const target = frames.get(edge.target) as Frame;
+				return Math.hypot(
+					source.x + source.w / 2 - target.x - target.w / 2,
+					source.y + source.h / 2 - target.y - target.h / 2,
+				);
+			})
+			.sort((a, b) => a - b);
+		expect(edgeLengths[Math.floor(edgeLengths.length / 2)]).toBeLessThan(2000);
+		expect(edgeLengths[Math.floor(edgeLengths.length * 0.95)]).toBeLessThan(
+			5500,
+		);
+		// The longest arrows are the hub spokes, deliberately stretched below.
+		expect(edgeLengths.at(-1)).toBeLessThan(9000);
+
+		// Cards busier than `HUB_MIN_DEGREE` (6) arrows are given a wider berth, so
+		// their spokes have room to fan out instead of leaving in a smudge. Only a
+		// handful of cards qualify on this board, and they were the worst tangles.
+		const degree = new Map<string, number>();
+		for (const edge of researchGraph.edges) {
+			degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
+			degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
+		}
+		// The room a card gets must scale with how connected it is, and keep
+		// scaling — an earlier threshold-based version gave a card sitting just
+		// under the cut-off no extra room at all, which is what this guards.
+		// Measured as the tightest spoke on each card, averaged per degree.
+		const neighbours = new Map<string, string[]>();
+		for (const edge of researchGraph.edges) {
+			for (const [from, to] of [
+				[edge.source, edge.target],
+				[edge.target, edge.source],
+			]) {
+				const list = neighbours.get(from);
+				if (list) list.push(to);
+				else neighbours.set(from, [to]);
+			}
+		}
+		const meanTightestSpoke = (lowest: number, highest: number) => {
+			const tightest: number[] = [];
+			for (const [id, count] of degree) {
+				if (count < lowest || count > highest) continue;
+				const source = frames.get(id) as Frame;
+				tightest.push(
+					Math.min(
+						...(neighbours.get(id) as string[]).map((other) => {
+							const target = frames.get(other) as Frame;
+							return Math.hypot(
+								source.x + source.w / 2 - target.x - target.w / 2,
+								source.y + source.h / 2 - target.y - target.h / 2,
+							);
+						}),
+					),
+				);
+			}
+			return tightest.reduce((sum, value) => sum + value, 0) / tightest.length;
+		};
+		const ordinary = meanTightestSpoke(3, 4);
+		const connected = meanTightestSpoke(5, 6);
+		const busiest = meanTightestSpoke(7, Number.POSITIVE_INFINITY);
+		expect(connected).toBeGreaterThan(ordinary);
+		expect(busiest).toBeGreaterThan(connected * 1.15);
+
+		// ...but that berth belongs to the hub, not to whatever is on the far end
+		// of each spoke. Charging both ends alike flings a hub's leaves out to the
+		// distance its heaviest branch needed and hollows out that whole corner of
+		// the board, so a leaf must end up markedly closer than a fellow hub does.
+		const meanSpoke = (keep: (low: number, high: number) => boolean) => {
+			const lengths = researchGraph.edges
+				.filter((edge) =>
+					keep(
+						Math.min(
+							degree.get(edge.source) ?? 0,
+							degree.get(edge.target) ?? 0,
+						),
+						Math.max(
+							degree.get(edge.source) ?? 0,
+							degree.get(edge.target) ?? 0,
+						),
+					),
+				)
+				.map((edge) => {
+					const source = frames.get(edge.source) as Frame;
+					const target = frames.get(edge.target) as Frame;
+					return Math.hypot(
+						source.x + source.w / 2 - target.x - target.w / 2,
+						source.y + source.h / 2 - target.y - target.h / 2,
+					);
+				});
+			return lengths.reduce((sum, value) => sum + value, 0) / lengths.length;
+		};
+		const leafOfHub = meanSpoke((low, high) => low === 1 && high >= 5);
+		const hubToHub = meanSpoke((low) => low >= 3);
+		expect(leafOfHub).toBeLessThan(hubToHub * 0.8);
+
+		// And the board must stay reasonably filled. Every knob that buys room
+		// around hubs spends board area, and it is easy to spend it globally by
+		// accident: the graph metric compounds along paths, so an uncapped hub
+		// stretch inflates everything and leaves the corners empty.
+		const cardArea = relatedFrames.reduce(
+			(sum, frame) => sum + frame.w * frame.h,
+			0,
+		);
+		expect(cardArea / (width * height)).toBeGreaterThan(0.13);
+
+		// The refinement pass exists to untangle the arrows, so measure that
+		// directly. Snapping alone leaves roughly one crossing per arrow.
+		const centre = (id: string) => {
+			const frame = frames.get(id) as Frame;
+			return { x: frame.x + frame.w / 2, y: frame.y + frame.h / 2 };
+		};
+		const side = (
+			a: { x: number; y: number },
+			b: { x: number; y: number },
+			p: { x: number; y: number },
+		) => (p.y - a.y) * (b.x - a.x) > (b.y - a.y) * (p.x - a.x);
+		const cross = (
+			a: { x: number; y: number },
+			b: { x: number; y: number },
+			c: { x: number; y: number },
+			d: { x: number; y: number },
+		) => side(a, c, d) !== side(b, c, d) && side(a, b, c) !== side(a, b, d);
+		const segments = researchGraph.edges.map((edge) => ({
+			source: edge.source,
+			target: edge.target,
+			from: centre(edge.source),
+			to: centre(edge.target),
+		}));
+		let crossings = 0;
+		for (let first = 0; first < segments.length; first += 1) {
+			for (let second = first + 1; second < segments.length; second += 1) {
+				const a = segments[first];
+				const b = segments[second];
+				const endpoints = new Set([a.source, a.target, b.source, b.target]);
+				if (endpoints.size < 4) continue;
+				if (cross(a.from, a.to, b.from, b.to)) crossings += 1;
+			}
+		}
+		expect(crossings).toBeLessThanOrEqual(130);
+
+		let throughCards = 0;
+		for (const segment of segments) {
+			for (const [id, frame] of frames) {
+				if (id === segment.source || id === segment.target) continue;
+				const corners = [
+					{ x: frame.x, y: frame.y },
+					{ x: frame.x + frame.w, y: frame.y },
+					{ x: frame.x + frame.w, y: frame.y + frame.h },
+					{ x: frame.x, y: frame.y + frame.h },
+				];
+				const pierced = corners.some((corner, index) =>
+					cross(segment.from, segment.to, corner, corners[(index + 1) % 4]),
+				);
+				if (pierced) throughCards += 1;
+			}
+		}
+		expect(throughCards).toBeLessThanOrEqual(70);
 	});
 });
