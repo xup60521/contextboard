@@ -9,6 +9,8 @@ workspace convention, not product documentation.
 
 Rules are graded, and the grade matters more than the wording:
 
+- **[requirement]** — an explicit workspace rule added after reviewing generated
+  boards. It overrides older observations and preferences.
 - **[observed]** — holds across both boards. Follow it.
 - **[preference]** — the usual choice, with real exceptions. Follow it unless
   the card gives you a reason not to.
@@ -127,6 +129,33 @@ to 「很多」: 預計日運量9萬人／實際不到5000、超支平均62%、I
 numbers at all. **Never invent a figure to satisfy this rule** — a card with no
 numbers is fine, a card with a plausible-looking fabricated number is not.
 
+## Research whiteboards
+
+**[requirement] Thoroughness is the baseline, not an optional feature.** An
+open-research board should cover almost everything its title or cards introduce:
+the concepts, historical development, people and institutions, causal mechanism,
+important disputes, counterexamples, current applications, regional variation,
+failure conditions, uncertainty and questions that remain open. Narrowing the
+question is useful for finding a spine; it is not permission to omit the branches.
+
+**[requirement] Keep cards atomic and self-contained without making the board
+fragmentary.** Each card remains one recall unit, but its body must preserve the
+argument that gets from context to conclusion. A reader should be able to recover
+why the next concept follows, not merely collect disconnected verdicts.
+
+**[requirement] Provenance belongs inside the explanation.** Keep the person,
+institution, date, incentive and real-world situation that made an idea matter.
+Prefer primary research, official statistics, original speeches or filings and
+authoritative reviews. Put the source inline where it supports the claim; do not
+replace provenance with a detached bibliography card.
+
+**[requirement] Let breadth become a tree.** Concepts, history, mechanisms,
+cases, counterevidence and open questions should form recognisable branches off
+the main argument. If one source or branch becomes too large to read as part of
+the parent canvas, create a dedicated sub-whiteboard and leave a clear gateway
+card or child-whiteboard node on the parent. Splitting into a sub-whiteboard must
+preserve the route; it must not turn omitted material into an invisible footnote.
+
 ## Formatting
 
 - **[observed]** No blank lines between paragraphs; a single newline. Blank
@@ -145,13 +174,24 @@ numbers is fine, a card with a plausible-looking fabricated number is not.
 
 ## Board layout
 
-**[observed] X is the spine, Y is the branch.** Left to right is the narrative:
+**[preference] X is the spine, Y is the branch when placing cards by hand.** Left
+to right is the narrative:
 1859→1879→1893→1900→1925–26 on `物理史`; 問題→診斷→方法→執行 on
 `超級專案管理`, less strictly. Rows stacked in Y are parallel threads or a new
 era.
 
-**[observed] Placement is hand-made and load-bearing.** Columns are default 576
-wide. Do not run `arrange_cards` on an established board without asking.
+**[requirement] Placement is load-bearing.** Prefer an organic editorial map over
+a rigid spreadsheet: one or a few visual anchors, asymmetric thematic clusters,
+unequal branch depth, variable card height and generous whitespace corridors.
+Nearby cards may share a theme, but every card still needs a reading route.
+
+**[requirement] Do not call `arrange_cards` on an established board unless the
+user explicitly requests endpoint-based arrangement.** When the user asks to use
+the layout endpoint or says to arrange as a graph, call `arrange_cards` with the
+cards in scope and `style: "graph"`; do not substitute a hand-built imitation.
+This explicit request is allowed to replace the prior hand-made coordinates.
+Run it once per board, sequentially when several large boards share the desktop
+renderer, and preserve cards, text, references and relations.
 
 **[preference] Cards stand alone and rely on position for context.** Only one
 card of 19 uses `contextboard:` references, and the human physics cards use
@@ -159,10 +199,33 @@ none. Add a reference when a card's role would otherwise be ambiguous — the wa
 `經驗的重要性` cites 搶第一 and 奧運 as its causes and instances — and put it in
 the sentence making the claim. Do not make every card announce its position.
 
-**[preference] Arrows are few and their meaning varies.** Eight relations among
-18 substantive cards, covering problem→method, fallacy→fallacy→fallacy,
-principle→example, example→concept, implementation→implementation. Use one when
-seeing the link on the canvas adds something. Do not encode the whole graph.
+**[requirement] An arrow means only “read this next.”** It marks progression or
+a point where the reading path diverges into concepts, history, cases or other
+branches. Do not use arrows for every semantic association, similarity,
+contradiction or cross-topic dependency. Put those relations in an inline
+`contextboard:` reference and let the backlink system preserve the reverse link.
+
+**[requirement] Fewer meanings does not mean broken context.** A normal knowledge
+board has no isolated cards: every card must be reachable from a visual root by
+some reading route. Unless the material genuinely requires a different topology,
+build one connected, acyclic reading tree: one root, one reading parent for every
+other card, and therefore `relations = cards - 1`. A branch may diverge, but it
+must not reconnect elsewhere merely to express another semantic relationship.
+Contextboard stores canvas relations as undirected, so audit connectivity and
+cycles as an undirected graph rather than trusting raw source/target order.
+
+**[requirement] A readable tree is not automatically a good layout.** Avoid
+crossing connectors, arrows that pass through cards, distracting long diagonals,
+card overlaps and repeated alignment that turns every cluster into a hard grid.
+If a long connector is unavoidable, route it through a whitespace corridor and
+keep it horizontal or vertical enough that it does not cut across a cluster.
+
+**[requirement] Verify the final renderer state after layout.** Fresh-read every
+board with `list_board_items` and `list_relations`; check card and relation counts,
+one connected component, zero cycles, zero isolated cards, zero overlaps and no
+UTF-8 corruption. When using `arrange_cards`, also verify that `skippedCardIds`
+is empty and inspect for crossings or late relation writes. Treat the fresh read,
+not an earlier tool response, as the final state.
 
 **[optional] A reconciliation block.** When two accounts are meaningfully
 resolved by a third idea, record it — the Rayleigh-Jeans card ends with `---`
