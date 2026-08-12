@@ -2,6 +2,7 @@ import {
 	recordContextboardPerf,
 	type WorkspaceRepository,
 } from "@contextboard/client-core";
+import { deterministicEntityId } from "@contextboard/sync-protocol";
 import {
 	DEFAULT_CARD_CONTENT,
 	normalizeCardContent,
@@ -228,7 +229,9 @@ export function createRepositoryWhiteboardsService(
 					targetWhiteboardIds: [whiteboardId],
 				})
 			).filter(isActiveRow);
-			const sourceIds = [...new Set(references.map((row) => String(row.sourceCardId)))];
+			const sourceIds = [
+				...new Set(references.map((row) => String(row.sourceCardId))),
+			];
 			if (sourceIds.length === 0) return [];
 			return (await listRows(repository, "cards", { ids: sourceIds }))
 				.filter(isActiveRow)
@@ -393,12 +396,13 @@ export function createRepositoryCanvasService(
 		targetId: string,
 		content: unknown,
 	) {
-		const [fileReferences, cardReferences, whiteboardReferences, files] = await Promise.all([
-			listRows(repository, "fileReferences"),
-			listRows(repository, "cardReferences"),
-			listRows(repository, "whiteboardReferences"),
-			listRows(repository, "files"),
-		]);
+		const [fileReferences, cardReferences, whiteboardReferences, files] =
+			await Promise.all([
+				listRows(repository, "fileReferences"),
+				listRows(repository, "cardReferences"),
+				listRows(repository, "whiteboardReferences"),
+				listRows(repository, "files"),
+			]);
 		const targetKey = `${targetType}:${targetId}`;
 		const plan = planReferences(
 			{
@@ -426,16 +430,22 @@ export function createRepositoryCanvasService(
 		await applyWrites(repository, "cardReferences.update", plan.writes);
 	}
 
-	async function readDocumentRow(whiteboardId: string | null) {
+	/**
+	 * A board can hold several document rows once two devices created one
+	 * concurrently. Rows arrive sorted by id on both backends, so every device
+	 * agrees the lowest id is the canonical one and the rest are duplicates.
+	 */
+	async function readDocumentRows(whiteboardId: string | null) {
 		const rows = await listRows(repository, "tldrawDocuments", {
 			whiteboardId,
 		});
-		return (
-			rows.find(
-				(row) =>
-					isActiveRow(row) && (row.whiteboardId ?? null) === whiteboardId,
-			) ?? null
+		return rows.filter(
+			(row) => isActiveRow(row) && (row.whiteboardId ?? null) === whiteboardId,
 		);
+	}
+
+	async function readDocumentRow(whiteboardId: string | null) {
+		return (await readDocumentRows(whiteboardId))[0] ?? null;
 	}
 
 	/** Active and tombstoned records for a board, keyed by tldraw record id. */
@@ -747,14 +757,18 @@ export function createRepositoryCanvasService(
 			expectedRevision,
 		}): Promise<TldrawSaveResult> {
 			const timestamp = now();
-			const existing = await readDocumentRow(whiteboardId);
+			const [existing, ...duplicates] = await readDocumentRows(whiteboardId);
 			if (
 				existing &&
 				expectedRevision !== undefined &&
 				expectedRevision !== existing.revision
 			)
 				throw new Error("Tldraw document was updated elsewhere");
-			const documentId = existing?.id ?? createId();
+			// Deriving the id from the board keeps two devices that first draw
+			// offline from forking the board into two document rows at all.
+			const documentId =
+				existing?.id ??
+				deterministicEntityId("tldraw-document", whiteboardId ?? "");
 			await applyWrites(repository, "tldrawDocuments.update", [
 				{
 					entity: "tldrawDocument",
@@ -775,6 +789,13 @@ export function createRepositoryCanvasService(
 					},
 					...(existing ? { expectedRevision: existing.revision } : {}),
 				},
+				// Heal boards that already forked: the canonical row keeps the
+				// snapshot, the losers are tombstoned so every device converges.
+				...duplicates.map((row) => ({
+					entity: "tldrawDocument" as const,
+					operation: "delete" as const,
+					id: row.id,
+				})),
 			]);
 			await reconcileReferences("tldrawDocument", documentId, snapshot);
 			return { revision: (existing?.revision ?? 0) + 1, updatedAt: timestamp };

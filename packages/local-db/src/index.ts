@@ -262,8 +262,7 @@ export class ContextboardDatabase extends Dexie {
 			});
 		this.version(8)
 			.stores({
-				files:
-					"id, &sha256, status, pendingDeleteAt, deletedAt, [id+revision]",
+				files: "id, &sha256, status, pendingDeleteAt, deletedAt, [id+revision]",
 			})
 			.upgrade(async (transaction) => {
 				const cards = transaction.table("cards");
@@ -289,9 +288,13 @@ export class ContextboardDatabase extends Dexie {
 								existing?.clock ??
 									`${String(updatedAt).padStart(13, "0")}:000000:${deviceId}`,
 							),
-							createdAt: Number(existing?.createdAt ?? card.createdAt ?? updatedAt),
+							createdAt: Number(
+								existing?.createdAt ?? card.createdAt ?? updatedAt,
+							),
 							updatedAt: Number(existing?.updatedAt ?? updatedAt),
-							updatedByDeviceId: String(existing?.updatedByDeviceId ?? deviceId),
+							updatedByDeviceId: String(
+								existing?.updatedByDeviceId ?? deviceId,
+							),
 							deletedAt: existing?.deletedAt ?? card.deletedAt ?? null,
 						});
 					}
@@ -301,6 +304,12 @@ export class ContextboardDatabase extends Dexie {
 		this.version(9).stores({
 			whiteboardReferences:
 				"id, sourceCardId, targetWhiteboardId, [sourceCardId+targetWhiteboardId], deletedAt",
+		});
+		// Two devices can each mint a document row for the same board before they
+		// sync, so a unique whiteboardId would make the incoming batch unappliable
+		// and wedge sync. The SQLite backend never had that constraint either.
+		this.version(10).stores({
+			tldrawDocuments: "id, whiteboardId, updatedAt, deletedAt",
 		});
 	}
 }
@@ -783,15 +792,15 @@ const remoteTable = (
 									? db.cardReferences
 									: entityType === "whiteboardReference"
 										? db.whiteboardReferences
-									: entityType === "cardRelation"
-										? db.cardRelations
-										: entityType === "canvasRecord"
-											? db.canvasRecords
-											: entityType === "conflict"
-												? db.conflicts
-												: entityType === "todo"
-													? db.todos
-													: null;
+										: entityType === "cardRelation"
+											? db.cardRelations
+											: entityType === "canvasRecord"
+												? db.canvasRecords
+												: entityType === "conflict"
+													? db.conflicts
+													: entityType === "todo"
+														? db.todos
+														: null;
 
 /** Applies server batches without creating a new local batch. */
 export async function applyRemoteBatches(
@@ -1177,7 +1186,7 @@ export async function getSyncState(
 ) {
 	const existing = await db.syncPeers.get(peerId);
 	return (
-			existing ?? {
+		existing ?? {
 			peerId,
 			url: "",
 			cursor: null,
