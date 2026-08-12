@@ -1,6 +1,5 @@
-# ContextBoard
+@AGENTS.md
 
 ## Exploration
 
-Use the `codex-explore` subagent for read-only codebase search and "where is X" lookups.
-Use default-model agents for anything involving edits, planning, or architectural judgment.
+When you need to broadly explore the codebase, shell out Haiku model to spawn codex process to do the work. The OpenAI models is capable and cheaper then Claude ones. When the scope is large, use `gpt-5.6-sol` on low reasoning level. When the scope is narrowed, use `gpt-5.6-luna` at xhigh.
