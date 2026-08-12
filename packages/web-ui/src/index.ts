@@ -55,6 +55,26 @@ export {
 	type CommandPaletteProps,
 } from "./components/search/CommandPalette.tsx";
 export {
+	SettingsDialogContent,
+	type SettingsSection,
+	SettingsTriggerButton,
+} from "./components/settings/SettingsDialog.tsx";
+export {
+	SettingsChoice,
+	type SettingsChoiceOption,
+	SettingsFact,
+	SettingsGroup,
+	SettingsItem,
+	SettingsMessage,
+	SettingsRow,
+} from "./components/settings/SettingsPrimitives.tsx";
+export { appearanceSettingsSection } from "./components/settings/AppearanceSection.tsx";
+export {
+	type AccountSettingsRuntime,
+	accountSettingsSection,
+} from "./components/settings/AccountSection.tsx";
+export { syncStateLabel } from "./components/settings/sync-status.ts";
+export {
 	useCardLibrarySelection,
 } from "./components/cards/useCardLibrarySelection.ts";
 export type { SelectionRect } from "./components/cards/useCardLibrarySelection.ts";

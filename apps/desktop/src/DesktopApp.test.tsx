@@ -12,7 +12,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DesktopApp } from "./DesktopApp";
 import { createDesktopRouter } from "./router";
 import { createDesktopRepository, type Invoke } from "./runtime/repository";
@@ -239,6 +239,11 @@ const mount = (
 ) =>
 	render(<DesktopApp invoke={invoke} router={createDesktopRouter(history)} />);
 
+// The sidebar's open state now persists to localStorage; without a reset, a
+// test that closes it would leak that into every test after it.
+beforeEach(() => {
+	localStorage.clear();
+});
 afterEach(cleanup);
 
 describe("Desktop card conformance (semantic IPC boundary)", () => {
@@ -381,6 +386,9 @@ describe("Desktop application shell", () => {
 		const native = createNativeStub();
 		mount(native.invoke);
 		fireEvent.click(await screen.findByLabelText("Settings"));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "AI agent access" }),
+		);
 
 		const toggle = await screen.findByRole("button", { name: "Off" });
 		expect(toggle.getAttribute("aria-pressed")).toBe("false");

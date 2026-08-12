@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
+import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
 import { Button } from "#/components/ui/button";
 
 export const Route = createFileRoute("/agent-tokens")({
@@ -104,6 +105,12 @@ function AgentTokensPage() {
 
 	return (
 		<main className="mx-auto max-w-2xl px-6 py-12">
+			{/* Anchored to the shell's content area rather than this centred
+			    column: it is a shell control, and the only way back once the
+			    sidebar is collapsed. */}
+			<div className="absolute left-4 top-4">
+				<SidebarOpenButton />
+			</div>
 			<h1 className="text-3xl font-semibold">Agent tokens</h1>
 			<p className="mt-3 text-sm text-[var(--text-muted)]">
 				Agent tokens let a coding agent on another machine reach this workspace

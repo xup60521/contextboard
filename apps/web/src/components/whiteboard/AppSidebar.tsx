@@ -5,6 +5,7 @@ import {
 } from "@contextboard/auth-client";
 import { AppSidebar as SharedAppSidebar } from "@contextboard/web-ui";
 import { useSyncRuntime } from "../../integrations/sync/provider";
+import { WebSettingsDialog } from "../settings/WebSettingsDialog";
 
 export function AppSidebar() {
 	const session = useSession();
@@ -37,6 +38,7 @@ export function AppSidebar() {
 				syncNow: sync.syncNow,
 				createWorkspace: sync.createWorkspace,
 				workspaceSelectionRequired: sync.state.workspaceSelectionRequired,
+				settings: <WebSettingsDialog />,
 			}}
 		/>
 	);
