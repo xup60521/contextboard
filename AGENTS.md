@@ -8,6 +8,12 @@ When the user asks for filing a PR, don't make a draft. The PR title should desc
 
 When the user isn't explicitely ask, assume the dev server is already on. Don't spawn long lived process as it's hard for the user to manage.
 
+## Writing cards
+
+When writing or editing cards on the user's own boards, read
+`skills/contextboard/card-style.md` first. `skills/contextboard/SKILL.md` is the
+API; that file is the voice and the layout conventions.
+
 ## Code & Style
 
 Clean, precise and concise code is always preferred. Find clever solution rather then brute force. Don't write excessive test, only focus on the most important ones. Diligence is a good virtue but burns too many tokens, so be smart about your work. For example, don't write Python-style Typescript code (e.g. one liner function to enforce type), in favor of the one that Matt Pocock would like.
