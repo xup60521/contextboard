@@ -2,6 +2,8 @@ import entityManifest from "./entity-manifest.json" with { type: "json" };
 
 export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const SYNC_SCHEMA_VERSION = 2 as const;
+/** Maximum non-blob request body accepted by the public sync gateway. */
+export const MAX_SYNC_JSON_BODY_BYTES = 2 * 1024 * 1024;
 export const ENTITY_MANIFEST = entityManifest;
 export type SyncCapability = "card-content-v1";
 
