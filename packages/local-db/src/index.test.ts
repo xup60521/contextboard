@@ -397,8 +397,8 @@ describe("local database", () => {
 				"boardItem",
 				"file",
 				"fileReference",
-			"cardReference",
-			"whiteboardReference",
+				"cardReference",
+				"whiteboardReference",
 				"cardRelation",
 				"canvasRecord",
 			]),
@@ -620,9 +620,9 @@ describe("local database", () => {
 		);
 		const [localBatch] = await db.changeLog.toArray();
 		await acknowledgeBatches(db, [localBatch.changeId]);
-		expect(
-			(await db.syncPeers.get("contextboard-cloud"))?.lastAckAt,
-		).toEqual(expect.any(Number));
+		expect((await db.syncPeers.get("contextboard-cloud"))?.lastAckAt).toEqual(
+			expect.any(Number),
+		);
 		const result = await applyRemoteBatches(
 			db,
 			[localBatch],
@@ -711,6 +711,62 @@ describe("local database", () => {
 		expect(result.conflicts).toBe(1);
 		expect(await db.whiteboards.count()).toBe(0);
 		expect(await db.conflicts.count()).toBe(1);
+	});
+
+	test("applies a remote tldraw document for a board that already has one", async () => {
+		const db = makeDb();
+		const now = Date.now();
+		await db.tldrawDocuments.put({
+			id: "document-local",
+			whiteboardId: "board-1",
+			snapshot: { store: {} },
+			documentVersion: 1,
+			revision: 1,
+			createdAt: now,
+			updatedAt: now,
+			updatedByDeviceId: "device-1",
+			deletedAt: null,
+		} as never);
+		const remote: ChangeBatch = {
+			protocolVersion: SYNC_PROTOCOL_VERSION,
+			schemaVersion: SYNC_SCHEMA_VERSION,
+			changeId: "remote-1",
+			workspaceId: "workspace-1",
+			deviceId: "device-2",
+			deviceSequence: 1,
+			clock: "0000000000001:000001:device-2",
+			command: "tldrawDocuments.update",
+			createdAt: 1,
+			changes: [
+				{
+					entityType: "tldrawDocument",
+					entityId: "document-remote",
+					baseRevision: null,
+					revision: 1,
+					operation: "upsert",
+					clock: "0000000000001:000001:device-2",
+					value: {
+						id: "document-remote",
+						whiteboardId: "board-1",
+						snapshot: { store: {} },
+						documentVersion: 1,
+						revision: 1,
+						createdAt: 1,
+						updatedAt: 1,
+						updatedByDeviceId: "device-2",
+						deletedAt: null,
+					},
+				},
+			],
+		};
+		const result = await applyRemoteBatches(
+			db,
+			[remote],
+			"contextboard-cloud",
+			"1",
+		);
+		expect(result.applied).toBe(1);
+		expect(await db.tldrawDocuments.count()).toBe(2);
 	});
 
 	test("creates one deterministic, metadata-preserving conflict copy on both peers", async () => {
