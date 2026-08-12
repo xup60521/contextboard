@@ -1,13 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useRef, useState } from "react";
+import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
 import { Button } from "#/components/ui/button";
 import {
 	exportLocalArchive,
 	importArchive,
 } from "#/integrations/local/archive";
-import { useLocalDatabase } from "#/integrations/local/provider";
 import { localMutation } from "#/integrations/local/operations";
+import { useLocalDatabase } from "#/integrations/local/provider";
 import { useSyncRuntime } from "#/integrations/sync/provider";
 
 export const Route = createFileRoute("/data")({
@@ -91,6 +92,12 @@ function DataManagementPage() {
 
 	return (
 		<main className="mx-auto max-w-2xl px-6 py-12">
+			{/* Anchored to the shell's content area rather than this centred
+			    column: it is a shell control, and the only way back once the
+			    sidebar is collapsed. */}
+			<div className="absolute left-4 top-4">
+				<SidebarOpenButton />
+			</div>
 			<h1 className="text-3xl font-semibold">Local data</h1>
 			<p className="mt-3 text-sm text-[var(--text-muted)]">
 				This workspace is stored in this browser. Export backups regularly.

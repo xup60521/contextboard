@@ -1,6 +1,7 @@
 import type { SyncRuntimeState } from "@contextboard/application";
 import { Cloud, CloudOff, Github, LogOut, RefreshCw } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { isDisconnected, syncStateLabel } from "../settings/sync-status";
 import { Button } from "../ui/button";
 import { AppSidebarFrame } from "../whiteboard/AppSidebarFrame";
 import { SidebarTabs } from "./SidebarTabs";
@@ -25,10 +26,9 @@ export type SidebarFooterRuntime = {
 	workspaces?: ReadonlyArray<{ workspaceId: string }>;
 	switchWorkspace?: (workspaceId: string) => Promise<void>;
 	/**
-	 * Platform-specific settings entry point, rendered beside the account row.
-	 * The desktop shell has local settings (the agent bridge) that the web build
-	 * has no equivalent for, so the slot stays empty rather than the shared
-	 * footer knowing about them.
+	 * The platform's settings dialog, rendered beside the account row. Both
+	 * shells fill this slot; they differ only in which sections they assemble,
+	 * so the footer never learns what a given platform can configure.
 	 */
 	settings?: ReactNode;
 };
@@ -44,28 +44,12 @@ export function AppSidebar({ footer }: { footer: SidebarFooterRuntime }) {
 function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 	const [pending, setPending] = useState<"in" | "out" | "sync" | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const isDisconnected =
-		runtime.state === "local-only" ||
-		runtime.state === "offline" ||
-		runtime.state === "error" ||
-		runtime.state === "unavailable";
-	const StatusIcon = isDisconnected ? CloudOff : Cloud;
+	const StatusIcon = isDisconnected(runtime.state) ? CloudOff : Cloud;
 	const account =
 		runtime.account ??
 		(!runtime.signIn ? { name: "Desktop", email: null } : undefined);
 	const isBusy = pending === "sync" || runtime.state === "syncing";
-	const label =
-		runtime.message ??
-		(
-			{
-				idle: "Up to date",
-				syncing: "Syncing",
-				offline: "Offline",
-				"local-only": "Local only",
-				error: "Sync error",
-				unavailable: "Sync unavailable",
-			} satisfies Record<SyncRuntimeState, string>
-		)[runtime.state];
+	const label = runtime.message ?? syncStateLabel(runtime.state);
 
 	const run = (
 		kind: "in" | "out" | "sync",

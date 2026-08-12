@@ -1,3 +1,5 @@
+import { useAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import {
 	createContext,
 	type ReactNode,
@@ -15,6 +17,8 @@ type SidebarContextValue = {
 
 export const SidebarContext = createContext<SidebarContextValue | null>(null);
 
+const SIDEBAR_OPEN_STORAGE_KEY = "contextboard:sidebar-open";
+
 export function SidebarProvider({
 	children,
 	defaultOpen = false,
@@ -22,15 +26,22 @@ export function SidebarProvider({
 	children: ReactNode;
 	defaultOpen?: boolean;
 }) {
-	const [isOpen, setIsOpen] = useState(defaultOpen);
+	// Built once per provider instance, not at module scope: the identity is
+	// what isolates one mounted sidebar's persisted state from another's (tests
+	// mounting several providers, or a future second sidebar), even though both
+	// read through jotai's shared default store.
+	const [sidebarOpenAtom] = useState(() =>
+		atomWithStorage(SIDEBAR_OPEN_STORAGE_KEY, defaultOpen),
+	);
+	const [isOpen, setIsOpen] = useAtom(sidebarOpenAtom);
 
 	const open = useCallback(() => {
 		setIsOpen(true);
-	}, []);
+	}, [setIsOpen]);
 
 	const close = useCallback(() => {
 		setIsOpen(false);
-	}, []);
+	}, [setIsOpen]);
 
 	const value = useMemo(
 		() => ({

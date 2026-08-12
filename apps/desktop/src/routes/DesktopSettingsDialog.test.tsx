@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { DesktopRuntimeProvider } from "../runtime/DesktopRuntimeProvider";
 import { DesktopSyncProvider } from "../runtime/DesktopSyncProvider";
@@ -9,7 +15,10 @@ import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 
 afterEach(cleanup);
 
-function stubInvoke(localWorkspaces: string[] = [], calls: string[] = []): Invoke {
+function stubInvoke(
+	localWorkspaces: string[] = [],
+	calls: string[] = [],
+): Invoke {
 	let enabled = false;
 	return async (command, args = {}) => {
 		if (command === "desktop_bootstrap")
@@ -44,16 +53,28 @@ function mount(invoke: Invoke) {
 	);
 }
 
+/** Sections are panes now: open settings, then select one by its nav entry. */
+async function openSection(name: string) {
+	fireEvent.click(screen.getByLabelText("Settings"));
+	fireEvent.click(await screen.findByRole("button", { name }));
+}
+
 describe("desktop settings dialog", () => {
-	test("opens and shows the agent access section", async () => {
+	test("opens on appearance and lists the platform's sections", async () => {
 		mount(stubInvoke());
 		fireEvent.click(screen.getByLabelText("Settings"));
-		expect(await screen.findByText("AI agent access")).toBeTruthy();
+		expect(
+			await screen.findByRole("button", { name: "System", pressed: true }),
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "AI agent access" }),
+		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Account" })).toBeTruthy();
 	});
 
 	test("switches the bridge on and states the consequence", async () => {
 		mount(stubInvoke());
-		fireEvent.click(screen.getByLabelText("Settings"));
+		await openSection("AI agent access");
 		const toggle = await screen.findByRole("button", { name: "Off" });
 		expect(toggle.getAttribute("aria-pressed")).toBe("false");
 		// Off is described as local-only, not as a broken state.
@@ -82,19 +103,24 @@ describe("desktop settings dialog", () => {
 		});
 		fireEvent.click(screen.getByLabelText("Settings"));
 		expect(await screen.findByText("Settings")).toBeTruthy();
-		expect(screen.queryByText("AI agent access")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "AI agent access" }),
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Workspaces" })).toBeNull();
 	});
 
 	test("shows local recovery actions and removes a copy after deletion", async () => {
 		const calls: string[] = [];
 		mount(stubInvoke(["stranded-local"], calls));
-		fireEvent.click(screen.getByLabelText("Settings"));
+		await openSection("Workspaces");
 
 		expect(await screen.findByText("stranded-local")).toBeTruthy();
 		expect(
 			screen.getByRole("button", { name: /^Merge and delete$/ }),
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: /^Delete local copy$/ }));
+		fireEvent.click(
+			screen.getByRole("button", { name: /^Delete local copy$/ }),
+		);
 		expect(
 			await screen.findByText(/permanently delete all local entities/i),
 		).toBeTruthy();
@@ -110,9 +136,11 @@ describe("desktop settings dialog", () => {
 
 	test("does not offer recovery actions for the active workspace", async () => {
 		mount(stubInvoke(["contextboard-desktop"]));
-		fireEvent.click(screen.getByLabelText("Settings"));
+		await openSection("Workspaces");
 
-		expect(await screen.findByText("No stranded local workspaces found.")).toBeTruthy();
+		expect(
+			await screen.findByText("No stranded local workspaces found."),
+		).toBeTruthy();
 		expect(
 			screen.queryByRole("button", { name: /^Delete local copy$/ }),
 		).toBeNull();

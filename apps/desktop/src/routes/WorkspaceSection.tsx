@@ -1,9 +1,13 @@
-import { Button } from "@contextboard/web-ui";
+import {
+	Button,
+	SettingsGroup,
+	SettingsItem,
+	SettingsMessage,
+} from "@contextboard/web-ui";
 import {
 	Check,
 	ChevronRight,
 	GitMerge,
-	HardDrive,
 	LoaderCircle,
 	Trash2,
 } from "lucide-react";
@@ -20,35 +24,31 @@ type WorkspaceAction = {
 	kind: "merge" | "delete";
 };
 
+export type LocalWorkspaces = ReturnType<typeof useLocalWorkspaces>;
+
 /**
- * Account workspace selection and recovery of local workspaces that were not
- * linked to the account. The native list command is intentionally treated as
- * optional so an older shell can hide this section without breaking settings.
+ * Local workspace directories as the native shell reports them. The list
+ * command is treated as optional so an older shell hides the section instead of
+ * breaking settings.
  */
-export function WorkspaceSection() {
+export function useLocalWorkspaces() {
 	const invoke = useDesktopInvoke();
 	const desktop = useDesktopRuntime();
-	const sync = useDesktopSync();
-	const [status, setStatus] = useState<string[] | null>(null);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [confirmingAction, setConfirmingAction] =
-		useState<WorkspaceAction | null>(null);
+	const [workspaceIds, setWorkspaceIds] = useState<string[] | null>(null);
 
 	useEffect(() => {
 		let active = true;
 		void invokeDesktop<unknown>("workspace_list_local", {}, invoke)
 			.then((value) => {
 				if (!active) return;
-				if (!Array.isArray(value)) {
-					setStatus(null);
-					return;
-				}
-				setStatus(value.filter((id): id is string => typeof id === "string"));
+				setWorkspaceIds(
+					Array.isArray(value)
+						? value.filter((id): id is string => typeof id === "string")
+						: null,
+				);
 			})
 			.catch(() => {
-				// An older shell without the command simply hides the section.
-				if (active) setStatus(null);
+				if (active) setWorkspaceIds(null);
 			});
 		return () => {
 			active = false;
@@ -57,13 +57,45 @@ export function WorkspaceSection() {
 
 	const activeWorkspaceId =
 		desktop.status === "ready" ? desktop.workspaceId : null;
+	const forget = useCallback(
+		(workspaceId: string) =>
+			setWorkspaceIds(
+				(current) => current?.filter((id) => id !== workspaceId) ?? null,
+			),
+		[],
+	);
+
+	return {
+		available: workspaceIds !== null && activeWorkspaceId !== null,
+		workspaceIds,
+		activeWorkspaceId,
+		forget,
+	};
+}
+
+/**
+ * Account workspace selection and recovery of local workspaces that were never
+ * linked to the account.
+ */
+export function WorkspaceSection({
+	workspaces,
+}: {
+	workspaces: LocalWorkspaces;
+}) {
+	const sync = useDesktopSync();
+	const { workspaceIds, activeWorkspaceId, forget } = workspaces;
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [confirming, setConfirming] = useState<WorkspaceAction | null>(null);
+
 	const mergeSources = useMemo(
 		() =>
-			status?.filter((workspaceId) => workspaceId !== activeWorkspaceId) ?? [],
-		[activeWorkspaceId, status],
+			workspaceIds?.filter(
+				(workspaceId) => workspaceId !== activeWorkspaceId,
+			) ?? [],
+		[activeWorkspaceId, workspaceIds],
 	);
-	const confirmingWorkspace = confirmingAction?.workspaceId ?? null;
-	const isMergeAction = confirmingAction?.kind === "merge";
+	const isMergeAction = confirming?.kind === "merge";
 
 	const switchWorkspace = useCallback(
 		async (workspaceId: string) => {
@@ -86,18 +118,15 @@ export function WorkspaceSection() {
 	);
 
 	const confirmAction = useCallback(async () => {
-		if (busy || !confirmingAction) return;
+		if (busy || !confirming) return;
 		setBusy(true);
 		setError(null);
 		try {
-			if (confirmingAction.kind === "merge")
-				await sync.mergeIntoActiveWorkspace(confirmingAction.workspaceId);
-			else await sync.deleteLocalWorkspace(confirmingAction.workspaceId);
-			setStatus(
-				(current) =>
-					current?.filter((id) => id !== confirmingAction.workspaceId) ?? null,
-			);
-			setConfirmingAction(null);
+			if (confirming.kind === "merge")
+				await sync.mergeIntoActiveWorkspace(confirming.workspaceId);
+			else await sync.deleteLocalWorkspace(confirming.workspaceId);
+			forget(confirming.workspaceId);
+			setConfirming(null);
 		} catch (cause) {
 			setError(
 				cause instanceof Error
@@ -109,31 +138,17 @@ export function WorkspaceSection() {
 		}
 	}, [
 		busy,
-		confirmingAction,
+		confirming,
+		forget,
 		sync.deleteLocalWorkspace,
 		sync.mergeIntoActiveWorkspace,
 	]);
 
-	if (!status || !activeWorkspaceId) return null;
+	if (!activeWorkspaceId) return null;
 
 	return (
-		<section className="flex flex-col gap-3">
-			<div className="flex items-start gap-3">
-				<div className="mt-0.5 rounded-md border border-[var(--border)] p-1.5 text-[var(--muted-foreground)]">
-					<HardDrive className="size-3.5" />
-				</div>
-				<div className="min-w-0">
-					<h3 className="text-sm font-medium">Workspaces</h3>
-					<p className="text-xs text-[var(--muted-foreground)]">
-						Choose where this desktop keeps its active board.
-					</p>
-				</div>
-			</div>
-
-			<div className="space-y-2">
-				<p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-					Account workspaces
-				</p>
+		<>
+			<SettingsGroup title="Account workspaces">
 				{sync.account ? (
 					sync.workspaces.length ? (
 						<div className="space-y-1">
@@ -174,27 +189,20 @@ export function WorkspaceSection() {
 						Sign in to see and switch between your account workspaces.
 					</p>
 				)}
-			</div>
+			</SettingsGroup>
 
-			<div className="space-y-2 border-t border-[var(--border)] pt-3">
-				<div>
-					<p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-						Local workspaces on this device
-					</p>
-					<p className="mt-1 text-xs text-[var(--muted-foreground)]">
-						These are local recovery copies. Merge uploads their current data
-						and removes the copy after sync. Delete discards it without
-						uploading.
-					</p>
-				</div>
+			<SettingsGroup
+				title="Local workspaces on this device"
+				description="These are local recovery copies. Merge uploads their current data and removes the copy after sync. Delete discards it without uploading."
+			>
 				{mergeSources.length ? (
 					<div className="space-y-1">
 						{mergeSources.map((workspaceId) => (
-							<div
-								key={workspaceId}
-								className="flex items-center gap-2 rounded-md border border-[var(--border)] px-2 py-1.5"
-							>
-								<span className="min-w-0 flex-1 truncate font-mono text-xs">
+							<SettingsItem key={workspaceId}>
+								{/* A workspace id is long and unbreakable, so it claims a
+								    minimum width and takes its own line when the actions
+								    would otherwise squeeze it away. */}
+								<span className="min-w-0 flex-1 basis-40 truncate font-mono text-xs">
 									{workspaceId}
 								</span>
 								<Button
@@ -202,9 +210,7 @@ export function WorkspaceSection() {
 									variant="outline"
 									size="xs"
 									disabled={busy}
-									onClick={() =>
-										setConfirmingAction({ workspaceId, kind: "merge" })
-									}
+									onClick={() => setConfirming({ workspaceId, kind: "merge" })}
 								>
 									<GitMerge /> Merge and delete
 								</Button>
@@ -213,13 +219,11 @@ export function WorkspaceSection() {
 									variant="ghost"
 									size="xs"
 									disabled={busy}
-									onClick={() =>
-										setConfirmingAction({ workspaceId, kind: "delete" })
-									}
+									onClick={() => setConfirming({ workspaceId, kind: "delete" })}
 								>
 									<Trash2 /> Delete local copy
 								</Button>
-							</div>
+							</SettingsItem>
 						))}
 					</div>
 				) : (
@@ -227,10 +231,10 @@ export function WorkspaceSection() {
 						No stranded local workspaces found.
 					</p>
 				)}
-			</div>
+			</SettingsGroup>
 
-			{confirmingWorkspace ? (
-				<div className="rounded-md border border-amber-300/70 bg-amber-50/70 p-3 text-xs dark:border-amber-700/60 dark:bg-amber-950/20">
+			{confirming ? (
+				<SettingsMessage tone="warning">
 					<p className="font-medium">
 						{isMergeAction
 							? "Merge and delete local workspace?"
@@ -239,7 +243,7 @@ export function WorkspaceSection() {
 					<p className="mt-1 text-[var(--muted-foreground)]">
 						{isMergeAction ? (
 							<>
-								Copy <span className="font-mono">{confirmingWorkspace}</span>{" "}
+								Copy <span className="font-mono">{confirming.workspaceId}</span>{" "}
 								into <span className="font-mono">{activeWorkspaceId}</span>,
 								sync it, and delete the local source copy only after successful
 								sync. If sync fails, the source is kept.
@@ -247,7 +251,7 @@ export function WorkspaceSection() {
 						) : (
 							<>
 								Permanently delete all local entities and pending changes in{" "}
-								<span className="font-mono">{confirmingWorkspace}</span>?
+								<span className="font-mono">{confirming.workspaceId}</span>?
 								Nothing will be uploaded or merged. Any matching account
 								workspace remains on the server. This cannot be undone.
 							</>
@@ -259,7 +263,7 @@ export function WorkspaceSection() {
 							variant="ghost"
 							size="sm"
 							disabled={busy}
-							onClick={() => setConfirmingAction(null)}
+							onClick={() => setConfirming(null)}
 						>
 							Cancel
 						</Button>
@@ -274,14 +278,14 @@ export function WorkspaceSection() {
 							{isMergeAction ? "Merge and delete" : "Delete local workspace"}
 						</Button>
 					</div>
-				</div>
+				</SettingsMessage>
 			) : null}
 
 			{error ? (
-				<p className="text-xs text-red-600 dark:text-red-400" role="alert">
+				<SettingsMessage tone="error" role="alert">
 					{error}
-				</p>
+				</SettingsMessage>
 			) : null}
-		</section>
+		</>
 	);
 }
