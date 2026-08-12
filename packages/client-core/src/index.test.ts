@@ -62,6 +62,54 @@ const batch: ChangeBatch = {
 };
 
 describe("SyncCoordinator", () => {
+	test("splits pending work into requests below the gateway body limit", async () => {
+		const largeBatches = [1, 2].map((deviceSequence) => ({
+			...batch,
+			changeId: `change-${deviceSequence}`,
+			deviceSequence,
+			command: "x".repeat(1_100_000),
+		}));
+		const pushed: ChangeBatch[][] = [];
+		const acknowledged: string[] = [];
+		const repository: WorkspaceRepository = {
+			query: async () => undefined as never,
+			execute: async () => undefined as never,
+			subscribe: () => () => undefined,
+			getPendingBatches: async () => largeBatches,
+			acknowledge: async (changeIds) => {
+				acknowledged.push(...changeIds);
+			},
+			getSyncState: async (peerId) => ({
+				peerId,
+				cursor: null,
+				enabled: true,
+				updatedAt: 1,
+				lastSyncedAt: null,
+				lastAckAt: null,
+			}),
+			applyRemote: async () => ({ applied: 0, conflicts: 0 }),
+			updateSyncCursor: async () => undefined,
+		};
+		const transport: SyncTransport = {
+			push: async (request) => {
+				pushed.push(request.batches);
+				return {
+					cursor: "0",
+					acknowledgedChangeIds: request.batches.map(
+						(candidate) => candidate.changeId,
+					),
+					missingBlobHashes: [],
+				};
+			},
+			pull: async () => ({ cursor: "0", batches: [], hasMore: false }),
+		};
+
+		await new SyncCoordinator("workspace-1", repository, transport).syncNow();
+
+		expect(pushed.map((request) => request.length)).toEqual([1, 1]);
+		expect(acknowledged).toEqual(["change-1", "change-2"]);
+	});
+
 	test("does not advance the pull cursor from a push response", async () => {
 		const pullCursors: Array<string | null> = [];
 		const applied: string[] = [];

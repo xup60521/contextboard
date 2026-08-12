@@ -1,3 +1,5 @@
+import { MAX_SYNC_JSON_BODY_BYTES } from "@contextboard/sync-protocol";
+
 type FetchHandler = (
 	request: Request,
 	env: unknown,
@@ -9,7 +11,6 @@ let cachedFetch: FetchHandler | null = null;
 export type WorkerEnv = Env;
 
 const VPC_PLACEHOLDER_ORIGIN = "http://localhost:8788";
-const JSON_BODY_LIMIT = 2 * 1024 * 1024;
 const BLOB_BODY_LIMIT = 512 * 1024 * 1024;
 const API_TIMEOUT_MS = 15_000;
 const BLOB_TIMEOUT_MS = 5 * 60_000;
@@ -38,18 +39,25 @@ function privateRoute(pathname: string) {
 }
 
 function privateResponse(
+	request: Request,
 	status: number,
 	error: string,
 	extraHeaders?: HeadersInit,
 ) {
+	const headers = new Headers({
+		"cache-control": "no-store",
+		...extraHeaders,
+	});
+	const origin = request.headers.get("origin");
+	if (origin) {
+		headers.set("access-control-allow-origin", origin);
+		headers.append("vary", "Origin");
+	}
 	return Response.json(
 		{ error },
 		{
 			status,
-			headers: {
-				"cache-control": "no-store",
-				...extraHeaders,
-			},
+			headers,
 		},
 	);
 }
@@ -114,24 +122,29 @@ export async function proxyPrivateApi(request: Request, env: WorkerEnv) {
 	const directOrigin = env.SYNC_VPS_URL?.replace(/\/+$/, "");
 	const vpc = env.SYNC_VPS;
 	if (!directOrigin && !vpc) {
-		return privateResponse(503, "Sync service is temporarily unavailable", {
-			"retry-after": "5",
-		});
+		return privateResponse(
+			request,
+			503,
+			"Sync service is temporarily unavailable",
+			{ "retry-after": "5" },
+		);
 	}
 
 	const url = new URL(request.url);
 	const isBlob = url.pathname.startsWith("/api/sync/v1/blobs/");
 	const hasBody = request.method !== "GET" && request.method !== "HEAD";
-	const maximum = isBlob ? BLOB_BODY_LIMIT : JSON_BODY_LIMIT;
+	const maximum = isBlob ? BLOB_BODY_LIMIT : MAX_SYNC_JSON_BODY_BYTES;
 	const declaredLength = parseDeclaredLength(request, isBlob);
 	if (
 		Number.isNaN(declaredLength) ||
 		(declaredLength !== null && declaredLength > maximum)
 	) {
-		return privateResponse(413, "Request body is too large");
+		return privateResponse(request, 413, "Request body is too large");
 	}
 	if (await isRateLimited(request, env, isBlob)) {
-		return privateResponse(429, "Too many requests", { "retry-after": "60" });
+		return privateResponse(request, 429, "Too many requests", {
+			"retry-after": "60",
+		});
 	}
 
 	let bodyLimitExceeded = false;
@@ -154,7 +167,7 @@ export async function proxyPrivateApi(request: Request, env: WorkerEnv) {
 	} else if (hasBody) {
 		const bytes = await request.arrayBuffer();
 		if (bytes.byteLength > maximum) {
-			return privateResponse(413, "Request body is too large");
+			return privateResponse(request, 413, "Request body is too large");
 		}
 		body = bytes;
 	}
@@ -217,7 +230,7 @@ export async function proxyPrivateApi(request: Request, env: WorkerEnv) {
 		});
 	} catch {
 		if (bodyLimitExceeded) {
-			return privateResponse(413, "Request body is too large");
+			return privateResponse(request, 413, "Request body is too large");
 		}
 		console.error(
 			JSON.stringify({
@@ -228,7 +241,7 @@ export async function proxyPrivateApi(request: Request, env: WorkerEnv) {
 				durationMs: Date.now() - startedAt,
 			}),
 		);
-		return privateResponse(503, "Sync service is temporarily unavailable", {
+		return privateResponse(request, 503, "Sync service is temporarily unavailable", {
 			"retry-after": "5",
 		});
 	}

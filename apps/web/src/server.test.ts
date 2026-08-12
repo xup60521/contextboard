@@ -41,11 +41,17 @@ describe("private API gateway", () => {
 
 	test("returns 503 instead of guessing a production origin", async () => {
 		const response = await proxyPrivateApi(
-			new Request("http://localhost/api/sync/v1/health"),
+			new Request("http://localhost/api/sync/v1/health", {
+				headers: { origin: "http://tauri.localhost" },
+			}),
 			{} as WorkerEnv,
 		);
 		expect(response.status).toBe(503);
 		expect(response.headers.get("retry-after")).toBe("5");
+		expect(response.headers.get("access-control-allow-origin")).toBe(
+			"http://tauri.localhost",
+		);
+		expect(response.headers.get("vary")).toContain("Origin");
 	});
 
 	test("strips spoofable forwarding headers", async () => {
@@ -116,12 +122,18 @@ describe("private API gateway", () => {
 		const declared = await proxyPrivateApi(
 			new Request("http://localhost/api/sync/v1/push", {
 				method: "POST",
-				headers: { "content-length": String(2 * 1024 * 1024 + 1) },
+				headers: {
+					"content-length": String(2 * 1024 * 1024 + 1),
+					origin: "tauri://localhost",
+				},
 				body: "{}",
 			}),
 			{ SYNC_VPS_URL: "http://127.0.0.1:8788" },
 		);
 		expect(declared.status).toBe(413);
+		expect(declared.headers.get("access-control-allow-origin")).toBe(
+			"tauri://localhost",
+		);
 
 		const actual = await proxyPrivateApi(
 			new Request("http://localhost/api/auth/sign-in/email", {

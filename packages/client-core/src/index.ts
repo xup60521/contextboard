@@ -16,7 +16,10 @@ import type {
 	SyncTransport,
 	WorkspaceMembership,
 } from "@contextboard/sync-protocol";
-import { syncVersionHeaders } from "@contextboard/sync-protocol";
+import {
+	MAX_SYNC_JSON_BODY_BYTES,
+	syncVersionHeaders,
+} from "@contextboard/sync-protocol";
 
 export type ContextboardPerfMetric =
 	| "repository.query"
@@ -305,6 +308,46 @@ export function workspaceChangeMatches(
 	});
 }
 
+const textEncoder = new TextEncoder();
+
+function jsonByteLength(value: unknown) {
+	return textEncoder.encode(JSON.stringify(value)).byteLength;
+}
+
+/**
+ * Keep each push below the public gateway's JSON limit. The repository still
+ * returns at most 100 batches per run, but a run may send several bounded
+ * requests so an accumulated offline queue can make progress immediately.
+ */
+function takePushBatches(
+	workspaceId: string,
+	cursor: string | null,
+	pending: ChangeBatch[],
+) {
+	const emptyRequest: PushChangesRequest = {
+		workspaceId,
+		batches: [],
+		cursor,
+		capabilities: ["card-content-v1"],
+	};
+	let requestBytes = jsonByteLength(emptyRequest);
+	const batches: ChangeBatch[] = [];
+	for (const batch of pending) {
+		const batchBytes = jsonByteLength(batch) + (batches.length ? 1 : 0);
+		if (requestBytes + batchBytes > MAX_SYNC_JSON_BODY_BYTES) {
+			if (batches.length === 0) {
+				throw new Error(
+					`Pending sync batch ${batch.changeId} exceeds the ${MAX_SYNC_JSON_BODY_BYTES}-byte gateway limit`,
+				);
+			}
+			break;
+		}
+		batches.push(batch);
+		requestBytes += batchBytes;
+	}
+	return batches;
+}
+
 export class HttpSyncError extends Error {
 	constructor(
 		readonly status: number,
@@ -567,12 +610,17 @@ export class SyncCoordinator {
 		}
 		this.#set({ state: "syncing", cursor: this.#cursor });
 		try {
-			const pending = await this.repository.getPendingBatches(100);
-			if (pending.length) {
+			let pending = await this.repository.getPendingBatches(100);
+			while (pending.length) {
+				const batches = takePushBatches(
+					this.workspaceId,
+					this.#cursor,
+					pending,
+				);
 				const pushed = await this.transport.push(
 					{
 						workspaceId: this.workspaceId,
-						batches: pending,
+						batches,
 						cursor: this.#cursor,
 						capabilities: ["card-content-v1"],
 					},
@@ -593,6 +641,7 @@ export class SyncCoordinator {
 				}
 				signal.throwIfAborted();
 				await this.repository.acknowledge(pushed.acknowledgedChangeIds);
+				pending = pending.slice(batches.length);
 			}
 			let hasMore = true;
 			while (hasMore) {
