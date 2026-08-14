@@ -10,9 +10,11 @@ When the user isn't explicitely ask, assume the dev server is already on. Don't 
 
 ## Writing cards
 
-When writing or editing cards on the user's own boards, read
-`skills/contextboard/card-style.md` first. `skills/contextboard/SKILL.md` is the
-API; that file is the voice and the layout conventions.
+If a task will end in cards on the user's own boards, read
+`skills/contextboard/card-style.md` **before starting the research**, not before
+writing. It governs what to keep while reading, so loading it at drafting time
+is too late. `skills/contextboard/SKILL.md` is the API; that file is the voice,
+the joints between cards, and the layout conventions.
 
 ## Code & Style
 
