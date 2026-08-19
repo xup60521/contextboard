@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { CardEditorPane } from "../editor/CardEditorPane";
+import { AppLink } from "../navigation/AppLink";
 import {
 	Dialog,
 	DialogContent,
@@ -27,7 +28,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { useWhiteboardNavigation } from "../whiteboard/navigation";
 import { WhiteboardPickerDialog } from "../whiteboard/WhiteboardPickerDialog";
 import { CardInfoSection } from "./CardInfoSection";
 import { DeleteCardDialog } from "./DeleteCardDialog";
@@ -92,7 +92,6 @@ export function CardPreviewDialog({
 	onClose,
 }: CardPreviewDialogProps) {
 	const runtime = useApplicationRuntime();
-	const navigation = useWhiteboardNavigation();
 	const open = cardId !== null;
 	const [data, setData] = useState<CardDetail | null | undefined>();
 	const [whiteboards, setWhiteboards] = useState<WhiteboardSummary[]>([]);
@@ -246,9 +245,7 @@ export function CardPreviewDialog({
 	}, [cardId, onClose, runtime.cards]);
 
 	const hasAppendableWhiteboards = whiteboards.length > 0;
-	const openPageLink = cardId
-		? navigation.linkProps(runtime.navigation.cardHref(cardId))
-		: null;
+	const openPageHref = cardId ? runtime.navigation.cardHref(cardId) : null;
 
 	return (
 		<Dialog
@@ -294,18 +291,15 @@ export function CardPreviewDialog({
 					Edit this card inline. Press Escape or click outside to close.
 				</DialogDescription>
 				<header className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2.5">
-					{openPageLink ? (
-						<a
-							href={openPageLink.href}
-							onClick={(event) => {
-								openPageLink.onClick(event);
-								onClose();
-							}}
+					{openPageHref ? (
+						<AppLink
+							href={openPageHref}
+							onClick={onClose}
 							title="Open page"
 							className="shrink-0 rounded p-1 text-[var(--sea-ink-soft)] hover:bg-[var(--surface-strong)] hover:text-[var(--sea-ink)]"
 						>
 							<Maximize2 className="size-4" />
-						</a>
+						</AppLink>
 					) : (
 						<div className="size-6 shrink-0" />
 					)}

@@ -8,6 +8,7 @@ import {
 } from "tldraw";
 import { useThemeMode } from "../../hooks/useThemeMode";
 import { DeleteCardDialog } from "../cards/DeleteCardDialog";
+import { AppLink } from "../navigation/AppLink";
 import { CardPasteResolutionMenu } from "./CardPasteResolutionMenu";
 import { CustomMenuPanel } from "./CustomMenuPanel";
 import {
@@ -503,15 +504,14 @@ export function WhiteboardCanvas({
 								Root
 							</span>
 						) : (
-							// biome-ignore lint/a11y/noStaticElementInteractions: platform-aware linkProps supplies href and keyboard behavior.
-							<a
-								{...navigate.linkProps(navigate.rootWhiteboardHref())}
+							<AppLink
+								href={navigate.rootWhiteboardHref()}
 								onPointerEnter={() => prefetchWhiteboard(null)}
 								onFocus={() => prefetchWhiteboard(null)}
 								className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
 							>
 								Root
-							</a>
+							</AppLink>
 						)}
 						{displayedBreadcrumbs.map((crumb, index) => (
 							<span key={crumb._id} className="flex min-w-0 items-center gap-2">
@@ -527,15 +527,14 @@ export function WhiteboardCanvas({
 										{crumb.title}
 									</span>
 								) : (
-									// biome-ignore lint/a11y/noStaticElementInteractions: platform-aware linkProps supplies href and keyboard behavior.
-									<a
-										{...navigate.linkProps(navigate.whiteboardHref(crumb._id))}
+									<AppLink
+										href={navigate.whiteboardHref(crumb._id)}
 										onPointerEnter={() => prefetchWhiteboard(crumb._id)}
 										onFocus={() => prefetchWhiteboard(crumb._id)}
 										className="truncate font-semibold text-[var(--card-foreground)] hover:text-[var(--lagoon-deep)]"
 									>
 										{crumb.title}
-									</a>
+									</AppLink>
 								)}
 							</span>
 						))}

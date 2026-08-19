@@ -2,6 +2,7 @@ import { useApplicationRuntime } from "@contextboard/application";
 import { ChevronDown, Link2 } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePassThroughWheelEvents } from "tldraw";
+import { AppLink } from "../navigation/AppLink";
 import { useWhiteboardNavigation } from "./navigation";
 import { WhiteboardCardContext } from "./WhiteboardCardContext";
 
@@ -44,24 +45,34 @@ export function WhiteboardBacklinksPanel() {
 			>
 				<Link2 className="size-3.5 text-[var(--muted-foreground)]" />
 				<span>Backlinks ({backlinks.length})</span>
-				<ChevronDown className={`ml-auto size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+				<ChevronDown
+					className={`ml-auto size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+				/>
 			</button>
 			{expanded ? (
 				<div className="mt-1 max-h-64 space-y-px overflow-y-auto">
 					{backlinks.length === 0 ? (
-						<p className="px-2 py-2 text-xs text-[var(--muted-foreground)]">No backlinks yet</p>
+						<p className="px-2 py-2 text-xs text-[var(--muted-foreground)]">
+							No backlinks yet
+						</p>
 					) : (
 						backlinks.map((backlink) => {
 							const href = navigation.cardHref(backlink.cardId);
 							return (
-								<a
+								<AppLink
 									key={backlink.cardId}
-									{...navigation.linkProps(href)}
+									href={href}
 									className="block rounded-md px-2 py-1.5 hover:bg-[var(--accent)]"
 								>
-									<span className="block truncate text-xs font-medium">{backlink.title}</span>
-									{backlink.preview ? <span className="block truncate text-[10px] text-[var(--muted-foreground)]">{backlink.preview}</span> : null}
-								</a>
+									<span className="block truncate text-xs font-medium">
+										{backlink.title}
+									</span>
+									{backlink.preview ? (
+										<span className="block truncate text-[10px] text-[var(--muted-foreground)]">
+											{backlink.preview}
+										</span>
+									) : null}
+								</AppLink>
 							);
 						})
 					)}
