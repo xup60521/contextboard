@@ -32,6 +32,10 @@ export {
 	useSidebarContext,
 } from "./components/whiteboard/SidebarContext.tsx";
 export { SidebarOpenButton } from "./components/navigation/SidebarOpenButton.tsx";
+export {
+	AppLink,
+	type AppLinkProps,
+} from "./components/navigation/AppLink.tsx";
 export { AppSidebar } from "./components/sidebar/AppSidebar.tsx";
 export type {
 	AccountSummary,

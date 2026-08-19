@@ -1,6 +1,7 @@
 import type { SyncRuntimeState } from "@contextboard/application";
 import { Cloud, CloudOff, Github, LogOut, RefreshCw } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { AppLink } from "../navigation/AppLink";
 import { isDisconnected, syncStateLabel } from "../settings/sync-status";
 import { Button } from "../ui/button";
 import { AppSidebarFrame } from "../whiteboard/AppSidebarFrame";
@@ -85,12 +86,12 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 								: ""}
 						</p>
 						{runtime.conflictCount && runtime.conflictHref ? (
-							<a
+							<AppLink
 								href={runtime.conflictHref}
 								className="text-[10px] font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-300"
 							>
 								Open conflict inbox
-							</a>
+							</AppLink>
 						) : null}
 						{runtime.createWorkspace && runtime.workspaceSelectionRequired ? (
 							<div className="mt-1 space-y-1">

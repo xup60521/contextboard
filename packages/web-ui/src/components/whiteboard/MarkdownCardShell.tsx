@@ -1,11 +1,12 @@
-import { useWhiteboardNavigation } from "./navigation";
 import type { JSONContent } from "@tiptap/core";
 import { ExternalLink } from "lucide-react";
 import type { ReactNode, Ref } from "react";
 import { HTMLContainer, stopEventPropagation, useEditor } from "tldraw";
+import { AppLink } from "../navigation/AppLink";
 import type { Id } from "./ids";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import { getShapeContainerStyle } from "./MarkdownCardShapeTypes";
+import { useWhiteboardNavigation } from "./navigation";
 
 export function parseMarkdownContent(content?: string): JSONContent | null {
 	if (!content) return null;
@@ -36,11 +37,9 @@ export function MarkdownCardOpenLink({
 	ariaLabel?: string;
 	className?: string;
 }) {
-	const link = useWhiteboardNavigation().linkProps(href);
-
 	return (
-		<a
-			href={link.href}
+		<AppLink
+			href={href}
 			draggable={false}
 			onPointerDown={(e) => {
 				stopEventPropagation(e);
@@ -53,14 +52,13 @@ export function MarkdownCardOpenLink({
 			onClick={(e) => {
 				stopEventPropagation(e);
 				e.stopPropagation();
-				link.onClick(e);
 			}}
 			className={className}
 			style={{ pointerEvents: "auto" }}
 			aria-label={ariaLabel}
 		>
 			<ExternalLink className="size-3.5" />
-		</a>
+		</AppLink>
 	);
 }
 
