@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useRef, useState } from "react";
+import {
+	ConflictInbox,
+	type ConflictResolution,
+} from "#/components/data/ConflictInbox";
 import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
 import { Button } from "#/components/ui/button";
 import {
@@ -19,19 +23,6 @@ export const Route = createFileRoute("/data")({
 function DataManagementPage() {
 	const local = useLocalDatabase();
 	const sync = useSyncRuntime();
-	const resolveConflict = async (input: {
-		conflictId: string;
-		resolution: "keep-local" | "keep-remote" | "keep-both";
-	}) => {
-		if (local.status !== "ready") return;
-		await localMutation(
-			local.database,
-			local.deviceId,
-			"conflicts.resolve",
-			input,
-		);
-		sync.notifyLocalChange();
-	};
 	const unresolvedConflicts =
 		useLiveQuery(
 			() =>
@@ -45,6 +36,30 @@ function DataManagementPage() {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [message, setMessage] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [resolvingConflicts, setResolvingConflicts] = useState(false);
+
+	const resolveConflicts = async (
+		conflictIds: string[],
+		resolution: ConflictResolution,
+	) => {
+		if (local.status !== "ready" || conflictIds.length === 0) return;
+		setResolvingConflicts(true);
+		try {
+			for (const conflictId of conflictIds) {
+				await localMutation(
+					local.database,
+					local.deviceId,
+					"conflicts.resolve",
+					{ conflictId, resolution },
+				);
+			}
+			sync.notifyLocalChange();
+		} catch (error) {
+			setMessage(error instanceof Error ? error.message : String(error));
+		} finally {
+			setResolvingConflicts(false);
+		}
+	};
 
 	const exportData = async () => {
 		setBusy(true);
@@ -132,9 +147,7 @@ function DataManagementPage() {
 				/>
 			</div>
 			{message ? (
-				<p className="mt-4 text-sm" role="status">
-					{message}
-				</p>
+				<output className="mt-4 block text-sm">{message}</output>
 			) : null}
 			<section className="mt-10 rounded-lg border border-[var(--border)] p-4">
 				<h2 className="text-sm font-semibold">Synchronization</h2>
@@ -172,61 +185,13 @@ function DataManagementPage() {
 				</Button>
 			</section>
 			{unresolvedConflicts.length ? (
-				<section
-					id="conflicts"
-					className="mt-6 scroll-mt-6 rounded-lg border border-amber-500/40 p-4"
-				>
-					<h2 className="text-sm font-semibold">
-						Conflicts ({unresolvedConflicts.length})
-					</h2>
-					<div className="mt-3 space-y-3">
-						{unresolvedConflicts.map((conflict) => (
-							<article
-								key={conflict.conflictId}
-								className="rounded-md bg-[var(--muted)]/40 p-3 text-xs"
-							>
-								<p className="font-medium">
-									{conflict.entityType}: {conflict.entityId}
-								</p>
-								<details className="mt-2">
-									<summary className="cursor-pointer">Compare values</summary>
-									<div className="mt-2 grid gap-2 md:grid-cols-2">
-										<pre className="overflow-auto rounded bg-black/5 p-2">
-											{JSON.stringify(conflict.localValue, null, 2)}
-										</pre>
-										<pre className="overflow-auto rounded bg-black/5 p-2">
-											{JSON.stringify(conflict.remoteValue, null, 2)}
-										</pre>
-									</div>
-								</details>
-								<div className="mt-3 flex flex-wrap gap-2">
-									{(["keep-local", "keep-remote", "keep-both"] as const).map(
-										(resolution) => (
-											<Button
-												key={resolution}
-												type="button"
-												size="sm"
-												variant="outline"
-												onClick={() =>
-													void resolveConflict({
-														conflictId: conflict.conflictId,
-														resolution,
-													})
-												}
-											>
-												{resolution === "keep-local"
-													? "Keep local"
-													: resolution === "keep-remote"
-														? "Keep remote"
-														: "Keep both"}
-											</Button>
-										),
-									)}
-								</div>
-							</article>
-						))}
-					</div>
-				</section>
+				<ConflictInbox
+					conflicts={unresolvedConflicts}
+					resolving={resolvingConflicts}
+					onResolve={(conflictIds, resolution) =>
+						void resolveConflicts(conflictIds, resolution)
+					}
+				/>
 			) : null}
 		</main>
 	);
