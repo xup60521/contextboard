@@ -1,24 +1,14 @@
 import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-
-export type CardLinkOptions = {
-	/** Called on modifier-click of a card reference; null disables the gesture. */
-	onOpenPreview: ((cardId: string) => void) | null;
-	onOpenWhiteboard: ((whiteboardId: string) => void) | null;
-};
 
 /**
- * Enriches ordinary `link` marks with card-reference metadata and wires up
- * modifier-click-to-preview. The extra attributes round-trip as `data-*` so
- * pasted/loaded card references keep their identity even when no card-reference
- * support is wired in (e.g. read-only previews).
+ * Enriches ordinary `link` marks with card-reference metadata. The extra
+ * attributes round-trip as `data-*` so pasted/loaded card references keep their
+ * identity even when no card-reference support is wired in (e.g. read-only
+ * previews). Following a reference is handled by `LinkInteraction`, which owns
+ * clicks for every kind of link.
  */
-export const CardLink = Extension.create<CardLinkOptions>({
+export const CardLink = Extension.create({
 	name: "cardLink",
-
-	addOptions() {
-		return { onOpenPreview: null, onOpenWhiteboard: null };
-	},
 
 	addGlobalAttributes() {
 		return [
@@ -34,40 +24,6 @@ export const CardLink = Extension.create<CardLinkOptions>({
 					resolvedTitle: dataAttribute("data-resolved-title", "resolvedTitle"),
 				},
 			},
-		];
-	},
-
-	addProseMirrorPlugins() {
-		const options = this.options;
-		return [
-			new Plugin({
-				key: new PluginKey("cardLinkClick"),
-				props: {
-					handleClick(_view, _pos, event) {
-						// Plain click keeps normal cursor behavior; only the modifier
-						// gesture opens the preview.
-						if (!(event.metaKey || event.ctrlKey)) return false;
-
-						const target = event.target as HTMLElement | null;
-						const anchor = target?.closest<HTMLElement>("a[data-card-id]");
-						const cardId = anchor?.getAttribute("data-card-id");
-						if (cardId && options.onOpenPreview) {
-							event.preventDefault();
-							options.onOpenPreview(cardId);
-							return true;
-						}
-						const whiteboardAnchor =
-							target?.closest<HTMLElement>("a[data-whiteboard-id]");
-						const whiteboardId = whiteboardAnchor?.getAttribute(
-							"data-whiteboard-id",
-						);
-						if (!whiteboardId || !options.onOpenWhiteboard) return false;
-						event.preventDefault();
-						options.onOpenWhiteboard(whiteboardId);
-						return true;
-					},
-				},
-			}),
 		];
 	},
 });

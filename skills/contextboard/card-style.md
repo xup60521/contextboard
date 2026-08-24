@@ -98,10 +98,15 @@ wrong for this workspace.
 
 ## How cards connect
 
+This section governs argument cards — the cards a finished board is made of.
+A research board carries a second, weaker arrow language underneath it for
+source containment; see `research-flow.md`.
+
 A board is not a pile of good cards. **The relation between two cards lives in
-the prose, not in the arrow.** Canvas relations are undirected and carry no
-label, so a line drawn between two sealed cards communicates nothing — the
-board looks structured and reads disconnected.
+the prose, not in the arrow.** A canvas relation has a direction but no label:
+an arrow can say which way, never why. A line drawn between two sealed cards
+still communicates nothing — the board looks structured and reads
+disconnected.
 
 Every card except the scope card must name at least one other card **inside the
 sentence that advances its own argument**, as one of five joints:
@@ -129,9 +134,12 @@ The rules that make this real:
 - **時序 joints are not satisfied by a date.** The year in the title supplies
   ordering, not relation. The body must still say what the previous card left
   unsolved and how this one takes it up.
-- **Draw an arrow only where a joint is already written.** Arrows are a visual
-  echo of joints, never a substitute. No joint, no arrow. There is no target
-  arrow count — it follows from the text.
+- **Every joint is drawn as an arrow, and nothing else is.** The arrow is the
+  joint's mechanical projection — one per joint, running the way the joint runs,
+  from the card being leaned on to the card leaning on it. No joint, no arrow;
+  no arrow, no joint. There is no target arrow count and no separate judgement
+  about which joints deserve a line: both follow from the text, and the density
+  is already capped by the joints themselves.
 
 Four more rules, all of which exist because a board once satisfied everything
 above and still read as fifty disconnected definitions:

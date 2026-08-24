@@ -8,6 +8,11 @@
  */
 
 export { cn } from "./lib/utils.ts";
+// Platform shells override how card content opens external links.
+export {
+	type ExternalLinkOpener,
+	setExternalLinkOpener,
+} from "@contextboard/editor";
 export {
 	applyThemeMode,
 	getResolvedTheme,

@@ -1,7 +1,5 @@
-
 import { EditorContent } from "@tiptap/react";
-import { useRef } from "react";
-import { cn } from "./platform/utils";
+import { useCallback, useRef, useState } from "react";
 import { useImageInputState } from "./hooks/useImageInputState";
 import { useMathEditorState } from "./hooks/useMathEditorState";
 import { useRichTextContentSync } from "./hooks/useRichTextContentSync";
@@ -10,6 +8,7 @@ import { useRichTextEditableMode } from "./hooks/useRichTextEditableMode";
 import { useRichTextEditorInstance } from "./hooks/useRichTextEditorInstance";
 import { useRichTextReady } from "./hooks/useRichTextReady";
 import { useRichTextRuntimeRefs } from "./hooks/useRichTextRuntimeRefs";
+import { cn } from "./platform/utils";
 import type { RichTextEditorProps } from "./RichTextEditor.types";
 import { RichTextEditorChrome } from "./RichTextEditorChrome";
 import { StaticRichTextRenderer } from "./static-renderer/StaticRichTextRenderer";
@@ -47,6 +46,9 @@ export function RichTextEditor({
 		syncFromEditorTransaction: syncImageInputFromTransaction,
 		clearImageInput,
 	} = useImageInputState();
+	const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
+	const openLinkEditor = useCallback(() => setIsLinkEditorOpen(true), []);
+	const closeLinkEditor = useCallback(() => setIsLinkEditorOpen(false), []);
 	const editor = useRichTextEditorInstance({
 		content,
 		placeholder,
@@ -56,6 +58,7 @@ export function RichTextEditor({
 		mathSelectionRef,
 		findInsertedMathSelection,
 		syncImageInputFromTransaction,
+		openLinkEditor,
 		onChange,
 	});
 
@@ -110,6 +113,9 @@ export function RichTextEditor({
 				imageInputPos={imageInputPos}
 				mathSelection={mathSelection}
 				onCloseMathEditor={() => openMathSelection(null)}
+				isLinkEditorOpen={isLinkEditorOpen}
+				onOpenLinkEditor={openLinkEditor}
+				onCloseLinkEditor={closeLinkEditor}
 			/>
 			<EditorContent aria-label={ariaLabel} editor={editor} />
 		</div>

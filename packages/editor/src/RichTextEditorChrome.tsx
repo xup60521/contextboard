@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import type { RefObject } from "react";
 import { EditorBubbleMenu } from "./EditorBubbleMenu";
+import { LinkEditor } from "./link/LinkEditor";
 import { MathEditor } from "./MathEditor";
 import type { MathSelection } from "./RichTextEditor.types";
 import { ImageCommand } from "./slash/ImageCommand";
@@ -14,6 +15,9 @@ export type RichTextEditorChromeProps = {
 	imageInputPos: number | null;
 	mathSelection: MathSelection | null;
 	onCloseMathEditor: () => void;
+	isLinkEditorOpen: boolean;
+	onOpenLinkEditor: () => void;
+	onCloseLinkEditor: () => void;
 };
 
 export function RichTextEditorChrome({
@@ -24,6 +28,9 @@ export function RichTextEditorChrome({
 	imageInputPos,
 	mathSelection,
 	onCloseMathEditor,
+	isLinkEditorOpen,
+	onOpenLinkEditor,
+	onCloseLinkEditor,
 }: RichTextEditorChromeProps) {
 	if (!showChrome || !editable) {
 		return null;
@@ -31,7 +38,14 @@ export function RichTextEditorChrome({
 
 	return (
 		<>
-			<EditorBubbleMenu editor={editor} />
+			{/* Unmounting is what actually hides the bubble menu: its `shouldShow`
+			    is only re-read on a transaction, and opening the link editor is not
+			    one. */}
+			{isLinkEditorOpen ? (
+				<LinkEditor editor={editor} onClose={onCloseLinkEditor} />
+			) : (
+				<EditorBubbleMenu editor={editor} onOpenLinkEditor={onOpenLinkEditor} />
+			)}
 			<TableHandlesOverlay editor={editor} containerRef={containerRef} />
 			{imageInputPos !== null && <ImageCommand editor={editor} />}
 			{mathSelection && (

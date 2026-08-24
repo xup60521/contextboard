@@ -2,17 +2,20 @@ import type { Editor } from "@tiptap/core";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { Bold, Code, Italic, Link2, Strikethrough } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
+import { isCardReferenceLink, removeLink } from "./link/link-commands";
 import { cn } from "./platform/utils";
 import { isTableCellSelection } from "./table/table-utils";
 
 type EditorBubbleMenuProps = {
 	editor: Editor;
+	onOpenLinkEditor: () => void;
 };
 
 type BubbleButtonProps = {
 	icon: ComponentType<{ className?: string }>;
 	label: string;
 	isActive: boolean;
+	disabled?: boolean;
 	onClick: () => void;
 };
 
@@ -20,6 +23,7 @@ function BubbleButton({
 	icon: Icon,
 	label,
 	isActive,
+	disabled = false,
 	onClick,
 }: BubbleButtonProps): ReactNode {
 	return (
@@ -28,9 +32,10 @@ function BubbleButton({
 			title={label}
 			aria-label={label}
 			aria-pressed={isActive}
+			disabled={disabled}
 			onClick={onClick}
 			className={cn(
-				"flex size-8 items-center justify-center rounded-md transition-colors",
+				"flex size-8 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-40",
 				isActive
 					? "bg-[var(--link-bg-hover)] text-[var(--lagoon-deep)]"
 					: "text-[var(--sea-ink-soft)] hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]",
@@ -41,32 +46,31 @@ function BubbleButton({
 	);
 }
 
-export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
+export function EditorBubbleMenu({
+	editor,
+	onOpenLinkEditor,
+}: EditorBubbleMenuProps) {
+	const isCardReference = isCardReferenceLink(editor);
+
 	function toggleLink() {
+		// A second press on an active link removes it; otherwise the popover
+		// takes over so the href can be typed inline.
 		if (editor.isActive("link")) {
-			editor.chain().focus().unsetLink().run();
+			removeLink(editor);
 			return;
 		}
 
-		const previousUrl = editor.getAttributes("link").href as string | undefined;
-		const url = window.prompt("Link URL", previousUrl ?? "https://");
-		if (url === null) {
-			return;
-		}
-
-		if (url === "") {
-			editor.chain().focus().unsetLink().run();
-			return;
-		}
-
-		editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+		onOpenLinkEditor();
 	}
 
 	return (
 		<BubbleMenu
 			editor={editor}
 			shouldShow={({ editor: instance, from, to }) =>
-				from !== to &&
+				// A collapsed caret inside a link still gets the menu, so an existing
+				// link can be edited or removed without selecting its text first.
+				(from !== to ||
+					(instance.isActive("link") && !isCardReferenceLink(instance))) &&
 				!isTableCellSelection(instance.state.selection) &&
 				!instance.isActive("codeBlock") &&
 				!instance.isActive("inlineMath") &&
@@ -101,8 +105,15 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
 			<span className="mx-0.5 h-5 w-px bg-[var(--line)]" />
 			<BubbleButton
 				icon={Link2}
-				label="Link"
+				label={
+					isCardReference
+						? "Card reference"
+						: editor.isActive("link")
+							? "Remove link"
+							: "Link"
+				}
 				isActive={editor.isActive("link")}
+				disabled={isCardReference}
 				onClick={toggleLink}
 			/>
 		</BubbleMenu>

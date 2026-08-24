@@ -380,6 +380,27 @@ pub fn desktop_auth_start(
     Ok(started)
 }
 
+/// Hands a link from card content to the OS browser. Keeping this in Rust means
+/// the webview never navigates away from the app, and the scheme allowlist is
+/// enforced where the URL actually gets opened.
+#[tauri::command]
+pub fn desktop_open_external(url: String) -> Result<(), CommandError> {
+    let allowed = ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|scheme| url.starts_with(scheme));
+    if !allowed {
+        return Err(CommandError {
+            code: "INVALID_ARGUMENT",
+            message: format!("Refusing to open unsupported link: {url}"),
+        });
+    }
+
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|error| CommandError {
+        code: "INTERNAL_ERROR",
+        message: format!("Unable to open the link: {error}"),
+    })
+}
+
 #[tauri::command]
 pub async fn desktop_auth_wait(
     handoff: State<'_, AuthHandoffState>,

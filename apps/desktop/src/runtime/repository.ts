@@ -65,6 +65,11 @@ export async function invokeDesktop<T>(
 	}
 }
 
+/** Opens a link from card content in the user's real browser. */
+export async function openExternalUrl(url: string, invoke?: Invoke) {
+	await invokeDesktop<null>("desktop_open_external", { url }, invoke);
+}
+
 export async function bootstrapDesktop(invoke?: Invoke) {
 	const bootstrap = await invokeDesktop<DesktopBootstrap>(
 		"desktop_bootstrap",

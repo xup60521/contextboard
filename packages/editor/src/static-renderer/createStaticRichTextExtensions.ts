@@ -32,10 +32,7 @@ export function createStaticRichTextExtensions() {
 			},
 		}),
 
-		CardLink.configure({
-			onOpenPreview: null,
-			onOpenWhiteboard: null,
-		}),
+		CardLink,
 
 		StaticEditorImage.configure({
 			inline: false,

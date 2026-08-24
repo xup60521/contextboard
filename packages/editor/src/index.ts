@@ -27,5 +27,10 @@ export type {
 	ReferenceSuggestion,
 	WhiteboardReferenceSuggestion,
 } from "./card-reference/types";
+export {
+	type ExternalLinkOpener,
+	openExternalLink,
+	setExternalLinkOpener,
+} from "./link/external-link";
 export type { UploadedImage } from "./ImageUpload";
 export { uploadImageLocally } from "./ImageUpload";

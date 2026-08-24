@@ -509,6 +509,16 @@
 	box-shadow: 0 0 0 2px color-mix(in oklab, var(--lagoon) 20%, transparent);
 }
 
-.rich-text-editor-shell.ctrl-holding .tiptap a[data-card-id] {
+/* Modifier-click follows any link, so every anchor gets the affordance. */
+.rich-text-editor-shell.ctrl-holding .tiptap a[href] {
 	cursor: pointer;
+}
+
+/*
+ * The static renderer opts out of pointer events so the canvas keeps its
+ * gestures; links opt back in, and their own handler decides whether a click
+ * belongs to the link or falls through to the shape.
+ */
+[data-static-rich-text-renderer] a[href] {
+	pointer-events: auto;
 }

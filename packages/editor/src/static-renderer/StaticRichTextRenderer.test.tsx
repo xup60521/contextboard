@@ -1,8 +1,9 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { type JSONContent, Node } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { renderToReactElement } from "@tiptap/static-renderer/pm/react";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { setExternalLinkOpener } from "../link/external-link";
 import { StaticRichTextRenderer } from "./StaticRichTextRenderer";
 import {
 	STATIC_RENDERER_BASIC_FIXTURE,
@@ -13,6 +14,7 @@ import { createStaticRendererOptions } from "./staticRendererMappings";
 
 afterEach(() => {
 	cleanup();
+	setExternalLinkOpener(null);
 });
 
 describe("StaticRichTextRenderer", () => {
@@ -59,6 +61,20 @@ describe("StaticRichTextRenderer", () => {
 		const link = screen.getByRole("link", { name: "External link" });
 		expect(link.getAttribute("href")).toBe("https://example.com");
 		expect(link.getAttribute("target")).toBe("_blank");
+	});
+
+	test("follows external links on modifier click only", () => {
+		const open = vi.fn();
+		setExternalLinkOpener(open);
+		render(<StaticRichTextRenderer content={STATIC_RENDERER_FULL_FIXTURE} />);
+
+		const link = screen.getByRole("link", { name: "External link" });
+
+		fireEvent.click(link);
+		expect(open).not.toHaveBeenCalled();
+
+		fireEvent.click(link, { ctrlKey: true });
+		expect(open).toHaveBeenCalledWith("https://example.com");
 	});
 
 	test("preserves card reference link metadata", () => {
