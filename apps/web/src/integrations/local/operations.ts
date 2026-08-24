@@ -1145,77 +1145,84 @@ async function executeMutation(
 			return { fileId, storageId: fileId, url: await blobDataUrl(file) };
 		}
 		case "conflicts.resolve": {
-			const conflictId = String(args.conflictId);
 			const resolution = String(args.resolution) as
 				| "keep-local"
 				| "keep-remote"
 				| "keep-both";
 			if (!["keep-local", "keep-remote", "keep-both"].includes(resolution))
 				throw new Error("Invalid conflict resolution");
-			const conflict = await db.conflicts.get(conflictId);
-			if (!conflict || conflict.resolvedAt !== null) return null;
-			if (conflict.entityType === "card") {
-				const original = await db.cards.get(conflict.entityId);
-				if (
-					original &&
-					(resolution !== "keep-remote" ||
-						(conflict.remoteValue && typeof conflict.remoteValue === "object"))
-				) {
-					const selected =
-						resolution === "keep-remote"
-							? (conflict.remoteValue as Card)
-							: original;
-					await db.cards.put({
-						...selected,
-						id: original.id,
-						revision: original.revision + 1,
-						updatedAt: now,
-						updatedByDeviceId: deviceId,
-					});
-					await reconcileReferences(
-						db,
-						deviceId,
-						"card",
-						original.id,
-						selected.content,
-					);
-				}
-				const copy = await db.cards.get(conflictCopyCardId(conflictId));
-				if (copy) {
-					await reconcileReferences(
-						db,
-						deviceId,
-						"card",
-						copy.id,
-						copy.content,
-					);
-					await db.cards.update(copy.id, {
-						archivedAt: resolution === "keep-both" ? copy.archivedAt : now,
-						revision: copy.revision + 1,
-						updatedAt: now,
-						updatedByDeviceId: deviceId,
-					});
-					if (resolution !== "keep-both") {
-						for (const placement of await db.boardItems
-							.where("cardId")
-							.equals(copy.id)
-							.toArray())
-							await db.boardItems.update(placement.id, {
-								archivedAt: now,
-								revision: placement.revision + 1,
-								updatedAt: now,
-								updatedByDeviceId: deviceId,
-							});
+			const conflictIds = Array.isArray(args.conflictIds)
+				? args.conflictIds.map(String)
+				: [String(args.conflictId)];
+			const conflicts = await db.conflicts.bulkGet(conflictIds);
+			for (const [index, conflict] of conflicts.entries()) {
+				if (!conflict || conflict.resolvedAt !== null) continue;
+				const conflictId = conflictIds[index];
+				if (!conflictId) continue;
+				if (conflict.entityType === "card") {
+					const original = await db.cards.get(conflict.entityId);
+					if (
+						original &&
+						(resolution !== "keep-remote" ||
+							(conflict.remoteValue &&
+								typeof conflict.remoteValue === "object"))
+					) {
+						const selected =
+							resolution === "keep-remote"
+								? (conflict.remoteValue as Card)
+								: original;
+						await db.cards.put({
+							...selected,
+							id: original.id,
+							revision: original.revision + 1,
+							updatedAt: now,
+							updatedByDeviceId: deviceId,
+						});
+						await reconcileReferences(
+							db,
+							deviceId,
+							"card",
+							original.id,
+							selected.content,
+						);
+					}
+					const copy = await db.cards.get(conflictCopyCardId(conflictId));
+					if (copy) {
+						await reconcileReferences(
+							db,
+							deviceId,
+							"card",
+							copy.id,
+							copy.content,
+						);
+						await db.cards.update(copy.id, {
+							archivedAt: resolution === "keep-both" ? copy.archivedAt : now,
+							revision: copy.revision + 1,
+							updatedAt: now,
+							updatedByDeviceId: deviceId,
+						});
+						if (resolution !== "keep-both") {
+							for (const placement of await db.boardItems
+								.where("cardId")
+								.equals(copy.id)
+								.toArray())
+								await db.boardItems.update(placement.id, {
+									archivedAt: now,
+									revision: placement.revision + 1,
+									updatedAt: now,
+									updatedByDeviceId: deviceId,
+								});
+						}
 					}
 				}
+				await db.conflicts.update(conflictId, {
+					resolvedAt: now,
+					resolution,
+					revision: conflict.revision + 1,
+					updatedAt: now,
+					updatedByDeviceId: deviceId,
+				});
 			}
-			await db.conflicts.update(conflictId, {
-				resolvedAt: now,
-				resolution,
-				revision: conflict.revision + 1,
-				updatedAt: now,
-				updatedByDeviceId: deviceId,
-			});
 			return null;
 		}
 		case "todos.add": {
