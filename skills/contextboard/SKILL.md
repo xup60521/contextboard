@@ -174,8 +174,11 @@ tree and mindmap layouts and selects graph for larger or denser non-tree inputs.
 Card text is markdown: headings, bullet and numbered lists, blockquotes, fenced code, pipe tables and inline math all round trip. To cite another card, write [label](contextboard:card/<cardId>) inline; to cite a whiteboard, write [label](contextboard:whiteboard/<whiteboardId>). Put references in the sentence that makes the claim; each creates a real reference and a backlink on its target. Prefer citing sources this way over listing them at the end.
 
 References live in card body text and travel with the card. Canvas relations
-are visible arrows scoped to one whiteboard, are undirected, and require both
-cards to already be placed there. Use `create_relation` for an on-canvas arrow;
+are visible arrows scoped to one whiteboard, and require both cards to already
+be placed there. An arrow is drawn from a source card to a target card and
+keeps that direction — `arrange_cards` reads it, treating the card an arrow
+starts at as the parent — but it carries no label, so what the direction means
+is whatever the cards themselves say. Use `create_relation` for an on-canvas arrow;
 use a markdown reference for an in-text citation.
 
 ## Recipes

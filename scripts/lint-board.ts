@@ -6,6 +6,12 @@
  * carry joints as plain concept names rather than contextboard: links, and their
  * arrows often land on tldraw text elements the API cannot see.
  *
+ * It also lints a board as one layer. A research board built with
+ * skills/contextboard/research-flow.md has a note layer under the argument
+ * layer whose cards carry no joints and whose arrows mean containment, so
+ * rules 1, 2, 4, 5 and 6 all fire on it. Read those hits against the argument
+ * layer only until this understands the Source overview / Detail note prefixes.
+ *
  *   bun scripts/lint-board.ts <whiteboardId>
  */
 import { homedir } from "node:os";

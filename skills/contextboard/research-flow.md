@@ -230,27 +230,32 @@ Update it only at phase boundaries or when a validator changes the route. A harn
 
 ## Contextboard mapping
 
-Keep research notes and synthesis on the same whiteboard so the work remains visible and revisable.
+Both layers live on one whiteboard, split top and bottom.
 
-- Place the synthesis spine across the upper part of the board, reading left to right.
-- Place source overview and detail-note clusters below it, grouped spatially by source.
-- Use card titles to mark `Source overview` and `Detail note` as semantic roles for now; do not add a new product-level card type yet.
-- Let synthesis cards cite reading notes with inline `contextboard:card/...` references.
-- Let reading notes cite source overviews and external sources inline.
-- Do not draw provenance arrows between synthesis and research layers. Provenance lives in references and backlinks.
-- Keep the board wider than it is tall. Add horizontal room before turning the research layer into a long vertical scroll.
+- The **argument layer** is the synthesis spine, across the upper part of the board, reading left to right.
+- The **note layer** is below it: one small tree per source, side by side.
+- A note card's `y` starts at least **800** below the lowest argument card. Pass that `y` to `place_card` when the card is created; nothing recovers the band once the two layers interleave.
+- Keep the board wider than it is tall. Add horizontal room before letting the note layer grow into a vertical scroll.
 
-The research-note layer is exempt from card-style requirements that only make sense for finished arguments: it may split by source, and a detail note need not manufacture a complete argument or an argumentative joint. The synthesis layer continues to split by idea and follows the existing card style.
+Card titles say which layer a card is in, and that is the only machine-readable signal there is: a note card's title begins `Source overview` or `Detail note`. A note deeper than one level keeps the `Detail note` prefix — depth is already carried by the arrows, and encoding it twice invites the two to disagree.
 
-### Deferred arrow semantics
+Because the prefix is load-bearing, the note layer is exempt from the card-style rules written for finished arguments. It splits by source rather than by idea, its titles need not be a claim or an event, and a detail note need not manufacture an argument or a joint. The argument layer splits by idea and follows the card style in full.
 
-The current card style permits an arrow only as a visual echo of a prose joint. The user's working habit also uses arrows for reading direction and mind-map-like conceptual sequence. Do not silently merge these meanings or modify the card style yet.
+### Arrow semantics
 
-Until that visual language is compared separately:
+The two layers speak different arrow languages, and the layer boundary is what keeps them apart.
 
-- inline references remain the only provenance mechanism;
-- this workflow does not introduce source-containment arrows; and
-- existing card-style arrow rules remain authoritative when producing a styled synthesis board.
+In the **argument layer** an arrow is the mechanical projection of a prose joint: one arrow per joint, running the way the joint runs. See `card-style.md`.
+
+In the **note layer** an arrow means containment, not argument. Each source is one tree: the source overview at the root, its detail notes hanging off it, at most three levels deep. Arrows run **overview to note**, parent to child — `arrange_cards` reads the arrow's start as the parent, so drawing it the other way inverts the layout even though "this note belongs to that source" is the more natural sentence. There is no fan-out limit; a source with many notes is a research-budget question, not a shape question. Trees are not joined to each other, and there is no root above them: the note layer is a forest.
+
+**No arrow ever crosses the two layers.** A synthesis card cites a note with an inline `contextboard:card/...` reference, never with a line. The reason is not that provenance belongs to references by definition — it is that a legal joint target is a card making a claim or naming an event, and a detail note is neither.
+
+Layout follows from that split:
+
+- Arrange the **argument layer** after each research round. Pass `cardIds` holding only argument cards, so the note layer below counts as an obstacle and the band survives.
+- Arrange a **note tree** once, when it is first built, passing that source's `cardIds`. After that it stays where it is, and hand adjustments are not overwritten.
+- **Always pass an explicit `style`. Never `auto`.** With a tree two or more levels deep `auto` selects `mindmap`, which splits a hub's children onto both sides and produces the fan this layout is trying to avoid.
 
 ## Teaching the loop
 
