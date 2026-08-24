@@ -18,6 +18,7 @@ type UseRichTextEditorInstanceInput = {
 	mathSelectionRef: RefObject<MathSelection | null>;
 	findInsertedMathSelection: (transaction: Transaction) => MathSelection | null;
 	syncImageInputFromTransaction: (editor: Editor) => void;
+	openLinkEditor: () => void;
 	onChange?: (value: JSONContent) => void;
 };
 
@@ -30,6 +31,7 @@ export function useRichTextEditorInstance({
 	mathSelectionRef,
 	findInsertedMathSelection,
 	syncImageInputFromTransaction,
+	openLinkEditor,
 	onChange,
 }: UseRichTextEditorInstanceInput) {
 	const editor = useEditor({
@@ -39,6 +41,7 @@ export function useRichTextEditorInstance({
 			placeholder,
 			runtime: runtimeRefs,
 			onMathClick: (selection) => openMathSelection(selection),
+			onOpenLinkEditor: openLinkEditor,
 		}),
 		content: content ?? "",
 		editorProps: {

@@ -17,6 +17,9 @@ import {
 	createImageUploadExtension,
 	type ImageUploadHandler,
 } from "./ImageUploadExtension";
+import { toSafeHref } from "./link/href";
+import { LinkInteraction } from "./link/link-interaction";
+import { LinkShortcut } from "./link/link-shortcut";
 import { MarkdownPaste } from "./MarkdownPasteExtension";
 import { ProgressiveSelectAll } from "./ProgressiveSelectAllExtension";
 import type {
@@ -34,6 +37,8 @@ export type RichTextExtensionOptions = {
 	runtime: RichTextRuntimeRefs;
 	/** Called when a math node is clicked in editable mode. */
 	onMathClick?: (selection: MathSelection) => void;
+	/** Called when the user asks for the link editor (Mod+K). */
+	onOpenLinkEditor?: () => void;
 };
 
 /** Reads a local file as a base64 data URL (fallback when no uploader is set). */
@@ -87,13 +92,20 @@ export const EditorImage = Image.extend({
  * lock the editor into different capabilities.
  */
 export function createRichTextExtensions(options: RichTextExtensionOptions) {
-	const { placeholder, runtime, onMathClick } = options;
+	const { placeholder, runtime, onMathClick, onOpenLinkEditor } = options;
 
 	const extensions = [
 		StarterKit.configure({
-			link: { openOnClick: false },
+			link: {
+				// Clicks belong to LinkInteraction, which routes card references and
+				// external links through the app instead of navigating the webview.
+				openOnClick: false,
+				defaultProtocol: "https",
+				isAllowedUri: (uri) => Boolean(toSafeHref(uri)),
+			},
 		}),
-		CardLink.configure({
+		CardLink,
+		LinkInteraction.configure({
 			onOpenPreview: (cardId) =>
 				runtime.cardReferenceSupportRef.current?.onOpenPreview(cardId) ??
 				undefined,
@@ -101,6 +113,9 @@ export function createRichTextExtensions(options: RichTextExtensionOptions) {
 				runtime.cardReferenceSupportRef.current?.onOpenWhiteboard?.(
 					whiteboardId,
 				) ?? undefined,
+		}),
+		LinkShortcut.configure({
+			onOpenLinkEditor: onOpenLinkEditor ?? null,
 		}),
 		EditorImage.configure({
 			inline: false,

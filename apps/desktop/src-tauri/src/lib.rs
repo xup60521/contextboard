@@ -70,6 +70,7 @@ pub fn run() {
             commands::desktop_agent_subscribe,
             commands::desktop_agent_respond,
             commands::desktop_agent_unsubscribe,
+            commands::desktop_open_external,
             commands::desktop_auth_start,
             commands::desktop_auth_wait,
             commands::desktop_auth_cancel,

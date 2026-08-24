@@ -1,10 +1,8 @@
 import type { ReactNode } from "react";
 import katex from "katex";
-import {
-	isExternalHref,
-	toDataAttribute,
-	toSafeHref,
-} from "./staticRendererUtils";
+import { openExternalLink } from "../link/external-link";
+import { isExternalHref, toSafeHref } from "../link/href";
+import { toDataAttribute } from "./staticRendererUtils";
 
 type StaticRendererMappingContext = {
 	onOpenCardPreview?: (cardId: string) => void;
@@ -185,12 +183,22 @@ export function createStaticRendererOptions({
 						target={external ? "_blank" : undefined}
 						rel={external ? "noreferrer" : undefined}
 						onClick={(event) => {
-							if (!cardId) return;
+							if (cardId) {
+								event.preventDefault();
 
+								if (event.ctrlKey || event.metaKey) {
+									onOpenCardPreview?.(cardId);
+								}
+								return;
+							}
+
+							if (!external) return;
+
+							// Static content can live on the canvas, where a plain click
+							// belongs to the shape; the modifier follows the link.
 							event.preventDefault();
-
 							if (event.ctrlKey || event.metaKey) {
-								onOpenCardPreview?.(cardId);
+								openExternalLink(href);
 							}
 						}}
 					>
