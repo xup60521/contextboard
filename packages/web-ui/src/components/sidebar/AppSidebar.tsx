@@ -8,6 +8,7 @@ import {
 	RefreshCw,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { AppLink } from "../navigation/AppLink";
 import { isDisconnected, syncStateLabel } from "../settings/sync-status";
 import { Button } from "../ui/button";
 import { AppSidebarFrame } from "../whiteboard/AppSidebarFrame";
@@ -89,14 +90,14 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 							{runtime.pendingCount ? ` · ${runtime.pendingCount} pending` : ""}
 						</p>
 						{runtime.conflictCount && runtime.conflictHref ? (
-							<a
+							<AppLink
 								href={runtime.conflictHref}
 								className="mt-1 inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border border-amber-600/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-500/20 dark:border-amber-300/30 dark:text-amber-300 dark:hover:bg-amber-300/10"
 							>
 								<AlertTriangle className="size-3" />
 								{runtime.conflictCount} conflict
 								{runtime.conflictCount === 1 ? "" : "s"}
-							</a>
+							</AppLink>
 						) : null}
 						{runtime.createWorkspace && runtime.workspaceSelectionRequired ? (
 							<div className="mt-1 space-y-1">

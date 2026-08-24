@@ -15,6 +15,7 @@ import {
 import { useApplicationRuntime } from "@contextboard/application";
 import { Layers, Library } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { AppLink } from "../navigation/AppLink";
 import { Button } from "../ui/button";
 import { ClearOpenTabsDialog } from "./ClearOpenTabsDialog";
 import { SidebarTabRow } from "./SidebarTabRow";
@@ -179,16 +180,8 @@ export function SidebarTabs() {
 						<span className="truncate">{rootTab.title}</span>
 					</button>
 
-					<a
-						href={
-							runtime.navigation.hrefAttribute?.(
-								runtime.navigation.cardsHref(),
-							) ?? runtime.navigation.cardsHref()
-						}
-						onClick={(event) => {
-							event.preventDefault();
-							runtime.navigation.navigate(runtime.navigation.cardsHref());
-						}}
+					<AppLink
+						href={runtime.navigation.cardsHref()}
 						className={[
 							"flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] font-medium outline-none transition-colors",
 							isCardLib
@@ -201,7 +194,7 @@ export function SidebarTabs() {
 						<span className="truncate text-[var(--card-foreground)]">
 							Card Library
 						</span>
-					</a>
+					</AppLink>
 				</div>
 
 				{secondaryTabs.length > 0 && (
