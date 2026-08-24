@@ -45,14 +45,10 @@ function DataManagementPage() {
 		if (local.status !== "ready" || conflictIds.length === 0) return;
 		setResolvingConflicts(true);
 		try {
-			for (const conflictId of conflictIds) {
-				await localMutation(
-					local.database,
-					local.deviceId,
-					"conflicts.resolve",
-					{ conflictId, resolution },
-				);
-			}
+			await localMutation(local.database, local.deviceId, "conflicts.resolve", {
+				conflictIds,
+				resolution,
+			});
 			sync.notifyLocalChange();
 		} catch (error) {
 			setMessage(error instanceof Error ? error.message : String(error));
