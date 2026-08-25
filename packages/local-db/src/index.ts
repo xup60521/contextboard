@@ -14,6 +14,7 @@ import type {
 import {
 	type BlobDescriptor,
 	type ChangeBatch,
+	MAX_SYNC_BATCH_BYTES,
 	type ConflictRecord,
 	conflictCopyCardId,
 	deterministicEntityId,
@@ -375,6 +376,13 @@ export async function runLocalCommand<T>(
 					clock: change.clock || batchClock,
 				})),
 			};
+			const batchBytes = new TextEncoder().encode(
+				JSON.stringify(batch),
+			).byteLength;
+			if (batchBytes > MAX_SYNC_BATCH_BYTES)
+				throw new Error(
+					`This ${command} change is ${batchBytes} bytes and cannot sync. Keep a single change below ${MAX_SYNC_BATCH_BYTES} bytes.`,
+				);
 			await db.changeLog.add(batch);
 			await db.appliedChangeBatches.put({
 				changeId: batch.changeId,

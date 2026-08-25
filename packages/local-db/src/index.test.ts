@@ -3,6 +3,7 @@ import {
 	type ChangeBatch,
 	conflictCopyCardId,
 	HybridLogicalClock,
+	MAX_SYNC_BATCH_BYTES,
 	parsePushChangesRequest,
 	SYNC_PROTOCOL_VERSION,
 	SYNC_SCHEMA_VERSION,
@@ -134,6 +135,49 @@ describe("local database", () => {
 		});
 		expect(await db.todos.count()).toBe(1);
 		expect(await db.changeLog.count()).toBe(1);
+	});
+
+	test("rolls back a local command whose atomic sync batch is too large", async () => {
+		const db = makeDb();
+		const identity = await ensureLocalIdentity(db);
+		const context = {
+			...identity,
+			clock: new HybridLogicalClock(identity.deviceId),
+		};
+
+		await expect(
+			runLocalCommand(db, context, "todos.add", [db.todos], async () => {
+				const value = {
+					id: "oversized",
+					text: "x".repeat(MAX_SYNC_BATCH_BYTES),
+					completed: false,
+					revision: 1,
+					createdAt: 1,
+					updatedAt: 1,
+					updatedByDeviceId: identity.deviceId,
+					deletedAt: null,
+				};
+				await db.todos.add(value);
+				return {
+					result: undefined,
+					changes: [
+						{
+							entityType: "todo" as const,
+							entityId: value.id,
+							baseRevision: null,
+							revision: 1,
+							operation: "upsert" as const,
+							clock: "",
+							value,
+						},
+					],
+				};
+			}),
+		).rejects.toThrow(/cannot sync/);
+
+		expect(await db.todos.count()).toBe(0);
+		expect(await db.changeLog.count()).toBe(0);
+		expect((await db.settings.get("deviceSequence"))?.value).toBeUndefined();
 	});
 
 	test("recovers when the cached device sequence is behind persisted batches", async () => {

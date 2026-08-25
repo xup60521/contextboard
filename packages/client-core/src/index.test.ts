@@ -1,5 +1,6 @@
 import {
 	type ChangeBatch,
+	MAX_SYNC_JSON_BODY_BYTES,
 	SYNC_PROTOCOL_VERSION,
 	SYNC_SCHEMA_VERSION,
 	type SyncTransport,
@@ -67,7 +68,7 @@ describe("SyncCoordinator", () => {
 			...batch,
 			changeId: `change-${deviceSequence}`,
 			deviceSequence,
-			command: "x".repeat(1_100_000),
+			command: "x".repeat(MAX_SYNC_JSON_BODY_BYTES / 2 + 1_000),
 		}));
 		const pushed: ChangeBatch[][] = [];
 		const acknowledged: string[] = [];
@@ -108,6 +109,40 @@ describe("SyncCoordinator", () => {
 
 		expect(pushed.map((request) => request.length)).toEqual([1, 1]);
 		expect(acknowledged).toEqual(["change-1", "change-2"]);
+	});
+
+	test("reports the measured size of a single batch that cannot fit", async () => {
+		const oversized = {
+			...batch,
+			command: "x".repeat(MAX_SYNC_JSON_BODY_BYTES),
+		};
+		const repository: WorkspaceRepository = {
+			query: async () => undefined as never,
+			execute: async () => undefined as never,
+			subscribe: () => () => undefined,
+			getPendingBatches: async () => [oversized],
+			acknowledge: async () => undefined,
+			getSyncState: async (peerId) => ({
+				peerId,
+				cursor: null,
+				enabled: true,
+				updatedAt: 1,
+				lastSyncedAt: null,
+				lastAckAt: null,
+			}),
+			applyRemote: async () => ({ applied: 0, conflicts: 0 }),
+			updateSyncCursor: async () => undefined,
+		};
+		const transport: SyncTransport = {
+			push: async () => {
+				throw new Error("push should not run");
+			},
+			pull: async () => ({ cursor: "0", batches: [], hasMore: false }),
+		};
+
+		await expect(
+			new SyncCoordinator("workspace-1", repository, transport).syncNow(),
+		).rejects.toThrow(/Pending sync batch change-1 is \d+ bytes/);
 	});
 
 	test("does not advance the pull cursor from a push response", async () => {

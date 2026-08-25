@@ -120,7 +120,7 @@ describe("private API gateway", () => {
 		const directFetch = vi.fn(async () => new Response(null, { status: 204 }));
 		vi.stubGlobal("fetch", directFetch);
 		const declared = await proxyPrivateApi(
-			new Request("http://localhost/api/sync/v1/push", {
+			new Request("http://localhost/api/auth/sign-in/email", {
 				method: "POST",
 				headers: {
 					"content-length": String(2 * 1024 * 1024 + 1),
@@ -144,6 +144,22 @@ describe("private API gateway", () => {
 		);
 		expect(actual.status).toBe(413);
 		expect(directFetch).not.toHaveBeenCalled();
+	});
+
+	test("allows sync requests above the ordinary API body limit", async () => {
+		const directFetch = vi.fn(async () => new Response(null, { status: 204 }));
+		vi.stubGlobal("fetch", directFetch);
+		const response = await proxyPrivateApi(
+			new Request("http://localhost/api/sync/v1/push", {
+				method: "POST",
+				headers: { "content-length": String(2 * 1024 * 1024 + 1) },
+				body: "{}",
+			}),
+			{ SYNC_VPS_URL: "http://127.0.0.1:8788" },
+		);
+
+		expect(response.status).toBe(204);
+		expect(directFetch).toHaveBeenCalledOnce();
 	});
 
 	test("uses separate rate limits without exposing credentials", async () => {
