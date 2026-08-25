@@ -189,6 +189,11 @@ describe("whiteboards and cards", () => {
 			"Token buckets leak\nThe refill rate dominates burst size.",
 		);
 		expect(card.placements).toHaveLength(1);
+		const [item] = await call<Array<{ heightMeasurementPending: boolean }>>(
+			"list_board_items",
+			{ whiteboardId },
+		);
+		expect(item.heightMeasurementPending).toBe(true);
 	});
 
 	// An agent has no DOM to measure with, so a flat default height fits almost
@@ -221,10 +226,11 @@ describe("whiteboards and cards", () => {
 			whiteboardId,
 			h: 333,
 		});
-		const [item] = await call<Array<{ h: number }>>("list_board_items", {
-			whiteboardId,
-		});
+		const [item] = await call<
+			Array<{ h: number; heightMeasurementPending: boolean }>
+		>("list_board_items", { whiteboardId });
 		expect(item.h).toBe(333);
+		expect(item.heightMeasurementPending).toBe(false);
 	});
 
 	test("round trips text through update_card", async () => {

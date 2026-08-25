@@ -21,6 +21,7 @@ export type MarkdownCardShape = TLBaseShape<
 		preview?: string;
 		contentLoaded?: boolean;
 		contentVersion?: number;
+		heightMeasurementPending?: boolean;
 	}
 >;
 
@@ -54,6 +55,7 @@ export const markdownCardShapeProps = {
 	preview: T.string.optional(),
 	contentLoaded: T.boolean.optional(),
 	contentVersion: T.number.optional(),
+	heightMeasurementPending: T.boolean.optional(),
 } satisfies RecordProps<MarkdownCardShape>;
 
 export const subwhiteboardLinkShapeProps = {

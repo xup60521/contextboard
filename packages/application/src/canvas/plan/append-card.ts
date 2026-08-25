@@ -33,6 +33,7 @@ export function planAppendCard(
 		y: number;
 		w: number;
 		h: number;
+		heightMeasurementPending?: boolean;
 		rotation: number;
 		zIndex: number;
 	},
@@ -67,6 +68,7 @@ export function planAppendCard(
 		y: input.y,
 		w: input.w,
 		h: input.h,
+		heightMeasurementPending: input.heightMeasurementPending === true,
 		rotation: input.rotation,
 		zIndex: input.zIndex,
 		archivedAt: null,

@@ -11,7 +11,7 @@
  * generous, because a card that is slightly too tall only shows some empty
  * space while one that is too short visually clips its own text. The client
  * replaces the estimate with a real measurement the first time it renders the
- * card (see `measured-card-heights.ts` in the web UI).
+ * card (see `useMarkdownCardAutoHeight.ts` in the web UI).
  */
 
 /** Card chrome, mirroring `PersistedMarkdownCardShape`'s header and `py-8`. */

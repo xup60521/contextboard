@@ -33,6 +33,7 @@ export type BoardItemResult = {
 	y: number;
 	w: number;
 	h: number;
+	heightMeasurementPending: boolean;
 	rotation: number;
 	zIndex: number;
 	card: {
@@ -238,6 +239,7 @@ export function itemToShape(
 				preview: item.card?.preview,
 				contentLoaded: false,
 				contentVersion: item.card?.version,
+				heightMeasurementPending: item.heightMeasurementPending,
 			},
 		};
 	}
@@ -281,7 +283,9 @@ function managedShapeChanged(
 			existing.props.title !== next.props.title ||
 			existing.props.preview !== next.props.preview ||
 			existing.props.contentLoaded !== next.props.contentLoaded ||
-			existing.props.contentVersion !== next.props.contentVersion
+			existing.props.contentVersion !== next.props.contentVersion ||
+			existing.props.heightMeasurementPending !==
+				next.props.heightMeasurementPending
 		);
 	}
 
@@ -311,6 +315,12 @@ function preserveManagedCardHeight(
 	if (
 		!isMarkdownCardShape(existingShape) ||
 		nextShape.type !== "markdown-card"
+	) {
+		return nextShape;
+	}
+	if (
+		existingShape.props.heightMeasurementPending === true &&
+		nextShape.props.heightMeasurementPending !== true
 	) {
 		return nextShape;
 	}
