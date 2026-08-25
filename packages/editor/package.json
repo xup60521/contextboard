@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./href": "./src/link/href.ts",
     "./editor.css": "./src/editor.css"
   },
   "scripts": {
