@@ -6,23 +6,13 @@ import {
 	useState,
 } from "react";
 import { useEditor } from "tldraw";
+import { useCompleteCardHeightMeasurement } from "./CardHeightMeasurementContext";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
-import {
-	hasMeasuredCardHeight,
-	markCardHeightMeasured,
-} from "./measured-card-heights";
 
 function isMarkdownCardVisible(card: HTMLDivElement | null) {
 	return Boolean(card && card.getClientRects().length > 0);
 }
-
-/**
- * A card created without a DOM only ever had an estimated height, so the first
- * real render is worth one correction. Anything below this is rounding noise
- * between devices and not worth the frame-sync traffic on every board load.
- */
-const ONE_SHOT_MIN_DELTA = 4;
 
 export function useMarkdownCardAutoHeight({
 	shape,
@@ -34,9 +24,11 @@ export function useMarkdownCardAutoHeight({
 	isEditing: boolean;
 }) {
 	const editor = useEditor();
+	const completeHeightMeasurement = useCompleteCardHeightMeasurement();
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
 	const syncFrameRef = useRef<number | null>(null);
+	const measurementInFlightRef = useRef(false);
 	const [isContentReady, setIsContentReady] = useState(false);
 	latestPropsRef.current = shape.props;
 
@@ -53,34 +45,34 @@ export function useMarkdownCardAutoHeight({
 		});
 	}, [isContentReady, minHeight]);
 
-	// A card whose content has not been hydrated yet renders empty, and measuring
-	// that would shrink the shape to its minimum. Local cards carry no
-	// `contentLoaded` flag because their content is always present.
+	// Persisted content renders empty until hydration finishes. Measuring before
+	// then would permanently complete the one-shot at the minimum height. This
+	// component only mounts after the card content store is ready, and onReady
+	// confirms that the renderer committed that content to the DOM.
 	const canMeasureOnce =
 		isContentReady &&
-		shape.props.contentLoaded !== false &&
-		!hasMeasuredCardHeight(shape.id);
+		shape.props.heightMeasurementPending === true &&
+		completeHeightMeasurement !== null;
 
 	const syncHeight = useCallback(() => {
 		syncFrameRef.current = null;
 		const latestProps = latestPropsRef.current;
 		const nextHeight = measureNextHeight();
-		const isOneShot = !isEditing;
-		if (isOneShot) {
-			// An off-screen card measures as nothing, so that attempt does not count
-			// — the shot stays available for when the card is actually on screen.
-			if (!isMarkdownCardVisible(cardRef.current)) return;
-			// Otherwise claim it before writing, so the re-render caused by the write
-			// itself cannot schedule a second measurement.
-			markCardHeightMeasured(shape.id);
-		}
 
-		if (
-			Math.abs(nextHeight - latestProps.h) <
-			(isOneShot ? ONE_SHOT_MIN_DELTA : 1)
-		) {
+		if (!isEditing) {
+			if (!isMarkdownCardVisible(cardRef.current)) return;
+			if (!completeHeightMeasurement || measurementInFlightRef.current) return;
+
+			measurementInFlightRef.current = true;
+			void completeHeightMeasurement(shape.id, nextHeight)
+				.catch(() => undefined)
+				.finally(() => {
+					measurementInFlightRef.current = false;
+				});
 			return;
 		}
+
+		if (Math.abs(nextHeight - latestProps.h) < 1) return;
 
 		editor.updateShape<MarkdownCardShape>({
 			id: shape.id,
@@ -90,15 +82,17 @@ export function useMarkdownCardAutoHeight({
 				h: nextHeight,
 			},
 		});
-	}, [editor, isEditing, measureNextHeight, shape.id]);
+	}, [
+		completeHeightMeasurement,
+		editor,
+		isEditing,
+		measureNextHeight,
+		shape.id,
+	]);
 
 	const scheduleSyncHeight = useCallback(() => {
-		// The editing card drives its own height continuously. A non-editing card
-		// gets exactly one measurement, to replace the height an agent could only
-		// estimate: after blur the editor is swapped for the static renderer, and
-		// letting the ResizeObserver keep writing `h` here re-fires the
-		// content-hydration reactive on every frame, which (combined with the other
-		// shape writers) never settles and freezes the app.
+		// Editing drives height continuously. A non-editing card gets one write only
+		// when its persisted placement is waiting for a real DOM measurement.
 		if (!isEditing && !canMeasureOnce) return;
 		if (syncFrameRef.current !== null) return;
 		syncFrameRef.current = window.requestAnimationFrame(syncHeight);
@@ -127,8 +121,6 @@ export function useMarkdownCardAutoHeight({
 		scheduleSyncHeight();
 	}, [isContentReady, scheduleSyncHeight]);
 
-	// The one-shot measurement can be in flight while the card is not editing, so
-	// it is not covered by the observer effect's cleanup above.
 	useEffect(
 		() => () => {
 			if (syncFrameRef.current !== null) {

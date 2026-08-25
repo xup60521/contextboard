@@ -54,6 +54,7 @@ export type BoardItem = EntityBase<BoardItemId> & {
 	y: number;
 	w: number;
 	h: number;
+	heightMeasurementPending?: boolean;
 	rotation: number;
 	zIndex: number;
 	archivedAt: number | null;

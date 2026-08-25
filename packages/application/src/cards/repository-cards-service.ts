@@ -528,6 +528,7 @@ export function createRepositoryCardsService(
 					y: position.y,
 					w: size.w,
 					h: size.h,
+					heightMeasurementPending: frame.h === undefined,
 					rotation: 0,
 					zIndex: timestamp + results.length,
 				},
