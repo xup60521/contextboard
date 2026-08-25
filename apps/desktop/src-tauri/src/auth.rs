@@ -121,18 +121,41 @@ fn handle_connection(stream: TcpStream) -> Result<Option<String>, AuthError> {
     let outcome = parse_callback(&request_line);
     let mut stream = stream;
     match &outcome {
-        Ok(None) => write_response(&mut stream, "404 Not Found", "Not found.")?,
+        Ok(None) => write_response(
+            &mut stream,
+            "404 Not Found",
+            ResponseKind::Error,
+            "Page not found",
+            "Not found.",
+        )?,
         Ok(Some(_)) => write_response(
             &mut stream,
             "200 OK",
-            "Signed in. You can close this tab and return to Contextboard.",
+            ResponseKind::Success,
+            "Signed in",
+            "You can close this tab and return to Contextboard.",
         )?,
-        Err(AuthError::Provider(message)) => {
-            write_response(&mut stream, "400 Bad Request", message)?
-        }
-        Err(_) => write_response(&mut stream, "400 Bad Request", "Sign in failed.")?,
+        Err(AuthError::Provider(message)) => write_response(
+            &mut stream,
+            "400 Bad Request",
+            ResponseKind::Error,
+            "Sign in failed",
+            message,
+        )?,
+        Err(_) => write_response(
+            &mut stream,
+            "400 Bad Request",
+            ResponseKind::Error,
+            "Sign in failed",
+            "Sign in failed.",
+        )?,
     }
     outcome
+}
+
+enum ResponseKind {
+    Success,
+    Error,
 }
 
 /// `GET /callback?token=… HTTP/1.1` → the token, or a provider error the web
@@ -167,9 +190,43 @@ fn parse_callback(request_line: &str) -> Result<Option<String>, AuthError> {
     Ok(Some(token))
 }
 
-fn write_response(stream: &mut TcpStream, status: &str, message: &str) -> Result<(), AuthError> {
+fn write_response(
+    stream: &mut TcpStream,
+    status: &str,
+    kind: ResponseKind,
+    title: &str,
+    message: &str,
+) -> Result<(), AuthError> {
+    let (icon_class, icon_svg) = match kind {
+        ResponseKind::Success => (
+            "success",
+            r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 13 10 18 19 7"/></svg>"#,
+        ),
+        ResponseKind::Error => (
+            "error",
+            r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>"#,
+        ),
+    };
     let body = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Contextboard</title></head><body><p>{}</p></body></html>",
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Contextboard</title><style>
+:root{{color-scheme:light dark}}
+*{{box-sizing:border-box}}
+body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#fafafa;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;padding:24px}}
+.card{{max-width:360px;width:100%;text-align:center;background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:16px;padding:32px 28px;box-shadow:0 1px 2px rgba(0,0,0,.04)}}
+.icon{{width:48px;height:48px;margin:0 auto 16px;border-radius:999px;display:flex;align-items:center;justify-content:center}}
+.icon svg{{width:24px;height:24px}}
+.icon.success{{background:rgba(16,185,129,.12);color:#10b981}}
+.icon.error{{background:rgba(239,68,68,.12);color:#ef4444}}
+h1{{margin:0 0 8px;font-size:20px;font-weight:700;color:#1f2024}}
+p{{margin:0;font-size:15px;line-height:1.5;color:#6b7280}}
+@media (prefers-color-scheme:dark){{
+body{{background:#0b0b0d}}
+.card{{background:#18181b;border-color:rgba(255,255,255,.1)}}
+h1{{color:#f4f4f5}}
+p{{color:#a1a1aa}}
+}}
+</style></head><body><div class="card"><div class="icon {icon_class}">{icon_svg}</div><h1>{}</h1><p>{}</p></div></body></html>"#,
+        escape_html(title),
         escape_html(message)
     );
     write!(

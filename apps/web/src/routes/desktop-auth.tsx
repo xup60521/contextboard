@@ -4,6 +4,7 @@ import {
 	useSession,
 } from "@contextboard/auth-client";
 import { createFileRoute } from "@tanstack/react-router";
+import { CheckCircle2, Github, Loader2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 
@@ -50,9 +51,9 @@ function DesktopAuthPage() {
 
 	if (!redirect)
 		return (
-			<DesktopAuthShell title="This link is not valid">
+			<DesktopAuthShell title="This link is not valid" icon={<XCircle />}>
 				<p>
-					Open Contextboard on your desktop and choose “Sign in with GitHub”
+					Open Contextboard on your desktop and choose "Sign in with GitHub"
 					there.
 				</p>
 			</DesktopAuthShell>
@@ -60,7 +61,7 @@ function DesktopAuthPage() {
 
 	if (status === "error")
 		return (
-			<DesktopAuthShell title="Sign in failed">
+			<DesktopAuthShell title="Sign in failed" icon={<XCircle />}>
 				<p>{message}</p>
 				<Button type="button" onClick={() => void complete()}>
 					Try again
@@ -70,14 +71,20 @@ function DesktopAuthPage() {
 
 	if (signedIn)
 		return (
-			<DesktopAuthShell title="Connecting your desktop app">
+			<DesktopAuthShell
+				title="Connecting your desktop app"
+				icon={<CheckCircle2 className="text-emerald-500" />}
+			>
 				<p>Returning you to Contextboard. You can close this tab.</p>
 			</DesktopAuthShell>
 		);
 
 	if (session.isPending)
 		return (
-			<DesktopAuthShell title="Connecting your desktop app">
+			<DesktopAuthShell
+				title="Connecting your desktop app"
+				icon={<Loader2 className="animate-spin" />}
+			>
 				<p>Checking your session…</p>
 			</DesktopAuthShell>
 		);
@@ -98,7 +105,7 @@ function DesktopAuthPage() {
 						});
 				}}
 			>
-				Sign in with GitHub
+				<Github /> Sign in with GitHub
 			</Button>
 		</DesktopAuthShell>
 	);
@@ -133,18 +140,26 @@ function useLoopbackRedirect() {
 
 function DesktopAuthShell({
 	title,
+	icon,
 	children,
 }: {
 	title: string;
+	icon?: React.ReactNode;
 	children: React.ReactNode;
 }) {
 	return (
-		<main className="page-wrap px-4 py-12">
-			<section className="island-shell mx-auto max-w-lg space-y-4 rounded-2xl p-6 sm:p-8">
-				<h1 className="display-title text-2xl font-bold text-[var(--sea-ink)]">
+		<main className="flex min-h-dvh items-center justify-center bg-[radial-gradient(circle_at_top,var(--hero-a),var(--bg-base)_60%)] px-4 py-12">
+			<section className="island-shell w-full max-w-sm rounded-2xl p-6 text-center sm:p-8">
+				{icon ? (
+					<div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--muted)] text-[var(--sea-ink)] [&>svg]:h-6 [&>svg]:w-6">
+						{icon}
+					</div>
+				) : null}
+				<p className="island-kicker mb-2">Contextboard desktop</p>
+				<h1 className="display-title text-xl font-bold text-[var(--sea-ink)] sm:text-2xl">
 					{title}
 				</h1>
-				<div className="space-y-3 text-base leading-7 text-[var(--sea-ink-soft)]">
+				<div className="mt-4 space-y-4 text-base leading-7 text-[var(--sea-ink-soft)] [&>button]:mx-auto [&>button]:flex [&>button]:items-center [&>button]:gap-2">
 					{children}
 				</div>
 			</section>

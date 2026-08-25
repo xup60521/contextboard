@@ -79,6 +79,8 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 	shellComponent: RootDocument,
 });
 
+const BARE_PATHNAMES = new Set(["/desktop-auth"]);
+
 function RootDocument({ children }: { children: React.ReactNode }) {
 	const pathname = useRouterState({
 		select: (state) => state.location.pathname,
@@ -86,6 +88,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 	const params = useParams({ strict: false });
 	const currentWhiteboardId =
 		typeof params.whiteboardId === "string" ? params.whiteboardId : null;
+	const isBarePage = BARE_PATHNAMES.has(pathname);
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
@@ -111,11 +114,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 											: undefined,
 								}}
 							>
-								<AppShell>{children}</AppShell>
+								<AppShell bare={isBarePage}>{children}</AppShell>
 							</SidebarTabsProvider>
-							<CommandPalette
-								currentWhiteboardId={currentWhiteboardId}
-							/>
+							{isBarePage ? null : (
+								<CommandPalette currentWhiteboardId={currentWhiteboardId} />
+							)}
 							<TanStackDevtools
 								config={{
 									position: "bottom-right",
@@ -138,6 +141,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 	);
 }
 
-function AppShell({ children }: { children: React.ReactNode }) {
+function AppShell({
+	children,
+	bare,
+}: {
+	children: React.ReactNode;
+	bare: boolean;
+}) {
+	if (bare) return <>{children}</>;
 	return <SharedAppShell sidebar={<AppSidebar />}>{children}</SharedAppShell>;
 }
