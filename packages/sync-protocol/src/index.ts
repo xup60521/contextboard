@@ -2,8 +2,13 @@ import entityManifest from "./entity-manifest.json" with { type: "json" };
 
 export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const SYNC_SCHEMA_VERSION = 2 as const;
-/** Maximum non-blob request body accepted by the public sync gateway. */
-export const MAX_SYNC_JSON_BODY_BYTES = 2 * 1024 * 1024;
+/** Maximum sync JSON request body accepted by the public gateway. */
+export const MAX_SYNC_JSON_BODY_BYTES = 8 * 1024 * 1024;
+/**
+ * Leave room for the push envelope, cursor and future protocol fields. Local
+ * writers use this limit before committing an atomic pending batch.
+ */
+export const MAX_SYNC_BATCH_BYTES = MAX_SYNC_JSON_BODY_BYTES - 4 * 1024;
 export const ENTITY_MANIFEST = entityManifest;
 export type SyncCapability = "card-content-v1";
 

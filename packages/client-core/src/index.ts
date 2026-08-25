@@ -337,7 +337,7 @@ function takePushBatches(
 		if (requestBytes + batchBytes > MAX_SYNC_JSON_BODY_BYTES) {
 			if (batches.length === 0) {
 				throw new Error(
-					`Pending sync batch ${batch.changeId} exceeds the ${MAX_SYNC_JSON_BODY_BYTES}-byte gateway limit`,
+					`Pending sync batch ${batch.changeId} is ${batchBytes} bytes and exceeds the ${MAX_SYNC_JSON_BODY_BYTES}-byte gateway limit`,
 				);
 			}
 			break;

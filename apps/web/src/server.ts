@@ -12,6 +12,7 @@ export type WorkerEnv = Env;
 
 const VPC_PLACEHOLDER_ORIGIN = "http://localhost:8788";
 const BLOB_BODY_LIMIT = 512 * 1024 * 1024;
+const API_BODY_LIMIT = 2 * 1024 * 1024;
 const API_TIMEOUT_MS = 15_000;
 const BLOB_TIMEOUT_MS = 5 * 60_000;
 
@@ -133,7 +134,12 @@ export async function proxyPrivateApi(request: Request, env: WorkerEnv) {
 	const url = new URL(request.url);
 	const isBlob = url.pathname.startsWith("/api/sync/v1/blobs/");
 	const hasBody = request.method !== "GET" && request.method !== "HEAD";
-	const maximum = isBlob ? BLOB_BODY_LIMIT : MAX_SYNC_JSON_BODY_BYTES;
+	const isSync = url.pathname.startsWith("/api/sync/v1/");
+	const maximum = isBlob
+		? BLOB_BODY_LIMIT
+		: isSync
+			? MAX_SYNC_JSON_BODY_BYTES
+			: API_BODY_LIMIT;
 	const declaredLength = parseDeclaredLength(request, isBlob);
 	if (
 		Number.isNaN(declaredLength) ||
