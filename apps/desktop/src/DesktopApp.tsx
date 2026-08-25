@@ -6,6 +6,7 @@ import {
 	type DesktopRuntimeProviderProps,
 } from "./runtime/DesktopRuntimeProvider";
 import { DesktopSyncProvider } from "./runtime/DesktopSyncProvider";
+import { useFullscreenShortcut } from "./runtime/useFullscreenShortcut";
 
 export type DesktopAppProps = {
 	invoke?: DesktopRuntimeProviderProps["invoke"];
@@ -14,6 +15,8 @@ export type DesktopAppProps = {
 
 export function DesktopApp({ invoke, router }: DesktopAppProps = {}) {
 	const [instance] = useState(() => router ?? createDesktopRouter());
+	useFullscreenShortcut();
+
 	return (
 		<DesktopRuntimeProvider invoke={invoke}>
 			<DesktopSyncProvider invoke={invoke}>

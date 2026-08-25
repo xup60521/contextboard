@@ -25,7 +25,8 @@
     ]
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": ["nsis"],
     "icon": [
       "../web/public/contextboard_logo.png"
     ]
