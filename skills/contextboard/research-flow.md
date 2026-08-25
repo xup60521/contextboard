@@ -257,16 +257,3 @@ Layout follows from that split:
 - Arrange a **note tree** once, when it is first built, passing that source's `cardIds`. After that it stays where it is, and hand adjustments are not overwritten.
 - **Always pass an explicit `style`. Never `auto`.** With a tree two or more levels deep `auto` selects `mindmap`, which splits a hub's children onto both sides and produces the fan this layout is trying to avoid.
 
-## Teaching the loop
-
-The first exercise should use one demonstration question and the same default loop for every group. Students experience the loop before editing it.
-
-In the second pass, each group modifies the workflow according to problems it notices and the needs it values. The loop is a system, so groups may revise several connected policies rather than isolate one artificial variable. Teaching assistants help groups turn discomfort with an output into an explicit workflow decision.
-
-A modification does not need to improve the first result to be worthwhile. A group succeeds when it can explain:
-
-1. what it changed;
-2. how that change affected the process or artifacts; and
-3. when the trade-off would or would not be appropriate.
-
-Useful comparison targets include source selection, note granularity, validation depth, organizing principle, retry triggers, stopping policy, traceability, and the cost of the loop. Every observed failure is material for learning how the system behaves.
