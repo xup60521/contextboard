@@ -14,10 +14,12 @@
  * `card-reference-text.test.ts` are what keep the two halves honest.
  *
  * Supported: headings, paragraphs, bullet and ordered lists (including nesting),
- * blockquotes, fenced code, pipe tables, horizontal rules, and inline or block
- * math. The first line is the card's title and is written without a leading
- * `#`, though one is accepted and normalized away.
+ * blockquotes, fenced code, pipe tables, horizontal rules, hyperlinks, and
+ * inline or block math. The first line is the card's title and is written
+ * without a leading `#`, though one is accepted and normalized away.
  */
+
+import { toSafeHref } from "@contextboard/editor/href";
 
 export const CARD_REFERENCE_SCHEME = "contextboard:card/";
 export const WHITEBOARD_REFERENCE_SCHEME = "contextboard:whiteboard/";
@@ -25,7 +27,10 @@ const CARD_PATH_PREFIX = "/cards/";
 const WHITEBOARD_PATH_PREFIX = "/whiteboard/";
 
 /** Matches `[label](contextboard:card/<id>)`, capturing label and id. */
-const REFERENCE_PATTERN = /\[([^\]]*)\]\(contextboard:(card|whiteboard)\/([^)\s]+)\)/g;
+const REFERENCE_PATTERN =
+	/\[([^\]]*)\]\(contextboard:(card|whiteboard)\/([^)\s]+)\)/g;
+/** Matches an ordinary inline Markdown link, capturing its label and href. */
+const MARKDOWN_LINK_PATTERN = /\[([^\]]*)\]\(([^)\s]+)\)/g;
 /** Matches `$latex$`, rejecting `$$` so block math is not caught here. */
 const INLINE_MATH_PATTERN = /\$([^$\n]+)\$/g;
 
@@ -65,6 +70,10 @@ function whiteboardLinkMark(whiteboardId: string, label: string): Mark {
 	};
 }
 
+function hyperlinkMark(href: string): Mark {
+	return { type: "link", attrs: { href } };
+}
+
 // ---------------------------------------------------------------------------
 // Text -> document
 // ---------------------------------------------------------------------------
@@ -96,6 +105,25 @@ function inlineNodes(line: string): Node[] {
 			},
 		});
 		match = REFERENCE_PATTERN.exec(line);
+	}
+
+	MARKDOWN_LINK_PATTERN.lastIndex = 0;
+	let link = MARKDOWN_LINK_PATTERN.exec(line);
+	while (link) {
+		const [raw, rawLabel, rawHref] = link;
+		const href = toSafeHref(rawHref);
+		if (href) {
+			hits.push({
+				index: link.index,
+				length: raw.length,
+				node: {
+					type: "text",
+					text: rawLabel.trim() || href,
+					marks: [hyperlinkMark(href)],
+				},
+			});
+		}
+		link = MARKDOWN_LINK_PATTERN.exec(line);
 	}
 
 	INLINE_MATH_PATTERN.lastIndex = 0;
@@ -417,6 +445,15 @@ function readWhiteboardId(node: Node): string | null {
 	return null;
 }
 
+function readHyperlinkHref(node: Node): string | null {
+	for (const mark of node.marks ?? []) {
+		if (mark.type !== "link") continue;
+		const href = toSafeHref(mark.attrs?.href);
+		if (href) return href;
+	}
+	return null;
+}
+
 /** Renders an inline run: text, references and inline math. */
 function inlineToText(nodes: Node[] | undefined): string {
 	if (!nodes) return "";
@@ -425,11 +462,14 @@ function inlineToText(nodes: Node[] | undefined): string {
 		if (node.type === "text" && typeof node.text === "string") {
 			const cardId = readCardId(node);
 			const whiteboardId = readWhiteboardId(node);
+			const hyperlinkHref = readHyperlinkHref(node);
 			out += whiteboardId
 				? `[${node.text}](${WHITEBOARD_REFERENCE_SCHEME}${whiteboardId})`
 				: cardId
 					? `[${node.text}](${CARD_REFERENCE_SCHEME}${cardId})`
-					: node.text;
+					: hyperlinkHref
+						? `[${node.text}](${hyperlinkHref})`
+						: node.text;
 			continue;
 		}
 		if (node.type === "inlineMath") {

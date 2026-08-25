@@ -190,6 +190,16 @@ bun run test:desktop
 bun run build:desktop
 ```
 
+The desktop build produces both Windows distribution formats:
+
+- Portable executable: `apps/desktop/src-tauri/target/release/contextboard-desktop.exe`
+- NSIS installer: `apps/desktop/src-tauri/target/release/bundle/nsis/Contextboard_0.0.0_x64-setup.exe`
+
+Use `bun run build:desktop --production` to build with
+`apps/desktop/.env.production`. Release builds use the Windows GUI subsystem,
+so opening either executable does not create a terminal window. Development
+builds keep the terminal for logs.
+
 ## Local data and backups
 
 Open `/data` to export a `.contextboard.zip` backup or import an existing backup. Import validates the archive and its relationships before replacing the current workspace. The importer also accepts Convex export ZIP files containing Contextboard tables.

@@ -50,10 +50,38 @@ describe("card reference text", () => {
 		);
 	});
 
-	test("leaves ordinary markdown links untouched", () => {
+	test("turns ordinary markdown links into link marks", () => {
 		const text = "Title\nSee [the RFC](https://example.com/rfc).";
 		const content = textToCardContentWithReferences(text);
+		expect(content).toMatchObject({
+			content: [
+				{},
+				{
+					content: [
+						{ type: "text", text: "See " },
+						{
+							type: "text",
+							text: "the RFC",
+							marks: [
+								{
+									type: "link",
+									attrs: { href: "https://example.com/rfc" },
+								},
+							],
+						},
+						{ type: "text", text: "." },
+					],
+				},
+			],
+		});
 		expect([...collectReferenceIds(content, "cardId")]).toEqual([]);
+		expect(cardContentToTextWithReferences(content)).toBe(text);
+	});
+
+	test("leaves unsupported hyperlink schemes as literal text", () => {
+		const text = "Title\nDo not [run this](javascript:alert(1)).";
+		const content = textToCardContentWithReferences(text);
+		expect(JSON.stringify(content)).not.toContain('"marks"');
 		expect(cardContentToTextWithReferences(content)).toBe(text);
 	});
 
@@ -113,7 +141,8 @@ describe("card reference text", () => {
 	});
 
 	test("round trips mixed card and whiteboard references", () => {
-		const text = "Map\nCompare [Card](contextboard:card/card-1) with [Board](contextboard:whiteboard/board-1).";
+		const text =
+			"Map\nCompare [Card](contextboard:card/card-1) with [Board](contextboard:whiteboard/board-1).";
 		expect(
 			cardContentToTextWithReferences(textToCardContentWithReferences(text)),
 		).toBe(text);
