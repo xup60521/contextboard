@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { type Editor, Vec } from "tldraw";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { MarkdownCardShape } from "./custom-shapes";
 import {
 	collectGlobalDeleteCardIdsFromShapes,
@@ -12,7 +12,10 @@ import {
 	itemToShape,
 	syncRightDragPanPointer,
 } from "./WhiteboardCanvas";
-import type { ManagedWhiteboardShape } from "./whiteboard-canvas-helpers";
+import {
+	type ManagedWhiteboardShape,
+	rehydrateItemShape,
+} from "./whiteboard-canvas-helpers";
 
 type ManagedFrameTestShape = ManagedWhiteboardShape & { index?: string };
 
@@ -47,6 +50,74 @@ function createManagedFrameShape(
 }
 
 describe("itemToShape", () => {
+	test("carries a pending endpoint height measurement into the shape", () => {
+		const shape = itemToShape({
+			_id: "item-pending",
+			kind: "card",
+			cardId: "card-pending",
+			childWhiteboardId: null,
+			shapeId: "shape:pending",
+			x: 0,
+			y: 0,
+			w: 576,
+			h: 180,
+			heightMeasurementPending: true,
+			rotation: 0,
+			zIndex: 0,
+			card: null,
+			childWhiteboard: null,
+		} as never);
+
+		expect(shape.type).toBe("markdown-card");
+		if (shape.type === "markdown-card") {
+			expect(shape.props.heightMeasurementPending).toBe(true);
+		}
+	});
+
+	test("applies the persisted height when a pending measurement completes", () => {
+		const existing = createManagedFrameShape({
+			props: {
+				w: 576,
+				h: 180,
+				heightMeasurementPending: true,
+			},
+		});
+		const updateShape = vi.fn();
+		const editor = {
+			getShape: () => existing,
+			updateShape,
+		};
+
+		rehydrateItemShape(
+			editor as never,
+			{
+				_id: "item-measured",
+				kind: "card",
+				cardId: "card-measured",
+				childWhiteboardId: null,
+				shapeId: existing.id,
+				x: existing.x,
+				y: existing.y,
+				w: 576,
+				h: 340,
+				heightMeasurementPending: false,
+				rotation: existing.rotation,
+				zIndex: 0,
+				card: null,
+				childWhiteboard: null,
+			} as never,
+		);
+
+		expect(updateShape).toHaveBeenCalledWith(
+			expect.objectContaining({
+				props: expect.objectContaining({
+					h: 340,
+					heightMeasurementPending: false,
+				}),
+			}),
+		);
+	});
+
 	test("uses a hydrated height floor for markdown cards", () => {
 		const shape = itemToShape({
 			_id: "item-1",
@@ -72,7 +143,7 @@ describe("itemToShape", () => {
 		expect(shape.type).toBe("markdown-card");
 		expect(shape.props.h).toBeGreaterThan(64);
 		if (shape.type === "markdown-card") {
-		expect(shape.props.content).toBeUndefined();
+			expect(shape.props.content).toBeUndefined();
 			expect(shape.props.contentLoaded).toBe(false);
 		}
 	});

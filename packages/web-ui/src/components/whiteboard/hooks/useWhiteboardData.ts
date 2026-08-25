@@ -119,6 +119,7 @@ function toBoardItem(item: CanvasItem, workspaceId: string): BoardItemResult {
 		y: item.y,
 		w: item.w,
 		h: item.h,
+		heightMeasurementPending: item.heightMeasurementPending,
 		rotation: item.rotation,
 		zIndex: item.zIndex,
 		card: item.card
@@ -345,6 +346,11 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			requireCanvas().updateItemFrames(input),
 		[requireCanvas],
 	);
+	const completeItemHeightMeasurement = useCallback(
+		(input: Parameters<Canvas["completeItemHeightMeasurement"]>[0]) =>
+			requireCanvas().completeItemHeightMeasurement(input),
+		[requireCanvas],
+	);
 	const archiveItem = useCallback(
 		(input: Parameters<Canvas["archiveItem"]>[0]) =>
 			requireCanvas().archiveItem(input),
@@ -449,6 +455,7 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		createSubwhiteboardItem,
 		updateItemFrame,
 		updateItemFrames,
+		completeItemHeightMeasurement,
 		archiveItem,
 		archiveWhiteboard,
 		archiveCardsGlobally,

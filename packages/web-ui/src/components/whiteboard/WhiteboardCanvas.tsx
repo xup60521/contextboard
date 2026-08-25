@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type TLComponents,
 	type TLShapeId,
@@ -10,6 +10,7 @@ import { useThemeMode } from "../../hooks/useThemeMode";
 import { DeleteCardDialog } from "../cards/DeleteCardDialog";
 import { AppLink } from "../navigation/AppLink";
 import { CardPasteResolutionMenu } from "./CardPasteResolutionMenu";
+import { CardHeightMeasurementContext } from "./CardHeightMeasurementContext";
 import { CustomMenuPanel } from "./CustomMenuPanel";
 import {
 	CardContentStoreProvider,
@@ -44,7 +45,11 @@ import { useThemeSync } from "./hooks/useThemeSync";
 import { useVisibleCardContentHydration } from "./hooks/useVisibleCardContentHydration";
 import { useWhiteboardAssetStore } from "./hooks/useWhiteboardAssetStore";
 import { useWhiteboardData } from "./hooks/useWhiteboardData";
-import { createHydrationGate } from "./hydration-gate";
+import {
+	createHydrationGate,
+	enterHydration,
+	releaseHydrationAfterStoreFlush,
+} from "./hydration-gate";
 import type { Id } from "./ids";
 import { useWhiteboardNavigation } from "./navigation";
 import { tldrawAssetUrls } from "./tldraw-assets";
@@ -131,6 +136,7 @@ export function WhiteboardCanvas({
 		createCardItem,
 		createSubwhiteboardItem,
 		updateItemFrames,
+		completeItemHeightMeasurement,
 		archiveItem,
 		archiveWhiteboard,
 		archiveCardsGlobally,
@@ -166,6 +172,32 @@ export function WhiteboardCanvas({
 	const latestItemsRef = useRef(new Map<Id<"boardItems">, BoardItemResult>());
 	const protectedPasteShapeIdsRef = useRef(new Set<string>());
 	const contextMenuPointRef = useRef<VecLike | null>(null);
+	const completeCardHeightMeasurement = useCallback(
+		async (shapeId: string, height: number) => {
+			const itemId = itemIdByShapeIdRef.current.get(shapeId);
+			if (!itemId) return false;
+
+			const completed = await completeItemHeightMeasurement({ itemId, height });
+			if (!completed || !editor) return completed;
+
+			const shape = editor.getShape(shapeId as TLShapeId);
+			if (!shape || shape.type !== "markdown-card") return true;
+
+			const release = enterHydration(hydratingRef);
+			editor.updateShape({
+				id: shape.id,
+				type: "markdown-card",
+				props: {
+					...shape.props,
+					h: Math.ceil(height),
+					heightMeasurementPending: false,
+				},
+			});
+			releaseHydrationAfterStoreFlush(release);
+			return true;
+		},
+		[completeItemHeightMeasurement, editor, hydratingRef],
+	);
 
 	// ── Hooks ──────────────────────────────────────────────────────────────────
 	const {
@@ -553,39 +585,43 @@ export function WhiteboardCanvas({
 					<WhiteboardActionsContext.Provider value={whiteboardActions}>
 						<WhiteboardContextMenuContext.Provider value={contextValue}>
 							<WhiteboardCardContext.Provider value={whiteboardId}>
-								<CardContentStoreProvider store={cardContentStore}>
-									<Tldraw
-										assets={assetStore}
-										assetUrls={tldrawAssetUrls}
-										components={
-											readOnly
-												? whiteboardPreviewComponents
-												: whiteboardComponents
-										}
-										onMount={(mountedEditor) => {
-											mountedEditor.updateInstanceState({
-												isReadonly: readOnly,
-											});
-											try {
-												if (typeof performance !== "undefined")
-													performance.mark("contextboard:tldraw-mounted");
-											} catch {
-												// Performance marks are diagnostics only.
+								<CardHeightMeasurementContext.Provider
+									value={readOnly ? null : completeCardHeightMeasurement}
+								>
+									<CardContentStoreProvider store={cardContentStore}>
+										<Tldraw
+											assets={assetStore}
+											assetUrls={tldrawAssetUrls}
+											components={
+												readOnly
+													? whiteboardPreviewComponents
+													: whiteboardComponents
 											}
-											emptyDrawingSnapshotRef.current =
-												mountedEditor.store.getStoreSnapshot("document");
-											setEditor(mountedEditor);
+											onMount={(mountedEditor) => {
+												mountedEditor.updateInstanceState({
+													isReadonly: readOnly,
+												});
+												try {
+													if (typeof performance !== "undefined")
+														performance.mark("contextboard:tldraw-mounted");
+												} catch {
+													// Performance marks are diagnostics only.
+												}
+												emptyDrawingSnapshotRef.current =
+													mountedEditor.store.getStoreSnapshot("document");
+												setEditor(mountedEditor);
 
-											return () => {
-												setEditor(null);
-											};
-										}}
-										options={whiteboardOptions}
-										onUiEvent={readOnly ? undefined : handleUiEvent}
-										overrides={singlePageTldrawUiOverrides}
-										shapeUtils={markdownWhiteboardShapeUtils}
-									/>
-								</CardContentStoreProvider>
+												return () => {
+													setEditor(null);
+												};
+											}}
+											options={whiteboardOptions}
+											onUiEvent={readOnly ? undefined : handleUiEvent}
+											overrides={singlePageTldrawUiOverrides}
+											shapeUtils={markdownWhiteboardShapeUtils}
+										/>
+									</CardContentStoreProvider>
+								</CardHeightMeasurementContext.Provider>
 							</WhiteboardCardContext.Provider>
 						</WhiteboardContextMenuContext.Provider>
 					</WhiteboardActionsContext.Provider>

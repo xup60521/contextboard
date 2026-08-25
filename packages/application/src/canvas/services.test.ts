@@ -351,6 +351,52 @@ describe("repository canvas capability", () => {
 		);
 	});
 
+	test("completes a pending height measurement once without replacing its frame", async () => {
+		const { whiteboards, canvas, cards } = setup();
+		const rootId = await whiteboards.createRoot();
+		const cardId = await cards.create();
+		const placement = await cards.appendToWhiteboard({
+			cardId,
+			whiteboardId: rootId,
+		});
+		if (!placement) throw new Error("placement should exist");
+
+		const original = (await canvas.listItems(rootId))[0];
+		expect(original?.heightMeasurementPending).toBe(true);
+		await canvas.updateItemFrame({
+			itemId: placement.itemId,
+			x: 123,
+			y: 456,
+			w: original?.w ?? 576,
+			h: original?.h ?? 180,
+			rotation: 0.25,
+			zIndex: 9,
+		});
+
+		expect(
+			await canvas.completeItemHeightMeasurement({
+				itemId: placement.itemId,
+				height: 321.2,
+			}),
+		).toBe(true);
+		expect((await canvas.listItems(rootId))[0]).toMatchObject({
+			x: 123,
+			y: 456,
+			h: 322,
+			rotation: 0.25,
+			zIndex: 9,
+			heightMeasurementPending: false,
+		});
+
+		expect(
+			await canvas.completeItemHeightMeasurement({
+				itemId: placement.itemId,
+				height: 999,
+			}),
+		).toBe(false);
+		expect((await canvas.listItems(rootId))[0]?.h).toBe(322);
+	});
+
 	test("rejects duplicate item ids before issuing a write", async () => {
 		const { whiteboards, canvas, repository } = setup();
 		const rootId = await whiteboards.createRoot();
@@ -863,7 +909,9 @@ describe("canvas document subscriptions", () => {
 		const { canvas, repository, whiteboards } = setup();
 		const boardA = await whiteboards.createRoot();
 		const boardB = await whiteboards.createRoot();
-		const event = new Promise<Parameters<Parameters<typeof canvas.subscribeDocument>[1]>[0]>((resolve) => {
+		const event = new Promise<
+			Parameters<Parameters<typeof canvas.subscribeDocument>[1]>[0]
+		>((resolve) => {
 			canvas.subscribeDocument(boardA, resolve);
 		});
 		await applyWrites(repository, "records.mixed-board-test", [

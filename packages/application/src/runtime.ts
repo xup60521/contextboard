@@ -307,6 +307,7 @@ export type CanvasItem = {
 	y: number;
 	w: number;
 	h: number;
+	heightMeasurementPending: boolean;
 	rotation: number;
 	zIndex: number;
 	revision: number;
@@ -389,6 +390,10 @@ export interface CanvasService {
 	}): Promise<string | null>;
 	updateItemFrame(input: CanvasItemFrameUpdate): Promise<void>;
 	updateItemFrames(input: { updates: CanvasItemFrameUpdate[] }): Promise<void>;
+	completeItemHeightMeasurement(input: {
+		itemId: string;
+		height: number;
+	}): Promise<boolean>;
 	archiveItem(input: { itemId: string; deleteCards?: boolean }): Promise<void>;
 	saveDocument(input: {
 		whiteboardId: string | null;

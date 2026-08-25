@@ -513,6 +513,42 @@ export function createRepositoryCanvasService(
 		});
 	}
 
+	async function completeItemHeightMeasurement({
+		itemId,
+		height,
+	}: {
+		itemId: string;
+		height: number;
+	}) {
+		if (!Number.isFinite(height) || height <= 0) {
+			throw new Error("Measured height must be a positive finite number");
+		}
+
+		return withRetry(async () => {
+			const row = await getRow(repository, "items", itemId);
+			if (!row || !isActiveRow(row))
+				throw new Error(`Item not found: ${itemId}`);
+			if (row.heightMeasurementPending !== true) return false;
+
+			await applyWrites(repository, "items.completeHeightMeasurement", [
+				{
+					entity: "boardItem",
+					operation: "upsert",
+					id: row.id,
+					value: {
+						...row,
+						h: Math.ceil(height),
+						heightMeasurementPending: false,
+						updatedAt: now(),
+						updatedByDeviceId: deviceId,
+					},
+					expectedRevision: row.revision,
+				},
+			]);
+			return true;
+		});
+	}
+
 	return {
 		async listItems(whiteboardId: string | null): Promise<CanvasItem[]> {
 			const items = await listRows(repository, "items", { whiteboardId });
@@ -583,6 +619,7 @@ export function createRepositoryCanvasService(
 						y: Number(item.y ?? 0),
 						w: Number(item.w ?? 0),
 						h: Number(item.h ?? 0),
+						heightMeasurementPending: item.heightMeasurementPending === true,
 						rotation: Number(item.rotation ?? 0),
 						zIndex: Number(item.zIndex ?? 0),
 						revision: item.revision,
@@ -715,6 +752,8 @@ export function createRepositoryCanvasService(
 		updateItemFrames({ updates }) {
 			return applyItemFrameUpdates(updates);
 		},
+
+		completeItemHeightMeasurement,
 
 		async archiveItem({ itemId, deleteCards }) {
 			await withRetry(async () => {
