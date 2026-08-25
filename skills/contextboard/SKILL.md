@@ -122,6 +122,12 @@ the machine.
 
 `sortBy` is one of `updated_desc`, `updated_asc`, `title`, or `title_desc`.
 
+A card has no separate title field. The first line of `text` is the title, so
+write it as a short standalone line. If the text opens with a body paragraph
+instead, that paragraph becomes the title, truncated, including the text of any
+inline links. The server reports no error, and every list and search result
+shows the mangled title. Keep references out of the first line.
+
 ### Canvas
 
 | Endpoint | Required fields | Optional fields | Purpose |
