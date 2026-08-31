@@ -116,9 +116,9 @@ the machine.
 | `list_cards` | none | `searchTerm`, `sortBy`, `orphanOnly` | List cards across the workspace. |
 | `search_cards` | `query` | `limit`, `whiteboardId` | Search card text. |
 | `get_card` | `cardId` | none | Read text, placements, and backlinks. |
-| `create_card` | `text` | `whiteboardId`, `x`, `y`, `w`, `h` | Create and optionally place a card. |
-| `update_card` | `cardId`, `text` | `expectedVersion` | Replace a card's complete markdown. |
-| `archive_card` | `cardId` | none | Archive a card and its placements. |
+| `create_card` | `text`, or `items` | `whiteboardId`, `x`, `y`, `w`, `h` | Create and optionally place one or many cards. |
+| `update_card` | `cardId` and `text`, or `items` | `expectedVersion` | Replace one or many cards' complete markdown. |
+| `archive_card` | `cardId`, or `items` | none | Archive one or many cards and their placements. |
 
 `sortBy` is one of `updated_desc`, `updated_asc`, `title`, or `title_desc`.
 
@@ -127,6 +127,30 @@ write it as a short standalone line. If the text opens with a body paragraph
 instead, that paragraph becomes the title, truncated, including the text of any
 inline links. The server reports no error, and every list and search result
 shows the mangled title. Keep references out of the first line.
+
+### Bulk card mutations
+
+`create_card`, `update_card`, and `archive_card` accept either their existing
+single-card fields or an `items` array containing up to 100 copies of that
+endpoint's single-card input. Do not combine `items` with top-level single-card
+fields. The bulk result is `{ "items": [...] }` in input order; single-card
+results keep their original shape.
+
+```json
+{
+  "items": [
+    { "cardId": "card-a", "text": "A\nRevised", "expectedVersion": 2 },
+    { "cardId": "card-b", "text": "B\nRevised", "expectedVersion": 5 }
+  ]
+}
+```
+
+The server validates the full request before writing, then processes items in
+order and stops at the first runtime failure. Create and update batches are not
+atomic: earlier items may have completed when a later write fails. Read the
+affected cards before retrying. In particular, do not blindly retry a bulk
+create after an uncertain response because it can create duplicates. Include
+`expectedVersion` on every bulk update.
 
 ### Canvas
 
@@ -143,8 +167,13 @@ shows the mangled title. Keep references out of the first line.
 | Endpoint | Required fields | Optional fields | Purpose |
 | --- | --- | --- | --- |
 | `list_relations` | none | `whiteboardId`, `cardId` | List canvas arrow relations. |
-| `create_relation` | `whiteboardId`, `sourceCardId`, `targetCardId` | none | Draw an arrow between placed cards. |
+| `create_relation` | `whiteboardId`, `sourceCardId`, and `targetCardId`, or `items` | none | Draw one or many arrows between placed cards. |
 | `delete_relation` | `relationId` | none | Remove an arrow relation. |
+
+`create_relation` accepts up to 100 entries in `items` and returns
+`{ "items": [...] }` in input order. It rejects repeated pairs, including the
+same undirected pair written in reverse. Relation batches are ordered and
+fail-fast, but earlier arrows may remain if a later runtime write fails.
 
 ## Placement semantics
 

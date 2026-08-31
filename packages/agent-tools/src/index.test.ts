@@ -85,6 +85,22 @@ describe("tool surface", () => {
 			| undefined;
 		expect(properties?.style.enum).toContain("graph");
 	});
+
+	test("advertises single and bulk forms for card and relation mutations", () => {
+		const { tools } = makeTools();
+		for (const name of [
+			"create_card",
+			"update_card",
+			"archive_card",
+			"create_relation",
+		]) {
+			const schema = tools.find((tool) => tool.name === name)?.inputSchema;
+			expect(schema?.oneOf).toHaveLength(2);
+			expect(
+				(schema?.properties as Record<string, unknown> | undefined)?.items,
+			).toMatchObject({ type: "array", minItems: 1, maxItems: 100 });
+		}
+	});
 });
 
 describe("whiteboards and cards", () => {
@@ -236,8 +252,114 @@ describe("whiteboards and cards", () => {
 	test("round trips text through update_card", async () => {
 		const { call } = makeTools();
 		const { cardId } = await call("create_card", { text: "One\nTwo" });
-		await call("update_card", { cardId, text: "One\nTwo\nThree" });
+		expect(
+			await call("update_card", { cardId, text: "One\nTwo\nThree" }),
+		).toEqual({ version: 2 });
 		expect((await call("get_card", { cardId })).text).toBe("One\nTwo\nThree");
+	});
+
+	test("creates, updates, and archives cards in bulk", async () => {
+		const { call } = makeTools();
+		const created = await call("create_card", {
+			items: [{ text: "First\nOld" }, { text: "Second\nOld" }],
+		});
+		expect(created.items).toHaveLength(2);
+
+		const [first, second] = created.items;
+		const updated = await call("update_card", {
+			items: [
+				{ cardId: first.cardId, text: "First\nNew", expectedVersion: 1 },
+				{ cardId: second.cardId, text: "Second\nNew", expectedVersion: 1 },
+			],
+		});
+		expect(updated).toEqual({
+			items: [
+				{ cardId: first.cardId, version: 2 },
+				{ cardId: second.cardId, version: 2 },
+			],
+		});
+		expect((await call("get_card", { cardId: second.cardId })).text).toBe(
+			"Second\nNew",
+		);
+
+		expect(
+			await call("archive_card", {
+				items: [{ cardId: first.cardId }, { cardId: second.cardId }],
+			}),
+		).toEqual({
+			items: [
+				{ cardId: first.cardId, archived: true },
+				{ cardId: second.cardId, archived: true },
+			],
+		});
+		expect(await call("get_card", { cardId: first.cardId })).toBeNull();
+		expect(await call("get_card", { cardId: second.cardId })).toBeNull();
+	});
+
+	test("validates an entire bulk request before creating cards", async () => {
+		const { call } = makeTools();
+		await expect(
+			call("create_card", { items: [{ text: "Would exist" }, {}] }),
+		).rejects.toThrow(/text is required/);
+		expect(await call("list_cards")).toEqual([]);
+	});
+
+	test("checks every bulk create board before creating cards", async () => {
+		const { call } = makeTools();
+		await expect(
+			call("create_card", {
+				items: [
+					{ text: "Would exist" },
+					{ text: "Bad placement", whiteboardId: "missing-board" },
+				],
+			}),
+		).rejects.toThrow(/Whiteboard not found: missing-board/);
+		expect(await call("list_cards")).toEqual([]);
+	});
+
+	test("checks every bulk update version before updating cards", async () => {
+		const { call } = makeTools();
+		const first = await call("create_card", { text: "First\nOld" });
+		const second = await call("create_card", { text: "Second\nOld" });
+		await expect(
+			call("update_card", {
+				items: [
+					{ cardId: first.cardId, text: "First\nNew", expectedVersion: 1 },
+					{ cardId: second.cardId, text: "Second\nNew", expectedVersion: 9 },
+				],
+			}),
+		).rejects.toThrow(/updated elsewhere/);
+		expect((await call("get_card", { cardId: first.cardId })).text).toBe(
+			"First\nOld",
+		);
+	});
+
+	test("rejects ambiguous, empty, oversized, and duplicate bulk inputs", async () => {
+		const { call } = makeTools();
+		await expect(
+			call("create_card", { text: "Single", items: [{ text: "Bulk" }] }),
+		).rejects.toThrow(/cannot be combined/);
+		await expect(call("create_card", { items: [] })).rejects.toThrow(
+			/must not be empty/,
+		);
+		await expect(
+			call("create_card", {
+				items: Array.from({ length: 101 }, (_, index) => ({
+					text: `Card ${index}`,
+				})),
+			}),
+		).rejects.toThrow(/at most 100/);
+
+		const { cardId } = await call("create_card", { text: "One" });
+		await expect(
+			call("update_card", {
+				items: [
+					{ cardId, text: "Two" },
+					{ cardId, text: "Three" },
+				],
+			}),
+		).rejects.toThrow(/Duplicate cardId/);
+		expect((await call("get_card", { cardId })).text).toBe("One");
 	});
 
 	test("archiving a card removes it from its board", async () => {
@@ -497,6 +619,74 @@ describe("relations", () => {
 		);
 		expect(await call("list_relations", { whiteboardId })).toHaveLength(1);
 		expect(await call("list_relations", { cardId: a })).toHaveLength(1);
+	});
+
+	test("creates relations in bulk and keeps their input order", async () => {
+		const { call, whiteboardId, a, b } = await board();
+		const { cardId: c } = await call("create_card", {
+			text: "Consequence",
+			whiteboardId,
+		});
+		const created = await call("create_relation", {
+			items: [
+				{ whiteboardId, sourceCardId: a, targetCardId: b },
+				{ whiteboardId, sourceCardId: b, targetCardId: c },
+			],
+		});
+		expect(created.items).toHaveLength(2);
+		expect(created.items[0].whiteboardId).toBe(whiteboardId);
+		expect(
+			new Set([created.items[0].sourceCardId, created.items[0].targetCardId]),
+		).toEqual(new Set([a, b]));
+		expect(created.items[1].whiteboardId).toBe(whiteboardId);
+		expect(
+			new Set([created.items[1].sourceCardId, created.items[1].targetCardId]),
+		).toEqual(new Set([b, c]));
+		expect(await call("list_relations", { whiteboardId })).toHaveLength(2);
+	});
+
+	test("validates every bulk relation before drawing an arrow", async () => {
+		const { call, whiteboardId, a, b } = await board();
+		await expect(
+			call("create_relation", {
+				items: [
+					{ whiteboardId, sourceCardId: a, targetCardId: b },
+					{ whiteboardId, sourceCardId: a, targetCardId: a },
+				],
+			}),
+		).rejects.toThrow(/cannot relate to itself/);
+		expect(await call("list_relations", { whiteboardId })).toEqual([]);
+	});
+
+	test("checks every bulk relation placement before drawing an arrow", async () => {
+		const { call, whiteboardId, a, b } = await board();
+		const offBoard = await call("create_card", { text: "Off board" });
+		await expect(
+			call("create_relation", {
+				items: [
+					{ whiteboardId, sourceCardId: a, targetCardId: b },
+					{
+						whiteboardId,
+						sourceCardId: b,
+						targetCardId: offBoard.cardId,
+					},
+				],
+			}),
+		).rejects.toThrow(/not on whiteboard/);
+		expect(await call("list_relations", { whiteboardId })).toEqual([]);
+	});
+
+	test("rejects a repeated undirected relation in one bulk request", async () => {
+		const { call, whiteboardId, a, b } = await board();
+		await expect(
+			call("create_relation", {
+				items: [
+					{ whiteboardId, sourceCardId: a, targetCardId: b },
+					{ whiteboardId, sourceCardId: b, targetCardId: a },
+				],
+			}),
+		).rejects.toThrow(/Duplicate relation/);
+		expect(await call("list_relations", { whiteboardId })).toEqual([]);
 	});
 
 	test("draws a real arrow bound to both cards", async () => {
