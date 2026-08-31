@@ -53,6 +53,29 @@ function object(
 	return { type: "object", properties, required, additionalProperties: false };
 }
 
+const MAX_BATCH_SIZE = 100;
+
+function singleOrBulkObject(
+	properties: Record<string, unknown>,
+	required: string[],
+): Record<string, unknown> {
+	return {
+		type: "object",
+		properties: {
+			...properties,
+			items: {
+				type: "array",
+				description: `Run the same operation for up to ${MAX_BATCH_SIZE} items, in order. Do not combine this with single-item fields.`,
+				items: object(properties, required),
+				minItems: 1,
+				maxItems: MAX_BATCH_SIZE,
+			},
+		},
+		oneOf: [{ required }, { required: ["items"] }],
+		additionalProperties: false,
+	};
+}
+
 const string = (description: string) => ({ type: "string", description });
 const stringOrNull = (description: string) => ({
 	type: ["string", "null"],
@@ -60,6 +83,10 @@ const stringOrNull = (description: string) => ({
 });
 const number = (description: string) => ({ type: "number", description });
 const boolean = (description: string) => ({ type: "boolean", description });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function requireString(input: Record<string, unknown>, key: string): string {
 	const value = input[key];
@@ -85,6 +112,36 @@ function optionalNumber(
 	return typeof value === "number" && Number.isFinite(value)
 		? value
 		: undefined;
+}
+
+function operationInputs(input: Record<string, unknown>):
+	| { bulk: false; items: Record<string, unknown>[] }
+	| {
+			bulk: true;
+			items: Record<string, unknown>[];
+	  } {
+	if (!Object.hasOwn(input, "items")) return { bulk: false, items: [input] };
+	if (Object.keys(input).some((key) => key !== "items")) {
+		throw new Error("items cannot be combined with single-item fields");
+	}
+	if (!Array.isArray(input.items)) throw new Error("items must be an array");
+	if (input.items.length === 0) throw new Error("items must not be empty");
+	if (input.items.length > MAX_BATCH_SIZE) {
+		throw new Error(`items must contain at most ${MAX_BATCH_SIZE} entries`);
+	}
+	const items = input.items.map((item, index) => {
+		if (!isRecord(item)) throw new Error(`items[${index}] must be an object`);
+		return item;
+	});
+	return { bulk: true, items };
+}
+
+function rejectDuplicates(values: string[], label: string): void {
+	const seen = new Set<string>();
+	for (const value of values) {
+		if (seen.has(value)) throw new Error(`Duplicate ${label}: ${value}`);
+		seen.add(value);
+	}
 }
 
 export const PLACEMENT_GUIDANCE = `Leave x and y out and the card is placed automatically in free space beside the board's existing cards, which is usually what you want. Pass them only when the layout carries meaning — read the current layout with list_board_items first. Note that x: 0, y: 0 is a literal position, not "auto". Cards default to 576 wide, and their height is estimated from the content unless you pass h — leave h out unless you specifically need a fixed size.`;
@@ -115,6 +172,91 @@ function newShapeId(): string {
 
 export function createTools(services: ToolServices): ToolDefinition[] {
 	const { cards, whiteboards, canvas, relations } = services;
+	const createCard = async (input: Record<string, unknown>) => {
+		const text = requireString(input, "text");
+		const cardId = await cards.create({
+			content: textToCardContentWithReferences(text),
+		});
+		const whiteboardId = optionalString(input, "whiteboardId");
+		// The frame is meaningless without a board to place the card on.
+		const placement = whiteboardId
+			? await cards.appendToWhiteboard({
+					cardId,
+					whiteboardId,
+					...readFrame(input),
+				})
+			: null;
+		return { cardId, placement };
+	};
+	const updateCard = async (input: Record<string, unknown>) => {
+		const cardId = requireString(input, "cardId");
+		const version = await cards.updateContent({
+			cardId,
+			content: textToCardContentWithReferences(requireString(input, "text")),
+			expectedVersion: optionalNumber(input, "expectedVersion"),
+		});
+		return { cardId, version };
+	};
+	const createRelation = async (input: Record<string, unknown>) => {
+		const whiteboardId = requireString(input, "whiteboardId");
+		const sourceCardId = requireString(input, "sourceCardId");
+		const targetCardId = requireString(input, "targetCardId");
+		if (sourceCardId === targetCardId) {
+			throw new Error("A card cannot relate to itself");
+		}
+
+		const items = await canvas.listItems(whiteboardId);
+		const shapeIdFor = (cardId: string) => {
+			const item = items.find(
+				(row) => row.kind === "card" && row.cardId === cardId,
+			);
+			if (!item) {
+				throw new Error(
+					`Card ${cardId} is not on whiteboard ${whiteboardId}. Place it with place_card first.`,
+				);
+			}
+			return item.shapeId;
+		};
+		const sourceShapeId = shapeIdFor(sourceCardId);
+		const targetShapeId = shapeIdFor(targetCardId);
+
+		const existing = await relations.list({
+			whiteboardId,
+			cardId: sourceCardId,
+		});
+		const duplicate = existing.find(
+			(row) =>
+				row.arrowShapeId !== null &&
+				((row.sourceCardId === sourceCardId &&
+					row.targetCardId === targetCardId) ||
+					(row.sourceCardId === targetCardId &&
+						row.targetCardId === sourceCardId)),
+		);
+		if (duplicate) return duplicate;
+
+		const document = await canvas.getDocument(whiteboardId);
+		const records = Object.values(
+			(document?.snapshot as { store?: Record<string, unknown> } | null)
+				?.store ?? {},
+		);
+		const built = buildArrowRelationRecords({
+			sourceShapeId,
+			targetShapeId,
+			records,
+		});
+		await canvas.applyRecordChanges({
+			whiteboardId,
+			added: built.records,
+			updated: [],
+			removed: [],
+		});
+		return relations.create({
+			whiteboardId,
+			sourceCardId,
+			targetCardId,
+			arrowShapeId: built.arrowShapeId,
+		});
+	};
 
 	return [
 		{
@@ -247,8 +389,8 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		},
 		{
 			name: "create_card",
-			description: `Create a card. The first line becomes its title, so make it a specific claim or topic rather than a generic label. Pass whiteboardId to place it on a board at the same time. ${PLACEMENT_GUIDANCE} ${REFERENCE_GUIDANCE}`,
-			inputSchema: object(
+			description: `Create one card, or pass items to create up to ${MAX_BATCH_SIZE} cards in order. The first line becomes its title, so make it a specific claim or topic rather than a generic label. Pass whiteboardId to place a card on a board at the same time. A bulk failure can leave earlier cards created, so inspect before retrying. ${PLACEMENT_GUIDANCE} ${REFERENCE_GUIDANCE}`,
+			inputSchema: singleOrBulkObject(
 				{
 					text: string(
 						"The card's content. First line is the title; the rest is the body.",
@@ -261,26 +403,33 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 				["text"],
 			),
 			handler: async (input) => {
-				const text = requireString(input, "text");
-				const cardId = await cards.create({
-					content: textToCardContentWithReferences(text),
+				const operation = operationInputs(input);
+				operation.items.forEach((item) => {
+					requireString(item, "text");
 				});
-				const whiteboardId = optionalString(input, "whiteboardId");
-				// The frame is meaningless without a board to place the card on.
-				const placement = whiteboardId
-					? await cards.appendToWhiteboard({
-							cardId,
-							whiteboardId,
-							...readFrame(input),
-						})
-					: null;
-				return { cardId, placement };
+				if (operation.bulk) {
+					const whiteboardIds = new Set(
+						operation.items.flatMap((item) => {
+							const whiteboardId = optionalString(item, "whiteboardId");
+							return whiteboardId ? [whiteboardId] : [];
+						}),
+					);
+					for (const whiteboardId of whiteboardIds) {
+						if (!(await whiteboards.get(whiteboardId))) {
+							throw new Error(`Whiteboard not found: ${whiteboardId}`);
+						}
+					}
+				}
+				const results = [];
+				for (const item of operation.items)
+					results.push(await createCard(item));
+				return operation.bulk ? { items: results } : results[0];
 			},
 		},
 		{
 			name: "update_card",
-			description: `Replace a card's text. This overwrites the whole card, so read it first with get_card and send back the full revised text. References are recomputed from the new text, so a citation dropped here also drops the backlink. ${REFERENCE_GUIDANCE}`,
-			inputSchema: object(
+			description: `Replace one card's text, or pass items to update up to ${MAX_BATCH_SIZE} cards in order. This overwrites each whole card, so read it first with get_card and send back the full revised text. References are recomputed from the new text, so a citation dropped here also drops the backlink. A bulk failure can leave earlier updates applied. ${REFERENCE_GUIDANCE}`,
+			inputSchema: singleOrBulkObject(
 				{
 					cardId: string("The card to update."),
 					text: string("The card's complete new content."),
@@ -291,26 +440,57 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 				["cardId", "text"],
 			),
 			handler: async (input) => {
-				const version = await cards.updateContent({
-					cardId: requireString(input, "cardId"),
-					content: textToCardContentWithReferences(
-						requireString(input, "text"),
-					),
-					expectedVersion: optionalNumber(input, "expectedVersion"),
+				const operation = operationInputs(input);
+				const cardIds = operation.items.map((item) => {
+					const cardId = requireString(item, "cardId");
+					requireString(item, "text");
+					return cardId;
 				});
-				return { version };
+				if (operation.bulk) {
+					rejectDuplicates(cardIds, "cardId");
+					const existing = await cards.getMany(cardIds);
+					for (const [index, card] of existing.entries()) {
+						if (!card) throw new Error("Card not found");
+						const expectedVersion = optionalNumber(
+							operation.items[index] as Record<string, unknown>,
+							"expectedVersion",
+						);
+						if (
+							typeof expectedVersion === "number" &&
+							expectedVersion !== card.version
+						) {
+							throw new Error("Card was updated elsewhere");
+						}
+					}
+				}
+				const results = [];
+				for (const item of operation.items)
+					results.push(await updateCard(item));
+				if (operation.bulk) return { items: results };
+				return { version: results[0]?.version };
 			},
 		},
 		{
 			name: "archive_card",
-			description:
-				"Archive a card and remove it from every whiteboard it was placed on.",
-			inputSchema: object({ cardId: string("The card to archive.") }, [
-				"cardId",
-			]),
+			description: `Archive one card, or pass items to archive up to ${MAX_BATCH_SIZE} cards, and remove every archived card from all whiteboards.`,
+			inputSchema: singleOrBulkObject(
+				{ cardId: string("The card to archive.") },
+				["cardId"],
+			),
 			handler: async (input) => {
-				await cards.delete(requireString(input, "cardId"));
-				return { archived: true };
+				const operation = operationInputs(input);
+				const cardIds = operation.items.map((item) =>
+					requireString(item, "cardId"),
+				);
+				if (!operation.bulk) {
+					await cards.delete(cardIds[0] as string);
+					return { archived: true };
+				}
+				rejectDuplicates(cardIds, "cardId");
+				await cards.deleteMany(cardIds);
+				return {
+					items: cardIds.map((cardId) => ({ cardId, archived: true })),
+				};
 			},
 		},
 		{
@@ -426,9 +606,8 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		},
 		{
 			name: "create_relation",
-			description:
-				"Draw an arrow between two cards on a whiteboard, linking them. Both cards must already be placed on that board — call place_card first if one is missing. The arrow is a real one: the user sees it on the canvas and can drag or delete it. It points from source to target and keeps that direction, which arrange_cards reads as parent to child, but it carries no label, so put any explanation in the cards themselves. Relating the same pair twice returns the existing relation instead of drawing a duplicate.",
-			inputSchema: object(
+			description: `Draw one arrow, or pass items to draw up to ${MAX_BATCH_SIZE} arrows in order. Both cards must already be placed on the named board. Each arrow points from source to target and keeps that direction, which arrange_cards reads as parent to child, but it carries no label. Relating the same pair twice returns the existing relation. A bulk failure can leave earlier arrows created.`,
+			inputSchema: singleOrBulkObject(
 				{
 					whiteboardId: string("The whiteboard both cards are placed on."),
 					sourceCardId: string("The card the arrow starts at."),
@@ -437,70 +616,51 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 				["whiteboardId", "sourceCardId", "targetCardId"],
 			),
 			handler: async (input) => {
-				const whiteboardId = requireString(input, "whiteboardId");
-				const sourceCardId = requireString(input, "sourceCardId");
-				const targetCardId = requireString(input, "targetCardId");
-				if (sourceCardId === targetCardId) {
-					throw new Error("A card cannot relate to itself");
-				}
-
-				const items = await canvas.listItems(whiteboardId);
-				const shapeIdFor = (cardId: string) => {
-					const item = items.find(
-						(row) => row.kind === "card" && row.cardId === cardId,
-					);
-					if (!item) {
-						throw new Error(
-							`Card ${cardId} is not on whiteboard ${whiteboardId}. Place it with place_card first.`,
-						);
+				const operation = operationInputs(input);
+				const relationKeys = operation.items.map((item) => {
+					const sourceCardId = requireString(item, "sourceCardId");
+					const targetCardId = requireString(item, "targetCardId");
+					const whiteboardId = requireString(item, "whiteboardId");
+					if (sourceCardId === targetCardId) {
+						throw new Error("A card cannot relate to itself");
 					}
-					return item.shapeId;
-				};
-				const sourceShapeId = shapeIdFor(sourceCardId);
-				const targetShapeId = shapeIdFor(targetCardId);
-
-				// An existing arrow between the same pair is reused, so repeating a
-				// call never litters the canvas.
-				const existing = await relations.list({
-					whiteboardId,
-					cardId: sourceCardId,
+					const pair = [sourceCardId, targetCardId].sort().join(":");
+					return `${whiteboardId}:${pair}`;
 				});
-				const duplicate = existing.find(
-					(row) =>
-						row.arrowShapeId !== null &&
-						((row.sourceCardId === sourceCardId &&
-							row.targetCardId === targetCardId) ||
-							(row.sourceCardId === targetCardId &&
-								row.targetCardId === sourceCardId)),
-				);
-				if (duplicate) return duplicate;
-
-				const document = await canvas.getDocument(whiteboardId);
-				const records = Object.values(
-					(document?.snapshot as { store?: Record<string, unknown> } | null)
-						?.store ?? {},
-				);
-				const built = buildArrowRelationRecords({
-					sourceShapeId,
-					targetShapeId,
-					records,
-				});
-				await canvas.applyRecordChanges({
-					whiteboardId,
-					added: built.records,
-					updated: [],
-					removed: [],
-				});
-				// The relation row is normally derived by the app when it has the
-				// board open. Writing it here too means the relation is readable
-				// immediately; the id matches what a later reconcile derives, so the
-				// two agree instead of duplicating.
-				return relations.create({
-					whiteboardId,
-					sourceCardId,
-					targetCardId,
-					arrowShapeId: built.arrowShapeId,
-				});
+				if (operation.bulk) {
+					rejectDuplicates(relationKeys, "relation");
+					const itemsByWhiteboard = new Map<
+						string,
+						Awaited<ReturnType<typeof canvas.listItems>>
+					>();
+					for (const item of operation.items) {
+						const whiteboardId = requireString(item, "whiteboardId");
+						let boardItems = itemsByWhiteboard.get(whiteboardId);
+						if (!boardItems) {
+							boardItems = await canvas.listItems(whiteboardId);
+							itemsByWhiteboard.set(whiteboardId, boardItems);
+						}
+						for (const cardId of [
+							requireString(item, "sourceCardId"),
+							requireString(item, "targetCardId"),
+						]) {
+							if (
+								!boardItems.some(
+									(row) => row.kind === "card" && row.cardId === cardId,
+								)
+							) {
+								throw new Error(
+									`Card ${cardId} is not on whiteboard ${whiteboardId}. Place it with place_card first.`,
+								);
+							}
+						}
+					}
+				}
+				const results = [];
+				for (const item of operation.items) {
+					results.push(await createRelation(item));
+				}
+				return operation.bulk ? { items: results } : results[0];
 			},
 		},
 		{
