@@ -92,10 +92,13 @@ the machine.
 - Before `update_card`, scan text for mojibake such as `æ...`, `å...`, or `Ã...`,
   replacement characters, and stray control bytes. Stop and repair/verify any
   suspicious text before writing, and use `expectedVersion` for updates.
-- ContextBoard lays out separate paragraphs automatically. Do not add blank
-  lines between ordinary paragraphs; use a single newline. Keep blank lines
-  only when Markdown syntax requires them, such as fenced code blocks or list
-  structure.
+
+## Paragraph spacing
+
+Do not insert empty paragraphs for visual spacing. The Tiptap editor already
+adds space between paragraphs, so separate ordinary paragraphs with one newline,
+not an extra blank line. Keep blank lines only when Markdown syntax requires
+them, such as around fenced code blocks or within list structure.
 
 ## Tool reference
 
@@ -272,6 +275,17 @@ curl -sS -X POST "http://127.0.0.1:${port}/api/v1/list_board_items" \
 
 Use the returned item ids and frames with `move_item` only when a purposeful
 layout change is needed.
+
+## Research notes
+
+When the user asks to read a web page or PDF into a source/detail note tree,
+read `taking-note.md` before opening the source. Run it once per source. For a
+multi-source research task, also read `research-flow.md`; that flow gathers and
+synthesizes sources while `taking-note.md` owns the source-bound reading stage.
+
+If the work will create cards on the user's board, read `card-style.md` before
+research begins. It controls what evidence and reasoning to retain while
+reading, not just how finished cards look.
 
 ## Not covered
 
