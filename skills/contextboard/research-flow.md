@@ -34,7 +34,7 @@ The normal path is:
 
 1. Clarify the task and agree on a research brief.
 2. Gather a bounded set of sources.
-3. Produce source overviews and a limited number of detail notes.
+3. Invoke `taking-note.md` once per admitted source to produce a source overview and a coverage-complete, source-bound argument tree.
 4. Validate that the notes faithfully represent their sources.
 5. Choose an organizing principle and synthesize across sources.
 6. Validate the synthesis, its support, its coverage, and its unresolved gaps.
@@ -93,25 +93,34 @@ Prefer scholarship and authoritative primary material when the task calls for re
 
 Do not count source volume as consensus. Prefer a source set that exposes the important approaches, disagreements, periods, or levels of analysis within scope.
 
+A source's literature review names other work, and naming is not admitting. Admit an original only when the board will make a claim *about* it: "A argues the earlier accounts missed X" needs only A, because A is the subject of that sentence, while "the earlier accounts missed X" needs the earlier accounts. Chasing an original spends the same source budget as ordinary reading — do not give it a separate allowance, or the cheap kind of reading will crowd out the expensive kind. When the budget cannot cover an original the board needs, record it as a blocking gap (section 7) instead of dropping the claim or padding the set.
+
 ## 3. Read: preserve source context before synthesis
 
-Reading notes are source-bound. They are deliberately exempt from a final synthesis rule such as "split by idea, not by source."
+Reading notes are source-bound. They are deliberately exempt from a final synthesis rule such as "split by idea, not by source." Read `taking-note.md` and invoke it once for each admitted web page or PDF. It owns source identity, integrity checks, provisional outlining, section-by-section reading, coverage state, card roles, epistemic status, and the complete source-note tree.
 
 ### Source overview
 
-Create one overview for each source admitted into active research. It should make clear:
+Create one overview for each source admitted into active research. The overview is also that source's coverage ledger. It should make clear:
 
 - the question or problem the source addresses;
 - its publication context, approach, material, or method;
 - its central claims and how it reaches them;
+- how it positions itself against earlier work — what it says prior accounts did, missed, or got wrong;
 - its scope and important limitations; and
 - why it matters to the current research brief.
 
+It also records every section as `covered`, `unread`, `in progress`, or `omitted with reason`, plus source completeness, OCR or figure risks, and validation state. A source is not complete while any section is unread or in progress. Long sources are processed in coherent sections; they never silently degrade into summaries.
+
 An overview is not an abstract pasted into a card. It is a contextual reading note written for later comparison.
+
+The positioning line is the cheapest context on a research board, because the author already did the comparing: a literature review is a source telling you who it is arguing with. Write it only where the source actually has one — a book chapter, a first-person account or a news report may not — and where it does not, say so and say where the positioning came from instead ("this chapter has no literature review; its position is inferred from X"). Positioning is a claim like any other and carries a verbatim quotation with a locator. If it cannot be quoted, the source did not make it, and the overview does not get one. A fabricated position is more dangerous than a missing one: it reads perfectly plausible and there is no page number to catch it.
 
 ### Detail note
 
-Create detail notes sparingly. Split one out only when a passage, result, distinction, case, limitation, or turn in the argument will be independently cited or compared later.
+Make a detail note for a natural argumentative section or turn, not for every passage, result, evidence type, or metadata role. A long detail note may carry several claims, reasons, examples, and limits under Markdown headings. Split it only when a branch can be understood independently and the split materially improves navigation or comparison, or when combining it would obscure the argument. Preserve the complete movement from question through claim, reasoning, evidence, and consequential limits. Notes written to fit the synthesis have no surplus, and the surplus is the point: it is what lets the user read what the source actually said, and what lets a later reading go somewhere this one did not. If nearly every note ends up cited exactly once, the notes were reverse-engineered from the conclusions rather than read out of the sources, and the argument layer will have nothing to reason with.
+
+A separate positioning note is worth splitting out when a source's account of earlier work is substantial enough to be cited more than once — a review article is mostly this.
 
 A detail note must remain intelligible away from the source. In natural prose, it should let a reader answer:
 
@@ -121,10 +130,16 @@ It must also:
 
 - refer back to its source overview;
 - cite a stable URL, page, section, paragraph, timestamp, or other locator;
+- carry at least one verbatim quotation from the source, each quotation with its own locator;
+- attribute second-hand material to whoever is speaking — a review's account of earlier work is that reviewer's reading, so the subject of the sentence is the reviewer, not the author being described;
 - preserve qualifications that change the meaning of the claim; and
 - explain enough of its place in the source's argument that it cannot be mistaken for a context-free fact.
 
-Use this as a validation checklist, not a fixed writing template. Do not turn every paragraph into a card, and do not force reading notes to imitate finished argument cards.
+End with one visible provenance line linking the source and `Source overview`. Put the complete `Role`, `Status`, `Locator`, `Source`, and `Parent` fields in a Markdown HTML comment. This keeps machine-readable state on the card without forcing the reader through a metadata wall. If one long card mixes epistemic statuses, record its primary status there and mark every reconstructed or uncertain passage visibly in the prose.
+
+Use this as a validation checklist, not a fixed writing template. A detail note borrows the readable movement of an argument card: a claim-bearing title, an opening question or tension, evidence and caveats placed where they change the claim, and a final consequence that carries the reader forward. It remains source-bound and does not need cross-source synthesis or the argument card's five-slot coverage.
+
+Quote in the source's own language. A translated quotation is a paraphrase wearing quotation marks, and it stops being evidence the moment it is translated; the surrounding commentary is where the reader's language belongs. Inline 「」 is the default, so the quotation sits inside the sentence that uses it — reserve a blockquote for a passage long enough to carry a whole step of the argument. Do not open every note with a quotation: a note layer where all the cards start the same way has replaced one template with another.
 
 ## 4. Fidelity validation: check the reading before using it
 
@@ -138,9 +153,9 @@ For each consequential note:
 4. Correct ordinary errors in the original note.
 5. If the error would change a later conclusion, add a short explanation of why the rejected reading does not hold.
 
-Save a short excerpt only when it is needed for reliable relocation or when the source may not remain accessible. Do not duplicate large portions of copyrighted text. If the source cannot be reopened, record the validation limitation instead of claiming fidelity was verified.
+Short quotations with locators are the ordinary substance of a reading note, not an exception to be rationed. What is forbidden is wholesale duplication — a chapter or an article reproduced into cards. Keep each quotation to the span that carries the claim. If the source cannot be reopened, record the validation limitation instead of claiming fidelity was verified.
 
-A fresh validator is preferable because it is less likely to defend the original reading. Fresh context is an implementation advantage, not a requirement: a single-agent harness may run the same explicit checks.
+The reading invocation first validates every consequential card. Research-flow then performs a risk-based second pass over all core claims, numbers, figures, limitations, `reconstructed` and `uncertain` cards, plus a sample of ordinary notes. A fresh validator is preferable because it is less likely to defend the original reading. Fresh context is an implementation advantage, not a requirement: a single-agent harness may run the same explicit checks.
 
 ## 5. Synthesize: reorganize by idea
 
@@ -165,9 +180,21 @@ synthesis claim -> reading note -> original source and locator
 
 Unused notes remain available. Their presence is valuable: a user can inspect what was read, recover context, challenge an exclusion, or construct a different synthesis later.
 
+### What an argument card owes its notes
+
+- **Two sources, not two notes.** An argument card uses notes from at least two different sources. One note in, one card out is not synthesis but transcription, and it shows up as an argument card whose title paraphrases the note it cites. A claim only one source can carry is allowed — say so in the card, in its own words — but a board where more than about 40% of the argument cards are single-source has stopped comparing and gone back to summarising.
+- **The evidence lands in the card.** A quotation or figure that stays down in the note is not doing work in the argument. Carry it up into the argument card's own sentence with its locator. The quotation is the universal currency and a figure is one kind of quotation, so a theoretical source is not exempt: quote Bourdieu's sentence where an empirical card would quote a coefficient. There is no exemption list, because an exemption list is where a card goes to avoid the rule.
+- **Second-hand material stays second-hand.** A review's account of earlier work belongs to the reviewer, and its note hangs under the reviewer's source, so it cannot supply the second source above. Reading one review is not having read the ten works it names, and a rule that let it count would make reading a review the cheapest way to look widely read. It can supply a disagreement, which is the thing a review is best at.
+- **Say where the sources fail to agree.** Every round produces at least one card on a disagreement and why it exists. The comparison that gets you there is workflow and stays out of the cards; its conclusion is knowledge and belongs on the board.
+- **A 張力 joint may lean on a source's own literature review**, which is often the sharpest available statement of what an earlier account missed. It lands like any other evidence — the reviewer's words, quoted, with a locator. "This view was later criticised" is the failure this rule exists to catch: a conclusion with the evidence left behind.
+
 ## 6. Support and gap validation
 
 Validate the synthesis independently of prose quality.
+
+Validation runs in two stages and the cheap one goes first. A mechanical pass checks what a script can decide — `scripts/lint-board.ts` in this workspace — and nothing else runs until it is clean, because a reviewer asked to judge a board that fails on counting will spend its attention on the counting. The second stage is judgement, and judgement has to be auditable: a reviewer that reports "checked" has reported nothing. Require it to answer by quoting the card — which characters are the named anchor, which of the five joints this is and the sentence carrying it, how the card reads with the joint sentence deleted. Give it the finished board and not the research that produced it; a reviewer who watched the reading will defend it.
+
+Two revisions is the limit. A card still failing the mechanical pass after that leaves the argument layer — demoted to a note, or reported to the user with the reason — because the third attempt is where invented figures come from.
 
 For every consequential synthesis claim, ask:
 
@@ -233,13 +260,13 @@ Update it only at phase boundaries or when a validator changes the route. A harn
 Both layers live on one whiteboard, split top and bottom.
 
 - The **argument layer** is the synthesis spine, across the upper part of the board, reading left to right.
-- The **note layer** is below it: one small tree per source, side by side.
+- The **note layer** is below it: one wide, shallow argument tree per source, side by side.
 - A note card's `y` starts at least **800** below the lowest argument card. Pass that `y` to `place_card` when the card is created; nothing recovers the band once the two layers interleave.
 - Keep the board wider than it is tall. Add horizontal room before letting the note layer grow into a vertical scroll.
 
-Card titles say which layer a card is in, and that is the only machine-readable signal there is: a note card's title begins `Source overview` or `Detail note`. A note deeper than one level keeps the `Detail note` prefix — depth is already carried by the arrows, and encoding it twice invites the two to disagree.
+Card titles say which layer a card is in, and that is the only machine-readable signal there is: a note card's title begins `Source overview` or `Detail note`. Every non-root note keeps the `Detail note` prefix; structure is carried by prose, references, arrows, and placement rather than another title taxonomy.
 
-Because the prefix is load-bearing, the note layer is exempt from the card-style rules written for finished arguments. It splits by source rather than by idea, its titles need not be a claim or an event, and a detail note need not manufacture an argument or a joint. The argument layer splits by idea and follows the card style in full.
+Because the prefix is load-bearing, the note layer remains distinct from finished synthesis. It splits within one source rather than across sources and is exempt from five-slot coverage. It still borrows argument-card readability and topology: claim-bearing titles, prose joints, evidence near the sentence it supports, and a wide, shallow tree organized by dependency. A joint and arrow appear only where the source actually supplies a relation; neither may be manufactured to make the board look connected. The argument layer splits across sources by idea and follows the card style in full.
 
 ### Arrow semantics
 
@@ -247,13 +274,15 @@ The two layers speak different arrow languages, and the layer boundary is what k
 
 In the **argument layer** an arrow is the mechanical projection of a prose joint: one arrow per joint, running the way the joint runs. See `card-style.md`.
 
-In the **note layer** an arrow means containment, not argument. Each source is one tree: the source overview at the root, its detail notes hanging off it, at most three levels deep. Arrows run **overview to note**, parent to child — `arrange_cards` reads the arrow's start as the parent, so drawing it the other way inverts the layout even though "this note belongs to that source" is the more natural sentence. There is no fan-out limit; a source with many notes is a research-budget question, not a shape question. Trees are not joined to each other, and there is no root above them: the note layer is a forest.
+In the **note layer**, an arrow is the mechanical projection of a source-bound prose joint. Every detail note must reach its overview through the parent chain, but select the immediate upstream card whose claim the child actually uses, not the card written immediately before it and not the overview by default. The child may inherit, resolve, contrast with, exemplify, decompose, or extend that claim. Its joint sentence contains an inline `contextboard:card/...` reference, and the arrow runs from the card leaned on to the card leaning on it. No joint, no arrow; no arrow, no joint. Source trees are not joined to each other, and there is no root above them.
 
-**No arrow ever crosses the two layers.** A synthesis card cites a note with an inline `contextboard:card/...` reference, never with a line. The reason is not that provenance belongs to references by definition — it is that a legal joint target is a card making a claim or naming an event, and a detail note is neither.
+**No arrow ever crosses the two layers.** A synthesis card cites a note with an inline `contextboard:card/...` reference, never with a line. Cross-layer provenance is a reference; note-layer arrows are reserved for relations inside one source's argument tree.
 
 Layout follows from that split:
 
 - Arrange the **argument layer** after each research round. Pass `cardIds` holding only argument cards, so the note layer below counts as an obstacle and the band survives.
-- Arrange a **note tree** once, when it is first built, passing that source's `cardIds`. After that it stays where it is, and hand adjustments are not overwritten.
-- **Always pass an explicit `style`. Never `auto`.** With a tree two or more levels deep `auto` selects `mindmap`, which splits a hub's children onto both sides and produces the fan this layout is trying to avoid.
+- Lay out a **source tree** from left to right. The x-axis carries argumentative depth; the y-axis separates siblings at the same depth.
+- Keep the tree wide and shallow. No card may be the target of more than three joints, and no joint chain may run more than six cards deep. If the overview attracts too many children, merge fragments or introduce a substantive intermediate claim; never add an empty grouping card.
+- Arrange a new source tree once, passing only that source's `cardIds`. On an established board, place the tree to the right and do not overwrite hand adjustments or rearrange other structures.
+- **Always use the explicit `tree-horizontal` style. Never `auto` or `mindmap`.** The result should look like an argument tree, not a star-shaped topic map or a single chain.
 
