@@ -222,6 +222,10 @@ The joint is also the test for what belongs on the board at all. See Scope.
 - Cite the source inline, in the sentence that uses it:
   `[ERIC：原始政府報告 ED012275](https://eric.ed.gov/?id=ED012275)`. Never a
   reference list at the end of the card.
+- On a research board the evidence bar is higher and the rules live in
+  `research-flow.md`: every reading note carries a verbatim quotation in the
+  source's own language, and an argument card must land one in its own sentence
+  rather than leave it downstairs in the note.
 
 ## Formatting
 
