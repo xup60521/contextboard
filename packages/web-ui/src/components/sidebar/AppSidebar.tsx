@@ -85,7 +85,7 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 		<footer className="mt-auto shrink-0 border-t border-[var(--border)] p-2">
 			{account ? (
 				<div className="flex flex-col gap-1.5">
-					<div className="group flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-[var(--accent)]/50">
+					<div className="group flex items-center gap-3 rounded-md px-1 py-1 transition-colors hover:bg-[var(--accent)]/50">
 						<span className="relative flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[10px] font-semibold text-[var(--card-foreground)]">
 							{initialsOf(account)}
 							<span
