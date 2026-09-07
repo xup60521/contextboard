@@ -3,7 +3,7 @@
   "switches": {
     "target-doc": ".agentflow/devlog.md",
     "workspace-dir": ".agentflow",
-    "cli-provider": "off",
+    "cli-provider": "on",
     "auto-reply": "on",
     "lang": "en",
     "streams": "ask",
