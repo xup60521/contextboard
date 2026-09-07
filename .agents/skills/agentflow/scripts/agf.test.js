@@ -388,6 +388,27 @@ test('new places a stream below the configured workspace directory', () => {
 	}
 })
 
+test('new links local environment files from the main checkout', () => {
+	const { dir } = make_repo()
+	try {
+		const app = path.join(dir, 'apps', 'web')
+		fs.mkdirSync(app, { recursive: true })
+		fs.writeFileSync(path.join(app, '.env.local'), 'LOCAL_SECRET=test\n')
+		fs.writeFileSync(path.join(app, '.env.production'), 'PRODUCTION_SECRET=test\n')
+		fs.writeFileSync(path.join(app, '.env.example'), 'EXAMPLE=true\n')
+
+		const worktree = open_stream(dir, 'Environment links')
+		for (const name of ['.env.local', '.env.production']) {
+			const linked = path.join(worktree, 'apps', 'web', name)
+			assert.equal(fs.lstatSync(linked).isSymbolicLink(), true)
+			assert.equal(fs.realpathSync(linked), fs.realpathSync(path.join(app, name)))
+		}
+		assert.equal(fs.existsSync(path.join(worktree, 'apps', 'web', '.env.example')), false)
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true })
+	}
+})
+
 const commit_stream_file = (run, wt, file, content, message = 'feature work') => {
 	const target = path.join(wt, file)
 	fs.mkdirSync(path.dirname(target), { recursive: true })

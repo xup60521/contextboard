@@ -55,6 +55,8 @@ const status_block = text => {
   return text.slice(0, end).trimEnd()
 }
 
+const normalize_newlines = text => text.replaceAll('\r\n', '\n')
+
 const final_ask_span = text => {
   const matches = [...text.matchAll(/^# → Ask \/ (A-\d+)$/gmu)]
   if (matches.length === 0) return null
@@ -129,7 +131,7 @@ const collect_intake = ({ repo_root = process.cwd(), notebook_path, active_host 
 	const config_path = relative_notebook === root_config.switches['target-doc'] ? root_config_path : settings.resolve_config_path(root, relative_notebook)
   const config = settings.read_json_config(config_path, { repo_root: root, notebook_path: relative_notebook, active_host })
   const bounded = read_bounded(notebook)
-  const text = bounded.complete ? bounded.text : bounded.tail
+  const text = normalize_newlines(bounded.complete ? bounded.text : bounded.tail)
   const current_ask = final_ask(text)
   if (!bounded.complete && current_ask === null) throw new Error(`current round exceeds the ${MAX_CURRENT_ROUND_BYTES}-byte fast-intake limit or has no complete final Ask boundary`)
   const changed = changed_paths(root)
@@ -144,7 +146,7 @@ const collect_intake = ({ repo_root = process.cwd(), notebook_path, active_host 
     changed_paths: changed,
     expected_owner_input: expected,
     stream_rulebook_required: changed.length > 0 && !expected,
-    status: status_block(bounded.complete ? text : bounded.head),
+    status: status_block(bounded.complete ? text : normalize_newlines(bounded.head)),
     current_ask,
   }
 }

@@ -1,0 +1,22 @@
+{
+  "implementation_commit": "0c51761",
+  "changed_files": [
+    ".agents/skills/agentflow/SKILL.md",
+    ".agents/skills/agentflow/scripts/ag-settings.js",
+    ".agents/skills/agentflow/scripts/agf.js",
+    ".agents/skills/agentflow/scripts/agf.test.js",
+    ".agents/skills/agentflow/scripts/external-runner.js",
+    ".agents/skills/agentflow/scripts/process-tree.js",
+    ".agents/skills/agentflow/scripts/resume-intake.js",
+    ".agents/skills/agentflow/scripts/resume-intake.test.js",
+    ".agents/skills/agentflow/scripts/setup.js",
+    ".agents/skills/agentflow/scripts/windows.test.js",
+    "ag.json"
+  ],
+  "changed_lines": 233,
+  "behavior_change": true,
+  "trust_boundary": false,
+  "broad_change": false,
+  "consequential_change": false,
+  "owner_control": "default"
+}

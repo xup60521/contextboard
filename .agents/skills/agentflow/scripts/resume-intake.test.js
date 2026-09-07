@@ -65,6 +65,18 @@ test('one intake result validates configuration and treats a newly written final
   }
 })
 
+test('intake accepts a notebook with Windows line endings', () => {
+  const directory = make_repo()
+  try {
+    fs.writeFileSync(path.join(directory, 'devlog.md'), notebook('inspect this request').replaceAll('\n', '\r\n'))
+    const result = intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' })
+    assert.deepEqual(result.current_ask, { id: 'A-001', text: '+ inspect this request' })
+    assert.match(result.status, /^# STATUS/m)
+  } finally {
+    drop(directory)
+  }
+})
+
 test('a change outside the notebook stays a foreign-work stream trigger', () => {
   const directory = make_repo()
   try {
