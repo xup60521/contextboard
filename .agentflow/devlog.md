@@ -4,19 +4,19 @@ Project: contextboard
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: 0c51761 — Windows/PowerShell support fc1ef65 and the cli-provider change 0c51761, both pushed to origin/main. Stream themeable-accents at 83decd9, pushed.
+Current commit: d79aa9b — Agentflow Windows worker launch and verified review records, pushed to origin/main.
 
-Tests/scenarios: Agentflow script suite run twice this round — 241 failures on the working tree against 247 on the committed baseline, zero regressions, three uninstall tests fixed; the suite is broadly red on Windows independently of any change. themeable-accents worktree bun run test --force 27 of 30 tasks. Live browser check of all eight accents in both appearances.
+Tests/scenarios: Agentflow focused suite 149 passed, 6 unrelated POSIX/distribution failures, 12 WSL-only skips. New regression tests 3 of 3. Real disposable-clone Codex launch and fresh PowerShell shortcut journey passed. Targeted cross-check PASS.
 
-Configuration: ag.json — schema v7; validated for claude this round.
+Configuration: ag.json — schema v7; Codex uses the shell-free Node worker wrapper; validated for codex.
 
-Proven: cli-provider is on since 0c51761, which is what makes any claude-family review dispatchable here. codex is installed only as npm shims with no native executable, so Agentflow cannot launch it on Windows, exactly as the restored SKILL.md Windows section states. The accent system resolves eight distinct --ring values and a different value per appearance for the same accent name, taking the darker Tailwind step in light and the lighter one in dark. main is red: six custom-shapes.test.tsx failures reproduce identically on main and on the themeable-accents worktree, so they are pre-existing and unrelated to accents.
+Proven: Agentflow intake validates; `agf` and `agf-looper` load in a fresh PowerShell; the external runner launches codex-cli 0.153.4 in an independent no-remote clone with closed stdin and no clone changes; dispatch failure metadata uses the current runner shape; Outcome, Minimality, and Conformance passed independent review.
 
-Open: main carries six failing custom-shapes.test.tsx tests from a missing useValue export on the tldraw mock, unfixed; the stale turbo cache that hid them is unaddressed and put a false claim in the A-001 STATUS; the two existing stream configurations still carry cli-provider off and must be changed from inside their own sessions; scripts/lint-board.ts stays modified and uncommitted by owner instruction; the card library virtualization plan is drafted but unimplemented; three A-001, four A-002 and four A-003 questions await answers; A-003 closed under owner-authorized skip-review; a dev server runs on port 3000 from the themeable-accents worktree; this round recorded no WIP checkpoints.
+Open: six upstream Agentflow tests still assume distribution-only docs or POSIX/WSL behavior. Existing stream artifacts and `stream-test.tmp.txt` remain foreign and untouched.
 
-Next: await the owner decision on fixing red main, then on the themeable-accents cross-check.
+Next: use Agentflow normally from a new PowerShell terminal.
 
-Artifacts: .agentflow/A-001-card-library-virtualization/ — design.md, review-brief.md, review-report.md, recheck-brief.md, recheck-report.md, cross-check-facts.json, recheck-facts.json. .agentflow/A-003-workspace-tidy/ — cross-check-facts.json.
+Artifacts: .agentflow/A-004-agentflow-smoothness/ — journey.md, cross-check-facts.json, review-brief.md, review-report.md, review-report.md.dispatch.json.
 
 Archived eras: none.
 
@@ -716,3 +716,48 @@ Make sure agentflow work smoothly in this codebase
 * Repeated the targeted cross-check after committing the exact journey and frozen facts. The unchanged implementation commit is `cb57770`.
 * Reviewer result: Outcome PASS, Minimality PASS, Conformance PASS. Focused regression tests are 3 of 3 and `ag.json` validates for Codex. Host gate: PASS.
 * Route correction: after the failed requirements attempts, direct evidence reduced the work to two reproduced defects with one bounded implementation. The completed direct route preserves the failed advisor diagnostics without claiming a full pipeline.
+
+# ← Reply / A-004
+
+* _2026-09-07 22:36:00 (gpt-5.6-sol/low)_
+
+## [SUMMARY]
+
+- Succeeded. Agentflow now launches Codex safely on Windows, records failed dispatches without crashing, and has working PowerShell shortcuts.
+- The real disposable-clone journey passed, and an independent targeted cross-check returned PASS for Outcome, Minimality, and Conformance.
+
+## [FINAL REPORT]
+
+### Make Agentflow run smoothly in this project
+
+Succeeded.
+
+The project no longer asks the safe worker runner to execute the Windows npm shim directly. `ag.json` now starts a small Node wrapper that finds the installed Codex JavaScript entrypoint on PATH, fails closed when it is absent, and forwards arguments without a shell. The review dispatcher now reads the current external-runner result fields and can preserve failure diagnostics instead of crashing while writing them.
+
+The managed PowerShell profile now defines `agf` and `agf-looper` and sets `AGF_OPEN=code`. The project Stop hooks and pre-commit devlog guard were already installed.
+
+Proof:
+
+- 3 of 3 new focused regression tests pass.
+- `agf settings validate` reports a valid schema-v7 Codex configuration.
+- The real external runner created an independent clone with no remotes, closed stdin, launched `codex-cli 0.153.4`, exited 0, and left the clone unchanged.
+- A fresh PowerShell process loaded both shortcuts.
+- Targeted independent review at `.agentflow/A-004-agentflow-smoothness/review-report.md`: Outcome PASS, Minimality PASS, Conformance PASS.
+
+The broader focused suite ran 167 tests: 149 passed, 12 WSL-only terminal tests skipped, and 6 failures remain from missing distribution-only documentation or existing POSIX/WSL assumptions. None exercises the repaired project path, and the independent review accepted that boundary.
+
+Implementation commit: `cb57770`. Verification records commit: `0680882`.
+
+Cross-check implementation: cb57770c549ed86cb84ae6185f87952c98d263aa
+
+Cross-check review: `.agentflow/A-004-agentflow-smoothness/review-report.md`
+
+## Questions (batched — each with a suggested default)
+
+- None.
+
+---
+
+# → Ask / A-005
+
++
