@@ -12,7 +12,7 @@ import {
 	parseWorkspaceId,
 	SyncProtocolError,
 } from "@contextboard/sync-protocol";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { type AllowedEmailSet, isAllowedUser } from "./access";
 import { AgentTokenError, parseAgentTokenName } from "./agent-tokens";
@@ -121,7 +121,7 @@ export function createSyncApp(
 		context.html(popupCompleteDocument()),
 	);
 
-	app.get("/api/auth/get-session", async (context) => {
+	const handleAllowlistedAuth = async (context: Context) => {
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
 		const response = await auth.handler(context.req.raw);
 		if (!allowedEmails || !response.ok) return response;
@@ -131,7 +131,8 @@ export function createSyncApp(
 		if (payload?.user && !isAllowedUser(payload.user, allowedEmails))
 			return context.json({ error: "Forbidden" }, 403);
 		return response;
-	});
+	};
+	app.get("/api/auth/get-session", handleAllowlistedAuth);
 
 	app.get("/api/auth/one-time-token/generate", async (context) => {
 		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
@@ -140,17 +141,7 @@ export function createSyncApp(
 		return auth.handler(context.req.raw);
 	});
 
-	app.post("/api/auth/one-time-token/verify", async (context) => {
-		if (!auth) return context.json({ error: "Auth is unavailable" }, 503);
-		const response = await auth.handler(context.req.raw);
-		if (!allowedEmails || !response.ok) return response;
-		const payload = (await response.clone().json().catch(() => null)) as {
-			user?: { email?: string | null; emailVerified?: boolean };
-		} | null;
-		if (payload?.user && !isAllowedUser(payload.user, allowedEmails))
-			return context.json({ error: "Forbidden" }, 403);
-		return response;
-	});
+	app.post("/api/auth/one-time-token/verify", handleAllowlistedAuth);
 
 	app.on(["POST", "GET"], "/api/auth/*", (context) =>
 		auth

@@ -83,23 +83,21 @@ export function createAgentHttpApp(
 						"Request body must be a JSON object",
 					);
 
-				if (pathname === "/api/v1/_skill") {
-					if (Object.keys(input).length)
-						return errorResponse(
-							400,
-							"INVALID_ARGUMENT",
-							"Discovery requests require an empty JSON object",
-						);
-					return skillResponse(info);
-				}
+				if (
+					(pathname === "/api/v1/_skill" ||
+						pathname === "/api/v1/_health" ||
+						pathname === "/api/v1/_tools") &&
+					Object.keys(input).length
+				)
+					return errorResponse(
+						400,
+						"INVALID_ARGUMENT",
+						"Discovery requests require an empty JSON object",
+					);
+
+				if (pathname === "/api/v1/_skill") return skillResponse(info);
 
 				if (pathname === "/api/v1/_health") {
-					if (Object.keys(input).length)
-						return errorResponse(
-							400,
-							"INVALID_ARGUMENT",
-							"Discovery requests require an empty JSON object",
-						);
 					return jsonResponse({
 						ok: true,
 						mode: info.mode,
@@ -109,12 +107,6 @@ export function createAgentHttpApp(
 					});
 				}
 				if (pathname === "/api/v1/_tools") {
-					if (Object.keys(input).length)
-						return errorResponse(
-							400,
-							"INVALID_ARGUMENT",
-							"Discovery requests require an empty JSON object",
-						);
 					return jsonResponse(
 						tools.map(({ name, description, inputSchema }) => ({
 							name,

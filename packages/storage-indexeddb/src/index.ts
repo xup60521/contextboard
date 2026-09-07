@@ -2,7 +2,7 @@ import {
 	type DomainCommand,
 	type DomainQuery,
 	describeDomainCommand,
-	describeRemoteBatches,
+	describeRemoteChanges,
 	recordContextboardPerf,
 	type WorkspaceChange,
 	type WorkspaceChangeFilter,
@@ -23,12 +23,6 @@ import {
 } from "@contextboard/local-db";
 import { executeEntityCommand, queryEntities } from "./entity-store";
 
-/**
- * IndexedDB implementation of the shared repository boundary: the same
- * allowlisted domain operations the Desktop SQLite backend serves, plus the
- * synchronization surface. Rich Web-only operations still live in the Web
- * application adapter.
- */
 /** Repository adapter for any local database implementing the shared table API. */
 export class LocalWorkspaceRepository implements WorkspaceRepository {
 	#listeners = new Set<{
@@ -119,13 +113,9 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
 			peerId,
 			nextCursor,
 		);
-		const changes = result.materializedChanges ?? [];
 		this.#emit({
 			origin: "remote",
-			changes:
-				changes.length > 0 && batches[0]
-					? describeRemoteBatches([{ ...batches[0], changes }])
-					: [],
+			changes: describeRemoteChanges(result.materializedChanges ?? []),
 		});
 		return result;
 	}

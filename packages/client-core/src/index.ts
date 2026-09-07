@@ -402,11 +402,11 @@ export class HttpSyncTransport implements SyncTransport {
 		};
 	}
 
-	private async request<T>(
+	async #fetch(
 		path: string,
 		init: RequestInit,
 		signal?: AbortSignal,
-	): Promise<T> {
+	): Promise<Response> {
 		const response = await fetch(`${this.#baseURL}${path}`, {
 			credentials: this.#credentials,
 			...init,
@@ -434,6 +434,14 @@ export class HttpSyncTransport implements SyncTransport {
 				redirectWorkspaceId,
 			);
 		}
+		return response;
+	}
+	private async request<T>(
+		path: string,
+		init: RequestInit,
+		signal?: AbortSignal,
+	): Promise<T> {
+		const response = await this.#fetch(path, init, signal);
 		if (response.status === 204) return null as T;
 		return response.json() as Promise<T>;
 	}
@@ -504,37 +512,15 @@ export class HttpSyncTransport implements SyncTransport {
 		descriptor: BlobDescriptor,
 		signal?: AbortSignal,
 	) {
-		const response = await fetch(
-			`${this.#baseURL}/api/sync/v1/blobs/${descriptor.hash}`,
+		const response = await this.#fetch(
+			`/api/sync/v1/blobs/${descriptor.hash}`,
 			{
-				credentials: this.#credentials,
-				headers: await this.#headers({
+				headers: {
 					"x-contextboard-workspace": workspaceId,
-				}),
-				signal,
+				},
 			},
+			signal,
 		);
-		if (!response.ok) {
-			const body = await response.text().catch(() => "");
-			let message = body;
-			let redirectWorkspaceId: string | undefined;
-			try {
-				const parsed = JSON.parse(body) as {
-					error?: unknown;
-					redirectWorkspaceId?: unknown;
-				};
-				if (typeof parsed.error === "string") message = parsed.error;
-				if (typeof parsed.redirectWorkspaceId === "string")
-					redirectWorkspaceId = parsed.redirectWorkspaceId;
-			} catch {
-				// Keep a non-JSON upstream error as-is.
-			}
-			throw new HttpSyncError(
-				response.status,
-				message || `Sync request failed (${response.status})`,
-				redirectWorkspaceId,
-			);
-		}
 		return response.blob();
 	}
 	getLatestCheckpoint(workspaceId: string, signal?: AbortSignal) {

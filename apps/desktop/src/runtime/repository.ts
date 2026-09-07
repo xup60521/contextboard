@@ -12,8 +12,6 @@ export type Invoke = (
 	args?: Record<string, unknown>,
 ) => Promise<unknown>;
 
-const defaultInvoke: Invoke = (command, args) => tauriInvoke(command, args);
-
 /** Native event subscription, injectable so tests need no Tauri host. */
 export type Listen = (
 	event: string,
@@ -56,7 +54,7 @@ export function toDesktopError(value: unknown): Error {
 export async function invokeDesktop<T>(
 	command: string,
 	args?: Record<string, unknown>,
-	invoke: Invoke = defaultInvoke,
+	invoke: Invoke = tauriInvoke,
 ): Promise<T> {
 	try {
 		return (await invoke(command, args)) as T;

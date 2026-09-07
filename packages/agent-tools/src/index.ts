@@ -172,6 +172,13 @@ function newShapeId(): string {
 
 export function createTools(services: ToolServices): ToolDefinition[] {
 	const { cards, whiteboards, canvas, relations } = services;
+	const readCanvasRecords = async (whiteboardId: string) => {
+		const document = await canvas.getDocument(whiteboardId);
+		return Object.values(
+			(document?.snapshot as { store?: Record<string, unknown> } | null)
+				?.store ?? {},
+		);
+	};
 	const createCard = async (input: Record<string, unknown>) => {
 		const text = requireString(input, "text");
 		const cardId = await cards.create({
@@ -234,11 +241,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		);
 		if (duplicate) return duplicate;
 
-		const document = await canvas.getDocument(whiteboardId);
-		const records = Object.values(
-			(document?.snapshot as { store?: Record<string, unknown> } | null)
-				?.store ?? {},
-		);
+		const records = await readCanvasRecords(whiteboardId);
 		const built = buildArrowRelationRecords({
 			sourceShapeId,
 			targetShapeId,
@@ -679,11 +682,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 				if (!relation) return { deleted: false };
 
 				if (relation.arrowShapeId) {
-					const document = await canvas.getDocument(relation.whiteboardId);
-					const records = Object.values(
-						(document?.snapshot as { store?: Record<string, unknown> } | null)
-							?.store ?? {},
-					);
+					const records = await readCanvasRecords(relation.whiteboardId);
 					await canvas.applyRecordChanges({
 						whiteboardId: relation.whiteboardId,
 						added: [],
@@ -762,11 +761,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 
 				// Direction has to come from the arrows themselves: the relation index
 				// canonicalises its endpoints, so it cannot say which card is the parent.
-				const document = await canvas.getDocument(whiteboardId);
-				const records = Object.values(
-					(document?.snapshot as { store?: Record<string, unknown> } | null)
-						?.store ?? {},
-				);
+				const records = await readCanvasRecords(whiteboardId);
 				const edges: ArrangeEdge[] = [];
 				for (const relation of collectDirectedArrowRelations(records)) {
 					if (!itemByShapeId.has(relation.sourceShapeId)) continue;

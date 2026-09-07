@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "agentflow": {
+      "source": "agfnow/agentflow",
+      "sourceType": "github",
+      "skillPath": "skills/agentflow/SKILL.md",
+      "computedHash": "73d8b55f8724262cff168d1233af347e2997131d92f016ba2b7ddb8855b95521"
+    },
     "convex": {
       "source": "get-convex/agent-skills",
       "sourceType": "github",
@@ -41,7 +47,7 @@
       "source": "anthropics/skills",
       "sourceType": "github",
       "skillPath": "skills/frontend-design/SKILL.md",
-      "computedHash": "93f53fd1c0352d3d7ec17b8f73d7351bf76f4821e55d123c9d2abc2c53ba48e4"
+      "computedHash": "106acf230014cbb43ca34e6410371321b56ca742f9ee0442e8ec05bf02eb0384"
     },
     "grilling": {
       "source": "mattpocock/skills",

@@ -77,7 +77,7 @@ describe("agent-server loopback guard", () => {
 		).toMatchObject({ status: 405, code: "METHOD_NOT_ALLOWED" });
 	});
 
-	test("requires an empty object for the skill document", async () => {
+	test.each(["_skill", "_health", "_tools"])("requires an empty object for %s", async (name) => {
 		const app = createAgentHttpApp([tool], {
 			mode: "replica",
 			workspaceId: "workspace-1",
@@ -87,7 +87,7 @@ describe("agent-server loopback guard", () => {
 			skillEtag,
 		});
 		const response = await app.fetch(
-			guarded("/api/v1/_skill", {
+			guarded(`/api/v1/${name}`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ unexpected: true }),

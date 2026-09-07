@@ -401,7 +401,7 @@ export async function runLocalCommand<T>(
 			const nextCheckpointBytes =
 				(typeof checkpointBytes?.value === "number"
 					? checkpointBytes.value
-					: 0) + new TextEncoder().encode(JSON.stringify(batch)).byteLength;
+					: 0) + batchBytes;
 			await db.settings.bulkPut([
 				{
 					key: "checkpointChangeCount",
@@ -870,7 +870,6 @@ async function applyRemoteBatchChunk(
 	await db.transaction("rw", tables, async () => {
 		let newlyAppliedBatches = 0;
 		let newlyAppliedBytes = 0;
-		const affectedWhiteboardIds = new Set<string>();
 		for (const batch of batches) {
 			if (await db.appliedChangeBatches.get(batch.changeId)) continue;
 			newlyAppliedBatches++;
@@ -997,8 +996,6 @@ async function applyRemoteBatchChunk(
 								x: placement.x + 48 * (index + 1),
 								y: placement.y + 48 * (index + 1),
 							} as never);
-							if (placement.whiteboardId)
-								affectedWhiteboardIds.add(placement.whiteboardId);
 						}
 						for (const reference of await db.cardReferences
 							.where("sourceCardId")
@@ -1063,23 +1060,6 @@ async function applyRemoteBatchChunk(
 							String(local.updatedByDeviceId ?? "") >= batch.deviceId)
 					)
 						continue;
-				}
-				if (change.entityType === "whiteboard") {
-					affectedWhiteboardIds.add(change.entityId);
-					const previousParent = local?.parentWhiteboardId;
-					const nextParent = materialized.parentWhiteboardId;
-					if (typeof previousParent === "string")
-						affectedWhiteboardIds.add(previousParent);
-					if (typeof nextParent === "string")
-						affectedWhiteboardIds.add(nextParent);
-				}
-				if (change.entityType === "boardItem") {
-					const previousBoard = local?.whiteboardId;
-					const nextBoard = materialized.whiteboardId;
-					if (typeof previousBoard === "string")
-						affectedWhiteboardIds.add(previousBoard);
-					if (typeof nextBoard === "string")
-						affectedWhiteboardIds.add(nextBoard);
 				}
 				await table.put(materialized);
 				applied++;
@@ -1146,7 +1126,6 @@ async function applyRemoteBatchChunk(
 				},
 			]);
 		}
-		// Counts are derived from active items and child whiteboards at read time.
 	});
 	return { applied, conflicts, materializedChanges };
 }

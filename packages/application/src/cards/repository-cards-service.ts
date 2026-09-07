@@ -178,7 +178,7 @@ export function createRepositoryCardsService(
 	const createId = options.createId ?? (() => crypto.randomUUID());
 	const deviceId = options.deviceId ?? "";
 
-	async function read(cardId: string): Promise<CardEntity | null> {
+	async function read(cardId: string) {
 		const [rawCard, rawContent] = await Promise.all([
 			repository.query({ type: "cards.get", input: { id: cardId } }),
 			repository.query<unknown>({
@@ -201,7 +201,7 @@ export function createRepositoryCardsService(
 					}
 				: rawCard,
 		);
-		return row && isActive(row) ? row : null;
+		return { card: row && isActive(row) ? row : null, contentRow };
 	}
 
 	async function listCards(
@@ -239,12 +239,13 @@ export function createRepositoryCardsService(
 		cardIds: readonly string[],
 	): Promise<CardDetailContext> {
 		const wanted = new Set(cardIds);
+		const ids = [...wanted];
 		const [rows, contentRows, items, references] = await Promise.all([
-			listRows(repository, "cards", { ids: [...wanted] }),
-			listRows(repository, "cardContents", { cardIds: [...wanted] }),
-			listRows(repository, "items", { cardIds: [...wanted] }),
+			listRows(repository, "cards", { ids }),
+			listRows(repository, "cardContents", { cardIds: ids }),
+			listRows(repository, "items", { cardIds: ids }),
 			listRows(repository, "cardReferences", {
-				targetCardIds: [...wanted],
+				targetCardIds: ids,
 			}),
 		]);
 
@@ -262,10 +263,6 @@ export function createRepositoryCardsService(
 			const sourceCardId = String(reference.sourceCardId ?? "");
 			if (sourceCardId) sourceIds.add(sourceCardId);
 		}
-		const sources =
-			sourceIds.size > 0
-				? await listRows(repository, "cards", { ids: [...sourceIds] })
-				: [];
 		const activeItems = items.filter(isActiveRow);
 		const placedBoardIds = [
 			...new Set(
@@ -274,9 +271,14 @@ export function createRepositoryCardsService(
 				),
 			),
 		];
-		const placedBoards = placedBoardIds.length
-			? await listRows(repository, "whiteboards", { ids: placedBoardIds })
-			: [];
+		const [sources, placedBoards] = await Promise.all([
+			sourceIds.size > 0
+				? listRows(repository, "cards", { ids: [...sourceIds], projection: "summary" })
+				: [],
+			placedBoardIds.length
+				? listRows(repository, "whiteboards", { ids: placedBoardIds })
+				: [],
+		]);
 		const ancestorIds = [
 			...new Set(
 				placedBoards.flatMap((board) =>
@@ -481,7 +483,7 @@ export function createRepositoryCardsService(
 		for (const cardId of cardIds) {
 			// Re-read on every iteration so a batch append sees the placements it
 			// just made and auto-placement does not collide with itself.
-			const [card, items] = await Promise.all([
+			const [{ card }, items] = await Promise.all([
 				read(cardId),
 				listRows(repository, "items"),
 			]);
@@ -633,15 +635,8 @@ export function createRepositoryCardsService(
 			const normalizedSerialized =
 				serializedContent ?? serializeCardContent(normalizedContent);
 			return withRetry(async () => {
-				const row = await read(cardId);
+				const { card: row, contentRow } = await read(cardId);
 				if (!row) throw new Error("Card not found");
-				const contentRow = await repository.query<Record<
-					string,
-					unknown
-				> | null>({
-					type: "cardContents.get",
-					input: { id: cardId },
-				});
 				if (
 					typeof expectedVersion === "number" &&
 					expectedVersion !== row.contentVersion

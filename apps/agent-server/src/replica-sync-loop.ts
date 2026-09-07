@@ -13,7 +13,6 @@ export type ReplicaSyncLoopOptions = {
 export function startReplicaSyncLoop(options: ReplicaSyncLoopOptions) {
 	const intervalMs = Math.max(1, options.intervalMs ?? 2_000);
 	let stopped = false;
-	let running = false;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 
 	const schedule = (delay: number) => {
@@ -25,8 +24,7 @@ export function startReplicaSyncLoop(options: ReplicaSyncLoopOptions) {
 	};
 
 	const run = async () => {
-		if (stopped || running) return;
-		running = true;
+		if (stopped) return;
 		let failed = false;
 		try {
 			await options.sync();
@@ -34,7 +32,6 @@ export function startReplicaSyncLoop(options: ReplicaSyncLoopOptions) {
 			failed = true;
 			options.onError?.(error);
 		} finally {
-			running = false;
 			schedule(
 				failed ? (options.retryDelay?.() ?? intervalMs) : intervalMs,
 			);

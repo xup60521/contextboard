@@ -53,13 +53,14 @@ function createAuthConfiguration(root: string): AuthConfiguration {
 export async function createBrowserSession(
 	auth: Awaited<ReturnType<typeof createContextboardAuth>>,
 	email: string,
+	emailVerified = true,
 ) {
 	const context = await auth.$context;
 	const user = await context.internalAdapter.createUser({
 		id: crypto.randomUUID(),
 		name: "Test User",
 		email,
-		emailVerified: true,
+		emailVerified,
 		createdAt: new Date(),
 		updatedAt: new Date(),
 	});
@@ -72,13 +73,13 @@ export async function createBrowserSession(
 	return { user, browserHeaders: new Headers({ cookie }) };
 }
 
-export async function createFixture(email = "owner@example.com") {
+export async function createFixture(email = "owner@example.com", emailVerified = true) {
 	const root = mkdtempSync(join(tmpdir(), "contextboard-sync-int-"));
 	roots.push(root);
 	const auth = createContextboardAuth(createAuthConfiguration(root));
 	databases.push(auth.options.database as Database);
 	await migrateContextboardAuth(auth);
-	const owner = await createBrowserSession(auth, email);
+	const owner = await createBrowserSession(auth, email, emailVerified);
 	const store = new SyncStore(":memory:", join(root, "blobs"));
 	stores.push(store);
 	const appFor = (allowed: string) =>

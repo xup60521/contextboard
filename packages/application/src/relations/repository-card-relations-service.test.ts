@@ -62,6 +62,15 @@ describe("repository card relations capability", () => {
 			ordinal: null,
 			arrowShapeId: null,
 		});
+		await seed(repository, "cardRelation", {
+			id: "other-board-arrow",
+			whiteboardId: "other-board",
+			sourceCardId: "card-a",
+			targetCardId: "card-b",
+			relation: "related",
+			arrowShapeId: "other-arrow",
+		});
+		repository.queryLog.length = 0;
 		await relations.reconcileCanvasRelations({
 			whiteboardId: "board",
 			relations: [{ arrowShapeId: "arrow", cardIds: ["card-a", "card-b"] }],
@@ -71,7 +80,13 @@ describe("repository card relations capability", () => {
 			relations: [],
 		});
 
-		expect((await relations.list()).map((row) => row.id)).toEqual(["semantic"]);
+		expect(repository.queryLog.filter((query) => query.type === "cardRelations.list")).toEqual([
+			{ type: "cardRelations.list", input: { whiteboardId: "board" } },
+			{ type: "cardRelations.list", input: { whiteboardId: "board" } },
+		]);
+		expect((await relations.list()).map((row) => row.id)).toEqual(["other-board-arrow", "semantic"]);
+		expect((await relations.list({ whiteboardId: "board", cardId: "card-b" })).map((row) => row.id)).toEqual(["semantic"]);
+		expect(await relations.list({ cardId: "missing" })).toEqual([]);
 	});
 });
 

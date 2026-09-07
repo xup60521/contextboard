@@ -20,16 +20,23 @@ function StateProbe() {
 	return <p>{state.status}</p>;
 }
 
-function WorkspaceProbe({
-	onRepository,
-}: {
-	onRepository: (repository: unknown) => void;
-}) {
+function WorkspaceProbe() {
 	const state = useDesktopRuntime();
 	if (state.status !== "ready") return <p>{state.status}</p>;
-	onRepository(state.repository);
 	return (
 		<>
+			<p>Workspace: {state.workspaceId}</p>
+			<button type="button" onClick={() => void state.adoptWorkspaceId("remote")}>
+				Adopt workspace
+			</button>
+			<button
+				type="button"
+				onClick={() =>
+					void state.repository.query({ type: "cards.list", input: {} })
+				}
+			>
+				Read cards
+			</button>
 			<button type="button" onClick={() => void state.setWorkspaceId("remote")}>
 				Switch workspace
 			</button>
@@ -49,20 +56,6 @@ afterEach(() => {
 });
 
 describe("DesktopRuntimeProvider", () => {
-	test("reports ready when native SQLite storage is available", async () => {
-		const invoke = vi.fn(async () => ({
-			version: "0.0.0",
-			platform: "windows",
-			storageAvailable: true,
-		}));
-		render(
-			<DesktopRuntimeProvider invoke={invoke}>
-				<StateProbe />
-			</DesktopRuntimeProvider>,
-		);
-		expect(await screen.findByText("ready")).toBeTruthy();
-	});
-
 	test("becomes ready before a late listener resolves and cleans it up", async () => {
 		let resolveListen!: (stop: () => void) => void;
 		const listenPromise = new Promise<() => void>((resolve) => {
@@ -103,13 +96,9 @@ describe("DesktopRuntimeProvider", () => {
 		expect(await screen.findByText("error")).toBeTruthy();
 	});
 
-	test("switches workspace by rebuilding the repository without adopting it", async () => {
-		const calls: Array<{ command: string; args?: Record<string, unknown> }> =
-			[];
-		const repositories: unknown[] = [];
+	test.each(["Switch workspace", "Adopt workspace"])("%s persists the selection and scopes subsequent reads", async (action) => {
 		const invoke = vi.fn(
-			async (command: string, args?: Record<string, unknown>) => {
-				calls.push({ command, args });
+			async (command: string) => {
 				if (command === "desktop_bootstrap")
 					return {
 						version: "0.0.0",
@@ -122,28 +111,19 @@ describe("DesktopRuntimeProvider", () => {
 		);
 		render(
 			<DesktopRuntimeProvider invoke={invoke}>
-				<WorkspaceProbe
-					onRepository={(repository) => repositories.push(repository)}
-				/>
+				<WorkspaceProbe />
 			</DesktopRuntimeProvider>,
 		);
-		await screen.findByRole("button", { name: "Switch workspace" });
-		fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
-
-		await waitFor(() =>
-			expect(
-				calls.some(
-					(call) =>
-						call.command === "desktop_set_setting" &&
-						call.args?.value === "remote",
-				),
-			).toBe(true),
-		);
-		expect(calls.some((call) => call.command === "workspace_adopt")).toBe(
-			false,
-		);
-		expect(repositories.length).toBeGreaterThanOrEqual(2);
-		expect(repositories[0]).not.toBe(repositories.at(-1));
+		await screen.findByText("Workspace: local");
+		fireEvent.click(screen.getByRole("button", { name: action }));
+		await screen.findByText("Workspace: remote");
+		expect(invoke).toHaveBeenCalledWith("desktop_set_setting", { key: "workspaceId", value: "remote" });
+		expect(invoke.mock.calls.filter(([command]) => command === "workspace_adopt")).toHaveLength(action === "Adopt workspace" ? 1 : 0);
+		fireEvent.click(screen.getByRole("button", { name: "Read cards" }));
+		expect(invoke).toHaveBeenCalledWith("workspace_query", { workspaceId: "remote", query: { type: "cards.list" } });
+		invoke.mockClear();
+		fireEvent.click(screen.getByRole("button", { name: action }));
+		expect(invoke).not.toHaveBeenCalled();
 	});
 
 	test("cleans up a listener that resolves after a workspace switch", async () => {
@@ -152,9 +132,7 @@ describe("DesktopRuntimeProvider", () => {
 			(_event: string, _listener: () => void) =>
 				new Promise<() => void>((resolve) => resolvers.push(resolve)),
 		);
-		const calls: string[] = [];
 		const invoke = vi.fn(async (command: string) => {
-			calls.push(command);
 			if (command === "desktop_bootstrap")
 				return {
 					version: "0.0.0",
@@ -166,7 +144,7 @@ describe("DesktopRuntimeProvider", () => {
 		});
 		render(
 			<DesktopRuntimeProvider invoke={invoke}>
-				<WorkspaceProbe onRepository={() => undefined} />
+				<WorkspaceProbe />
 			</DesktopRuntimeProvider>,
 		);
 		await screen.findByRole("button", { name: "Switch workspace" });
@@ -180,11 +158,8 @@ describe("DesktopRuntimeProvider", () => {
 	});
 
 	test("deletes a non-active workspace through the native command", async () => {
-		const calls: Array<{ command: string; args?: Record<string, unknown> }> =
-			[];
 		const invoke = vi.fn(
-			async (command: string, args?: Record<string, unknown>) => {
-				calls.push({ command, args });
+			async (command: string) => {
 				if (command === "desktop_bootstrap")
 					return {
 						version: "0.0.0",
@@ -197,23 +172,15 @@ describe("DesktopRuntimeProvider", () => {
 		);
 		render(
 			<DesktopRuntimeProvider invoke={invoke}>
-				<WorkspaceProbe onRepository={() => undefined} />
+				<WorkspaceProbe />
 			</DesktopRuntimeProvider>,
 		);
 		await screen.findByRole("button", { name: "Delete workspace" });
 		fireEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
 
 		await waitFor(() =>
-			expect(
-				calls.some(
-					(call) =>
-						call.command === "workspace_delete" &&
-						call.args?.workspaceId === "stranded",
-				),
-			).toBe(true),
+			expect(invoke).toHaveBeenCalledWith("workspace_delete", { workspaceId: "stranded" }),
 		);
-		expect(calls.some((call) => call.command === "desktop_set_setting")).toBe(
-			false,
-		);
+		expect(invoke.mock.calls.some(([command]) => command === "desktop_set_setting")).toBe(false);
 	});
 });

@@ -1,7 +1,6 @@
 import {
 	type CanvasItem,
 	type CanvasRecordPatch,
-	fileSrc,
 	recordContextboardPerf,
 	useApplicationRuntime,
 	type WhiteboardBreadcrumb,
@@ -152,7 +151,7 @@ function toBoardItem(item: CanvasItem, workspaceId: string): BoardItemResult {
  */
 export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	const runtime = useApplicationRuntime();
-	const { canvas, whiteboards, files, cards } = runtime;
+	const { canvas, whiteboards, cards } = runtime;
 
 	const [whiteboard, setWhiteboard] = useState<
 		WhiteboardDetail | null | undefined
@@ -336,11 +335,6 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			requireCanvas().createSubwhiteboardItem(input),
 		[requireCanvas],
 	);
-	const updateItemFrame = useCallback(
-		(input: Parameters<Canvas["updateItemFrame"]>[0]) =>
-			requireCanvas().updateItemFrame(input),
-		[requireCanvas],
-	);
 	const updateItemFrames = useCallback(
 		(input: Parameters<Canvas["updateItemFrames"]>[0]) =>
 			requireCanvas().updateItemFrames(input),
@@ -381,23 +375,6 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 			await cards.deleteMany(cardIds);
 		},
 		[cards],
-	);
-
-	// The shared asset store speaks the Web upload protocol. A platform whose
-	// blobs live behind FileRuntime has no pre-signed URL, so this sentinel
-	// tells the uploader to hand the File straight to `finalizeUpload`.
-	const generateUploadUrl = useCallback(async () => "contextboard-local:", []);
-	const finalizeUpload = useCallback(
-		async ({ file }: { storageId: Id<"_storage">; file?: File }) => {
-			if (!files || !file) throw new Error("This platform cannot store files");
-			const descriptor = await files.upload(file);
-			return {
-				fileId: descriptor.fileId as Id<"files">,
-				storageId: descriptor.fileId as Id<"_storage">,
-				url: fileSrc(descriptor.fileId),
-			};
-		},
-		[files],
 	);
 
 	// `usePaginatedQuery` semantics without the pagination: the repository
@@ -453,7 +430,6 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		reloadDocument,
 		createCardItem,
 		createSubwhiteboardItem,
-		updateItemFrame,
 		updateItemFrames,
 		completeItemHeightMeasurement,
 		archiveItem,
@@ -461,7 +437,5 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		archiveCardsGlobally,
 		restoreOrAdoptCardItem,
 		applyCanvasRecordChanges,
-		generateUploadUrl,
-		finalizeUpload,
 	};
 }

@@ -1,9 +1,10 @@
 import type { Editor, JSONContent } from "@tiptap/core";
-import { NodeSelection, type Transaction } from "@tiptap/pm/state";
+import { NodeSelection } from "@tiptap/pm/state";
 import { useEditor } from "@tiptap/react";
 import type { RefObject } from "react";
 import { createRichTextExtensions } from "../createRichTextExtensions";
 import { skipMathEditorAutoOpenMeta } from "../MarkdownPasteExtension";
+import { findInsertedMathSelection } from "../math-selection";
 import type {
 	MathSelection,
 	RichTextRuntimeRefs,
@@ -16,7 +17,6 @@ type UseRichTextEditorInstanceInput = {
 	runtimeRefs: RichTextRuntimeRefs;
 	openMathSelection: (selection: MathSelection | null) => void;
 	mathSelectionRef: RefObject<MathSelection | null>;
-	findInsertedMathSelection: (transaction: Transaction) => MathSelection | null;
 	syncImageInputFromTransaction: (editor: Editor) => void;
 	openLinkEditor: () => void;
 	onChange?: (value: JSONContent) => void;
@@ -29,7 +29,6 @@ export function useRichTextEditorInstance({
 	runtimeRefs,
 	openMathSelection,
 	mathSelectionRef,
-	findInsertedMathSelection,
 	syncImageInputFromTransaction,
 	openLinkEditor,
 	onChange,

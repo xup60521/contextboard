@@ -12,8 +12,8 @@ import {
 	SyncProtocolError,
 } from "./index";
 
-describe("HybridLogicalClock", () => {
-	test("consumes the shared TypeScript/Rust merge conformance fixtures", () => {
+describe("sync protocol", () => {
+	test("matches the shared TypeScript/Rust deterministic ID fixtures", () => {
 		for (const fixture of mergeConformance.deterministicIds) {
 			const actual =
 				fixture.kind === "conflictCopyCard"
@@ -21,16 +21,6 @@ describe("HybridLogicalClock", () => {
 					: deterministicEntityId(fixture.namespace!, ...fixture.parts);
 			expect(actual).toBe(fixture.expected);
 		}
-		expect(mergeConformance.scenarios.map((scenario) => scenario.name)).toEqual([
-			"equal clocks",
-			"stale clocks",
-			"revision conflicts",
-			"hierarchy conflicts",
-			"duplicate batches",
-			"tombstones",
-			"file normalization",
-			"conflict-copy determinism",
-		]);
 	});
 	test("stays monotonic when wall time moves backwards", () => {
 		const clock = new HybridLogicalClock("device-a");

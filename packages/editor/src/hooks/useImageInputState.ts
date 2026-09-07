@@ -30,7 +30,6 @@ export function useImageInputState() {
 
 	return {
 		imageInputPos,
-		imageInputPosRef,
 		syncFromEditorTransaction,
 		clearImageInput,
 	};

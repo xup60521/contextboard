@@ -39,7 +39,6 @@ export function RichTextEditor({
 		mathSelection,
 		mathSelectionRef,
 		openMathSelection,
-		findInsertedMathSelection,
 	} = useMathEditorState();
 	const {
 		imageInputPos,
@@ -56,7 +55,6 @@ export function RichTextEditor({
 		runtimeRefs,
 		openMathSelection,
 		mathSelectionRef,
-		findInsertedMathSelection,
 		syncImageInputFromTransaction,
 		openLinkEditor,
 		onChange,

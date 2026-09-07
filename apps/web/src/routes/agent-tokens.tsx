@@ -1,7 +1,6 @@
+import { Button, SidebarOpenButton } from "@contextboard/web-ui";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
-import { Button } from "#/components/ui/button";
 
 export const Route = createFileRoute("/agent-tokens")({
 	ssr: false,

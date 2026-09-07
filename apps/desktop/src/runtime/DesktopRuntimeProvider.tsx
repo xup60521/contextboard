@@ -168,27 +168,6 @@ export function DesktopRuntimeProvider({
 	}, [connectRepository, invoke]);
 
 	/**
-	 * Moves this device onto a server-issued workspace id. The repository is
-	 * bound to its workspace at construction, so it is rebuilt here.
-	 */
-	const adoptWorkspaceId = useCallback(
-		async (nextWorkspaceId: string) => {
-			if (state.status !== "ready" || state.workspaceId === nextWorkspaceId)
-				return;
-			await state.repository.adopt(nextWorkspaceId);
-			await writeDesktopSetting("workspaceId", nextWorkspaceId, invoke);
-			const repository = createDesktopRepository(nextWorkspaceId, invoke);
-			connectRepository(repository);
-			setState((current) =>
-				current.status === "ready"
-					? { ...current, workspaceId: nextWorkspaceId, repository }
-					: current,
-			);
-		},
-		[connectRepository, invoke, state],
-	);
-
-	/**
 	 * Selects a workspace without moving any rows. Each repository is bound to
 	 * its id, so switching tears down the old listener and creates a new adapter.
 	 */
@@ -206,6 +185,16 @@ export function DesktopRuntimeProvider({
 			);
 		},
 		[connectRepository, invoke, state],
+	);
+
+	const adoptWorkspaceId = useCallback(
+		async (nextWorkspaceId: string) => {
+			if (state.status !== "ready" || state.workspaceId === nextWorkspaceId)
+				return;
+			await state.repository.adopt(nextWorkspaceId);
+			await setWorkspaceId(nextWorkspaceId);
+		},
+		[setWorkspaceId, state],
 	);
 
 	const mergeWorkspace = useCallback(

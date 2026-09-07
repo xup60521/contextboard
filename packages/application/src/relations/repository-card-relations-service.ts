@@ -1,7 +1,7 @@
 import type { WorkspaceRepository } from "@contextboard/client-core";
 import { isCardRelationKind } from "@contextboard/domain";
 import { HybridLogicalClock } from "@contextboard/sync-protocol";
-import { applyWrites, isActiveRow, listRows } from "../repository/entities";
+import { applyWrites, getRow, isActiveRow, listRows } from "../repository/entities";
 import type {
 	CardRelationKind,
 	CardRelationSummary,
@@ -40,7 +40,7 @@ function toSummary(row: Record<string, unknown>): CardRelationSummary | null {
 		whiteboardId: row.whiteboardId,
 		sourceCardId: row.sourceCardId,
 		targetCardId: row.targetCardId,
-		relation: row.relation as CardRelationKind,
+		relation: row.relation,
 		ordinal: typeof row.ordinal === "number" ? row.ordinal : null,
 		arrowShapeId:
 			typeof row.arrowShapeId === "string" ? row.arrowShapeId : null,
@@ -59,21 +59,14 @@ export function createRepositoryCardRelationsService(
 
 	return {
 		async list(input = {}) {
-			const rows = await listRows(repository, "cardRelations");
+			const rows = await listRows(repository, "cardRelations", {
+				...(input.whiteboardId ? { whiteboardId: input.whiteboardId } : {}),
+				...(input.cardId ? { cardIds: [input.cardId] } : {}),
+			});
 			return rows
 				.filter(isActiveRow)
 				.map(toSummary)
-				.filter((row): row is CardRelationSummary => row !== null)
-				.filter(
-					(row) =>
-						!input.whiteboardId || row.whiteboardId === input.whiteboardId,
-				)
-				.filter(
-					(row) =>
-						!input.cardId ||
-						row.sourceCardId === input.cardId ||
-						row.targetCardId === input.cardId,
-				);
+				.filter((row): row is CardRelationSummary => row !== null);
 		},
 
 		async create(input) {
@@ -87,16 +80,15 @@ export function createRepositoryCardRelationsService(
 				throw new Error("ordinal must be a non-negative integer or null");
 
 			return withRetry(async () => {
-				const [boards, cards, relationRows] = await Promise.all([
-					listRows(repository, "whiteboards"),
-					listRows(repository, "cards"),
-					listRows(repository, "cardRelations"),
+				const [board, cards, relationRows] = await Promise.all([
+					getRow(repository, "whiteboards", input.whiteboardId),
+					listRows(repository, "cards", {
+						ids: [input.sourceCardId, input.targetCardId],
+						projection: "summary",
+					}),
+					listRows(repository, "cardRelations", { whiteboardId: input.whiteboardId }),
 				]);
-				if (
-					!boards.some(
-						(row) => row.id === input.whiteboardId && isActiveRow(row),
-					)
-				)
+				if (!board || !isActiveRow(board))
 					throw new Error(`Whiteboard not found: ${input.whiteboardId}`);
 				const activeCards = new Set(
 					cards.filter(isActiveRow).map((row) => row.id),
@@ -171,7 +163,7 @@ export function createRepositoryCardRelationsService(
 					ordinal,
 					arrowShapeId,
 					revision: (tombstone?.revision ?? 0) + 1,
-					createdAt: (tombstone?.createdAt as number) ?? timestamp,
+					createdAt: tombstone?.createdAt ?? timestamp,
 					updatedAt: timestamp,
 				};
 			});
@@ -179,8 +171,7 @@ export function createRepositoryCardRelationsService(
 
 		async archive(input) {
 			await withRetry(async () => {
-				const rows = await listRows(repository, "cardRelations");
-				const row = rows.find((candidate) => candidate.id === input.relationId);
+				const row = await getRow(repository, "cardRelations", input.relationId);
 				if (!row || !isActiveRow(row)) return;
 				await applyWrites(repository, "cardRelations.archive", [
 					{
@@ -195,17 +186,16 @@ export function createRepositoryCardRelationsService(
 
 		async reconcileCanvasRelations(input) {
 			await withRetry(async () => {
-				const [boards, cards, relationRows] = await Promise.all([
-					listRows(repository, "whiteboards"),
-					listRows(repository, "cards"),
-					listRows(repository, "cardRelations"),
+				const [board, cards, relationRows] = await Promise.all([
+					getRow(repository, "whiteboards", input.whiteboardId),
+					listRows(repository, "cards", {
+						ids: [...new Set(input.relations.flatMap((relation) => relation.cardIds))],
+						projection: "summary",
+					}),
+					listRows(repository, "cardRelations", { whiteboardId: input.whiteboardId }),
 				]);
-				if (
-					!boards.some(
-						(row) => row.id === input.whiteboardId && isActiveRow(row),
-					)
-				)
-					return;
+				if (!board || !isActiveRow(board)) return;
+				const relationById = new Map(relationRows.map((row) => [row.id, row]));
 				const activeCards = new Set(
 					cards.filter(isActiveRow).map((row) => row.id),
 				);
@@ -251,7 +241,7 @@ export function createRepositoryCardRelationsService(
 						row.targetCardId === targetCardId
 					)
 						continue;
-					const current = relationRows.find((candidate) => candidate.id === id);
+					const current = relationById.get(id);
 					writes.push({
 						entity: "cardRelation",
 						operation: "upsert",

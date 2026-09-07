@@ -46,7 +46,7 @@ export function createRootTab(now = Date.now()): SidebarTab {
 		key: whiteboardTabKey(null),
 		kind: "whiteboard",
 		id: null,
-		title: "Root whiteboard",
+		title: "Root Whiteboard",
 		pinned: true,
 		order: 0,
 		lastActiveAt: now,
@@ -77,7 +77,7 @@ export function getSidebarTabKey(kind: SidebarTabKind, id: string | null) {
 
 export function getDefaultTabTitle(kind: SidebarTabKind, id: string | null) {
 	if (kind === "whiteboard") {
-		return id === null ? "Root whiteboard" : "Whiteboard";
+		return id === null ? "Root Whiteboard" : "Whiteboard";
 	}
 
 	return "Card";
@@ -92,7 +92,7 @@ export function ensureRootTab(tabs: SidebarTab[], now = Date.now()) {
 						...tab,
 						kind: "whiteboard" as const,
 						id: null,
-						title: "Root whiteboard",
+						title: "Root Whiteboard",
 						pinned: true,
 						order: 0,
 					}
@@ -180,7 +180,7 @@ export function normalizeTabs(tabs: SidebarTab[], now = Date.now()) {
 				...tab,
 				kind: "whiteboard",
 				id: null,
-				title: "Root whiteboard",
+				title: "Root Whiteboard",
 				pinned: true,
 				order: 0,
 				lastActiveAt: Number.isFinite(tab.lastActiveAt)
@@ -239,7 +239,7 @@ export function openSidebarTab(
 					: {
 							...tab,
 							title: isRootTab(tab)
-								? "Root whiteboard"
+								? "Root Whiteboard"
 								: trimmedTitle.length > 0
 									? trimmedTitle
 									: tab.title,

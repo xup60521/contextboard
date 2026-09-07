@@ -1,5 +1,4 @@
 import { useCallback, useRef, useState } from "react";
-import { findInsertedMathSelection } from "../math-selection";
 import type { MathSelection } from "../RichTextEditor.types";
 
 export function useMathEditorState() {
@@ -17,6 +16,5 @@ export function useMathEditorState() {
 		mathSelection,
 		mathSelectionRef,
 		openMathSelection,
-		findInsertedMathSelection,
 	};
 }

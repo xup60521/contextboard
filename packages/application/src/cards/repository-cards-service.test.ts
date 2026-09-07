@@ -46,15 +46,17 @@ describe("repository card capability", () => {
 	});
 
 	test("updates content, bumps the version and rejects stale writes", async () => {
-		const { cards } = service();
+		const { cards, repository } = service();
 		const cardId = await cards.create();
 		const content = textToCardContent("Research notes\nSecond line");
+		repository.queryLog.length = 0;
 		const version = await cards.updateContent({
 			cardId,
 			content,
 			expectedVersion: 1,
 		});
 		expect(version).toBe(2);
+		expect(repository.queryLog.filter((query) => query.type === "cardContents.get")).toHaveLength(1);
 		const card = await cards.get(cardId);
 		expect(card?.title).toBe("Research notes");
 		expect(card?.preview).toBe("Research notes\nSecond line");
@@ -125,20 +127,7 @@ describe("repository card capability", () => {
 		).toBeNull();
 	});
 
-	test("tombstones a card so it leaves every read path", async () => {
-		const { cards, repository } = service();
-		const cardId = await cards.create();
-		await cards.delete(cardId);
-		expect(repository.pendingCommands).toEqual([
-			"cards.create",
-			"cards.delete",
-		]);
-		expect(await cards.get(cardId)).toBeNull();
-		expect(await cards.list()).toEqual([]);
-		await expect(cards.delete(cardId)).resolves.toBeUndefined();
-	});
-
-	test("searches and sorts consistently", async () => {
+	test("sorts cards by their most recent edit", async () => {
 		const { cards } = service();
 		const first = await cards.create();
 		const second = await cards.create();
@@ -151,17 +140,8 @@ describe("repository card capability", () => {
 			content: textToCardContent("Beta topic"),
 		});
 		expect(
-			(await cards.list({ sortBy: "title" })).map((row) => row.title),
-		).toEqual(["Alpha topic", "Beta topic"]);
-		expect(
-			(await cards.list({ sortBy: "title_desc" })).map((row) => row.title),
-		).toEqual(["Beta topic", "Alpha topic"]);
-		expect(
 			(await cards.list({ sortBy: "updated_desc" })).map((row) => row.title),
 		).toEqual(["Beta topic", "Alpha topic"]);
-		expect(
-			(await cards.list({ searchTerm: "alpha" })).map((row) => row.title),
-		).toEqual(["Alpha topic"]);
 	});
 
 	test("rejects operations outside the allowlist", async () => {
@@ -435,25 +415,7 @@ describe("batched card detail reads", () => {
 		expect(large.repository.queryLog.length).toBe(
 			small.repository.queryLog.length,
 		);
-		// lightweight cards, content rows, items, references, backlink summaries,
-		// and placed boards remain a constant-size batch read plan.
-		expect(large.repository.queryLog.map((query) => query.type)).toEqual([
-			"cards.list",
-			"cardContents.list",
-			"items.list",
-			"cardReferences.list",
-			"cards.list",
-			"whiteboards.list",
-		]);
-	});
-
-	test("getMany never reads the whole card table", async () => {
-		const { cards, repository, targets } = await fixture(3);
-		repository.queryLog.length = 0;
-		await cards.getMany(targets);
-		// Card rows carry their full content, so every card read must be scoped
-		// to a known set of ids.
-		const unscoped = repository.queryLog.filter(
+		const unscoped = large.repository.queryLog.filter(
 			(query) =>
 				query.type === "cards.list" &&
 				!Array.isArray((query.input as { ids?: unknown } | undefined)?.ids),

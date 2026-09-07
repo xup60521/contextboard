@@ -6,7 +6,7 @@ describe("replica sync loop", () => {
 		vi.useRealTimers();
 	});
 
-	test("polls on a recursive timer without overlapping sync runs", async () => {
+	test.each([false, true])("does not overlap sync runs or reschedule after stop, in flight: %s", async (stopInFlight) => {
 		vi.useFakeTimers();
 		let releaseFirst!: () => void;
 		const firstSync = new Promise<void>((resolve) => {
@@ -24,13 +24,14 @@ describe("replica sync loop", () => {
 		await vi.advanceTimersByTimeAsync(10_000);
 		expect(sync).toHaveBeenCalledTimes(1);
 
+		if (stopInFlight) stop();
 		releaseFirst();
 		await vi.advanceTimersByTimeAsync(2_000);
-		expect(sync).toHaveBeenCalledTimes(2);
+		expect(sync).toHaveBeenCalledTimes(stopInFlight ? 1 : 2);
 
 		stop();
 		await vi.advanceTimersByTimeAsync(10_000);
-		expect(sync).toHaveBeenCalledTimes(2);
+		expect(sync).toHaveBeenCalledTimes(stopInFlight ? 1 : 2);
 	});
 
 	test("uses retry delay after a failed sync and stops cleanly", async () => {

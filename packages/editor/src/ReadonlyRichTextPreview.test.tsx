@@ -42,138 +42,6 @@ const HEADING_CONTENT: JSONContent = {
 	],
 };
 
-const INLINE_MATH_CONTENT: JSONContent = {
-	type: "doc",
-	content: [
-		{
-			type: "paragraph",
-			content: [
-				{ type: "text", text: "Formula: " },
-				{
-					type: "inlineMath",
-					attrs: { latex: "E=mc^2" },
-				},
-			],
-		},
-	],
-};
-
-const TABLE_CONTENT: JSONContent = {
-	type: "doc",
-	content: [
-		{
-			type: "table",
-			content: [
-				{
-					type: "tableRow",
-					content: [
-						{
-							type: "tableHeader",
-							content: [
-								{
-									type: "paragraph",
-									content: [{ type: "text", text: "Name" }],
-								},
-							],
-						},
-						{
-							type: "tableHeader",
-							content: [
-								{
-									type: "paragraph",
-									content: [{ type: "text", text: "Value" }],
-								},
-							],
-						},
-					],
-				},
-				{
-					type: "tableRow",
-					content: [
-						{
-							type: "tableCell",
-							content: [
-								{
-									type: "paragraph",
-									content: [{ type: "text", text: "Alpha" }],
-								},
-							],
-						},
-						{
-							type: "tableCell",
-							content: [
-								{
-									type: "paragraph",
-									content: [{ type: "text", text: "1" }],
-								},
-							],
-						},
-					],
-				},
-			],
-		},
-	],
-};
-
-const DETAILS_CONTENT: JSONContent = {
-	type: "doc",
-	content: [
-		{
-			type: "details",
-			attrs: { open: true },
-			content: [
-				{
-					type: "detailsSummary",
-					content: [{ type: "text", text: "More info" }],
-				},
-				{
-					type: "detailsContent",
-					content: [
-						{
-							type: "paragraph",
-							content: [{ type: "text", text: "Hidden answer" }],
-						},
-					],
-				},
-			],
-		},
-	],
-};
-
-const IMAGE_CONTENT: JSONContent = {
-	type: "doc",
-	content: [
-		{
-			type: "image",
-			attrs: {
-				src: "https://example.com/image.png",
-				alt: "Preview image",
-			},
-		},
-	],
-};
-
-const LINK_CONTENT: JSONContent = {
-	type: "doc",
-	content: [
-		{
-			type: "paragraph",
-			content: [
-				{
-					type: "text",
-					text: "Example",
-					marks: [
-						{
-							type: "link",
-							attrs: { href: "https://example.com" },
-						},
-					],
-				},
-			],
-		},
-	],
-};
-
 const CARD_REFERENCE_CONTENT: JSONContent = {
 	type: "doc",
 	content: [
@@ -216,15 +84,11 @@ afterEach(() => {
 	cleanup();
 });
 
+/**
+ * Node rendering lives in RichTextEditor and StaticRichTextRenderer tests. Only
+ * the props this wrapper pins down are worth covering here.
+ */
 describe("ReadonlyRichTextPreview", () => {
-	test("renders plain paragraphs", async () => {
-		render(<ReadonlyRichTextPreview content={PARAGRAPH_CONTENT} />);
-
-		await waitFor(() => {
-			expect(screen.getByText("Hello world")).not.toBeNull();
-		});
-	});
-
 	test("updates the rendered document when content changes", async () => {
 		const { rerender } = render(
 			<ReadonlyRichTextPreview content={PARAGRAPH_CONTENT} />,
@@ -243,67 +107,15 @@ describe("ReadonlyRichTextPreview", () => {
 		});
 	});
 
-	test("renders headings", async () => {
-		render(<ReadonlyRichTextPreview content={HEADING_CONTENT} />);
-
-		await waitFor(() => {
-			expect(
-				screen.getByRole("heading", { name: "Preview heading", level: 2 }),
-			).not.toBeNull();
-		});
-	});
-
-	test("renders tables without table-handle controls", async () => {
+	test("does not expose contenteditable=true", async () => {
 		const { container } = render(
-			<ReadonlyRichTextPreview content={TABLE_CONTENT} />,
+			<ReadonlyRichTextPreview content={PARAGRAPH_CONTENT} />,
 		);
 
 		await waitFor(() => {
-			expect(container.querySelector("table")).not.toBeNull();
-			expect(screen.getByText("Name")).not.toBeNull();
-			expect(screen.getByText("Alpha")).not.toBeNull();
-			expect(screen.queryByTestId("table-handles-overlay")).toBeNull();
-		});
-	});
-
-	test("renders details blocks in persisted open state", async () => {
-		render(<ReadonlyRichTextPreview content={DETAILS_CONTENT} />);
-
-		await waitFor(() => {
-			expect(screen.getByText("More info")).not.toBeNull();
-			expect(screen.getByText("Hidden answer")).not.toBeNull();
-		});
-	});
-
-	test("renders images", async () => {
-		const { container } = render(
-			<ReadonlyRichTextPreview content={IMAGE_CONTENT} />,
-		);
-
-		await waitFor(() => {
-			const image = container.querySelector("img[alt='Preview image']");
-			expect(image).not.toBeNull();
-			expect(image?.getAttribute("src")).toBe("https://example.com/image.png");
-		});
-	});
-
-	test("renders external links", async () => {
-		render(<ReadonlyRichTextPreview content={LINK_CONTENT} />);
-
-		await waitFor(() => {
-			const link = screen.getByRole("link", { name: "Example" });
-			expect(link).not.toBeNull();
-			expect(link.getAttribute("href")).toBe("https://example.com");
-		});
-	});
-
-	test("renders card-reference link marks", async () => {
-		render(<ReadonlyRichTextPreview content={CARD_REFERENCE_CONTENT} />);
-
-		await waitFor(() => {
-			const link = screen.getByRole("link", { name: "My Card" });
-			expect(link).not.toBeNull();
-			expect(link.getAttribute("href")).toBe("/cards/abc123");
+			const prosemirror = container.querySelector(".ProseMirror");
+			expect(prosemirror).not.toBeNull();
+			expect(prosemirror?.getAttribute("contenteditable")).toBe("false");
 		});
 	});
 
@@ -343,60 +155,5 @@ describe("ReadonlyRichTextPreview", () => {
 		fireEvent.click(link, { ctrlKey: true });
 		expect(onOpenWhiteboard).toHaveBeenCalledWith("board-1");
 		expect(onOpenPreview).not.toHaveBeenCalled();
-	});
-
-	test("does not open the math editor in readonly mode", async () => {
-		const { container } = render(
-			<ReadonlyRichTextPreview content={INLINE_MATH_CONTENT} />,
-		);
-
-		const inlineMath = await waitFor(() => {
-			const element = container.querySelector<HTMLElement>(
-				'[data-type="inline-math"]',
-			);
-			expect(element).not.toBeNull();
-			if (!element) {
-				throw new Error("Inline math was not rendered");
-			}
-			return element;
-		});
-
-		fireEvent.click(inlineMath);
-		expect(screen.queryByText("Inline math - LaTeX")).toBeNull();
-	});
-
-	test("does not expose contenteditable=true", async () => {
-		const { container } = render(
-			<ReadonlyRichTextPreview content={PARAGRAPH_CONTENT} />,
-		);
-
-		await waitFor(() => {
-			const prosemirror = container.querySelector(".ProseMirror");
-			expect(prosemirror).not.toBeNull();
-			expect(prosemirror?.getAttribute("contenteditable")).toBe("false");
-		});
-	});
-
-	test("renders with custom className", async () => {
-		const { container } = render(
-			<ReadonlyRichTextPreview
-				content={PARAGRAPH_CONTENT}
-				className="custom-class"
-			/>,
-		);
-
-		await waitFor(() => {
-			expect(container.querySelector(".custom-class")).not.toBeNull();
-		});
-	});
-
-	test("renders empty content gracefully", async () => {
-		const { container } = render(<ReadonlyRichTextPreview content={null} />);
-
-		await waitFor(() => {
-			const prosemirror = document.querySelector(".ProseMirror");
-			expect(prosemirror).not.toBeNull();
-			expect(container.querySelector(".is-editor-empty")).toBeNull();
-		});
 	});
 });

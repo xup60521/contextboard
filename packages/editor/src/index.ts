@@ -33,4 +33,3 @@ export {
 	setExternalLinkOpener,
 } from "./link/external-link";
 export type { UploadedImage } from "./ImageUpload";
-export { uploadImageLocally } from "./ImageUpload";

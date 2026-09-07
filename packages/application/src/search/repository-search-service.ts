@@ -70,21 +70,19 @@ export function createRepositorySearchService(
 			const cardIds = activeCards.map((card) => card.id);
 			const whiteboardIds = activeWhiteboards.map((board) => board.id);
 			const [cardContents, cardItems, whiteboardItems] = await Promise.all([
-				cardIds.length
-					? listRows(repository, "cardContents", { cardIds })
-					: Promise.resolve([]),
+				cardIds.length ? listRows(repository, "cardContents", { cardIds }) : [],
 				localItems !== null
-					? Promise.resolve(localItems)
+					? localItems
 					: cardIds.length
 						? listRows(repository, "items", { cardIds })
-						: Promise.resolve([]),
+						: [],
 				localItems !== null
-					? Promise.resolve(localItems)
+					? localItems
 					: whiteboardIds.length
 						? listRows(repository, "items", {
 								childWhiteboardIds: whiteboardIds,
 							})
-						: Promise.resolve([]),
+						: [],
 			]);
 			const contentByCardId = new Map(
 				cardContents

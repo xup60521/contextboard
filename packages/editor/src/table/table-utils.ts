@@ -1,5 +1,4 @@
 import type { Editor } from "@tiptap/core";
-import type { ResolvedPos } from "@tiptap/pm/model";
 import type { Selection } from "@tiptap/pm/state";
 import {
 	CellSelection,
@@ -10,33 +9,10 @@ import {
 } from "@tiptap/pm/tables";
 import type { ActiveTableInfo } from "./types";
 
-export const TABLE_CELL_NODE_NAMES = new Set(["tableCell", "tableHeader"]);
-
 export function isTableCellSelection(
 	selection: Selection,
 ): selection is CellSelection {
 	return selection instanceof CellSelection;
-}
-
-export function hasAncestorNamed($pos: ResolvedPos, names: Set<string>) {
-	for (let depth = $pos.depth; depth >= 0; depth -= 1) {
-		if (names.has($pos.node(depth).type.name)) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
-export function isSelectionInsideTableCell(selection: Selection) {
-	if (selection instanceof CellSelection) {
-		return true;
-	}
-
-	return (
-		hasAncestorNamed(selection.$from, TABLE_CELL_NODE_NAMES) ||
-		hasAncestorNamed(selection.$to, TABLE_CELL_NODE_NAMES)
-	);
 }
 
 function getTableDom(editor: Editor, tablePos: number): HTMLElement | null {

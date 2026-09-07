@@ -3,10 +3,10 @@ import {
 	signInWithGitHubPopup,
 	useSession,
 } from "@contextboard/auth-client";
+import { Button } from "@contextboard/web-ui";
 import { createFileRoute } from "@tanstack/react-router";
 import { CheckCircle2, Github, Loader2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Button } from "#/components/ui/button";
 
 export const Route = createFileRoute("/desktop-auth")({
 	ssr: false,

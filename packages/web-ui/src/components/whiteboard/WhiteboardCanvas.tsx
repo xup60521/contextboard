@@ -142,14 +142,9 @@ export function WhiteboardCanvas({
 		archiveCardsGlobally,
 		restoreOrAdoptCardItem,
 		applyCanvasRecordChanges,
-		generateUploadUrl,
-		finalizeUpload,
 	} = useWhiteboardData(whiteboardId);
 
-	const assetStore = useWhiteboardAssetStore({
-		generateUploadUrl,
-		finalizeUpload,
-	});
+	const assetStore = useWhiteboardAssetStore();
 
 	// ── Editor instance ────────────────────────────────────────────────────────
 	const [editor, setEditor] = useState<import("tldraw").Editor | null>(null);

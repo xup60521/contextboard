@@ -1,7 +1,7 @@
 import { signInWithGitHubPopup, useSession } from "@contextboard/auth-client";
+import { Button } from "@contextboard/web-ui";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "#/components/ui/button";
 
 export const Route = createFileRoute("/device")({
 	ssr: false,

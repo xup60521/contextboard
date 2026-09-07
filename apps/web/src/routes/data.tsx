@@ -1,3 +1,4 @@
+import { Button, SidebarOpenButton } from "@contextboard/web-ui";
 import { createFileRoute } from "@tanstack/react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useRef, useState } from "react";
@@ -5,8 +6,6 @@ import {
 	ConflictInbox,
 	type ConflictResolution,
 } from "#/components/data/ConflictInbox";
-import { SidebarOpenButton } from "#/components/navigation/SidebarOpenButton";
-import { Button } from "#/components/ui/button";
 import {
 	exportLocalArchive,
 	importArchive,

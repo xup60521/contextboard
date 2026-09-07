@@ -135,6 +135,10 @@ describe("local database", () => {
 		});
 		expect(await db.todos.count()).toBe(1);
 		expect(await db.changeLog.count()).toBe(1);
+		const [batch] = await db.changeLog.toArray();
+		expect((await db.settings.get("checkpointChangeBytes"))?.value).toBe(
+			new TextEncoder().encode(JSON.stringify(batch)).byteLength,
+		);
 	});
 
 	test("rolls back a local command whose atomic sync batch is too large", async () => {

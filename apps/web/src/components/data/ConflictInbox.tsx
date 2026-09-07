@@ -1,6 +1,6 @@
 import type { ConflictRecord } from "@contextboard/sync-protocol";
+import { Button } from "@contextboard/web-ui";
 import { useEffect, useState } from "react";
-import { Button } from "#/components/ui/button";
 
 export type ConflictResolution = "keep-local" | "keep-remote" | "keep-both";
 

@@ -407,6 +407,17 @@ describe("HttpSyncTransport", () => {
 				status: 410,
 				redirectWorkspaceId: "canonical-workspace",
 			});
+			await expect(
+				new HttpSyncTransport().downloadBlob("old-workspace", {
+					hash: "a".repeat(64),
+					contentType: "image/png",
+					size: 1,
+				}),
+			).rejects.toMatchObject({
+				status: 410,
+				message: "Workspace has been merged",
+				redirectWorkspaceId: "canonical-workspace",
+			});
 		} finally {
 			globalThis.fetch = original;
 		}

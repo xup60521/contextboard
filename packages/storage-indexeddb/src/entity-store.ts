@@ -166,10 +166,12 @@ const BINDINGS: Record<string, EntityBinding> = {
 	},
 };
 
+const BINDINGS_BY_ENTITY = new Map(
+	Object.values(BINDINGS).map((binding) => [binding.entityType, binding]),
+);
+
 export const SUPPORTED_ENTITY_TYPES = Object.freeze(
-	Object.values(BINDINGS)
-		.map((binding) => binding.entityType)
-		.sort(),
+	[...BINDINGS_BY_ENTITY.keys()].sort(),
 );
 
 const QUERY_ACTIONS = new Set(["list", "get"]);
@@ -560,15 +562,9 @@ export async function executeEntityCommand(
 		!/^[a-z][a-zA-Z0-9]*\.[a-z][a-zA-Z0-9]*$/.test(request.type)
 	)
 		throw new InvalidDomainArgumentError("Invalid command type");
-	const byEntity = new Map(
-		Object.values(BINDINGS).map((candidate) => [
-			candidate.entityType,
-			candidate,
-		]),
-	);
 	const writes: NormalizedWrite[] = input?.writes
 		? input.writes.map((write) => {
-				const binding = byEntity.get(write.entity as SyncEntityType);
+				const binding = BINDINGS_BY_ENTITY.get(write.entity as SyncEntityType);
 				if (!binding)
 					throw new InvalidDomainArgumentError("Invalid entity type");
 				if (write.operation !== "upsert" && write.operation !== "delete")

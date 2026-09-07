@@ -76,8 +76,7 @@ export function DesktopApplicationRuntime({
 		[desktopSync.message, desktopSync.state],
 	);
 
-	if (!capabilities || !capabilities.whiteboards || !capabilities.canvas)
-		return null;
+	if (!capabilities) return null;
 
 	return (
 		<ApplicationSyncStatusProvider value={syncStatus}>

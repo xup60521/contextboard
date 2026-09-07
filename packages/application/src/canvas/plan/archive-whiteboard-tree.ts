@@ -1,5 +1,5 @@
+import { type EntityRow, isActiveRow } from "../../repository/entities";
 import type { EntityWrite } from "../../workspace";
-import { isActiveRow, type EntityRow } from "../../repository/entities";
 import { type Plan, tombstoneWrite, upsertWrite } from "../planner";
 
 export type ArchiveWhiteboardTreeSnapshot = {
@@ -106,12 +106,15 @@ export function planArchiveWhiteboardTree(
 		);
 	}
 
+	const deletedDocumentIds = new Set<string>();
 	for (const document of snapshot.tldrawDocuments) {
 		if (
 			isActiveRow(document) &&
 			boardIds.has(stringField(document, "whiteboardId") ?? "")
-		)
+		) {
 			writes.push(tombstoneWrite("tldrawDocument", document));
+			deletedDocumentIds.add(document.id);
+		}
 	}
 	for (const record of snapshot.canvasRecords) {
 		if (
@@ -128,15 +131,6 @@ export function planArchiveWhiteboardTree(
 			writes.push(tombstoneWrite("cardRelation", relation));
 	}
 
-	const deletedDocumentIds = new Set(
-		snapshot.tldrawDocuments
-			.filter(
-				(document) =>
-					isActiveRow(document) &&
-					boardIds.has(stringField(document, "whiteboardId") ?? ""),
-			)
-			.map((document) => document.id),
-	);
 	const activeFileReferences = snapshot.fileReferences.filter(isActiveRow);
 	const removedFileReferences = activeFileReferences.filter((reference) => {
 		const targetKey = stringField(reference, "targetKey");
@@ -156,13 +150,18 @@ export function planArchiveWhiteboardTree(
 			.map((reference) => stringField(reference, "fileId"))
 			.filter((fileId): fileId is string => fileId !== null),
 	);
-	for (const file of snapshot.files.filter(isActiveRow)) {
-		if (!affectedFileIds.has(file.id)) continue;
-		const refCount = activeFileReferences.filter(
-			(reference) =>
-				stringField(reference, "fileId") === file.id &&
-				!removedReferenceIds.has(reference.id),
-		).length;
+	const remainingReferencesByFileId = new Map<string, number>();
+	for (const reference of activeFileReferences) {
+		const fileId = stringField(reference, "fileId");
+		if (fileId === null || removedReferenceIds.has(reference.id)) continue;
+		remainingReferencesByFileId.set(
+			fileId,
+			(remainingReferencesByFileId.get(fileId) ?? 0) + 1,
+		);
+	}
+	for (const file of snapshot.files) {
+		if (!isActiveRow(file) || !affectedFileIds.has(file.id)) continue;
+		const refCount = remainingReferencesByFileId.get(file.id) ?? 0;
 		writes.push(
 			upsertWrite(
 				"file",

@@ -343,11 +343,15 @@ async function createSubwhiteboardItem(
 ): Promise<CreateSubwhiteboardResult> {
 	const { now, createId, deviceId } = resolve(options);
 	return withRetry(async () => {
-		const { boards } = await readBoardSnapshot(repository);
-		const parent = input.parentWhiteboardId
-			? (boards.find((row) => row.id === input.parentWhiteboardId) ?? null)
-			: null;
-		if (input.parentWhiteboardId && !parent) {
+		const [parent, children] = input.parentWhiteboardId
+			? await Promise.all([
+					getRow(repository, "whiteboards", input.parentWhiteboardId),
+					listRows(repository, "whiteboards", {
+						parentWhiteboardIds: [input.parentWhiteboardId],
+					}),
+				])
+			: [null, []];
+		if (input.parentWhiteboardId && (!parent || !isActiveRow(parent))) {
 			throw new Error(`Whiteboard not found: ${input.parentWhiteboardId}`);
 		}
 		const timestamp = now();
@@ -363,9 +367,7 @@ async function createSubwhiteboardItem(
 							pathKey: String(parent.pathKey ?? ""),
 						}
 					: null,
-				activeChildCount: parent
-					? boards.filter((row) => row.parentWhiteboardId === parent.id).length
-					: 0,
+				activeChildCount: children.filter(isActiveRow).length,
 			},
 			{
 				boardId: createId(),

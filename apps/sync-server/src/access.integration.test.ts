@@ -1,87 +1,25 @@
-import type { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
-	type AuthConfiguration,
-	createContextboardAuth,
-	migrateContextboardAuth,
-} from "@contextboard/auth";
-import { syncVersionHeaders } from "@contextboard/sync-protocol";
-import { serializeSignedCookie } from "better-call";
-import { parseAllowedEmails } from "./access";
-import { createSyncApp } from "./app";
-import { SyncStore } from "./store";
+	cleanupFixtures,
+	createFixture as createSyncFixture,
+	syncHeaders,
+} from "./integration-fixture";
 
-const roots: string[] = [];
-const databases: Database[] = [];
-const secret = "contextboard-auth-test-secret-at-least-32-bytes";
-
-afterEach(() => {
-	for (const database of databases.splice(0)) database.close();
-	for (const root of roots.splice(0)) {
-		try {
-			rmSync(root, { recursive: true, force: true });
-		} catch (error) {
-			if (
-				!(error instanceof Error) ||
-				!("code" in error) ||
-				error.code !== "EBUSY"
-			)
-				throw error;
-		}
-	}
-});
-
-function createAuthConfiguration(root: string): AuthConfiguration {
-	return {
-		databasePath: join(root, "auth.sqlite"),
-		baseURL: "http://localhost:3000",
-		trustedOrigins: ["http://localhost:3000"],
-		secret,
-		githubClientId: "test-client",
-		githubClientSecret: "test-secret",
-	};
-}
+afterEach(cleanupFixtures);
 
 async function createFixture(options: {
 	email: string;
 	emailVerified?: boolean;
 }) {
-	const root = mkdtempSync(join(tmpdir(), "contextboard-access-"));
-	roots.push(root);
-	const auth = createContextboardAuth(createAuthConfiguration(root));
-	databases.push(auth.options.database as Database);
-	await migrateContextboardAuth(auth);
-	const context = await auth.$context;
-	const user = await context.internalAdapter.createUser({
-		id: crypto.randomUUID(),
-		name: "Test User",
-		email: options.email,
-		emailVerified: options.emailVerified ?? true,
-		createdAt: new Date(),
-		updatedAt: new Date(),
-	});
-	const session = await context.internalAdapter.createSession(user.id);
-	const cookie = await serializeSignedCookie(
-		context.authCookies.sessionToken.name,
-		session.token,
-		secret,
+	const fixture = await createSyncFixture(
+		options.email,
+		options.emailVerified,
 	);
-	const headers = new Headers({ cookie });
-	const store = new SyncStore(":memory:", join(root, "blobs"));
-	const app = createSyncApp(store, auth, {
-		allowedEmails: parseAllowedEmails("owner@example.com"),
-	});
-	return { app, auth, headers, store };
-}
-
-function syncHeaders(headers: Headers) {
-	const result = new Headers(headers);
-	for (const [name, value] of Object.entries(syncVersionHeaders()))
-		result.set(name, value);
-	return result;
+	return {
+		app: fixture.appFor("owner@example.com"),
+		auth: fixture.auth,
+		headers: fixture.browserHeaders,
+	};
 }
 
 describe("email allowlist integration", () => {
@@ -92,7 +30,6 @@ describe("email allowlist integration", () => {
 			{ headers: syncHeaders(allowed.headers) },
 		);
 		expect(allowedResponse.status).toBe(200);
-		allowed.store.close();
 
 		const rejected = await createFixture({ email: "other@example.com" });
 		const rejectedResponse = await rejected.app.request(
@@ -101,7 +38,6 @@ describe("email allowlist integration", () => {
 		);
 		expect(rejectedResponse.status).toBe(403);
 		expect(await rejectedResponse.json()).toEqual({ error: "Forbidden" });
-		rejected.store.close();
 
 		const unverified = await createFixture({
 			email: "owner@example.com",
@@ -112,7 +48,6 @@ describe("email allowlist integration", () => {
 			{ headers: syncHeaders(unverified.headers) },
 		);
 		expect(unverifiedResponse.status).toBe(403);
-		unverified.store.close();
 	});
 
 	test("keeps workspace membership checks after email authorization", async () => {
@@ -122,7 +57,6 @@ describe("email allowlist integration", () => {
 			{ headers: syncHeaders(fixture.headers) },
 		);
 		expect(response.status).toBe(403);
-		fixture.store.close();
 	});
 
 	test("gates desktop session and one-time-token routes", async () => {
@@ -152,7 +86,6 @@ describe("email allowlist integration", () => {
 		);
 		expect(verify.status).toBe(403);
 		expect(verify.headers.get("set-auth-token")).toBeNull();
-		fixture.store.close();
 	});
 
 	test("allows the desktop handoff for an allowlisted user", async () => {
@@ -180,6 +113,5 @@ describe("email allowlist integration", () => {
 		);
 		expect(verified.status).toBe(200);
 		expect(verified.headers.get("set-auth-token")).toBeTruthy();
-		fixture.store.close();
 	});
 });

@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { DesktopWorkspaceRepository } from "./index";
 
 describe("DesktopWorkspaceRepository", () => {
-	test("exposes semantic IPC without SQL or filesystem paths", async () => {
+	test("forwards semantic queries and commands with the workspace ID", async () => {
 		const invoke = vi.fn(async (command: string) => {
 			if (command === "workspace_query") return [{ id: "card-1" }];
 			if (command === "workspace_execute") return "card-2";
@@ -29,13 +29,19 @@ describe("DesktopWorkspaceRepository", () => {
 			} as DomainCommand<string>),
 		).resolves.toBe("card-2");
 		expect(listener).toHaveBeenCalledOnce();
-		expect(invoke.mock.calls.map(([command]) => command)).toEqual([
-			"workspace_query",
-			"workspace_execute",
+		expect(invoke.mock.calls).toEqual([
+			[
+				"workspace_query",
+				{ workspaceId: "workspace-1", query: { type: "cards.list", input: {} } },
+			],
+			[
+				"workspace_execute",
+				{
+					workspaceId: "workspace-1",
+					command: { type: "cards.create", input: { title: "Desktop" } },
+				},
+			],
 		]);
-		expect(JSON.stringify(invoke.mock.calls)).not.toMatch(
-			/sql|filesystem|credential/i,
-		);
 	});
 
 	// A bridge write is another local writer, so it must both repaint and push.

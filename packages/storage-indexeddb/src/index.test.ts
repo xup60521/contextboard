@@ -172,33 +172,6 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 		expect(await database.todos.count()).toBe(1);
 	});
 
-	test("commits multiple entities as one atomic batch with one clock", async () => {
-		const { repository } = await makeRepository();
-		await repository.execute({
-			type: "canvas.createPair",
-			input: {
-				writes: [
-					{
-						entity: "card",
-						operation: "upsert",
-						id: "card-pair",
-						value: { derivedTitle: "Pair" },
-					},
-					{
-						entity: "boardItem",
-						operation: "upsert",
-						id: "item-pair",
-						value: { cardId: "card-pair", whiteboardId: "board-1" },
-					},
-				],
-			},
-		});
-		const [batch] = await repository.getPendingBatches(10);
-		expect(batch?.changes).toHaveLength(2);
-		expect(new Set(batch?.changes.map((change) => change.clock)).size).toBe(1);
-		expect(batch?.changes.map((change) => change.revision)).toEqual([1, 1]);
-	});
-
 	test("delivers structured changes only to matching subscriptions", async () => {
 		const { repository } = await makeRepository();
 		const cards = vi.fn();
@@ -416,10 +389,13 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 						derivedTitle: `Needle ${index}`,
 						plainText: "needle",
 						content: { large: "x".repeat(1_000) },
-						updatedAt: index + 1,
 					},
 				})),
 			},
+		});
+		await database.transaction("rw", database.cards, async () => {
+			for (let index = 0; index < 20; index++)
+				await database.cards.update(`search-${index}`, { updatedAt: index + 1 });
 		});
 		const fullTableRead = vi.spyOn(database.cards, "toArray");
 		const rows = await repository.query<Array<Record<string, unknown>>>({
@@ -427,11 +403,11 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 			input: { searchTerm: "needle", limit: 3, projection: "summary" },
 		});
 		expect(rows).toHaveLength(3);
-		expect(rows.map((row) => Number(row.updatedAt))).toEqual(
-			[...rows]
-				.map((row) => Number(row.updatedAt))
-				.sort((left, right) => right - left),
-		);
+		expect(rows.map((row) => row.id)).toEqual([
+			"search-19",
+			"search-18",
+			"search-17",
+		]);
 		expect(rows.every((row) => !("content" in row))).toBe(true);
 		expect(fullTableRead).not.toHaveBeenCalled();
 	});
@@ -547,6 +523,8 @@ describe("IndexedDbWorkspaceRepository conformance", () => {
 
 		const pending = await repository.getPendingBatches(10);
 		expect(pending).toHaveLength(1);
+		expect(pending[0]?.changes).toHaveLength(9);
+		expect(new Set(pending[0]?.changes.map((change) => change.clock)).size).toBe(1);
 		expect(
 			new Set(pending[0]?.changes.map((change) => change.entityType)),
 		).toEqual(

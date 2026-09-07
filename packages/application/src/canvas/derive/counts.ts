@@ -1,3 +1,5 @@
+import { isActiveRow } from "../../repository/entities";
+
 export type CountableBoardItem = {
 	whiteboardId: string | null;
 	kind: "card" | "subwhiteboard";
@@ -12,10 +14,6 @@ export type CountableWhiteboard = {
 	deletedAt: number | null;
 };
 
-const active = (row: { archivedAt?: number | null; deletedAt: number | null }) =>
-	row.deletedAt === null &&
-	(row.archivedAt === undefined || row.archivedAt === null);
-
 export function deriveWhiteboardCounts(
 	whiteboardId: string,
 	items: readonly CountableBoardItem[],
@@ -27,12 +25,12 @@ export function deriveWhiteboardCounts(
 		if (
 			item.whiteboardId === whiteboardId &&
 			item.kind === "card" &&
-			active(item)
+			isActiveRow(item)
 		)
 			cardCount++;
 	}
 	for (const board of whiteboards) {
-		if (board.parentWhiteboardId === whiteboardId && active(board))
+		if (board.parentWhiteboardId === whiteboardId && isActiveRow(board))
 			childWhiteboardCount++;
 	}
 	return { cardCount, childWhiteboardCount };
