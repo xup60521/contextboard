@@ -1,11 +1,20 @@
 import { Monitor, Moon, Palette, Sun } from "lucide-react";
+import { useAccent } from "../../hooks/useAccent.ts";
 import { useThemeMode } from "../../hooks/useThemeMode.ts";
-import { setThemeMode, type ThemeMode } from "../../lib/theme.ts";
+import {
+	ACCENTS,
+	type Accent,
+	setAccent,
+	setThemeMode,
+	type ThemeMode,
+} from "../../lib/theme.ts";
 import type { SettingsSection } from "./SettingsDialog.tsx";
 import {
 	SettingsChoice,
 	type SettingsChoiceOption,
 	SettingsRow,
+	SettingsSwatches,
+	type SettingsSwatchOption,
 } from "./SettingsPrimitives.tsx";
 
 export const themeOptions: ReadonlyArray<SettingsChoiceOption<ThemeMode>> = [
@@ -14,21 +23,43 @@ export const themeOptions: ReadonlyArray<SettingsChoiceOption<ThemeMode>> = [
 	{ value: "auto", label: "System", icon: Monitor },
 ];
 
+/** Accents name themselves; the label is the palette with a capital letter. */
+export const accentOptions: ReadonlyArray<SettingsSwatchOption<Accent>> =
+	ACCENTS.map((accent) => ({
+		value: accent,
+		label: accent[0].toUpperCase() + accent.slice(1),
+	}));
+
 function AppearanceSettings() {
 	const theme = useThemeMode();
+	const accent = useAccent();
 	return (
-		<SettingsRow
-			title="Theme"
-			description="Applies to the app and the whiteboard canvas."
-			control={
-				<SettingsChoice
-					label="Theme"
-					value={theme}
-					options={themeOptions}
-					onChange={setThemeMode}
-				/>
-			}
-		/>
+		<div className="flex flex-col gap-4">
+			<SettingsRow
+				title="Theme"
+				description="Applies to the app and the whiteboard canvas."
+				control={
+					<SettingsChoice
+						label="Theme"
+						value={theme}
+						options={themeOptions}
+						onChange={setThemeMode}
+					/>
+				}
+			/>
+			<SettingsRow
+				title="Accent"
+				description="Colours links, focus rings and selection."
+				control={
+					<SettingsSwatches
+						label="Accent"
+						value={accent}
+						options={accentOptions}
+						onChange={setAccent}
+					/>
+				}
+			/>
+		</div>
 	);
 }
 

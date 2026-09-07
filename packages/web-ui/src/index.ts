@@ -14,14 +14,22 @@ export {
 	setExternalLinkOpener,
 } from "@contextboard/editor";
 export {
+	type Accent,
+	ACCENTS,
+	applyAccent,
 	applyThemeMode,
+	DEFAULT_ACCENT,
+	getAccent,
 	getResolvedTheme,
 	getThemeMode,
+	initTheme,
 	type ResolvedTheme,
+	setAccent,
 	setThemeMode,
 	subscribeThemeMode,
 	type ThemeMode,
 } from "./lib/theme.ts";
+export { useAccent } from "./hooks/useAccent.ts";
 export { useThemeMode } from "./hooks/useThemeMode.ts";
 
 export { Button, buttonVariants } from "./components/ui/button.tsx";

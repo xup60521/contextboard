@@ -18,12 +18,78 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Accent palettes. Every accent is a window on one of Tailwind's built-in
+ * colour scales: `fill` tints surfaces, rings and underlines, `text` carries
+ * link and label text. The suffix names the *surface* the pair is meant for,
+ * so a hue that needs a deeper step to stay readable on white (amber, cyan)
+ * says so here instead of everywhere it is used. Indigo is the default, and
+ * these selectors also match the swatches in Settings, which is how each one
+ * paints itself.
+ */
+:root,
+[data-accent='indigo'] {
+  --brand-fill-light: var(--color-indigo-500);
+  --brand-text-light: var(--color-indigo-600);
+  --brand-fill-dark: var(--color-indigo-400);
+  --brand-text-dark: var(--color-indigo-300);
+}
+
+[data-accent='violet'] {
+  --brand-fill-light: var(--color-violet-500);
+  --brand-text-light: var(--color-violet-600);
+  --brand-fill-dark: var(--color-violet-400);
+  --brand-text-dark: var(--color-violet-300);
+}
+
+[data-accent='blue'] {
+  --brand-fill-light: var(--color-blue-500);
+  --brand-text-light: var(--color-blue-600);
+  --brand-fill-dark: var(--color-blue-400);
+  --brand-text-dark: var(--color-blue-300);
+}
+
+[data-accent='cyan'] {
+  --brand-fill-light: var(--color-cyan-600);
+  --brand-text-light: var(--color-cyan-700);
+  --brand-fill-dark: var(--color-cyan-400);
+  --brand-text-dark: var(--color-cyan-300);
+}
+
+[data-accent='emerald'] {
+  --brand-fill-light: var(--color-emerald-600);
+  --brand-text-light: var(--color-emerald-700);
+  --brand-fill-dark: var(--color-emerald-400);
+  --brand-text-dark: var(--color-emerald-300);
+}
+
+[data-accent='amber'] {
+  --brand-fill-light: var(--color-amber-500);
+  --brand-text-light: var(--color-amber-700);
+  --brand-fill-dark: var(--color-amber-400);
+  --brand-text-dark: var(--color-amber-300);
+}
+
+[data-accent='rose'] {
+  --brand-fill-light: var(--color-rose-500);
+  --brand-text-light: var(--color-rose-600);
+  --brand-fill-dark: var(--color-rose-400);
+  --brand-text-dark: var(--color-rose-300);
+}
+
+[data-accent='slate'] {
+  --brand-fill-light: var(--color-slate-500);
+  --brand-text-light: var(--color-slate-700);
+  --brand-fill-dark: var(--color-slate-400);
+  --brand-text-dark: var(--color-slate-300);
+}
+
 :root {
   --sea-ink: #1f2024;
   --sea-ink-soft: #6b7280;
-  --lagoon: #6366f1;
-  --lagoon-deep: #4f46e5;
-  --palm: #4f46e5;
+  --lagoon: var(--brand-fill-light);
+  --lagoon-deep: var(--brand-text-light);
+  --palm: var(--brand-text-light);
   --sand: #f4f4f5;
   --foam: #fafafa;
   --surface: rgba(255, 255, 255, 0.8);
@@ -36,8 +102,8 @@
   --chip-bg: #ffffff;
   --chip-line: rgba(0, 0, 0, 0.1);
   --link-bg-hover: rgba(0, 0, 0, 0.04);
-  --hero-a: rgba(99, 102, 241, 0.12);
-  --hero-b: rgba(99, 102, 241, 0.08);
+  --hero-a: color-mix(in oklab, var(--lagoon) 12%, transparent);
+  --hero-b: color-mix(in oklab, var(--lagoon) 8%, transparent);
 
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);
@@ -57,7 +123,7 @@
   --destructive-foreground: oklch(0.577 0.245 27.325);
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
-  --ring: #6366f1;
+  --ring: var(--lagoon);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -77,9 +143,9 @@
 .dark {
   --sea-ink: #e6e6e6;
   --sea-ink-soft: #a1a1aa;
-  --lagoon: #818cf8;
-  --lagoon-deep: #a5b4fc;
-  --palm: #a5b4fc;
+  --lagoon: var(--brand-fill-dark);
+  --lagoon-deep: var(--brand-text-dark);
+  --palm: var(--brand-text-dark);
   --sand: #242424;
   --foam: #1a1a1a;
   --surface: rgba(36, 36, 36, 0.9);
@@ -92,8 +158,8 @@
   --chip-bg: #242424;
   --chip-line: rgba(255, 255, 255, 0.12);
   --link-bg-hover: rgba(255, 255, 255, 0.06);
-  --hero-a: rgba(129, 140, 248, 0.12);
-  --hero-b: rgba(129, 140, 248, 0.08);
+  --hero-a: color-mix(in oklab, var(--lagoon) 12%, transparent);
+  --hero-b: color-mix(in oklab, var(--lagoon) 8%, transparent);
 
   --background: oklch(0.205 0 0);
   --foreground: oklch(0.92 0 0);
@@ -113,7 +179,7 @@
   --destructive-foreground: oklch(0.96 0 0);
   --border: oklch(0.32 0 0);
   --input: oklch(0.32 0 0);
-  --ring: #818cf8;
+  --ring: var(--lagoon);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -167,6 +233,10 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--lagoon) 24%, transparent);
 }
 
 html,
