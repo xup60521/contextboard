@@ -1,5 +1,5 @@
 import { Monitor, Moon, Palette, Sun } from "lucide-react";
-import { useAccent } from "../../hooks/useAccent.ts";
+import { useAccents } from "../../hooks/useAccents.ts";
 import { useThemeMode } from "../../hooks/useThemeMode.ts";
 import {
 	ACCENTS,
@@ -32,7 +32,7 @@ export const accentOptions: ReadonlyArray<SettingsSwatchOption<Accent>> =
 
 function AppearanceSettings() {
 	const theme = useThemeMode();
-	const accent = useAccent();
+	const accents = useAccents();
 	return (
 		<div className="flex flex-col gap-4">
 			<SettingsRow
@@ -48,14 +48,28 @@ function AppearanceSettings() {
 				}
 			/>
 			<SettingsRow
-				title="Accent"
-				description="Colours links, focus rings and selection."
+				title="Light accent"
+				description="Colours links, focus rings and selection in light mode."
 				control={
 					<SettingsSwatches
-						label="Accent"
-						value={accent}
+						appearance="light"
+						label="Light accent"
+						value={accents.light}
 						options={accentOptions}
-						onChange={setAccent}
+						onChange={(accent) => setAccent("light", accent)}
+					/>
+				}
+			/>
+			<SettingsRow
+				title="Dark accent"
+				description="The same, for dark mode — a hue that suits one rarely suits both."
+				control={
+					<SettingsSwatches
+						appearance="dark"
+						label="Dark accent"
+						value={accents.dark}
+						options={accentOptions}
+						onChange={(accent) => setAccent("dark", accent)}
 					/>
 				}
 			/>

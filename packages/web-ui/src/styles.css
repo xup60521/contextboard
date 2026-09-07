@@ -21,65 +21,98 @@
 /*
  * Accent palettes. Every accent is a window on one of Tailwind's built-in
  * colour scales: `fill` tints surfaces, rings and underlines, `text` carries
- * link and label text. The suffix names the *surface* the pair is meant for,
- * so a hue that needs a deeper step to stay readable on white (amber, cyan)
- * says so here instead of everywhere it is used. Indigo is the default, and
- * these selectors also match the swatches in Settings, which is how each one
- * paints itself.
+ * link and label text. A hue that needs a deeper step to stay readable on
+ * white (amber, cyan, emerald, rose, slate) says so here instead of everywhere
+ * it is used; `accent-contrast.test.ts` holds every one of these pairs to a
+ * WCAG ratio.
+ *
+ * Light and dark are chosen separately, so each appearance has its own
+ * attribute. These selectors also match the swatches in Settings, which is
+ * how each swatch paints itself in the colour it will apply.
  */
-:root,
-[data-accent='indigo'] {
+:root {
   --brand-fill-light: var(--color-indigo-500);
   --brand-text-light: var(--color-indigo-600);
   --brand-fill-dark: var(--color-indigo-400);
   --brand-text-dark: var(--color-indigo-300);
 }
 
-[data-accent='violet'] {
+[data-accent-light='indigo'] {
+  --brand-fill-light: var(--color-indigo-500);
+  --brand-text-light: var(--color-indigo-600);
+}
+
+[data-accent-dark='indigo'] {
+  --brand-fill-dark: var(--color-indigo-400);
+  --brand-text-dark: var(--color-indigo-300);
+}
+
+[data-accent-light='violet'] {
   --brand-fill-light: var(--color-violet-500);
   --brand-text-light: var(--color-violet-600);
+}
+
+[data-accent-dark='violet'] {
   --brand-fill-dark: var(--color-violet-400);
   --brand-text-dark: var(--color-violet-300);
 }
 
-[data-accent='blue'] {
+[data-accent-light='blue'] {
   --brand-fill-light: var(--color-blue-500);
   --brand-text-light: var(--color-blue-600);
+}
+
+[data-accent-dark='blue'] {
   --brand-fill-dark: var(--color-blue-400);
   --brand-text-dark: var(--color-blue-300);
 }
 
-[data-accent='cyan'] {
+[data-accent-light='cyan'] {
   --brand-fill-light: var(--color-cyan-600);
   --brand-text-light: var(--color-cyan-700);
+}
+
+[data-accent-dark='cyan'] {
   --brand-fill-dark: var(--color-cyan-400);
   --brand-text-dark: var(--color-cyan-300);
 }
 
-[data-accent='emerald'] {
+[data-accent-light='emerald'] {
   --brand-fill-light: var(--color-emerald-600);
   --brand-text-light: var(--color-emerald-700);
+}
+
+[data-accent-dark='emerald'] {
   --brand-fill-dark: var(--color-emerald-400);
   --brand-text-dark: var(--color-emerald-300);
 }
 
-[data-accent='amber'] {
+[data-accent-light='amber'] {
   --brand-fill-light: var(--color-amber-500);
   --brand-text-light: var(--color-amber-700);
+}
+
+[data-accent-dark='amber'] {
   --brand-fill-dark: var(--color-amber-400);
   --brand-text-dark: var(--color-amber-300);
 }
 
-[data-accent='rose'] {
+[data-accent-light='rose'] {
   --brand-fill-light: var(--color-rose-500);
-  --brand-text-light: var(--color-rose-600);
+  --brand-text-light: var(--color-rose-700);
+}
+
+[data-accent-dark='rose'] {
   --brand-fill-dark: var(--color-rose-400);
   --brand-text-dark: var(--color-rose-300);
 }
 
-[data-accent='slate'] {
+[data-accent-light='slate'] {
   --brand-fill-light: var(--color-slate-500);
   --brand-text-light: var(--color-slate-700);
+}
+
+[data-accent-dark='slate'] {
   --brand-fill-dark: var(--color-slate-400);
   --brand-text-dark: var(--color-slate-300);
 }

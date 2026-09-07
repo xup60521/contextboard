@@ -21,8 +21,15 @@ export type Accent = (typeof ACCENTS)[number];
 
 export const DEFAULT_ACCENT: Accent = "indigo";
 
+export type Accents = Readonly<Record<ResolvedTheme, Accent>>;
+
 const STORAGE_KEY = "theme";
-const ACCENT_KEY = "theme-accent";
+const ACCENT_KEYS: Readonly<Record<ResolvedTheme, string>> = {
+	light: "theme-accent-light",
+	dark: "theme-accent-dark",
+};
+/** Written when the accent was one value for both appearances. */
+const LEGACY_ACCENT_KEY = "theme-accent";
 const listeners = new Set<() => void>();
 let systemListenerStarted = false;
 
@@ -39,24 +46,37 @@ function isAccent(value: string | null): value is Accent {
 	return ACCENTS.includes(value as Accent);
 }
 
-export function getAccent(): Accent {
-	if (typeof window === "undefined") return DEFAULT_ACCENT;
+function readAccent(appearance: ResolvedTheme): Accent {
+	const stored = window.localStorage.getItem(ACCENT_KEYS[appearance]);
+	if (isAccent(stored)) return stored;
 
-	const stored = window.localStorage.getItem(ACCENT_KEY);
-	return isAccent(stored) ? stored : DEFAULT_ACCENT;
+	// Anyone who chose an accent before it split in two keeps that colour.
+	const legacy = window.localStorage.getItem(LEGACY_ACCENT_KEY);
+	return isAccent(legacy) ? legacy : DEFAULT_ACCENT;
 }
 
-export function applyAccent(accent: Accent) {
+/** Light and dark carry their own accent, so a hue can suit one and not the other. */
+export function getAccents(): Accents {
+	if (typeof window === "undefined")
+		return { light: DEFAULT_ACCENT, dark: DEFAULT_ACCENT };
+
+	return { light: readAccent("light"), dark: readAccent("dark") };
+}
+
+export function applyAccents(accents: Accents) {
 	if (typeof document === "undefined") return;
-	document.documentElement.setAttribute("data-accent", accent);
+
+	const root = document.documentElement;
+	root.setAttribute("data-accent-light", accents.light);
+	root.setAttribute("data-accent-dark", accents.dark);
 }
 
-/** Persist + apply an accent and notify every subscriber. */
-export function setAccent(accent: Accent) {
+/** Persist + apply one appearance's accent and notify every subscriber. */
+export function setAccent(appearance: ResolvedTheme, accent: Accent) {
 	if (typeof window === "undefined") return;
 
-	window.localStorage.setItem(ACCENT_KEY, accent);
-	applyAccent(accent);
+	window.localStorage.setItem(ACCENT_KEYS[appearance], accent);
+	applyAccents({ ...getAccents(), [appearance]: accent });
 	notify();
 }
 
@@ -67,7 +87,7 @@ export function setAccent(accent: Accent) {
  */
 export function initTheme() {
 	applyThemeMode(getThemeMode());
-	applyAccent(getAccent());
+	applyAccents(getAccents());
 }
 
 export function getResolvedTheme(): ResolvedTheme {
@@ -138,7 +158,8 @@ export function subscribeThemeMode(listener: () => void) {
 
 	const onStorage = (event: StorageEvent) => {
 		if (event.key === STORAGE_KEY) applyThemeMode(getThemeMode());
-		else if (event.key === ACCENT_KEY) applyAccent(getAccent());
+		else if (event.key === null || event.key.startsWith("theme-accent"))
+			applyAccents(getAccents());
 		else return;
 		listener();
 	};
