@@ -1,13 +1,8 @@
 import { Monitor, Moon, Sun, X } from "lucide-react";
-import {
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useState,
-} from "react";
-import { Button } from "../ui/button.tsx";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useThemeMode } from "../../hooks/useThemeMode.ts";
 import { setThemeMode, type ThemeMode } from "../../lib/theme.ts";
+import { Button } from "../ui/button.tsx";
 import { useSidebarContext } from "./SidebarContext.tsx";
 
 const themeIcons: Record<ThemeMode, typeof Sun> = {
@@ -42,14 +37,20 @@ export function AppSidebarFrame({
 
 	return (
 		<div
-			className={`overflow-hidden transition-[width] duration-300 ease-in-out ${isOpen ? "w-56" : "w-0"}`}
+			className={`overflow-hidden transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] ${isOpen ? "w-60" : "w-0"}`}
 		>
 			<aside
 				aria-hidden={!isOpen}
-				className="flex h-full w-56 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)]"
+				className="flex h-full w-60 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)]"
 			>
-				<header className="flex h-[44px] shrink-0 items-center gap-1 border-b border-[var(--border)] px-3">
-					<span className="mr-auto text-[13px] font-semibold tracking-tight">
+				<header className="flex h-[44px] shrink-0 items-center gap-2 border-b border-[var(--border)] px-2.5">
+					<span
+						aria-hidden
+						className="flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-[var(--primary)] text-[10px] font-bold text-[var(--primary-foreground)]"
+					>
+						C
+					</span>
+					<span className="mr-auto truncate text-[13px] font-semibold tracking-tight">
 						Contextboard
 					</span>
 					<Button

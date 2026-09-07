@@ -1,12 +1,5 @@
 import type { SyncRuntimeState } from "@contextboard/application";
-import {
-	AlertTriangle,
-	Cloud,
-	CloudOff,
-	Github,
-	LogOut,
-	RefreshCw,
-} from "lucide-react";
+import { AlertTriangle, Github, RefreshCw } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { AppLink } from "../navigation/AppLink";
 import { isDisconnected, syncStateLabel } from "../settings/sync-status";
@@ -49,10 +42,25 @@ export function AppSidebar({ footer }: { footer: SidebarFooterRuntime }) {
 	);
 }
 
+/** One dot carries the sync state, so the status line can stay plain words. */
+const statusDotClass = (state: SyncRuntimeState) =>
+	state === "syncing"
+		? "bg-[var(--ring)] animate-pulse"
+		: state === "error"
+			? "bg-destructive"
+			: isDisconnected(state)
+				? "bg-[var(--muted-foreground)]"
+				: "bg-emerald-500";
+
+const initialsOf = (account: AccountSummary) => {
+	const source = account.name?.trim() || account.email?.trim() || "?";
+	const [first, second] = source.split(/[\s@._-]+/).filter(Boolean);
+	return ((first?.[0] ?? "?") + (second?.[0] ?? "")).toUpperCase();
+};
+
 function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 	const [pending, setPending] = useState<"in" | "out" | "sync" | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const StatusIcon = isDisconnected(runtime.state) ? CloudOff : Cloud;
 	const account =
 		runtime.account ??
 		(!runtime.signIn ? { name: "Desktop", email: null } : undefined);
@@ -74,103 +82,108 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 	};
 
 	return (
-		<footer className="mt-auto border-t border-[var(--border)] p-2">
+		<footer className="mt-auto shrink-0 border-t border-[var(--border)] p-2">
 			{account ? (
-				<div className="flex items-center gap-2 rounded-md px-2 py-1.5">
-					<StatusIcon className="size-3.5 text-[var(--muted-foreground)]" />
-					<div className="min-w-0 flex-1">
-						<p className="truncate text-xs font-medium">
-							{account.name || account.email || "Account"}
-						</p>
-						<p
-							className="truncate text-[10px] text-[var(--muted-foreground)]"
-							title={error ?? runtime.message}
-						>
-							{error ?? label}
-							{runtime.pendingCount ? ` · ${runtime.pendingCount} pending` : ""}
-						</p>
-						{runtime.conflictCount && runtime.conflictHref ? (
-							<AppLink
-								href={runtime.conflictHref}
-								className="mt-1 inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full border border-amber-600/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-500/20 dark:border-amber-300/30 dark:text-amber-300 dark:hover:bg-amber-300/10"
+				<div className="flex flex-col gap-1.5">
+					<div className="group flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-[var(--accent)]/50">
+						<span className="relative flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[10px] font-semibold text-[var(--card-foreground)]">
+							{initialsOf(account)}
+							<span
+								className={`absolute -bottom-px -right-px size-2.5 rounded-full border-2 border-[var(--card)] ${statusDotClass(runtime.state)}`}
+								title={label}
+							/>
+						</span>
+
+						<div className="min-w-0 flex-1">
+							<p className="truncate text-xs font-medium leading-4">
+								{account.name || account.email || "Account"}
+							</p>
+							<p
+								className="truncate text-[11px] leading-4 text-[var(--muted-foreground)]"
+								title={error ?? runtime.message}
 							>
-								<AlertTriangle className="size-3" />
-								{runtime.conflictCount} conflict
-								{runtime.conflictCount === 1 ? "" : "s"}
-							</AppLink>
-						) : null}
-						{runtime.createWorkspace && runtime.workspaceSelectionRequired ? (
-							<div className="mt-1 space-y-1">
-								{runtime.switchWorkspace && runtime.workspaces?.length ? (
-									<div className="space-y-0.5">
-										<p className="px-1 text-[10px] text-[var(--muted-foreground)]">
-											Choose an account workspace
-										</p>
-										{runtime.workspaces.map((workspace) => (
-											<Button
-												key={workspace.workspaceId}
-												type="button"
-												variant="ghost"
-												size="sm"
-												className="h-7 w-full justify-start truncate px-1.5 text-[10px]"
-												disabled={pending !== null}
-												onClick={() =>
-													run("sync", () =>
-														runtime.switchWorkspace!(workspace.workspaceId),
-													)
-												}
-											>
-												{workspace.workspaceId}
-											</Button>
-										))}
-									</div>
-								) : null}
+								{error ?? label}
+								{runtime.pendingCount
+									? ` · ${runtime.pendingCount} pending`
+									: ""}
+							</p>
+						</div>
+
+						<div className="flex shrink-0 items-center">
+							{runtime.syncNow ? (
 								<Button
 									type="button"
-									variant="outline"
-									size="sm"
-									className="w-full justify-start text-[10px]"
-									disabled={pending !== null}
-									onClick={() => run("sync", runtime.createWorkspace)}
+									variant="ghost"
+									size="icon-xs"
+									disabled={pending !== null || isBusy}
+									onClick={() => run("sync", runtime.syncNow)}
+									aria-label="Sync now"
 								>
-									Create separate workspace
+									<RefreshCw className={isBusy ? "animate-spin" : undefined} />
 								</Button>
-							</div>
-						) : null}
+							) : null}
+							{runtime.settings}
+						</div>
 					</div>
-					{runtime.settings}
-					{runtime.syncNow ? (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							disabled={pending !== null || isBusy}
-							onClick={() => run("sync", runtime.syncNow)}
-							aria-label="Sync now"
+
+					{runtime.conflictCount && runtime.conflictHref ? (
+						<AppLink
+							href={runtime.conflictHref}
+							className="flex items-center gap-1.5 rounded-md border border-amber-600/30 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-500/20 dark:border-amber-300/30 dark:text-amber-300 dark:hover:bg-amber-300/15"
 						>
-							<RefreshCw className={isBusy ? "animate-spin" : undefined} />
-						</Button>
+							<AlertTriangle className="size-3 shrink-0" />
+							{runtime.conflictCount} conflict
+							{runtime.conflictCount === 1 ? "" : "s"}
+						</AppLink>
 					) : null}
-					{runtime.signOut ? (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							disabled={pending !== null}
-							onClick={() => run("out", runtime.signOut)}
-							aria-label="Sign out"
-						>
-							<LogOut />
-						</Button>
+
+					{runtime.createWorkspace && runtime.workspaceSelectionRequired ? (
+						<div className="flex flex-col gap-1 rounded-md border border-[var(--border)] p-1.5">
+							{runtime.switchWorkspace && runtime.workspaces?.length ? (
+								<>
+									<p className="px-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--muted-foreground)]">
+										Choose a workspace
+									</p>
+									{runtime.workspaces.map((workspace) => (
+										<Button
+											key={workspace.workspaceId}
+											type="button"
+											variant="ghost"
+											size="sm"
+											className="h-7 w-full justify-start truncate px-1.5 text-[11px]"
+											disabled={pending !== null}
+											onClick={() =>
+												run("sync", () =>
+													runtime.switchWorkspace!(workspace.workspaceId),
+												)
+											}
+										>
+											{workspace.workspaceId}
+										</Button>
+									))}
+								</>
+							) : null}
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-7 w-full justify-center text-[11px]"
+								disabled={pending !== null}
+								onClick={() => run("sync", runtime.createWorkspace)}
+							>
+								Create separate workspace
+							</Button>
+						</div>
 					) : null}
 				</div>
 			) : runtime.signIn ? (
-				<div className="space-y-1">
-					<div className="flex items-center gap-2">
+				<div className="flex flex-col gap-1.5">
+					<div className="flex items-center gap-1.5">
 						<Button
 							type="button"
 							variant="outline"
-							className="min-w-0 flex-1 justify-start"
+							size="sm"
+							className="min-w-0 flex-1 justify-center text-xs"
 							disabled={pending !== null}
 							onClick={() => run("in", runtime.signIn)}
 						>
@@ -182,7 +195,7 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 						{runtime.settings}
 					</div>
 					{error ? (
-						<p className="px-1 text-[10px] text-destructive" title={error}>
+						<p className="px-1 text-[11px] text-destructive" title={error}>
 							{error}
 						</p>
 					) : null}

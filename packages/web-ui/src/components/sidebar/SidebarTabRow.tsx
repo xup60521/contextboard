@@ -3,6 +3,12 @@ import { CSS } from "@dnd-kit/utilities";
 import { FileText, Layers, Pin, PinOff, X } from "lucide-react";
 import { type CSSProperties, useMemo } from "react";
 import {
+	sidebarActionClass,
+	sidebarRevealClass,
+	sidebarRowClass,
+	sidebarRowIconClass,
+} from "./sidebar-row";
+import {
 	isRootTab,
 	type SidebarTab,
 	type SidebarTabSection,
@@ -17,6 +23,14 @@ type SidebarTabRowProps = {
 	onClose: (key: string) => void;
 };
 
+export const sidebarTabIcon = (tab: SidebarTab) =>
+	tab.kind === "whiteboard" ? Layers : FileText;
+
+export const isMissingWhiteboardTab = (tab: SidebarTab) =>
+	tab.kind === "whiteboard" &&
+	tab.id !== null &&
+	tab.title === "Missing whiteboard";
+
 export function SidebarTabRow({
 	tab,
 	section,
@@ -26,15 +40,21 @@ export function SidebarTabRow({
 	onClose,
 }: SidebarTabRowProps) {
 	const isFixedRoot = isRootTab(tab);
-	const { attributes, isDragging, listeners, setNodeRef, transform, transition } =
-		useSortable({
-			id: tab.key,
-			data: {
-				type: "tab",
-				section,
-			},
-			disabled: isFixedRoot,
-		});
+	const {
+		attributes,
+		isDragging,
+		listeners,
+		setNodeRef,
+		transform,
+		transition,
+	} = useSortable({
+		id: tab.key,
+		data: {
+			type: "tab",
+			section,
+		},
+		disabled: isFixedRoot,
+	});
 
 	const style = useMemo<CSSProperties>(
 		() => ({
@@ -44,9 +64,8 @@ export function SidebarTabRow({
 		[transform, transition],
 	);
 
-	const isMissingWhiteboard =
-		tab.kind === "whiteboard" && tab.id !== null && tab.title === "Missing whiteboard";
-	const Icon = tab.kind === "whiteboard" ? Layers : FileText;
+	const tone = isMissingWhiteboardTab(tab) ? "warning" : "default";
+	const Icon = sidebarTabIcon(tab);
 
 	return (
 		<div
@@ -58,14 +77,10 @@ export function SidebarTabRow({
 			data-active={active ? "true" : "false"}
 			data-section={section}
 			className={[
-				"group flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[13px] transition-colors",
-				!isFixedRoot ? "cursor-grab active:cursor-grabbing" : "",
-				active
-					? "border-transparent bg-[var(--accent)] text-[var(--card-foreground)]"
-					: isMissingWhiteboard
-						? "border-amber-500/20 bg-amber-500/10 text-amber-900 dark:text-amber-100"
-						: "border-transparent hover:bg-[var(--accent)]",
-				isDragging ? "opacity-70" : "",
+				sidebarRowClass({ active, tone }),
+				isFixedRoot ? "" : "cursor-grab active:cursor-grabbing",
+				// The overlay carries the drag; the row it left behind is just a gap.
+				isDragging ? "opacity-40" : "",
 			]
 				.filter(Boolean)
 				.join(" ")}
@@ -75,30 +90,20 @@ export function SidebarTabRow({
 				onClick={() => onNavigate(tab)}
 				aria-label="Open sidebar tab"
 				aria-current={active ? "page" : undefined}
-				className={[
-					"flex min-w-0 flex-1 items-center gap-1.5 rounded py-0.5 text-left outline-none transition-colors",
-					active ? "text-inherit" : "text-[var(--card-foreground)]",
-					"focus-visible:ring-[3px] focus-visible:ring-ring/50",
-				].join(" ")}
+				title={tab.title}
+				className="flex min-w-0 flex-1 items-center gap-2 rounded text-left outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50"
 			>
-				<Icon
-					className={[
-						"size-3.5 shrink-0",
-						active
-							? "text-inherit"
-							: isMissingWhiteboard
-								? "text-amber-700 dark:text-amber-200"
-								: "text-[var(--muted-foreground)]",
-					].join(" ")}
-				/>
-				<span className="truncate font-medium">{tab.title}</span>
+				<Icon className={sidebarRowIconClass({ active, tone })} />
+				<span className="truncate">{tab.title}</span>
 			</button>
 
 			{!isFixedRoot && (
 				<div
 					className={[
-						"flex shrink-0 gap-px transition-opacity",
-						tab.pinned ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+						"flex shrink-0 items-center gap-px",
+						// A pinned tab keeps its unpin control visible: the pin is state
+						// the row is advertising, not an action hidden behind hover.
+						tab.pinned ? "" : sidebarRevealClass,
 					].join(" ")}
 				>
 					<button
@@ -109,7 +114,7 @@ export function SidebarTabRow({
 						}}
 						aria-label={tab.pinned ? "Unpin tab" : "Pin tab"}
 						title={tab.pinned ? "Unpin tab" : "Pin tab"}
-						className="flex size-5 items-center justify-center rounded text-[var(--muted-foreground)] outline-none transition-colors hover:bg-[var(--surface-strong)] hover:text-[var(--card-foreground)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+						className={sidebarActionClass}
 					>
 						{tab.pinned ? (
 							<PinOff className="size-3" />
@@ -126,7 +131,7 @@ export function SidebarTabRow({
 						}}
 						aria-label="Close tab"
 						title="Close tab"
-						className="flex size-5 items-center justify-center rounded text-[var(--muted-foreground)] outline-none transition-colors hover:bg-[var(--surface-strong)] hover:text-[var(--card-foreground)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+						className={sidebarActionClass}
 					>
 						<X className="size-3" />
 					</button>

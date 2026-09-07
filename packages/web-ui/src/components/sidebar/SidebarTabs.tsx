@@ -1,7 +1,9 @@
+import { useApplicationRuntime } from "@contextboard/application";
 import {
 	closestCenter,
 	DndContext,
 	type DragEndEvent,
+	DragOverlay,
 	type DragStartEvent,
 	PointerSensor,
 	useDroppable,
@@ -12,14 +14,18 @@ import {
 	SortableContext,
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { useApplicationRuntime } from "@contextboard/application";
 import { Layers, Library } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { AppLink } from "../navigation/AppLink";
 import { Button } from "../ui/button";
 import { ClearOpenTabsDialog } from "./ClearOpenTabsDialog";
-import { SidebarTabRow } from "./SidebarTabRow";
+import { SidebarTabRow, sidebarTabIcon } from "./SidebarTabRow";
 import { useSidebarTabs } from "./SidebarTabsContext";
+import {
+	sidebarRowAccentClass,
+	sidebarRowClass,
+	sidebarRowIconClass,
+} from "./sidebar-row";
 import {
 	getSidebarTabSection,
 	isCardLibraryRoute,
@@ -34,26 +40,22 @@ import {
 type SidebarSectionDropZoneProps = {
 	dropId: string;
 	section: SidebarTabSection;
-	draggingSection: SidebarTabSection | null;
 	label: string;
 };
 
+/**
+ * Only mounted while a tab is in flight, so an empty section is empty rather
+ * than a permanent dashed box explaining a gesture nobody is making.
+ */
 function SidebarSectionDropZone({
 	dropId,
 	section,
-	draggingSection,
 	label,
 }: SidebarSectionDropZoneProps) {
 	const { isOver, setNodeRef } = useDroppable({
 		id: dropId,
-		data: {
-			type: "section",
-			section,
-		},
+		data: { type: "section", section },
 	});
-
-	const canDropAcrossSections =
-		draggingSection !== null && draggingSection !== section;
 
 	return (
 		<div
@@ -61,16 +63,47 @@ function SidebarSectionDropZone({
 			data-section={section}
 			data-over={isOver ? "true" : "false"}
 			className={[
-				"flex min-h-12 items-center justify-center rounded-md border border-dashed p-2 transition-colors",
-				isOver && canDropAcrossSections
-					? "border-[var(--ring)] bg-[var(--accent)]/60"
-					: "border-transparent",
+				"flex min-h-11 items-center justify-center rounded-md border border-dashed px-2 text-center text-[11px] transition-colors",
+				isOver
+					? "border-[var(--ring)] bg-[var(--ring)]/10 text-[var(--card-foreground)]"
+					: "border-[var(--border)] text-[var(--muted-foreground)]",
 			].join(" ")}
 		>
-			<span className="text-center text-xs text-[var(--muted-foreground)]">
-				{label}
-			</span>
+			{label}
 		</div>
+	);
+}
+
+function SidebarSection({
+	label,
+	count,
+	action,
+	children,
+}: {
+	label: string;
+	count?: number;
+	action?: ReactNode;
+	children: ReactNode;
+}) {
+	return (
+		<section className="group/section flex flex-col gap-0.5">
+			<div className="sticky top-0 z-10 flex h-6 items-center gap-1.5 bg-[var(--card)] px-2">
+				<span className="text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--muted-foreground)]">
+					{label}
+				</span>
+				{count === undefined ? null : (
+					<span className="text-[10px] tabular-nums text-[var(--muted-foreground)]/60">
+						{count}
+					</span>
+				)}
+				{action ? (
+					<div className="ml-auto opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/section:opacity-100">
+						{action}
+					</div>
+				) : null}
+			</div>
+			{children}
+		</section>
 	);
 }
 
@@ -103,12 +136,13 @@ export function SidebarTabs() {
 		() => secondaryTabs.filter((tab) => !tab.pinned),
 		[secondaryTabs],
 	);
-	const draggingSection = useMemo(() => {
-		if (!draggingTabKey) return null;
-
-		const draggingTab = tabs.find((tab) => tab.key === draggingTabKey);
-		return draggingTab ? getSidebarTabSection(draggingTab) : null;
-	}, [draggingTabKey, tabs]);
+	const draggingTab = useMemo(
+		() => tabs.find((tab) => tab.key === draggingTabKey) ?? null,
+		[draggingTabKey, tabs],
+	);
+	const draggingSection = draggingTab
+		? getSidebarTabSection(draggingTab)
+		: null;
 
 	const sensors = useSensors(
 		useSensor(PointerSensor, {
@@ -159,63 +193,59 @@ export function SidebarTabs() {
 	}, [clearOpenTabs]);
 
 	const isCardLib = isCardLibraryRoute(pathname);
+	const rootActive = rootTab.key === activeTabKey;
+	const showPinned = pinnedTabs.length > 0 || draggingSection === "open";
+	const showOpen = openTabs.length > 0 || draggingSection === "pinned";
+	const DraggingIcon = draggingTab ? sidebarTabIcon(draggingTab) : null;
 
 	return (
 		<>
-			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-1.5">
-				<div className="flex flex-col gap-px">
+			<nav
+				aria-label="Boards and tabs"
+				className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-2 py-2 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]"
+			>
+				<div className="flex flex-col gap-0.5">
 					<button
 						type="button"
 						onClick={() => navigateToTab(rootTab)}
-						aria-current={rootTab.key === activeTabKey ? "page" : undefined}
-						className={[
-							"flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] font-medium outline-none transition-colors",
-							rootTab.key === activeTabKey
-								? "bg-[var(--accent)] text-[var(--card-foreground)]"
-								: "text-[var(--card-foreground)] hover:bg-[var(--accent)]",
-							"focus-visible:ring-[3px] focus-visible:ring-ring/50",
-						].join(" ")}
+						aria-current={rootActive ? "page" : undefined}
+						title={rootTab.title}
+						className={sidebarRowClass({ active: rootActive })}
 					>
-						<Layers className="size-3.5 shrink-0 text-[var(--muted-foreground)]" />
-						<span className="truncate">{rootTab.title}</span>
+						<Layers className={sidebarRowIconClass({ active: rootActive })} />
+						<span className={`truncate ${sidebarRowAccentClass({ active: rootActive })}`}>
+							{rootTab.title}
+						</span>
 					</button>
 
 					<AppLink
 						href={runtime.navigation.cardsHref()}
-						className={[
-							"flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] font-medium outline-none transition-colors",
-							isCardLib
-								? "bg-[var(--accent)] text-[var(--card-foreground)]"
-								: "text-[var(--card-foreground)] hover:bg-[var(--accent)]",
-							"focus-visible:ring-[3px] focus-visible:ring-ring/50",
-						].join(" ")}
+						aria-current={isCardLib ? "page" : undefined}
+						className={sidebarRowClass({ active: isCardLib })}
 					>
-						<Library className="size-3.5 shrink-0 text-[var(--muted-foreground)]" />
-						<span className="truncate text-[var(--card-foreground)]">
+						<Library className={sidebarRowIconClass({ active: isCardLib })} />
+						<span className={`truncate ${sidebarRowAccentClass({ active: isCardLib })}`}>
 							Card Library
 						</span>
 					</AppLink>
 				</div>
 
 				{secondaryTabs.length > 0 && (
-					<div className="mt-1 border-t border-[var(--border)] pt-2">
-						<DndContext
-							collisionDetection={closestCenter}
-							sensors={sensors}
-							onDragStart={handleDragStart}
-							onDragEnd={handleDragEnd}
-							onDragCancel={handleDragCancel}
+					<DndContext
+						collisionDetection={closestCenter}
+						sensors={sensors}
+						onDragStart={handleDragStart}
+						onDragEnd={handleDragEnd}
+						onDragCancel={handleDragCancel}
+					>
+						<SortableContext
+							items={secondaryTabs.map((tab) => tab.key)}
+							strategy={verticalListSortingStrategy}
 						>
-							<SortableContext
-								items={secondaryTabs.map((tab) => tab.key)}
-								strategy={verticalListSortingStrategy}
-							>
-								<div className="mb-2">
-									<div className="px-1.5 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted-foreground)]">
-										Pinned
-									</div>
+							{showPinned && (
+								<SidebarSection label="Pinned" count={pinnedTabs.length}>
 									{pinnedTabs.length > 0 ? (
-										<div className="flex flex-col gap-px">
+										<div className="flex flex-col gap-0.5">
 											{pinnedTabs.map((tab) => (
 												<SidebarTabRow
 													key={tab.key}
@@ -232,31 +262,33 @@ export function SidebarTabs() {
 										<SidebarSectionDropZone
 											dropId={PINNED_TABS_DROP_ID}
 											section="pinned"
-											draggingSection={draggingSection}
-											label="Drag tabs here to pin them"
+											label="Drop here to pin"
 										/>
 									)}
-								</div>
+								</SidebarSection>
+							)}
 
-								<div>
-									<div className="flex items-center justify-between gap-2 px-1.5 pb-1">
-										<div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted-foreground)]">
-											Open Tabs
-										</div>
-										{openTabs.length > 0 ? (
+							{showOpen && (
+								<SidebarSection
+									label="Open"
+									count={openTabs.length}
+									action={
+										openTabs.length > 0 ? (
 											<Button
 												type="button"
 												variant="ghost"
 												size="xs"
+												className="h-5 px-1.5 text-[10px] font-medium text-[var(--muted-foreground)]"
 												onClick={() => setShowClearDialog(true)}
 												title="Close all open tabs"
 											>
 												Clear
 											</Button>
-										) : null}
-									</div>
+										) : null
+									}
+								>
 									{openTabs.length > 0 ? (
-										<div className="flex flex-col gap-px">
+										<div className="flex flex-col gap-0.5">
 											{openTabs.map((tab) => (
 												<SidebarTabRow
 													key={tab.key}
@@ -273,16 +305,24 @@ export function SidebarTabs() {
 										<SidebarSectionDropZone
 											dropId={OPEN_TABS_DROP_ID}
 											section="open"
-											draggingSection={draggingSection}
-											label="Drop pinned tabs here to unpin them"
+											label="Drop here to unpin"
 										/>
 									)}
+								</SidebarSection>
+							)}
+						</SortableContext>
+
+						<DragOverlay dropAnimation={null}>
+							{draggingTab && DraggingIcon ? (
+								<div className="flex h-7 w-full cursor-grabbing items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 text-[13px] font-medium text-[var(--card-foreground)] shadow-lg">
+									<DraggingIcon className="size-3.5 shrink-0 text-[var(--ring)]" />
+									<span className="truncate">{draggingTab.title}</span>
 								</div>
-							</SortableContext>
-						</DndContext>
-					</div>
+							) : null}
+						</DragOverlay>
+					</DndContext>
 				)}
-			</div>
+			</nav>
 
 			<ClearOpenTabsDialog
 				open={showClearDialog}
