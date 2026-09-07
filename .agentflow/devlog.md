@@ -709,3 +709,10 @@ Make sure agentflow work smoothly in this codebase
 * Added a shell-free Codex worker entrypoint that resolves the installed npm package from PATH and launches it through native Node. Updated `ag.json` to use it. Added focused fail-closed and dispatch-record regression tests.
 * Real journey at implementation commit `cb57770`: the disposable runner returned `codex-cli 0.153.4`, exit 0, stdin closed, independent clone, no remotes, and no clone changes. A fresh PowerShell process loaded `agf`, `agf-looper`, and `AGF_OPEN`; configuration validation passed.
 * Targeted Codex Terra cross-check returned Outcome PASS and Minimality PASS. Conformance blocked only because the uncommitted journey and frozen facts were absent from its clone. The implementation remains unchanged; commit the exact record inputs and repeat the review.
+
+## [RUN-014] Event - host gate passed (during round A-004)
+
+* _2026-09-07 22:35:00 (gpt-5.6-sol/low)_
+* Repeated the targeted cross-check after committing the exact journey and frozen facts. The unchanged implementation commit is `cb57770`.
+* Reviewer result: Outcome PASS, Minimality PASS, Conformance PASS. Focused regression tests are 3 of 3 and `ag.json` validates for Codex. Host gate: PASS.
+* Route correction: after the failed requirements attempts, direct evidence reduced the work to two reproduced defects with one bounded implementation. The completed direct route preserves the failed advisor diagnostics without claiming a full pipeline.
