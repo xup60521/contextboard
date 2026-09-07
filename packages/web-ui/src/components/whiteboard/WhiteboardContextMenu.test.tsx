@@ -3,10 +3,16 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { fitCardsToContent } from "./fit-cards-to-content";
 import {
 	WhiteboardContextMenu,
 	WhiteboardContextMenuContext,
 } from "./WhiteboardContextMenu";
+
+vi.mock("./fit-cards-to-content", () => ({
+	fitCardsToContent: vi.fn(),
+	getFitCardsLabel: vi.fn(() => "Fit all cards to content"),
+}));
 
 const { applyAutoArrangeMock, canAutoArrangeMock, useEditorMock } = vi.hoisted(
 	() => ({
@@ -104,6 +110,11 @@ afterEach(() => {
 });
 
 describe("WhiteboardContextMenu arrangement options", () => {
+	test("fits cards from the empty canvas menu", () => {
+		renderContextMenu();
+		fireEvent.click(screen.getByTestId("fit-cards-to-content"));
+		expect(fitCardsToContent).toHaveBeenCalledWith(editor);
+	});
 	test("hides card arrangement when the selection is not eligible", () => {
 		canAutoArrangeMock.mockReturnValue(false);
 

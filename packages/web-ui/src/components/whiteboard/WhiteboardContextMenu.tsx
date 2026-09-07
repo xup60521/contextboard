@@ -10,6 +10,7 @@ import {
 } from "tldraw";
 import { applyAutoArrange, canAutoArrange } from "./auto-arrange";
 import { ControlledTldrawContextMenu } from "./ControlledTldrawContextMenu";
+import { fitCardsToContent, getFitCardsLabel } from "./fit-cards-to-content";
 import { useWhiteboardNavigation } from "./navigation";
 import {
 	isMarkdownCardShape,
@@ -71,6 +72,11 @@ function WhiteboardContextMenuContent() {
 
 	return (
 		<TldrawUiMenuGroup id="whiteboard-persistence">
+			<TldrawUiMenuItem
+				id="fit-cards-to-content"
+				label={getFitCardsLabel(editor)}
+				onSelect={() => fitCardsToContent(editor)}
+			/>
 			{canAutoArrange(editor) && (
 				<TldrawUiMenuSubmenu
 					id="arrange-cards"
