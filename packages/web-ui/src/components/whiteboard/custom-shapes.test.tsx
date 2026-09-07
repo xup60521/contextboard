@@ -95,7 +95,7 @@ vi.mock("@contextboard/editor", () => ({
 	},
 }));
 
-vi.mock("tldraw", () => {
+vi.mock("tldraw", async (importOriginal) => {
 	const scalar = {
 		optional: () => scalar,
 	};
@@ -109,6 +109,7 @@ vi.mock("tldraw", () => {
 	}
 
 	return {
+		...(await importOriginal<typeof import("tldraw")>()),
 		BaseBoxShapeUtil: MockBaseBoxShapeUtil,
 		createShapeId: vi.fn(() => "shape:generated"),
 		HTMLContainer: ({ children, ...props }: Record<string, unknown>) => (
