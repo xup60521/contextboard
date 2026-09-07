@@ -66,7 +66,7 @@ describe("desktop stylesheet contract", () => {
 
 	test("uses the same body-level rendering classes as the web shell", () => {
 		expect(desktopHtml).toContain(
-			'<body class="font-sans antialiased h-screen [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">',
+			'<body class="font-sans antialiased h-screen [overflow-wrap:anywhere]">',
 		);
 	});
 });

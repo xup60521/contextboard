@@ -136,6 +136,51 @@ export function SettingsChoice<T extends string>({
 	);
 }
 
+export type SettingsSwatchOption<T extends string> = {
+	value: T;
+	label: string;
+};
+
+/**
+ * A row of colour swatches. Each button carries `data-accent`, so the accent
+ * rules in `styles.css` paint it: the swatch always shows the colour it will
+ * apply, and adding an accent needs no change here.
+ */
+export function SettingsSwatches<T extends string>({
+	value,
+	options,
+	onChange,
+	label,
+}: {
+	value: T;
+	options: ReadonlyArray<SettingsSwatchOption<T>>;
+	onChange: (value: T) => void;
+	label: string;
+}) {
+	return (
+		<fieldset className="flex items-center gap-1.5">
+			<legend className="sr-only">{label}</legend>
+			{options.map((option) => (
+				<button
+					key={option.value}
+					type="button"
+					data-accent={option.value}
+					title={option.label}
+					aria-label={option.label}
+					aria-pressed={option.value === value}
+					onClick={() => onChange(option.value)}
+					className={cn(
+						"size-5 rounded-full bg-[var(--brand-fill-light)] transition-transform dark:bg-[var(--brand-fill-dark)]",
+						"outline-offset-2 hover:scale-110",
+						option.value === value &&
+							"outline-2 outline-[var(--brand-fill-light)] dark:outline-[var(--brand-fill-dark)]",
+					)}
+				/>
+			))}
+		</fieldset>
+	);
+}
+
 /** Read-only detail, such as a version or an endpoint. */
 export function SettingsFact({
 	label,

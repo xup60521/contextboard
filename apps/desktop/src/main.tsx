@@ -2,7 +2,7 @@ import "@contextboard/application/application.css";
 import "@contextboard/web-ui/styles.css";
 import "@contextboard/web-ui/editor.css";
 import "@contextboard/web-ui/tldraw.css";
-import { setExternalLinkOpener } from "@contextboard/web-ui";
+import { initTheme, setExternalLinkOpener } from "@contextboard/web-ui";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { DesktopApp } from "./DesktopApp";
@@ -15,6 +15,9 @@ setExternalLinkOpener((href) => {
 		console.error("Unable to open link", error);
 	});
 });
+
+// No SSR here, so nothing has applied the stored theme yet.
+initTheme();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Desktop root element is missing");
