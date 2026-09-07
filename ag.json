@@ -28,7 +28,8 @@
     {
       "id": "codex-default",
       "command": [
-        "codex",
+        "node",
+        ".agents/skills/agentflow/scripts/codex-worker.js",
         "exec"
       ],
       "priority": 3,

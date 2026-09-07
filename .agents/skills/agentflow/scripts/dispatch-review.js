@@ -47,6 +47,23 @@ const parse_worker_args = raw => {
   return parsed
 }
 
+const build_dispatch_facts = ({ args, dispatch, report, result }) => ({
+  dispatch,
+  status: result.status,
+  exit_code: result.exit_code,
+  timed_out: result.timed_out,
+  clone: {
+    independent: result.clone.independent,
+    remotes: result.clone.remotes,
+    changed: result.clone.changed,
+  },
+  stdout_bytes: result.stdout_bytes,
+  stdout_truncated: result.stdout_truncated,
+  stderr_excerpt: result.stderr.slice(0, DIAGNOSTIC_MAX_BYTES),
+  report_bytes: Buffer.byteLength(report),
+  report_path: args.output,
+})
+
 const main = async () => {
   const args = parse_args(process.argv.slice(2))
   for (const name of ['repo', 'brief', 'output', 'stage', 'marker']) {
@@ -92,22 +109,11 @@ const main = async () => {
   const report = typeof result.result.value === 'string' ? result.result.value : ''
   const output_path = node_path.resolve(args.output)
   node_fs.writeFileSync(output_path, report)
-  node_fs.writeFileSync(output_path + '.dispatch.json', JSON.stringify({
-    dispatch,
-    status: result.status,
-    exit_code: result.exit_code,
-    timed_out: result.timed_out,
-    clone: {
-      independent: result.clone.independent,
-      remotes: result.clone.remotes,
-      changed: result.clone.changed,
-    },
-    stdout_bytes: result.stdout.bytes,
-    stdout_truncated: result.stdout_truncated,
-    stderr_excerpt: result.stderr.excerpt.slice(0, DIAGNOSTIC_MAX_BYTES),
-    report_bytes: Buffer.byteLength(report),
-    report_path: args.output,
-  }, null, 2))
+  node_fs.writeFileSync(output_path + '.dispatch.json', JSON.stringify(
+    build_dispatch_facts({ args, dispatch, report, result }),
+    null,
+    2,
+  ))
 
   process.stderr.write([
     'status=' + result.status,
@@ -118,4 +124,6 @@ const main = async () => {
   process.exit(result.status === 'completed' && result.exit_code === 0 ? 0 : 1)
 }
 
-main().catch(error => fail(error.stack === undefined ? String(error) : error.stack))
+if (require.main === module) main().catch(error => fail(error.stack === undefined ? String(error) : error.stack))
+
+module.exports = { build_dispatch_facts }
