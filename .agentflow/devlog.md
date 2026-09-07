@@ -21,8 +21,8 @@ Artifacts: .agentflow/A-001-card-library-virtualization/ — design.md, review-b
 Archived eras: none.
 
 Streams:
-stream: a-002-card-library-selection — active — .worktrees/a-002-card-library-selection/.agentflow/features/a-002-card-library-selection/a-002-card-library-selection.devlog.md
-stream: card-grid-geometry — active — .worktrees/card-grid-geometry/.agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md
+stream: a-002-card-library-selection — active — .agentflow/features/a-002-card-library-selection/a-002-card-library-selection.devlog.md
+stream: card-grid-geometry — active — .agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md
 ---
 
 # → Ask / A-001
