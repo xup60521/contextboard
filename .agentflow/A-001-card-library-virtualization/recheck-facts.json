@@ -1,0 +1,10 @@
+{
+  "changed_files": [
+    "apps/desktop/src/runtime/DesktopRuntimeProvider.test.tsx"
+  ],
+  "changed_lines": 2,
+  "behavior_change": false,
+  "trust_boundary": false,
+  "broad_change": false,
+  "consequential_change": false
+}
