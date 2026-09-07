@@ -120,7 +120,7 @@ describe("DesktopRuntimeProvider", () => {
 		expect(invoke).toHaveBeenCalledWith("desktop_set_setting", { key: "workspaceId", value: "remote" });
 		expect(invoke.mock.calls.filter(([command]) => command === "workspace_adopt")).toHaveLength(action === "Adopt workspace" ? 1 : 0);
 		fireEvent.click(screen.getByRole("button", { name: "Read cards" }));
-		expect(invoke).toHaveBeenCalledWith("workspace_query", { workspaceId: "remote", query: { type: "cards.list" } });
+		expect(invoke).toHaveBeenCalledWith("workspace_query", { workspaceId: "remote", query: { type: "cards.list", input: {} } });
 		invoke.mockClear();
 		fireEvent.click(screen.getByRole("button", { name: action }));
 		expect(invoke).not.toHaveBeenCalled();
