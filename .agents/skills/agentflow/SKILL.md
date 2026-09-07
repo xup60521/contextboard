@@ -21,6 +21,14 @@ Rule-editing guard: `— I-NNN` marks a rule born from a real failure. Read its 
 
 5. Choose one route: `direct`, `selected_advisors`, `full_pipeline`, or `blocked`. The host agent itself handles clear, reversible local work through the direct route; do not dispatch that work merely because a worker is available. Important unknowns may use named advisors. Expensive-to-reverse behavior, trust or subsystem boundaries, serious hidden-test risk, and allowed exact pipeline triggers use the full pipeline.
 
+## Windows
+
+- In PowerShell, install shortcuts with `node <skill-dir>/scripts/setup.js --fix --profile "$PROFILE"`. Pass the same `--profile "$PROFILE"` to `agf uninstall`. This selects the actual profile, including PowerShell 7 or redirected Documents folders. Restart the shell after installation.
+- Quote paths and use PowerShell syntax for standard input. Bash heredocs, `export`, and Unix utilities in examples require a Unix shell. Run WSL examples entirely inside WSL with its own Node and Git.
+- Worker launch uses literal arguments with no shell. On Windows, put native worker `.exe` files on PATH. Batch-only `.cmd` or `.bat` installations are not supported. The same restriction applies to `AGF_OPEN`; set it to a native editor executable when `code` resolves only to `code.cmd`.
+- The looper requires WSL. Its protected-state checks depend on POSIX ownership and permission bits, which native Windows does not enforce. Keep those checks intact; use a repository in the WSL Linux filesystem and run the entire looper there.
+- Windows external-worker cancellation forcibly terminates the worker process tree. Windows does not provide the POSIX process-group graceful signal behavior.
+
 ## Load rules only when triggered
 
 - Read `references/streams.md` before any feature, non-default-branch, parallel-work, `merge-back`, `cleanup:<taskkey>`, or leftover-worktree action. Only the active stream session writes its stream notebook. Only the main-checkout session writes the main notebook.

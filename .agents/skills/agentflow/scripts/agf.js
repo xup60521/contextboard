@@ -934,6 +934,30 @@ const finish_main = (argv, cwd, log, _ask, width = 80) => {
 
 // ---------- agf new ----------
 
+const LOCAL_ENV_NAMES = new Set(['.env.local', '.env.production'])
+const ENV_SCAN_IGNORES = new Set(['.git', '.worktrees', 'node_modules'])
+
+const provision_env_links = (repo, worktree) => {
+	const linked = []
+	const visit = (directory) => {
+		for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+			if (entry.isDirectory()) {
+				if (!ENV_SCAN_IGNORES.has(entry.name)) visit(path.join(directory, entry.name))
+				continue
+			}
+			if (!entry.isFile() || !LOCAL_ENV_NAMES.has(entry.name)) continue
+			const source = path.join(directory, entry.name)
+			const relative = path.relative(repo, source)
+			const target = path.join(worktree, relative)
+			fs.mkdirSync(path.dirname(target), { recursive: true })
+			fs.symlinkSync(source, target, 'file')
+			linked.push(relative)
+		}
+	}
+	visit(repo)
+	return linked
+}
+
 const new_main = (argv, cwd, log, ask, width = 80) => {
 	const args = parse_new_args(argv)
 	if (args.error) { log(`${args.error}\n\n${render_usage(width)}`); return 1 }
@@ -974,6 +998,13 @@ const new_main = (argv, cwd, log, ask, width = 80) => {
 
 	const added = git(repo, ['worktree', 'add', wt_rel, '-b', taskkey])
 	if (!added.ok) { log(`git worktree add failed:\n${added.out}`); return 1 }
+	try {
+		const linked = provision_env_links(repo, wt)
+		if (linked.length > 0) log(`linked ${linked.length} local environment file${linked.length === 1 ? '' : 's'} from the main checkout`)
+	} catch (error) {
+		log(`local environment files could not be linked: ${error.message}`)
+		return 1
+	}
 
 	const doc_rel = path.join(feature_root, taskkey, `${taskkey}.devlog.md`)
 	const config_rel = path.join(feature_root, taskkey, 'ag.json')
@@ -1296,7 +1327,7 @@ const uninstall_main = (argv, cwd, log, ask, width = 80) => {
 		log(uninstall_help(width))
 		return 0
 	}
-	const unknown = argv.find(argument => argument !== '--skills')
+	const unknown = argv.find((argument, index) => argument !== '--skills' && argument !== '--profile' && argv[index - 1] !== '--profile')
 	if (unknown) {
 		log(`unknown uninstall option "${unknown}"\n\n${uninstall_help(width)}`)
 		return 1
@@ -1413,7 +1444,7 @@ const main = (argv, cwd, log, ask, width = 80) => {
 module.exports = {
 	kebab_case, is_key, next_key, parse_new_args, parse_clean_args, parse_finish_args, resolve_key,
 	render_usage, devlog_template, key_from_path, default_from_origin_head,
-	is_yes, near_keys, stream_doc, host_from_root_status, active_host_for_cli, sanitize_diagnostic, git_timeout_ms, delivery_lock_path, write_all_sync, update_ignore_file, init_main, new_main, finish_main, clean_main, ditch_main, uninstall_main, setup_main, hooks_main, settings_main, main,
+	is_yes, near_keys, stream_doc, host_from_root_status, active_host_for_cli, sanitize_diagnostic, git_timeout_ms, delivery_lock_path, write_all_sync, update_ignore_file, provision_env_links, init_main, new_main, finish_main, clean_main, ditch_main, uninstall_main, setup_main, hooks_main, settings_main, main,
 }
 
 if (require.main === module) {
