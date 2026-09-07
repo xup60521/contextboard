@@ -4,24 +4,25 @@ Project: contextboard
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: 5795ea2 — A-001 records; implementation commit 54a9702, both pushed to origin/main.
+Current commit: 21a6a01 — A-002 opened. A-001 implementation commit 54a9702 and records 5795ea2 are pushed to origin/main.
 
-Tests/scenarios: bun run check 32 of 32; bun run test 26 of 30 turbo tasks with the sole failure being the accepted arrange-relations contention timeout that passes 17 of 17 focused; apps/desktop 52 of 52.
+Tests/scenarios: none run this round; A-002 changed no source. Last measured at A-001 — bun run check 32 of 32; bun run test 26 of 30 turbo tasks with the sole failure being the accepted arrange-relations contention timeout that passes 17 of 17 focused; apps/desktop 52 of 52.
 
 Configuration: ag.json — schema v7; validated for claude this round.
 
-Proven: a2a10a5 passed a full external cross-check except one blocking desktop-suite failure; 54a9702 fixed it and passed a targeted re-review at Outcome, Minimality, and Conformance, with the host confirming the assertion matches the storage-desktop contract.
+Proven: the A-002 activation failure was a branch checkout, not data loss — main tracks .agentflow/, ag.json, and 66 skill files while feat/themeable-accents tracks none of them. Uncommitted Windows support was recovered byte-for-byte from t3 checkpoint c68e1d1 and verified additive against main across all nine differing files.
 
-Open: scripts/lint-board.ts stays modified and uncommitted by owner instruction; the card library virtualization plan is drafted but unimplemented; three A-001 questions await answers; a stale turbo test cache reported a pass for a red package and is unaddressed; this round recorded no WIP checkpoints.
+Open: nine restored Windows/PowerShell support files and two untracked scripts stay uncommitted on main and await the owner decision; scripts/lint-board.ts stays modified and uncommitted by owner instruction; the card library virtualization plan is drafted but unimplemented; three A-001 questions plus four A-002 questions await answers; a stale turbo test cache reported a pass for a red package and is unaddressed; A-002 closed under owner-authorized skip-review; this round recorded no WIP checkpoints.
 
-Next: await the owner decision on card library plan phase 1.
+Next: await the owner decision on committing the Windows support, then on card library plan phase 1.
 
 Artifacts: .agentflow/A-001-card-library-virtualization/ — design.md, review-brief.md, review-report.md, recheck-brief.md, recheck-report.md, cross-check-facts.json, recheck-facts.json.
 
 Archived eras: none.
 
-Streams: none.
-
+Streams:
+stream: a-002-card-library-selection — active — .worktrees/a-002-card-library-selection/.agentflow/features/a-002-card-library-selection/a-002-card-library-selection.devlog.md
+stream: card-grid-geometry — active — .worktrees/card-grid-geometry/.agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md
 ---
 
 # → Ask / A-001
@@ -360,5 +361,123 @@ under Tauri on Windows.
 # → Ask / A-002
 
 go
+
+照agentflow 規範走
+
+godev
+
+activate agentflow skill
+`godev`
+
+
+skip-review: restored owner WIP from checkpoint c68e1d1, not authored this round
+
+## [RUN-001] Event - Agentflow recovery and route selection (during round A-002)
+
+* _2026-09-07 19:02:00 (claude-opus-5[1m])_
+* Activation failed first: `resume-intake.js` reported `ag.json is missing`. Cause was not data loss — the main checkout had been switched to `feat/themeable-accents`, a branch that tracks none of `.agentflow/`, `ag.json`, or `.agents/skills/agentflow/`, so Git removed them at checkout.
+* Recovered the uncommitted Windows-support work from t3 checkpoint `c68e1d1` (2026-09-07 17:48:47, one minute before the switch), returned the checkout to `main`, and reapplied that work as unstaged modifications.
+* Second intake passed: configuration valid, `ag.json` schema v7, branch `main`, notebook `.agentflow/devlog.md`, current Ask A-002.
+* Route: `direct`. Diagnosis and local recovery only; no source behaviour changed.
+* Read `references/streams.md`, required by the leftover-worktree trigger.
+
+## [RUN-002] Event - cross-check gate and owner authorization (during round A-002)
+
+* _2026-09-07 19:04:00 (claude-opus-5[1m])_
+* `append-reply` refused: `cross_check: completed cross-check round is missing its external review report path`. Same gate as RUN-005/RUN-009 in A-001.
+* Cause read directly from `completion-context.js:300-320`: the review decision is derived from Git changed paths, and the nine restored Windows-support files fall outside the Agentflow record boundary, so the derived status is `required`.
+* The gate is not wrong. Those paths are changed source. They are simply not this round`s authorship — they are a byte-for-byte restoration of the owner`s uncommitted work from checkpoint `c68e1d1`.
+* I did not write the skip line unasked, because `completion-context.js:305` treats it as owner authorization. Asked the owner, who chose to skip rather than review restored work.
+* Owner authorized. `skip-review: restored owner WIP from checkpoint c68e1d1, not authored this round` recorded in this Ask.
+* No source was changed, staged, committed, or reverted this round.
+
+# ← Reply / A-002
+
+* _2026-09-07 19:06:00 (claude-opus-5[1m])_
+
+## [SUMMARY]
+
+- Agentflow is active again. Intake passes: configuration valid, `ag.json` schema v7, branch `main`, notebook `.agentflow/devlog.md`.
+- Nothing had been deleted. The main checkout was sitting on `feat/themeable-accents`, which tracks none of the Agentflow files, so Git removed them when that branch was checked out at roughly 17:49.
+- Uncommitted Windows-support work survived only in t3 checkpoint `c68e1d1`. It is recovered and reapplied on `main` as nine unstaged modifications plus two untracked files.
+- Two active streams had no pointer in this notebook by design; `Streams:` is now rebuilt from their own records.
+- No source behaviour was changed and no test suite was run. Closeout used owner-authorized `skip-review`.
+
+## [FINAL REPORT]
+
+### Request 1 — "activate agentflow skill" / "godev"
+
+Done, but the first attempt failed and the failure is the interesting part.
+
+`resume-intake.js` refused with `ag.json is missing; ag.json must not be replaced automatically`. At that point `.agents/skills/agentflow/` held only two files, `scripts/process-tree.js` and `scripts/windows.test.js`, with no `SKILL.md`, so the skill was not registered at all. `.agentflow/` and `ag.json` were absent.
+
+The cause was not data loss. `git ls-tree` shows `main` tracks all of it — 66 skill files, 8 files under `.agentflow/`, and `ag.json` — while `feat/themeable-accents` tracks none of it. The main checkout was on `feat/themeable-accents`, so Git had correctly removed every one of those tracked paths at checkout. The two survivors survived precisely because they were untracked new work.
+
+Recovery, in order:
+
+1. Found t3 checkpoint `c68e1d1` (2026-09-07 17:48:47) — the last snapshot before the switch. It holds 68 skill files, the full `.agentflow/`, and `ag.json`. The three checkpoints after it, from 18:44 onward, hold zero, which confirms both the timing and that `c68e1d1` is the newest usable source.
+2. Compared `c68e1d1` against `main`. Nine files differ and every difference is additive: `main` plus uncommitted PowerShell/Windows support in `setup.js`, `ag-settings.js`, `agf.js`, `agf.test.js`, `external-runner.js`, `resume-intake.js`, `resume-intake.test.js`, a new `## Windows` section in `SKILL.md`, and the two extra lines typed into this notebook's Ask. Discarding the checkpoint would have destroyed that work.
+3. Held those files aside, ran `git checkout main`, then reapplied them over the tree.
+
+The result is byte-for-byte the state that existed at 17:48:47, now on the branch that owns it:
+
+```
+ M .agentflow/devlog.md
+ M .agents/skills/agentflow/SKILL.md
+ M .agents/skills/agentflow/scripts/ag-settings.js
+ M .agents/skills/agentflow/scripts/agf.js
+ M .agents/skills/agentflow/scripts/agf.test.js
+ M .agents/skills/agentflow/scripts/external-runner.js
+ M .agents/skills/agentflow/scripts/resume-intake.js
+ M .agents/skills/agentflow/scripts/resume-intake.test.js
+ M .agents/skills/agentflow/scripts/setup.js
+?? .agents/skills/agentflow/scripts/process-tree.js
+?? .agents/skills/agentflow/scripts/windows.test.js
+```
+
+Intake then returned `configuration.valid: true`, `path: ag.json`, `language: en`, `branch: main`, `current_ask: A-002`.
+
+One dead end is worth recording, because it would have become a real hazard. Before finding the branch cause I reconstructed the skill directory from the two `.worktrees/` copies. Those are older, 15:14, and lack all the Windows work; they would also have blocked `git checkout main` as untracked files. That reconstruction was fully replaced by the checkpoint version before the switch, and the checkpoint copy is what is on disk now.
+
+### Request 2 — "go" / "照agentflow 規範走"
+
+This round ran the protocol: one bounded intake before other discovery, `references/streams.md` loaded on the leftover-worktree trigger, route recorded as `direct`, RUN events written through `notebook-write.js`, the terminal messages copied verbatim into this Ask, and STATUS updated below.
+
+Streams. Both leftover worktrees are active, unclosed, and unmerged into `main`:
+
+* `a-002-card-library-selection` — branch at `31ce09e`, ahead of `origin` by 2.
+* `card-grid-geometry` — branch at `c77b526`, ahead of `origin` by 1.
+
+Each stream notebook states that its `stream:` pointer was deliberately left out of this notebook for "the next main-checkout session" to re-derive. That is this round, so `Streams:` now lists both. Neither qualifies for sweeping, which needs a fully merged branch and a closed stream STATUS; neither holds. Their working trees were not touched.
+
+The three A-001 questions remain unanswered and are carried forward.
+
+### Limits
+
+* No test suite was run. The round changed no source behaviour, and the nine modified files are a restoration of existing work rather than this round's authorship. Running the suite would prove something about that uncommitted Windows work, not about this round.
+* No external cross-check was dispatched, for the same reason. The gate fired correctly and the owner chose `skip-review` rather than have a reviewer judge restored files as if they were new. RUN-002 records that exchange.
+* The Windows support is still uncommitted, so it remains exposed to exactly the branch switch that hid it in the first place.
+
+## Questions (batched — each with a suggested default)
+
+- The Windows/PowerShell support is uncommitted on `main` and was nearly lost once already. Commit it now, or is it mid-change?
+- Suggested default: commit it. It is coherent as it stands, and leaving it unstaged is what made a routine branch switch look like data loss.
+- ans:
+
+- Was the switch to `feat/themeable-accents` deliberate? Agentflow's notebook and skill live on `main`, so working on a feature branch from the main checkout hides them every time.
+- Suggested default: use `agf new` streams for feature work instead of switching the main checkout. That is what the streams rulebook exists for.
+- ans:
+
+- Should `.agentflow/` and the skill directory be committed to the other long-lived branches so a checkout stops hiding them?
+- Suggested default: no. Fix the workflow instead. Duplicating the notebook across branches invites divergent copies of the one file that is meant to be a single source of truth.
+- ans:
+
+- Three A-001 questions are still open: fixed tile height, plan phase 4 scope, and the stale turbo cache that reported a pass for a red package.
+- Suggested default: answer the stale-cache one first. A gate that can report green on red undermines every later round.
+- ans:
+
+---
+
+# → Ask / A-003
 
 +
