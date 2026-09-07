@@ -8,15 +8,15 @@
 
 - **Goal:** Virtualize the card library while preserving whole-set marquee selection and drag auto-scroll, with the toolbar fixed above the scrolling cards.
 
-- **Last update:** 2026-09-07 17:50:00 Asia/Taipei.
+- **Last update:** 2026-09-07 18:05:00 Asia/Taipei.
 
-- **Evidence commit:** uncommitted.
+- **Evidence commit:** cf098b5.
 
 ## Overall state
 
 - **State:** active.
 
-- **Reason:** Final verification, review, Git integration, and PR filing remain.
+- **Reason:** Verification and substantive review pass; Git integration and PR filing remain.
 
 - **Total:** 5.
 
@@ -40,11 +40,11 @@
 
 - **Current item:** T-4.
 
-- **Last proven result:** Focused card-library and geometry tests pass 34 of 34; web-ui typecheck passes; owner manual journey passes.
+- **Last proven result:** Focused card-library and geometry tests pass 34 of 34; web-ui typecheck passes; owner manual journey passes; Codex full cross-check passes Outcome, Minimality, and Conformance for `cf098b5`.
 
 - **Active blocker or running process:** None.
 
-- **Next safe action:** Inspect exact Git changes, run final checks, freeze and dispatch the Agentflow cross-check, then commit and file the PR.
+- **Next safe action:** Record the host gate, commit review records, verify the remote branch, push, and file the PR.
 
 - **Expected changed files:** packages/web-ui/src/components/cards/cardGridGeometry.ts; packages/web-ui/src/components/cards/cardGridGeometry.test.ts; packages/web-ui/src/components/cards/useUniformGridWindow.ts; packages/web-ui/src/components/cards/useCardLibrarySelection.ts; packages/web-ui/src/components/cards/CardGrid.tsx; packages/web-ui/src/components/cards/CardLibraryPage.tsx; packages/web-ui/src/components/cards/CardLibraryToolbar.tsx; packages/web-ui/src/components/cards/CardLibraryPage.test.tsx; .agentflow/features/a-002-card-library-selection/a-002-card-library-selection.devlog.md; .agentflow/features/a-002-card-library-selection/artifacts/A-001-card-library-selection/*.
 
