@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useEditor } from "tldraw";
 import { useCompleteCardHeightMeasurement } from "./CardHeightMeasurementContext";
+import { completeCardFit, useCardFitRequested } from "./fit-cards-to-content";
 import type { MarkdownCardShape } from "./MarkdownCardShapeTypes";
 import { resolveMarkdownCardHeight } from "./markdown-card-sizing";
 
@@ -24,6 +25,7 @@ export function useMarkdownCardAutoHeight({
 	isEditing: boolean;
 }) {
 	const editor = useEditor();
+	const fitRequested = useCardFitRequested(editor, shape.id);
 	const completeHeightMeasurement = useCompleteCardHeightMeasurement();
 	const cardRef = useRef<HTMLDivElement>(null);
 	const latestPropsRef = useRef(shape.props);
@@ -59,6 +61,22 @@ export function useMarkdownCardAutoHeight({
 		const latestProps = latestPropsRef.current;
 		const nextHeight = measureNextHeight();
 
+		if (fitRequested) {
+			if (!isContentReady || !isMarkdownCardVisible(cardRef.current)) return;
+			if (
+				!editor.getIsReadonly() &&
+				!editor.isShapeOrAncestorLocked(shape.id)
+			) {
+				editor.updateShape<MarkdownCardShape>({
+					id: shape.id,
+					type: "markdown-card",
+					props: { h: nextHeight },
+				});
+			}
+			completeCardFit(editor, shape.id);
+			return;
+		}
+
 		if (!isEditing) {
 			if (!isMarkdownCardVisible(cardRef.current)) return;
 			if (!completeHeightMeasurement || measurementInFlightRef.current) return;
@@ -84,6 +102,8 @@ export function useMarkdownCardAutoHeight({
 		});
 	}, [
 		completeHeightMeasurement,
+		fitRequested,
+		isContentReady,
 		editor,
 		isEditing,
 		measureNextHeight,
@@ -93,10 +113,10 @@ export function useMarkdownCardAutoHeight({
 	const scheduleSyncHeight = useCallback(() => {
 		// Editing drives height continuously. A non-editing card gets one write only
 		// when its persisted placement is waiting for a real DOM measurement.
-		if (!isEditing && !canMeasureOnce) return;
+		if (!isEditing && !canMeasureOnce && !fitRequested) return;
 		if (syncFrameRef.current !== null) return;
 		syncFrameRef.current = window.requestAnimationFrame(syncHeight);
-	}, [canMeasureOnce, isEditing, syncHeight]);
+	}, [canMeasureOnce, fitRequested, isEditing, syncHeight]);
 
 	useLayoutEffect(() => {
 		const card = cardRef.current;
