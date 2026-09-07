@@ -48,7 +48,12 @@ export const sidebarRowClass = cva(
 	},
 );
 
-export const sidebarRowIconClass = cva("size-3.5 shrink-0 transition-colors", {
+/**
+ * Color + transition shared by an icon and its label whenever a row wants the
+ * two to move together (root board, card library) instead of the label
+ * tracking `sidebarRowClass`'s own (differently-colored) active state.
+ */
+export const sidebarRowAccentClass = cva("transition-colors", {
 	variants: {
 		active: {
 			true: "text-[var(--ring)]",
@@ -62,6 +67,10 @@ export const sidebarRowIconClass = cva("size-3.5 shrink-0 transition-colors", {
 	},
 	defaultVariants: { active: false, tone: "default" },
 });
+
+export const sidebarRowIconClass = (
+	props?: Parameters<typeof sidebarRowAccentClass>[0],
+) => `size-3.5 shrink-0 ${sidebarRowAccentClass(props)}`;
 
 /** Icon buttons that live inside a row: pin, close, and the section actions. */
 export const sidebarActionClass =

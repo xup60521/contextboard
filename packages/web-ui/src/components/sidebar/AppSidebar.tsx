@@ -1,12 +1,11 @@
 import type { SyncRuntimeState } from "@contextboard/application";
-import { AlertTriangle, Github, LogOut, RefreshCw } from "lucide-react";
+import { AlertTriangle, Github, RefreshCw } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { AppLink } from "../navigation/AppLink";
 import { isDisconnected, syncStateLabel } from "../settings/sync-status";
 import { Button } from "../ui/button";
 import { AppSidebarFrame } from "../whiteboard/AppSidebarFrame";
 import { SidebarTabs } from "./SidebarTabs";
-import { sidebarRevealClass } from "./sidebar-row";
 
 export type AccountSummary = {
 	name?: string | null;
@@ -111,37 +110,19 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 						</div>
 
 						<div className="flex shrink-0 items-center">
-							{runtime.settings}
-							{runtime.syncNow || runtime.signOut ? (
-								<div className={`flex items-center ${sidebarRevealClass}`}>
-									{runtime.syncNow ? (
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon-xs"
-											disabled={pending !== null || isBusy}
-											onClick={() => run("sync", runtime.syncNow)}
-											aria-label="Sync now"
-										>
-											<RefreshCw
-												className={isBusy ? "animate-spin" : undefined}
-											/>
-										</Button>
-									) : null}
-									{runtime.signOut ? (
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon-xs"
-											disabled={pending !== null}
-											onClick={() => run("out", runtime.signOut)}
-											aria-label="Sign out"
-										>
-											<LogOut />
-										</Button>
-									) : null}
-								</div>
+							{runtime.syncNow ? (
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									disabled={pending !== null || isBusy}
+									onClick={() => run("sync", runtime.syncNow)}
+									aria-label="Sync now"
+								>
+									<RefreshCw className={isBusy ? "animate-spin" : undefined} />
+								</Button>
 							) : null}
+							{runtime.settings}
 						</div>
 					</div>
 

@@ -21,7 +21,11 @@ import { Button } from "../ui/button";
 import { ClearOpenTabsDialog } from "./ClearOpenTabsDialog";
 import { SidebarTabRow, sidebarTabIcon } from "./SidebarTabRow";
 import { useSidebarTabs } from "./SidebarTabsContext";
-import { sidebarRowClass, sidebarRowIconClass } from "./sidebar-row";
+import {
+	sidebarRowAccentClass,
+	sidebarRowClass,
+	sidebarRowIconClass,
+} from "./sidebar-row";
 import {
 	getSidebarTabSection,
 	isCardLibraryRoute,
@@ -209,7 +213,9 @@ export function SidebarTabs() {
 						className={sidebarRowClass({ active: rootActive })}
 					>
 						<Layers className={sidebarRowIconClass({ active: rootActive })} />
-						<span className="truncate">{rootTab.title}</span>
+						<span className={`truncate ${sidebarRowAccentClass({ active: rootActive })}`}>
+							{rootTab.title}
+						</span>
 					</button>
 
 					<AppLink
@@ -218,7 +224,9 @@ export function SidebarTabs() {
 						className={sidebarRowClass({ active: isCardLib })}
 					>
 						<Library className={sidebarRowIconClass({ active: isCardLib })} />
-						<span className="truncate">Card Library</span>
+						<span className={`truncate ${sidebarRowAccentClass({ active: isCardLib })}`}>
+							Card Library
+						</span>
 					</AppLink>
 				</div>
 
