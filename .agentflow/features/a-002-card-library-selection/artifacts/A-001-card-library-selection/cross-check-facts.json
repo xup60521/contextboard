@@ -1,0 +1,19 @@
+{
+  "changed_files": [
+    "packages/web-ui/src/components/cards/CardGrid.tsx",
+    "packages/web-ui/src/components/cards/CardLibraryPage.test.tsx",
+    "packages/web-ui/src/components/cards/CardLibraryPage.tsx",
+    "packages/web-ui/src/components/cards/CardLibraryToolbar.tsx",
+    "packages/web-ui/src/components/cards/cardGridGeometry.test.ts",
+    "packages/web-ui/src/components/cards/cardGridGeometry.ts",
+    "packages/web-ui/src/components/cards/useCardLibrarySelection.ts",
+    "packages/web-ui/src/components/cards/useUniformGridWindow.ts"
+  ],
+  "changed_lines": 849,
+  "behavior_change": true,
+  "trust_boundary": false,
+  "broad_change": false,
+  "consequential_change": true,
+  "original_ask_path": ".agentflow/features/a-002-card-library-selection/a-002-card-library-selection.devlog.md",
+  "normal_journey_path": ".agentflow/features/a-002-card-library-selection/artifacts/A-001-card-library-selection/journey.md"
+}

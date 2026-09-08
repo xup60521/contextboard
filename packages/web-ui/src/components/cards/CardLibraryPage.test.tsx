@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 
 import {
+	type ApplicationRuntime,
+	ApplicationRuntimeProvider,
+	type CardSortOrder,
+} from "@contextboard/application";
+import {
 	cleanup,
 	fireEvent,
 	render,
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import {
-	type ApplicationRuntime,
-	ApplicationRuntimeProvider,
-	type CardSortOrder,
-} from "@contextboard/application";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CardLibraryPage } from "./CardLibraryPage";
@@ -251,7 +251,8 @@ function TestPage() {
 			delete: async () => undefined,
 			deleteMany: async (cardIds) => archiveCardsMock({ cardIds }),
 			appendToWhiteboard: async (input) => appendToWhiteboardMock(input),
-			appendManyToWhiteboard: async (input) => appendCardsToWhiteboardMock(input),
+			appendManyToWhiteboard: async (input) =>
+				appendCardsToWhiteboardMock(input),
 			search: async () => [],
 			subscribe: () => () => undefined,
 		},
@@ -276,37 +277,44 @@ function TestPage() {
 					navigateMock({
 						to: "/whiteboard/$whiteboardId",
 						params: { whiteboardId: path.slice("/whiteboard/".length) },
-						...(query ? { search: { focus: new URLSearchParams(query).get("focus") } } : {}),
+						...(query
+							? { search: { focus: new URLSearchParams(query).get("focus") } }
+							: {}),
 					});
 				} else if (path.startsWith("/cards/")) {
-					navigateMock({ to: "/cards/$cardId", params: { cardId: path.slice(7) } });
+					navigateMock({
+						to: "/cards/$cardId",
+						params: { cardId: path.slice(7) },
+					});
 				}
 			},
 			replace: vi.fn(),
 		},
 	};
 	return (
-		<ApplicationRuntimeProvider runtime={runtime}>
-			<CardLibraryPage
-				search={{
-					state: {
-						q: search.q,
-						orphanOnly: search.orphan === "true",
-						sort: fromRouteSort[search.sort],
-					},
-					replace: (next) => {
-						const route = {
-							q: next.q,
-							orphan: next.orphanOnly ? "true" : "",
-							sort: toRouteSort[next.sort],
-						};
-						currentSearch = route;
-						forceRender((value) => value + 1);
-						navigateMock({ search: () => route, replace: true });
-					},
-				}}
-			/>
-		</ApplicationRuntimeProvider>
+		<div data-app-scroll-host="true">
+			<ApplicationRuntimeProvider runtime={runtime}>
+				<CardLibraryPage
+					search={{
+						state: {
+							q: search.q,
+							orphanOnly: search.orphan === "true",
+							sort: fromRouteSort[search.sort],
+						},
+						replace: (next) => {
+							const route = {
+								q: next.q,
+								orphan: next.orphanOnly ? "true" : "",
+								sort: toRouteSort[next.sort],
+							};
+							currentSearch = route;
+							forceRender((value) => value + 1);
+							navigateMock({ search: () => route, replace: true });
+						},
+					}}
+				/>
+			</ApplicationRuntimeProvider>
+		</div>
 	);
 }
 
@@ -315,26 +323,73 @@ const RouteComponent = TestPage;
 function setCardRects(
 	rects: Array<{ left: number; top: number; right: number; bottom: number }>,
 ) {
-	const tiles = Array.from(
-		document.querySelectorAll("[data-card-tile='true']"),
-	);
-	for (const [index, tile] of tiles.entries()) {
-		const rect = rects[index];
-		Object.defineProperty(tile, "getBoundingClientRect", {
-			configurable: true,
-			value: () => ({
-				x: rect.left,
-				y: rect.top,
-				left: rect.left,
-				top: rect.top,
-				right: rect.right,
-				bottom: rect.bottom,
-				width: rect.right - rect.left,
-				height: rect.bottom - rect.top,
-				toJSON: () => rect,
-			}),
-		});
-	}
+	const grid = screen.getByTestId("card-library-grid");
+	const left = Math.min(...rects.map((rect) => rect.left));
+	const top = Math.min(...rects.map((rect) => rect.top));
+	const columns = new Set(rects.map((rect) => rect.left)).size;
+	const width = columns * 200 + Math.max(0, columns - 1) * 12;
+	Object.defineProperty(grid, "getBoundingClientRect", {
+		configurable: true,
+		value: () => ({
+			x: left,
+			y: top,
+			left,
+			top,
+			right: left + width,
+			bottom: top + 170,
+			width,
+			height: 170,
+			toJSON: () => ({}),
+		}),
+	});
+	fireEvent.resize(window);
+}
+
+function setVirtualizedGrid({
+	width,
+	gridTop,
+	hostTop,
+	hostBottom,
+}: {
+	width: number;
+	gridTop: number;
+	hostTop: number;
+	hostBottom: number;
+}) {
+	const grid = screen.getByTestId("card-library-grid");
+	const scrollHost = grid.closest<HTMLElement>("[data-app-scroll-host='true']");
+	if (!scrollHost) throw new Error("Missing card-library scroll host");
+
+	Object.defineProperty(grid, "getBoundingClientRect", {
+		configurable: true,
+		value: () => ({
+			x: 0,
+			y: gridTop,
+			left: 0,
+			top: gridTop,
+			right: width,
+			bottom: gridTop + 2_000,
+			width,
+			height: 2_000,
+			toJSON: () => ({}),
+		}),
+	});
+	Object.defineProperty(scrollHost, "getBoundingClientRect", {
+		configurable: true,
+		value: () => ({
+			x: 0,
+			y: hostTop,
+			left: 0,
+			top: hostTop,
+			right: width,
+			bottom: hostBottom,
+			width,
+			height: hostBottom - hostTop,
+			toJSON: () => ({}),
+		}),
+	});
+	fireEvent.resize(window);
+	return { grid, scrollHost };
 }
 
 function dragSelect(
@@ -548,7 +603,7 @@ describe("cards library", () => {
 		]);
 
 		const alphaButton = screen.getByRole("button", { name: /alpha card/i });
-		dragSelect({ x: 0, y: 0 }, { x: 120, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 220, y: 180 });
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
 		expect(screen.getByText("1 selected")).not.toBeNull();
 
@@ -698,7 +753,7 @@ describe("cards library", () => {
 		const betaButton = screen.getByRole("button", { name: /beta card/i });
 		const gammaButton = screen.getByRole("button", { name: /gamma card/i });
 
-		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 432, y: 180 });
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
 		expect(betaButton.getAttribute("aria-pressed")).toBe("true");
 		expect(screen.getByText("2 selected")).not.toBeNull();
@@ -741,7 +796,7 @@ describe("cards library", () => {
 		const alphaButton = screen.getByRole("button", { name: /alpha card/i });
 		const betaButton = screen.getByRole("button", { name: /beta card/i });
 
-		dragSelect({ x: 0, y: 0 }, { x: 120, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 220, y: 180 });
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
 
 		fireEvent.contextMenu(betaButton, { button: 2 });
@@ -795,7 +850,7 @@ describe("cards library", () => {
 			{ left: 130, top: 10, right: 230, bottom: 110 },
 		]);
 
-		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 432, y: 180 });
 		fireEvent.click(screen.getByRole("button", { name: /append/i }));
 
 		expect(screen.getByTestId("whiteboard-picker")).not.toBeNull();
@@ -876,7 +931,7 @@ describe("cards library", () => {
 			{ left: 130, top: 10, right: 230, bottom: 110 },
 		]);
 
-		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 432, y: 180 });
 		fireEvent.click(screen.getByRole("button", { name: /append/i }));
 		fireEvent.click(
 			screen.getByRole("button", { name: /pick history board/i }),
@@ -927,7 +982,7 @@ describe("cards library", () => {
 			screen.getByTestId("preview-dialog").getAttribute("data-card-id"),
 		).toBe("card-1");
 
-		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 432, y: 180 });
 		fireEvent.contextMenu(betaButton, { button: 2 });
 
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
@@ -989,7 +1044,7 @@ describe("cards library", () => {
 
 		const betaButton = screen.getByRole("button", { name: /beta card/i });
 
-		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 432, y: 180 });
 		fireEvent.contextMenu(betaButton, { button: 2 });
 
 		const appendItem = screen.getByRole("menuitem", {
@@ -1022,7 +1077,7 @@ describe("cards library", () => {
 			{ left: 130, top: 10, right: 230, bottom: 110 },
 		]);
 
-		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 432, y: 180 });
 		fireEvent.click(screen.getByRole("button", { name: /append/i }));
 		fireEvent.click(
 			screen.getByRole("button", { name: /pick history board/i }),
@@ -1045,7 +1100,7 @@ describe("cards library", () => {
 		setCardRects([{ left: 10, top: 10, right: 110, bottom: 110 }]);
 
 		const cardButton = screen.getByRole("button", { name: /alpha card/i });
-		dragSelect({ x: 0, y: 0 }, { x: 120, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 220, y: 180 });
 		expect(cardButton.getAttribute("aria-pressed")).toBe("true");
 
 		fireEvent.click(screen.getByRole("button", { name: /orphan only/i }));
@@ -1122,13 +1177,13 @@ describe("cards library", () => {
 		const alphaButton = screen.getByRole("button", { name: /alpha card/i });
 		const betaButton = screen.getByRole("button", { name: /beta card/i });
 		const gammaButton = screen.getByRole("button", { name: /gamma card/i });
-		dragSelect({ x: 0, y: 0 }, { x: 220, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 432, y: 180 });
 
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
 		expect(betaButton.getAttribute("aria-pressed")).toBe("true");
 		expect(gammaButton.getAttribute("aria-pressed")).toBe("false");
 
-		dragSelect({ x: 0, y: 0 }, { x: 220, y: 120 }, { shiftKey: true });
+		dragSelect({ x: 0, y: 0 }, { x: 432, y: 180 }, { shiftKey: true });
 
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
 		expect(betaButton.getAttribute("aria-pressed")).toBe("true");
@@ -1158,18 +1213,18 @@ describe("cards library", () => {
 		const alphaButton = screen.getByRole("button", { name: /alpha card/i });
 		const betaButton = screen.getByRole("button", { name: /beta card/i });
 
-		dragSelect({ x: 0, y: 0 }, { x: 240, y: 120 });
+		dragSelect({ x: 0, y: 0 }, { x: 432, y: 180 });
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
 		expect(betaButton.getAttribute("aria-pressed")).toBe("true");
 
 		await new Promise((resolve) => window.setTimeout(resolve, 0));
 
-		fireEvent.click(betaButton, { clientX: 240, clientY: 120 });
+		fireEvent.click(betaButton, { clientX: 432, clientY: 180 });
 		expect(
 			screen.getByTestId("preview-dialog").getAttribute("data-card-id"),
 		).toBe("");
 
-		fireEvent.click(betaButton, { clientX: 240, clientY: 120 });
+		fireEvent.click(betaButton, { clientX: 432, clientY: 180 });
 		expect(
 			screen.getByTestId("preview-dialog").getAttribute("data-card-id"),
 		).toBe("card-2");
@@ -1198,7 +1253,7 @@ describe("cards library", () => {
 		const alphaButton = screen.getByRole("button", { name: /alpha card/i });
 		const searchInput = screen.getByPlaceholderText("Find a card...");
 
-		dragSelect({ x: 0, y: 120 }, { x: 120, y: 280 });
+		dragSelect({ x: 0, y: 120 }, { x: 220, y: 340 });
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
 
 		fireEvent.pointerDown(searchInput, {
@@ -1223,5 +1278,110 @@ describe("cards library", () => {
 
 		expect(alphaButton.getAttribute("aria-pressed")).toBe("true");
 		expect(screen.queryByTestId("cards-selection-marquee")).toBeNull();
+	});
+
+	test("windows whole rows while marquee selection still reaches off-screen cards", () => {
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: Array.from({ length: 30 }, (_, index) =>
+				makeCard({
+					_id: `card-${index + 1}`,
+					derivedTitle: `Card ${index + 1}`,
+				}),
+			),
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+		setVirtualizedGrid({ width: 624, gridTop: 0, hostTop: 0, hostBottom: 170 });
+
+		expect(document.querySelectorAll("[data-card-tile='true']")).toHaveLength(
+			9,
+		);
+		expect(screen.queryByRole("button", { name: "Card 15" })).toBeNull();
+
+		dragSelect({ x: 0, y: 0 }, { x: 624, y: 900 });
+		expect(screen.getByText("15 selected")).not.toBeNull();
+
+		const { scrollHost } = setVirtualizedGrid({
+			width: 624,
+			gridTop: -728,
+			hostTop: 0,
+			hostBottom: 170,
+		});
+		fireEvent.scroll(scrollHost);
+
+		expect(screen.getByText("15 selected")).not.toBeNull();
+		expect(screen.queryByRole("button", { name: "Card 1" })).toBeNull();
+	});
+
+	test("auto-scrolls the app scroll host while dragging at its edge", () => {
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: Array.from({ length: 12 }, (_, index) =>
+				makeCard({
+					_id: `card-${index + 1}`,
+					derivedTitle: `Card ${index + 1}`,
+				}),
+			),
+			loadMore: vi.fn(),
+		});
+		let animationFrame: FrameRequestCallback | null = null;
+		vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+			animationFrame = callback;
+			return 1;
+		});
+		vi.spyOn(window, "cancelAnimationFrame").mockImplementation(
+			() => undefined,
+		);
+
+		render(<RouteComponent />);
+		const { scrollHost } = setVirtualizedGrid({
+			width: 412,
+			gridTop: 0,
+			hostTop: 0,
+			hostBottom: 200,
+		});
+		const surface = screen.getByTestId("cards-selection-surface");
+		fireEvent.pointerDown(surface, {
+			button: 0,
+			clientX: 10,
+			clientY: 100,
+			isPrimary: true,
+			pointerId: 1,
+		});
+		fireEvent.pointerMove(surface, {
+			clientX: 10,
+			clientY: 195,
+			isPrimary: true,
+			pointerId: 1,
+		});
+		expect(animationFrame).not.toBeNull();
+		(animationFrame as FrameRequestCallback)(0);
+		expect(scrollHost.scrollTop).toBeGreaterThan(0);
+
+		fireEvent.pointerUp(surface, {
+			clientX: 10,
+			clientY: 195,
+			isPrimary: true,
+			pointerId: 1,
+		});
+		vi.restoreAllMocks();
+	});
+
+	test("keeps the toolbar above the scrolling card grid", () => {
+		usePaginatedQueryMock.mockReturnValue({
+			status: "Idle",
+			results: [makeCard()],
+			loadMore: vi.fn(),
+		});
+
+		render(<RouteComponent />);
+		const toolbar = screen.getByTestId("card-library-sticky-toolbar");
+		expect(toolbar.classList.contains("sticky")).toBe(true);
+		expect(toolbar.classList.contains("top-0")).toBe(true);
+		expect(
+			toolbar.compareDocumentPosition(screen.getByTestId("card-library-grid")),
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
 });

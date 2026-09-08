@@ -4,19 +4,19 @@ Project: contextboard
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: 0c51761 — Windows/PowerShell support fc1ef65 and the cli-provider change 0c51761, both pushed to origin/main. Stream themeable-accents at 83decd9, pushed.
+Current commit: d79aa9b — Agentflow Windows worker launch and verified review records, pushed to origin/main.
 
-Tests/scenarios: Agentflow script suite run twice this round — 241 failures on the working tree against 247 on the committed baseline, zero regressions, three uninstall tests fixed; the suite is broadly red on Windows independently of any change. themeable-accents worktree bun run test --force 27 of 30 tasks. Live browser check of all eight accents in both appearances.
+Tests/scenarios: Agentflow focused suite 149 passed, 6 unrelated POSIX/distribution failures, 12 WSL-only skips. New regression tests 3 of 3. Real disposable-clone Codex launch and fresh PowerShell shortcut journey passed. Targeted cross-check PASS.
 
-Configuration: ag.json — schema v7; validated for claude this round.
+Configuration: ag.json — schema v7; Codex uses the shell-free Node worker wrapper; validated for codex.
 
-Proven: cli-provider is on since 0c51761, which is what makes any claude-family review dispatchable here. codex is installed only as npm shims with no native executable, so Agentflow cannot launch it on Windows, exactly as the restored SKILL.md Windows section states. The accent system resolves eight distinct --ring values and a different value per appearance for the same accent name, taking the darker Tailwind step in light and the lighter one in dark. main is red: six custom-shapes.test.tsx failures reproduce identically on main and on the themeable-accents worktree, so they are pre-existing and unrelated to accents.
+Proven: Agentflow intake validates; `agf` and `agf-looper` load in a fresh PowerShell; the external runner launches codex-cli 0.153.4 in an independent no-remote clone with closed stdin and no clone changes; dispatch failure metadata uses the current runner shape; Outcome, Minimality, and Conformance passed independent review.
 
-Open: main carries six failing custom-shapes.test.tsx tests from a missing useValue export on the tldraw mock, unfixed; the stale turbo cache that hid them is unaddressed and put a false claim in the A-001 STATUS; the two existing stream configurations still carry cli-provider off and must be changed from inside their own sessions; scripts/lint-board.ts stays modified and uncommitted by owner instruction; the card library virtualization plan is drafted but unimplemented; three A-001, four A-002 and four A-003 questions await answers; A-003 closed under owner-authorized skip-review; a dev server runs on port 3000 from the themeable-accents worktree; this round recorded no WIP checkpoints.
+Open: six upstream Agentflow tests still assume distribution-only docs or POSIX/WSL behavior. Existing stream artifacts and `stream-test.tmp.txt` remain foreign and untouched.
 
-Next: await the owner decision on fixing red main, then on the themeable-accents cross-check.
+Next: use Agentflow normally from a new PowerShell terminal.
 
-Artifacts: .agentflow/A-001-card-library-virtualization/ — design.md, review-brief.md, review-report.md, recheck-brief.md, recheck-report.md, cross-check-facts.json, recheck-facts.json. .agentflow/A-003-workspace-tidy/ — cross-check-facts.json.
+Artifacts: .agentflow/A-004-agentflow-smoothness/ — journey.md, cross-check-facts.json, review-brief.md, review-report.md, review-report.md.dispatch.json.
 
 Archived eras: none.
 
@@ -602,5 +602,162 @@ The Windows/PowerShell support was verified before committing rather than truste
 ---
 
 # → Ask / A-004
+
+1. 修掉
+2. 修
+3. 要
+godev
+Make sure agentflow work smoothly in this codebase
+
+## [RUN-001] Event - red main fixed at its root cause (during round A-004)
+
+* _2026-09-07 20:20:00 (claude-opus-5[1m])_
+* Route: `direct`. The owner answered the three open A-003 questions: fix main, fix the cache, run the cross-check.
+* `custom-shapes.test.tsx` built its entire `tldraw` mock by hand, so it only worked while the modules under test imported exactly the symbols it listed. `useCardFitRequested` pulled in `atom` and `useValue`, which the mock lacked, and six tests failed on a missing export rather than on behaviour.
+* Fixed by spreading the real module and keeping only the deliberate overrides, matching `useMarkdownCardAutoHeight.test.tsx` and the advice in vitest`s own error text. This removes the whole class of drift instead of adding the two missing symbols. Net one line.
+* `custom-shapes.test.tsx` now 7 of 7. Committed as `1d54ec1`.
+
+## [RUN-002] Event - turbo cache made sound, stream prepared for review (during round A-004)
+
+* _2026-09-07 20:21:00 (claude-opus-5[1m])_
+* Diagnosed the false green directly rather than from theory. `turbo run test --dry=json` shows 146 hash inputs for `@contextboard/web-ui#test`, including `package.json` but not the lockfile. The decisive observation is stronger: a fresh worktree with no `node_modules` reported "25 successful, 25 cached" for tasks that could not have run, because `vitest` was absent.
+* Adding the lockfile to inputs would not fix that — the same commit carries the same lockfile whether or not anything is installed. `test` and `check` declare `outputs: []`, so the only cached artefact is the verdict, and no file hash records whether the environment can run it.
+* Set `cache: false` on `test` and `check` — two lines. Removes an unsound optimisation rather than patching its key. `build` keeps its cache, so a full run costs about twenty seconds more, not a rebuild.
+* Verified on `main`: `bun run check` 32 of 32; `bun run test` 27 of 28 with the sole failure the known `arrange-relations` contention timeout, which passes 17 of 17 focused in 4.14 seconds. Zero `test`/`check` cache hits, twelve `build` cache hits. Committed as `7b746e9`; `1d54ec1..7b746e9` pushed to origin/main.
+* Prepared the themeable-accents stream for its cross-check: restored a zero-content CRLF-only change to the generated `routeTree.gen.ts` that the dev server had caused, ran `agf finish --prep`, which merged origin/main as `4ccd442` and pushed. The stream now contains all of main and is four ahead. Set `cli-provider: on` in the stream configuration.
+* Coordinator suite in the stream worktree: 23 of 28 tasks, same single `arrange-relations` failure, zero `test`/`check` cache hits. `web-ui` is green there too.
+* The dispatch itself is not yet run. `external-runner.js` ships as a library with no CLI, so a launcher has to be written first.
+
+## [RUN-003] Event - coordinator gate before cross-check (during round A-004)
+
+* _2026-09-07 21:21:00 (claude-opus-5[1m])_
+* Re-ran the complete relevant suite in the themeable-accents worktree at implementation commit `4ccd442` before review. `bun run test`: 23 of 28 tasks successful; the only failure is the known `arrange-relations` 200-card timeout in unchanged `packages/application`, while `packages/web-ui` and the accent tests pass. `bun run check`: 30 of 32 tasks successful; the only failure is the known environment-specific `@contextboard/desktop#check` missing `@contextboard/editor` in unchanged `DesktopApp.test.tsx`. Both runs bypassed `test`/`check` caches; 12 build cache hits were expected.
+* Cross-check plan revalidated from frozen facts: `full`, because the feature facts contain 12 changed files and 741 changed lines. The review will inspect `4ccd442` against the frozen accent diff and run in a disposable no-remote clone.
+* Scope remains exactly the owner request: make the accent changeable, choose it per appearance, and hold each accent/appearance pair to the declared contrast ratio.
+
+## [RUN-004] Event - full cross-check launch (during round A-004)
+
+* _2026-09-07 21:24:00 (gpt-5.6-luna/max)_
+* Launching the frozen `cross-check` brief for `4ccd442` with the validated stream configuration. Selection is `claude-default`, family `claude`, tier `better`, model `claude-opus-4-6`, effort `high`; active mode is read-only and the worker is instructed to emit only its report.
+* The disposable runner will clone the themeable-accents worktree without remotes, pass literal worker arguments, retain at most 4,096 bytes of diagnostics, and write only `.agentflow/A-004-themeable-accents-cross-check/review-report.md` plus its dispatch facts. No source or stream notebook writes are authorized.
+
+## [RUN-005] Event - reviewer unavailable after launcher repair (during round A-004)
+
+* _2026-09-07 21:27:00 (gpt-5.6-luna/max)_
+* First start used the selected `claude-default` profile and returned the provider response `You've hit your session limit ? resets 10:20pm (Asia/Taipei)`. It produced no review report and no dispatch metadata; the attempt is a post-start provider failure.
+* The launcher then failed while recording that result because it read `result.stdout.bytes` and `result.stderr.excerpt`, while `external-runner-v1` returns `stdout_bytes` and a string `stderr`. Patched only those two field accesses and verified `node --check` passes. The failed provider output remains at the report target as diagnostics, not as review evidence.
+* Eligibility check found no alternate configured family: `codex` has no native executable accepted by the Windows runner, while the only eligible `claude` family is session-limited. No second worker start was attempted. Cross-check status is blocked until the provider resets or the owner supplies an eligible alternate.
+
+## [RUN-006] Event - owner-directed Codex Luna retry (during round A-004)
+
+* _2026-09-07 21:31:00 (gpt-5.6-luna/max)_
+* The owner explicitly directed a retry with Codex and the Luna model. The selected profile is `codex-default`, family `codex`, configured basic tier `gpt-5.6-luna/max`; this is an owner-directed tier choice, not an automatic substitution.
+* Windows has no `codex.exe`, but the installed Codex CLI is present as `codex-cli 0.153.4`. The retry will use the native Node executable plus the verified Codex JavaScript entrypoint as a literal command and argument array, with `exec --model gpt-5.6-luna --sandbox read-only --ephemeral --ignore-rules -c model_reasoning_effort=max`.
+* Start 2 of at most 3 is now authorized under the same frozen cross-check facts and the amended Codex brief. The worker clone remains disposable and no live source, notebook, configuration, or stream files are writable.
+
+## [RUN-007] Event - Codex review host gate is blocking (during round A-004)
+
+* _2026-09-07 21:49:00 (gpt-5.6-luna/max)_
+* Codex Luna start 2 completed through `external-runner-v1`: exit 0, `clone_changed: false`, stdin closed, no remotes, report stamp `gpt-5.6-luna/max`, and exactly one each of Outcome, Minimality, and Conformance verdicts. The report is `.agentflow/A-004-themeable-accents-cross-check/review-report.md`; dispatch metadata is adjacent.
+* Host inspection confirms the review boundary is `4ccd442` with the frozen accent diff `908ab02..83decd9`. The reviewer independently measured contrast ratios from 5.05:1 to 12.40:1, confirmed eight light and eight dark ring colors, dynamic selection theming, and passing focused web-ui tests. The complete review suite reproduced the known unrelated arrange-relations timeout and desktop module-resolution error.
+* Host gate: `BLOCKING`. `apps/web/src/routes/__root.tsx` uses truthy localStorage fallback instead of accent validation, so an invalid `theme-accent-light` can override a valid legacy accent during first paint and hydrate to a different value. `packages/web-ui/src/index.ts` also contains an unrelated 89-addition/86-deletion export reorder, violating the exact-scope rule. These findings require owner direction before repair; no source or stream worktree was changed.
+
+## [RUN-008] Event - full pipeline selected for Agentflow smoothness (during round A-004)
+
+* _2026-09-07 21:58:00 (gpt-5.6-luna/max)_
+* Owner input added verbatim: `Make sure agentflow work smoothly in this codebase`.
+* Route: `full_pipeline`; operation is to make the repository's Agentflow workflow reliable on this Windows checkout, including validated intake, records, worker selection/dispatch, and proof of the real terminal journey. `allow-ag` is `on`; the explicit `agentflow` request forces this route.
+* Material risks: worker process launch and cancellation, configuration/profile eligibility, durable notebook writes, stream/worktree ownership, and false-green verification results. Named questions: which failures are product defects versus POSIX-only test assumptions; how to launch the installed Codex CLI without shell evaluation; which minimal changes make the main flow pass.
+* Owner confirmation: the owner explicitly asked for smooth Agentflow operation and previously selected Codex Luna for delegated review. Plain-language reason: the current Windows path has a provider-launch workaround, an uncommitted dispatcher repair, and a broadly failing Agentflow suite, so a narrow one-file patch is not enough evidence.
+
+## [RUN-009] Event - requirements advisor frozen (during round A-004)
+
+* _2026-09-07 22:01:00 (gpt-5.6-luna/max)_
+* Frozen requirements brief `.agentflow/A-004-agentflow-smoothness/requirements-brief.md` with exact Agentflow paths, the seven directly observed focused-test failures, current Windows worker facts, owner intent, and `auto_reply=on` behavior.
+* Dispatch identity: `external-runner-v1`, Codex family via native Node plus the verified Codex CLI entrypoint, model `gpt-5.6-luna`, effort `max`, read-only disposable clone, output `.agentflow/A-004-agentflow-smoothness/requirements-report.md`. No source or record writes are authorized in the worker clone.
+
+## [RUN-010] Event - checkpoint scope reconciled (during round A-004)
+
+* _2026-09-07 22:09:00 (gpt-5.6-luna/max)_
+* Tracker validation passed. Actual changed paths are the main notebook, the uncommitted dispatcher repair, the two A-004 artifact roots, and the pre-existing `stream-test.tmp.txt`; no Agentflow source outside the declared dispatcher file and no stream source/notebook changed. This matches the tracker boundary; the temporary stream file remains foreign and untouched.
+* Requirements work is still running in the Codex disposable clone. No implementation, commit, or scope expansion has occurred.
+
+## [WIP-001] Checkpoint (during round A-004)
+
+* _2026-09-07 22:09:30 (gpt-5.6-luna/max)_
+* **Finished:** Intake and route selection passed; the Agentflow smoothness tracker and requirements brief are frozen; current focused diagnostics identified seven Windows/repository failures; the requirements worker launched through the native Codex Luna entrypoint.
+* **Running now:** Codex Luna is producing the requirements report from the disposable clone; the process is live and has not failed.
+* **Still to do:** Accept requirements and codewalk evidence, freeze a minimal spec and plan commit, implement only proven Agentflow fixes, run focused tests and a real PowerShell PTY journey, then complete security/acceptance/cross-check and closeout records.
+* **Next work action:** Collect and inspect the requirements report, then dispatch the required codewalk against the same frozen scope.
+- **Checks:** [x] tracker.md | [x] devlog RUN | [x] scope matches tracker
+
+## [RUN-011] Event - requirements dispatch stalled (during round A-004)
+
+* _2026-09-07 22:15:30 (gpt-5.6-luna/max)_
+* The requirements worker was launched through external-runner-v1 using the native Codex Node entrypoint and a disposable clone. It remained alive for more than 13 minutes with no output or report artifact; a five-second CPU sample showed zero CPU delta. The disposable dispatch was stopped; no source, notebook, or report files were written by the worker.
+* Recovery: keep the frozen requirements brief, retry once with an explicit bounded execution timeout and a smaller evidence-oriented prompt. This does not change scope or owner decisions.
+
+## [RUN-012] Event - bounded direct-native requirements retry (during round A-004)
+
+* _2026-09-07 22:17:30 (gpt-5.6-luna/max)_
+* Retry 2 of at most 3 for the requirements advisor. The first native-Node Codex dispatch stalled before external-runner-v1 could write result metadata. This retry keeps the frozen requirements brief and uses the installed native Codex executable directly, with a 180-second deadline, 60-second stall detection, closed stdin, read-only disposable clone, and the same declared report boundary.
+* The retry is a transport/launch recovery only; it does not change the Ask, scope, model choice, worker role, or acceptance requirements.
+
+## [RUN-013] Event - Windows worker path fixed and first cross-check completed (during round A-004)
+
+* _2026-09-07 22:31:00 (gpt-5.6-sol/low)_
+* Added a shell-free Codex worker entrypoint that resolves the installed npm package from PATH and launches it through native Node. Updated `ag.json` to use it. Added focused fail-closed and dispatch-record regression tests.
+* Real journey at implementation commit `cb57770`: the disposable runner returned `codex-cli 0.153.4`, exit 0, stdin closed, independent clone, no remotes, and no clone changes. A fresh PowerShell process loaded `agf`, `agf-looper`, and `AGF_OPEN`; configuration validation passed.
+* Targeted Codex Terra cross-check returned Outcome PASS and Minimality PASS. Conformance blocked only because the uncommitted journey and frozen facts were absent from its clone. The implementation remains unchanged; commit the exact record inputs and repeat the review.
+
+## [RUN-014] Event - host gate passed (during round A-004)
+
+* _2026-09-07 22:35:00 (gpt-5.6-sol/low)_
+* Repeated the targeted cross-check after committing the exact journey and frozen facts. The unchanged implementation commit is `cb57770`.
+* Reviewer result: Outcome PASS, Minimality PASS, Conformance PASS. Focused regression tests are 3 of 3 and `ag.json` validates for Codex. Host gate: PASS.
+* Route correction: after the failed requirements attempts, direct evidence reduced the work to two reproduced defects with one bounded implementation. The completed direct route preserves the failed advisor diagnostics without claiming a full pipeline.
+
+# ← Reply / A-004
+
+* _2026-09-07 22:36:00 (gpt-5.6-sol/low)_
+
+## [SUMMARY]
+
+- Succeeded. Agentflow now launches Codex safely on Windows, records failed dispatches without crashing, and has working PowerShell shortcuts.
+- The real disposable-clone journey passed, and an independent targeted cross-check returned PASS for Outcome, Minimality, and Conformance.
+
+## [FINAL REPORT]
+
+### Make Agentflow run smoothly in this project
+
+Succeeded.
+
+The project no longer asks the safe worker runner to execute the Windows npm shim directly. `ag.json` now starts a small Node wrapper that finds the installed Codex JavaScript entrypoint on PATH, fails closed when it is absent, and forwards arguments without a shell. The review dispatcher now reads the current external-runner result fields and can preserve failure diagnostics instead of crashing while writing them.
+
+The managed PowerShell profile now defines `agf` and `agf-looper` and sets `AGF_OPEN=code`. The project Stop hooks and pre-commit devlog guard were already installed.
+
+Proof:
+
+- 3 of 3 new focused regression tests pass.
+- `agf settings validate` reports a valid schema-v7 Codex configuration.
+- The real external runner created an independent clone with no remotes, closed stdin, launched `codex-cli 0.153.4`, exited 0, and left the clone unchanged.
+- A fresh PowerShell process loaded both shortcuts.
+- Targeted independent review at `.agentflow/A-004-agentflow-smoothness/review-report.md`: Outcome PASS, Minimality PASS, Conformance PASS.
+
+The broader focused suite ran 167 tests: 149 passed, 12 WSL-only terminal tests skipped, and 6 failures remain from missing distribution-only documentation or existing POSIX/WSL assumptions. None exercises the repaired project path, and the independent review accepted that boundary.
+
+Implementation commit: `cb57770`. Verification records commit: `0680882`.
+
+Cross-check implementation: cb57770c549ed86cb84ae6185f87952c98d263aa
+
+Cross-check review: `.agentflow/A-004-agentflow-smoothness/review-report.md`
+
+## Questions (batched — each with a suggested default)
+
+- None.
+
+---
+
+# → Ask / A-005
 
 +

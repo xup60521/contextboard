@@ -1,5 +1,5 @@
-import { ArrowUpDown, Check, Filter, Plus, Search, X } from "lucide-react";
 import type { CardSortOrder } from "@contextboard/application";
+import { ArrowUpDown, Check, Filter, Plus, Search, X } from "lucide-react";
 import { SidebarOpenButton } from "../navigation/SidebarOpenButton";
 import {
 	DropdownMenu,
@@ -58,7 +58,7 @@ export function CardLibraryToolbar({
 	isCreatingCard: boolean;
 }) {
 	return (
-		<header className="mb-4 flex flex-col gap-1.5">
+		<header className="flex flex-col gap-1.5">
 			<div className="flex items-center gap-2">
 				<SidebarOpenButton />
 				<button

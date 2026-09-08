@@ -1,8 +1,17 @@
-import { CheckCircle2, Eye, LayoutGrid, Maximize2, Plus, SearchX, Trash2 } from "lucide-react";
 import type { CardSummary } from "@contextboard/application";
+import {
+	CheckCircle2,
+	Eye,
+	LayoutGrid,
+	Maximize2,
+	Plus,
+	SearchX,
+	Trash2,
+} from "lucide-react";
 import type {
 	PointerEvent as ReactButtonPointerEvent,
 	MouseEvent as ReactMouseEvent,
+	Ref,
 } from "react";
 import {
 	ContextMenu,
@@ -21,7 +30,10 @@ export function CardGrid({
 	orphanOnly,
 	isSelected,
 	getContextTargetIds,
-	registerCardElement,
+	gridRef,
+	columns,
+	paddingTop,
+	paddingBottom,
 	onCardClick,
 	onCardPointerDown,
 	onCardContextMenu,
@@ -38,7 +50,10 @@ export function CardGrid({
 	orphanOnly: boolean;
 	isSelected: (cardId: string) => boolean;
 	getContextTargetIds: (cardId: string) => string[];
-	registerCardElement: (cardId: string, node: HTMLElement | null) => void;
+	gridRef: Ref<HTMLUListElement>;
+	columns: number;
+	paddingTop: number;
+	paddingBottom: number;
 	onCardClick: (
 		cardId: string,
 		event: ReactMouseEvent<HTMLButtonElement>,
@@ -94,8 +109,12 @@ export function CardGrid({
 					strokeWidth={1.25}
 				/>
 				<div className="space-y-1">
-					<p className="text-sm font-semibold text-[var(--sea-ink-soft)]">{title}</p>
-					<p className="text-xs text-[var(--sea-ink-soft)] opacity-60">{subtitle}</p>
+					<p className="text-sm font-semibold text-[var(--sea-ink-soft)]">
+						{title}
+					</p>
+					<p className="text-xs text-[var(--sea-ink-soft)] opacity-60">
+						{subtitle}
+					</p>
 				</div>
 			</div>
 		);
@@ -103,18 +122,22 @@ export function CardGrid({
 
 	return (
 		<>
-			<ul className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+			<ul
+				ref={gridRef}
+				data-testid="card-library-grid"
+				className="grid gap-3"
+				style={{
+					gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+					paddingTop,
+					paddingBottom,
+				}}
+			>
 				{cards.map((card) => {
 					const contextTargetIds = getContextTargetIds(card.id);
 					const singleTarget = contextTargetIds.length === 1;
 
 					return (
-						<li
-							key={card.id}
-							data-card-tile="true"
-							className="flex"
-							ref={(node) => registerCardElement(card.id, node)}
-						>
+						<li key={card.id} data-card-tile="true" className="flex">
 							<CardLibraryTile
 								card={card}
 								selected={isSelected(card.id)}
@@ -197,7 +220,7 @@ function CardLibraryTile({
 					onPointerDown={onPointerDown}
 					onContextMenu={onContextMenu}
 					aria-pressed={selected}
-					className={`island-shell flex h-full cursor-pointer min-h-[120px] w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--lagoon)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] ${
+					className={`island-shell flex h-[170px] cursor-pointer w-full flex-col rounded-xl p-4 text-left transition hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--lagoon)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] ${
 						selected
 							? "bg-[var(--surface-strong)] outline-1 outline-offset-2 outline-[var(--sea-ink)]"
 							: "focus:outline-none"

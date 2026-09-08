@@ -1,0 +1,16 @@
+{
+  "changed_files": [
+    ".agents/skills/agentflow/scripts/codex-worker.js",
+    ".agents/skills/agentflow/scripts/codex-worker.test.js",
+    ".agents/skills/agentflow/scripts/dispatch-review.js",
+    ".agents/skills/agentflow/scripts/dispatch-review.test.js",
+    "ag.json"
+  ],
+  "changed_lines": 115,
+  "behavior_change": true,
+  "trust_boundary": false,
+  "broad_change": false,
+  "consequential_change": true,
+  "original_ask_path": ".agentflow/devlog.md",
+  "normal_journey_path": ".agentflow/A-004-agentflow-smoothness/journey.md"
+}

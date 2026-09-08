@@ -1,9 +1,9 @@
 {
   "schema-version": 7,
   "switches": {
-    "target-doc": ".agentflow/devlog.md",
+    "target-doc": ".agentflow/features/a-002-card-library-selection/a-002-card-library-selection.devlog.md",
     "workspace-dir": ".agentflow",
-    "cli-provider": "on",
+    "cli-provider": "off",
     "auto-reply": "on",
     "lang": "en",
     "streams": "ask",
@@ -28,8 +28,7 @@
     {
       "id": "codex-default",
       "command": [
-        "node",
-        ".agents/skills/agentflow/scripts/codex-worker.js",
+        "codex",
         "exec"
       ],
       "priority": 3,
