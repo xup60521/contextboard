@@ -93,4 +93,9 @@ Host gate: PASS
 
 # → Ask / A-002
 
-+
+alright, file the pr
+
+## [RUN-001] Event —2026-09-08 12:53:09 (during round A-002)
+
+- Route: direct. Operation: prepare the existing reviewed stream, close its Agentflow record, push it, and file a non-draft pull request.
+- Scope: Agentflow stream records and outward PR creation only. No product code changes are authorized.
