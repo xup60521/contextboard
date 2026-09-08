@@ -1,0 +1,23 @@
+{
+  "implementation_commit": "4ccd442",
+  "changed_files": [
+    "apps/desktop/index.html",
+    "apps/desktop/src/desktop-css-contract.test.ts",
+    "apps/desktop/src/main.tsx",
+    "apps/web/src/routes/__root.tsx",
+    "packages/web-ui/src/components/settings/AppearanceSection.tsx",
+    "packages/web-ui/src/components/settings/SettingsPrimitives.tsx",
+    "packages/web-ui/src/hooks/useAccents.ts",
+    "packages/web-ui/src/index.ts",
+    "packages/web-ui/src/lib/accent-contrast.test.ts",
+    "packages/web-ui/src/lib/theme.test.ts",
+    "packages/web-ui/src/lib/theme.ts",
+    "packages/web-ui/src/styles.css"
+  ],
+  "changed_lines": 741,
+  "behavior_change": true,
+  "trust_boundary": false,
+  "broad_change": false,
+  "consequential_change": false,
+  "owner_control": "default"
+}

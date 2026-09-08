@@ -1,22 +1,22 @@
 # STATUS
 
-Project: contextboard 
+Project: contextboard
 
 Notebook: .agentflow/features/themeable-accents/themeable-accents.devlog.md — stream.
 
-Current commit: stream-open only, no code commits yet.
+Current commit: 4ccd442 - accent implementation integrated with origin/main; Agentflow record repair pending commit.
 
-Tests/scenarios: none.
+Tests/scenarios: existing complete-suite evidence recorded in A-001. Accent tests passed; one unrelated test timeout and one disposable-clone module-resolution check failure were documented. Independent cross-check PASS.
 
 Configuration: .agentflow/features/themeable-accents/ag.json — schema v7; validated for claude this round.
 
-Proven: the stream configuration was copied from the root configuration.
+Proven: eight accents can be selected independently for light and dark appearance; contrast tests enforce WCAG AA 4.5:1; Outcome, Minimality, and Conformance passed external review.
 
-Open: none.
+Open: stream remains active and has not been delivered or filed as a PR.
 
-Next: reply to the first Ask below.
+Next: commit and push this record-only repair, then prepare the stream for delivery when requested.
 
-Artifacts: none.
+Artifacts: .agentflow/features/themeable-accents/artifacts/A-001-themeable-accents/ - cross-check-facts.json, review-brief.md, review-report.md.
 
 Archived eras: none.
 
@@ -32,4 +32,65 @@ Opened by the `agf` shell shortcut on 2026-09-07, not by an agent round. The mai
 
 # → Ask / A-001
 
-+ 
+Make the accent colour changeable, not just light and dark
+
+Choose the accent per appearance and hold each one to a contrast ratio
+
+ok so that branch/worktree is removable. leave later to clean up
+question here is themeable-accents is a real dev branch while not following agentflow instruction. Fix it first without changing the code.
+
+## [RUN-001] Event ?2026-09-08 12:43:13 (during round A-001)
+
+- Route: direct. This is a record-only repair; Agentflow is allowed, no product code changes are authorized, and the existing implementation and independent cross-check are preserved.
+- Recovered owner outcome from the existing frozen review brief: changeable accents, chosen per appearance, with contrast-ratio enforcement.
+- Evidence: implementation commits f8a6c3d and 83decd9; main integration merge 4ccd442; independent cross-check returned PASS for Outcome, Minimality, and Conformance.
+- Scope check: only the stream notebook and existing untracked Agentflow review artifacts are being repaired and tracked. Product code remains unchanged.
+
+## [RUN-002] Event —2026-09-08 12:44:54 (during round A-001)
+
+- Cross-check report: .agentflow/features/themeable-accents/artifacts/A-001-themeable-accents/review-report.md.
+- Reviewed implementation commit: 4ccd442. Outcome: PASS. Minimality: PASS. Conformance: PASS.
+- Host gate: PASS. The report names the requested behavior, accounts for added concepts, and distinguishes the unrelated test timeout and disposable-clone check failure from the accent changes.
+- Record repair: removed only the pre-report wrapper so the existing external report begins at its required timestamp; substantive review evidence is unchanged.
+
+## [RUN-003] Event —2026-09-08 12:45:47 (during round A-001)
+
+Cross-check review: .agentflow/features/themeable-accents/artifacts/A-001-themeable-accents/review-report.md
+
+Cross-check implementation: 4ccd44255b6309cb34715b4955d9d80798b8cd05
+
+# ← Reply / A-001
+
+* _2026-09-08 12:48:27 (gpt-5.6-sol/low)_
+
+## [SUMMARY]
+
+- Succeeded: restored the themeable-accents stream's Agentflow record without changing product code.
+- Preserved the existing implementation and its independent PASS review.
+- Left card-grid-geometry and every worktree untouched.
+
+## [FINAL REPORT]
+
+### Restore Agentflow tracking for themeable-accents
+
+The branch already contained the requested accent implementation in commits f8a6c3d and 83decd9, followed by merge commit 4ccd442. I recorded the two recovered owner requests and this repair request in the stream Ask, corrected the review artifact boundary and required verdict metadata, and added the existing cross-check facts, brief, and report to the stream record.
+
+The independent review reports Outcome: PASS, Minimality: PASS, and Conformance: PASS. Its test run found one unrelated pre-existing timeout, while the accent tests passed. Its check run found one unrelated disposable-clone module-resolution failure, while the coordinator's existing check evidence was 32 of 32.
+
+No file under apps/ or packages/ changed during this repair. The branch remains active and is not merged or cleaned up.
+
+Cross-check review: .agentflow/features/themeable-accents/artifacts/A-001-themeable-accents/review-report.md
+
+Cross-check implementation: 4ccd44255b6309cb34715b4955d9d80798b8cd05
+
+Host gate: PASS
+
+## Questions (batched — each with a suggested default)
+
+- None.
+
+---
+
+# → Ask / A-002
+
++
