@@ -3,22 +3,17 @@ import {
 	type PointerEvent as ReactButtonPointerEvent,
 	type MouseEvent as ReactMouseEvent,
 	type PointerEvent as ReactPointerEvent,
+	useCallback,
 	useEffect,
 	useRef,
 	useState,
 } from "react";
+import { type CardGridMetrics, hitTestCardIds } from "./cardGridGeometry";
 export type SelectionRect = {
 	left: number;
 	top: number;
 	width: number;
 	height: number;
-};
-
-type SelectionBounds = {
-	left: number;
-	right: number;
-	top: number;
-	bottom: number;
 };
 
 type DragSelectionState = {
@@ -39,17 +34,12 @@ const MARQUEE_EXCLUDED_SELECTOR =
 const MARQUEE_CLICK_SUPPRESS_MS = 750;
 const MARQUEE_CLICK_TOLERANCE = 8;
 const MARQUEE_DRAG_THRESHOLD = 4;
-
-function rectsIntersect(a: DOMRect, b: SelectionBounds) {
-	return (
-		a.left <= b.right &&
-		a.right >= b.left &&
-		a.top <= b.bottom &&
-		a.bottom >= b.top
-	);
-}
+const AUTO_SCROLL_EDGE = 48;
+const AUTO_SCROLL_MAX_SPEED = 20;
 
 export function useCardLibrarySelection<CardId extends string>({
+	gridElement,
+	gridMetrics,
 	visibleCardIds,
 	resetKey,
 	previewCardId,
@@ -57,6 +47,8 @@ export function useCardLibrarySelection<CardId extends string>({
 	deleteDialogOpenRef,
 	onPreviewCard,
 }: {
+	gridElement: HTMLUListElement | null;
+	gridMetrics: CardGridMetrics;
 	visibleCardIds: CardId[];
 	resetKey: string;
 	previewCardId: CardId | null;
@@ -69,11 +61,19 @@ export function useCardLibrarySelection<CardId extends string>({
 		null,
 	);
 	const selectionSurfaceRef = useRef<HTMLDivElement>(null);
-	const cardElementByIdRef = useRef(new Map<CardId, HTMLElement>());
 	const dragStartRef = useRef<DragSelectionState | null>(null);
+	const pointerPositionRef = useRef<{ x: number; y: number } | null>(null);
+	const autoScrollFrameRef = useRef<number | null>(null);
 	const suppressedClickRef = useRef<SuppressedClick | null>(null);
 	const suppressCardClickTimeoutRef = useRef<number | null>(null);
 	const previousSelectionResetKeyRef = useRef(resetKey);
+
+	const stopAutoScroll = useCallback(() => {
+		if (autoScrollFrameRef.current !== null) {
+			window.cancelAnimationFrame(autoScrollFrameRef.current);
+			autoScrollFrameRef.current = null;
+		}
+	}, []);
 
 	const isSelected = (cardId: CardId) => selectedCardIds.includes(cardId);
 
@@ -170,13 +170,14 @@ export function useCardLibrarySelection<CardId extends string>({
 
 	useEffect(() => {
 		return () => {
+			stopAutoScroll();
 			suppressedClickRef.current = null;
 			if (suppressCardClickTimeoutRef.current !== null) {
 				window.clearTimeout(suppressCardClickTimeoutRef.current);
 				suppressCardClickTimeoutRef.current = null;
 			}
 		};
-	}, []);
+	}, [stopAutoScroll]);
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
@@ -205,30 +206,71 @@ export function useCardLibrarySelection<CardId extends string>({
 		currentY: number,
 	) => {
 		const surfaceRect = selectionSurfaceRef.current?.getBoundingClientRect();
-		if (!surfaceRect) {
+		const gridRect = gridElement?.getBoundingClientRect();
+		if (!surfaceRect || !gridRect) {
 			return;
 		}
 
-		const left = Math.min(startState.startX, currentX);
-		const top = Math.min(startState.startY, currentY);
-		const right = Math.max(startState.startX, currentX);
-		const bottom = Math.max(startState.startY, currentY);
-		const intersectedIds: CardId[] = [];
-
-		for (const [cardId, element] of cardElementByIdRef.current) {
-			const rect = element.getBoundingClientRect();
-			if (rectsIntersect(rect, { left, right, top, bottom })) {
-				intersectedIds.push(cardId);
-			}
-		}
+		const contentX = currentX - surfaceRect.left;
+		const contentY = currentY - surfaceRect.top;
+		const left = Math.min(startState.startX, contentX);
+		const top = Math.min(startState.startY, contentY);
+		const right = Math.max(startState.startX, contentX);
+		const bottom = Math.max(startState.startY, contentY);
+		const intersectedIds = hitTestCardIds(
+			visibleCardIds,
+			{ left, right, top, bottom },
+			gridMetrics,
+			{
+				left: gridRect.left - surfaceRect.left,
+				top: gridRect.top - surfaceRect.top,
+			},
+		);
 
 		setSelectionRect({
-			left: left - surfaceRect.left,
-			top: top - surfaceRect.top,
+			left,
+			top,
 			width: right - left,
 			height: bottom - top,
 		});
 		setSelectedCardIds(intersectedIds);
+	};
+
+	const startAutoScroll = () => {
+		if (autoScrollFrameRef.current !== null) return;
+
+		const tick = () => {
+			autoScrollFrameRef.current = null;
+			const dragState = dragStartRef.current;
+			const pointer = pointerPositionRef.current;
+			const scrollHost = selectionSurfaceRef.current?.closest<HTMLElement>(
+				"[data-app-scroll-host='true']",
+			);
+			if (!dragState || !pointer || !scrollHost) return;
+
+			const hostRect = scrollHost.getBoundingClientRect();
+			const topDistance = pointer.y - hostRect.top;
+			const bottomDistance = hostRect.bottom - pointer.y;
+			const rawDirection =
+				topDistance < AUTO_SCROLL_EDGE
+					? -1 + topDistance / AUTO_SCROLL_EDGE
+					: bottomDistance < AUTO_SCROLL_EDGE
+						? 1 - bottomDistance / AUTO_SCROLL_EDGE
+						: 0;
+			const direction = Math.max(-1, Math.min(1, rawDirection));
+			if (direction === 0) return;
+
+			const previousScrollTop = scrollHost.scrollTop;
+			scrollHost.scrollTop += direction * AUTO_SCROLL_MAX_SPEED;
+			if (scrollHost.scrollTop !== previousScrollTop) {
+				updateMarqueeSelection(dragState, pointer.x, pointer.y);
+			}
+			if (scrollHost.scrollTop !== previousScrollTop) {
+				autoScrollFrameRef.current = window.requestAnimationFrame(tick);
+			}
+		};
+
+		autoScrollFrameRef.current = window.requestAnimationFrame(tick);
 	};
 
 	const handleSelectionPointerDown = (
@@ -261,10 +303,11 @@ export function useCardLibrarySelection<CardId extends string>({
 
 		dragStartRef.current = {
 			pointerId: event.pointerId,
-			startX: event.clientX,
-			startY: event.clientY,
+			startX: event.clientX - surfaceRect.left,
+			startY: event.clientY - surfaceRect.top,
 			hasMoved: false,
 		};
+		pointerPositionRef.current = { x: event.clientX, y: event.clientY };
 		setSelectionRect({
 			left: event.clientX - surfaceRect.left,
 			top: event.clientY - surfaceRect.top,
@@ -284,15 +327,19 @@ export function useCardLibrarySelection<CardId extends string>({
 			return;
 		}
 
+		pointerPositionRef.current = { x: event.clientX, y: event.clientY };
+		const surfaceRect = selectionSurfaceRef.current?.getBoundingClientRect();
 		if (
+			surfaceRect &&
 			Math.hypot(
-				event.clientX - dragState.startX,
-				event.clientY - dragState.startY,
+				event.clientX - surfaceRect.left - dragState.startX,
+				event.clientY - surfaceRect.top - dragState.startY,
 			) >= MARQUEE_DRAG_THRESHOLD
 		) {
 			dragState.hasMoved = true;
 		}
 		updateMarqueeSelection(dragState, event.clientX, event.clientY);
+		startAutoScroll();
 	};
 
 	const endMarqueeSelection = (
@@ -306,13 +353,11 @@ export function useCardLibrarySelection<CardId extends string>({
 		}
 
 		updateMarqueeSelection(dragState, currentX, currentY);
+		stopAutoScroll();
 		dragStartRef.current = null;
+		pointerPositionRef.current = null;
 		setSelectionRect(null);
-		if (
-			dragState.hasMoved ||
-			Math.hypot(currentX - dragState.startX, currentY - dragState.startY) >=
-				MARQUEE_DRAG_THRESHOLD
-		) {
+		if (dragState.hasMoved) {
 			armMarqueeClickSuppression(currentX, currentY);
 		}
 		event.currentTarget.releasePointerCapture?.(event.pointerId);
@@ -356,7 +401,6 @@ export function useCardLibrarySelection<CardId extends string>({
 		setSelectedCardIds,
 		selectionRect,
 		selectionSurfaceRef,
-		cardElementByIdRef,
 		isSelected,
 		clearSelection,
 		selectOnly,
