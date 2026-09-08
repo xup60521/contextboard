@@ -5,6 +5,10 @@ const desktopCss = readFileSync(
 	new URL("./desktop.css", import.meta.url),
 	"utf8",
 );
+const desktopHtml = readFileSync(
+	new URL("../index.html", import.meta.url),
+	"utf8",
+);
 const tauriConfig = JSON.parse(
 	readFileSync(
 		new URL("../src-tauri/tauri.conf.json", import.meta.url),
@@ -58,5 +62,11 @@ describe("desktop stylesheet contract", () => {
 			"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 		);
 		expect(csp).toContain("font-src 'self' https://fonts.gstatic.com");
+	});
+
+	test("uses the same body-level rendering classes as the web shell", () => {
+		expect(desktopHtml).toContain(
+			'<body class="font-sans antialiased h-screen [overflow-wrap:anywhere]">',
+		);
 	});
 });

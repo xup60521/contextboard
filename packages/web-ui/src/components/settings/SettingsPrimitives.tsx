@@ -136,6 +136,60 @@ export function SettingsChoice<T extends string>({
 	);
 }
 
+export type SettingsSwatchOption<T extends string> = {
+	value: T;
+	label: string;
+};
+
+/**
+ * A row of colour swatches. Each button carries the accent attribute for the
+ * appearance it edits, so the rules in `styles.css` paint it: a swatch always
+ * shows the colour it will apply — including a dark-mode colour while the app
+ * is still light — and adding an accent needs no change here.
+ */
+export function SettingsSwatches<T extends string>({
+	value,
+	options,
+	onChange,
+	label,
+	appearance,
+}: {
+	value: T;
+	options: ReadonlyArray<SettingsSwatchOption<T>>;
+	onChange: (value: T) => void;
+	label: string;
+	appearance: "light" | "dark";
+}) {
+	const light = appearance === "light";
+	return (
+		<fieldset className="flex items-center gap-1.5">
+			<legend className="sr-only">{label}</legend>
+			{options.map((option) => (
+				<button
+					key={option.value}
+					type="button"
+					data-accent-light={light ? option.value : undefined}
+					data-accent-dark={light ? undefined : option.value}
+					title={option.label}
+					aria-label={`${option.label} ${appearance}`}
+					aria-pressed={option.value === value}
+					onClick={() => onChange(option.value)}
+					className={cn(
+						"size-5 rounded-full outline-offset-2 transition-transform hover:scale-110",
+						light
+							? "bg-[var(--brand-fill-light)]"
+							: "bg-[var(--brand-fill-dark)]",
+						option.value === value &&
+							(light
+								? "outline-2 outline-[var(--brand-fill-light)]"
+								: "outline-2 outline-[var(--brand-fill-dark)]"),
+					)}
+				/>
+			))}
+		</fieldset>
+	);
+}
+
 /** Read-only detail, such as a version or an endpoint. */
 export function SettingsFact({
 	label,

@@ -28,7 +28,7 @@ interface MyRouterContext {
 	queryClient: QueryClient;
 }
 
-const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
+const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;var legacy=window.localStorage.getItem('theme-accent');var lightAccent=window.localStorage.getItem('theme-accent-light')||legacy||'indigo';var darkAccent=window.localStorage.getItem('theme-accent-dark')||legacy||'indigo';root.setAttribute('data-accent-light',lightAccent);root.setAttribute('data-accent-dark',darkAccent);}catch(e){}})();`;
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
 	head: () => ({
@@ -96,7 +96,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				<script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
 				<HeadContent />
 			</head>
-			<body className="font-sans antialiased h-screen [overflow-wrap:anywhere] selection:bg-[rgba(99,102,241,0.24)]">
+			<body className="font-sans antialiased h-screen [overflow-wrap:anywhere]">
 				<LocalDatabaseProvider>
 					<SyncProvider>
 						<WebApplicationRuntime>
