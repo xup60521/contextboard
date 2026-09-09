@@ -20,10 +20,15 @@
 
 /*
  * Accent palettes. Every accent is a window on one of Tailwind's built-in
- * colour scales: `fill` tints surfaces, rings and underlines, `text` carries
- * link and label text. A hue that needs a deeper step to stay readable on
- * white says so here instead of everywhere it is used; `accent-contrast.test.ts`
- * holds every one of these pairs to a WCAG ratio.
+ * colour scales, at three depths, because a hue has to clear a different bar
+ * depending on what it is painted on. `fill` tints surfaces, rings and
+ * underlines. `text` carries link and label text on the canvas. `strong` is
+ * for accent text on a surface already tinted with that same accent — the
+ * sidebar's active row — where `text` runs out of room: orange-700 reads
+ * 3.95:1 on an orange row, orange-800 reads 5.55:1. Dark needs no third step,
+ * so it derives `strong` from `text`. A hue that needs a deeper step says so
+ * here instead of everywhere it is used, and `accent-contrast.test.ts` holds
+ * every one of these to a WCAG ratio.
  *
  * One choice sets both appearances at once (`data-accent-light` and
  * `data-accent-dark` always carry the same value) — only the concrete shade
@@ -31,11 +36,14 @@
  * swatches in Settings, which is how each swatch paints itself in the colour
  * it will apply. `"custom"` matches none of these; `theme.ts` inline-overrides
  * only `--brand-fill-*` for it, leaving `--brand-text-*` on its CSS-driven
- * shade, since an arbitrary colour has no guaranteed text contrast.
+ * shade, since an arbitrary colour has no guaranteed text contrast. Its deep
+ * step is the exception, constructed further down where `--lagoon-strong` is
+ * derived, because that one can be guaranteed.
  */
 :root {
   --brand-fill-light: var(--color-indigo-500);
   --brand-text-light: var(--color-indigo-600);
+  --brand-strong-light: var(--color-indigo-800);
   --brand-fill-dark: var(--color-indigo-400);
   --brand-text-dark: var(--color-indigo-300);
 }
@@ -43,6 +51,7 @@
 [data-accent-light='red'] {
   --brand-fill-light: var(--color-red-600);
   --brand-text-light: var(--color-red-700);
+  --brand-strong-light: var(--color-red-800);
 }
 
 [data-accent-dark='red'] {
@@ -53,6 +62,7 @@
 [data-accent-light='orange'] {
   --brand-fill-light: var(--color-orange-600);
   --brand-text-light: var(--color-orange-700);
+  --brand-strong-light: var(--color-orange-800);
 }
 
 [data-accent-dark='orange'] {
@@ -63,6 +73,7 @@
 [data-accent-light='amber'] {
   --brand-fill-light: var(--color-amber-500);
   --brand-text-light: var(--color-amber-700);
+  --brand-strong-light: var(--color-amber-800);
 }
 
 [data-accent-dark='amber'] {
@@ -73,6 +84,7 @@
 [data-accent-light='emerald'] {
   --brand-fill-light: var(--color-emerald-600);
   --brand-text-light: var(--color-emerald-700);
+  --brand-strong-light: var(--color-emerald-800);
 }
 
 [data-accent-dark='emerald'] {
@@ -83,6 +95,7 @@
 [data-accent-light='teal'] {
   --brand-fill-light: var(--color-teal-600);
   --brand-text-light: var(--color-teal-700);
+  --brand-strong-light: var(--color-teal-800);
 }
 
 [data-accent-dark='teal'] {
@@ -93,6 +106,7 @@
 [data-accent-light='sky'] {
   --brand-fill-light: var(--color-sky-600);
   --brand-text-light: var(--color-sky-700);
+  --brand-strong-light: var(--color-sky-800);
 }
 
 [data-accent-dark='sky'] {
@@ -103,6 +117,7 @@
 [data-accent-light='indigo'] {
   --brand-fill-light: var(--color-indigo-500);
   --brand-text-light: var(--color-indigo-600);
+  --brand-strong-light: var(--color-indigo-800);
 }
 
 [data-accent-dark='indigo'] {
@@ -113,6 +128,7 @@
 [data-accent-light='violet'] {
   --brand-fill-light: var(--color-violet-500);
   --brand-text-light: var(--color-violet-600);
+  --brand-strong-light: var(--color-violet-800);
 }
 
 [data-accent-dark='violet'] {
@@ -123,6 +139,7 @@
 [data-accent-light='purple'] {
   --brand-fill-light: var(--color-purple-500);
   --brand-text-light: var(--color-purple-600);
+  --brand-strong-light: var(--color-purple-800);
 }
 
 [data-accent-dark='purple'] {
@@ -133,6 +150,7 @@
 [data-accent-light='pink'] {
   --brand-fill-light: var(--color-pink-600);
   --brand-text-light: var(--color-pink-700);
+  --brand-strong-light: var(--color-pink-800);
 }
 
 [data-accent-dark='pink'] {
@@ -140,11 +158,22 @@
   --brand-text-dark: var(--color-pink-300);
 }
 
-:root {
+/*
+ * Everything downstream of the accent is derived here. The block is shared
+ * with `[data-accent-scope]` so any element carrying its own `data-accent-*`
+ * re-derives the whole set from its own accent instead of inheriting the
+ * document's already-resolved values — custom properties substitute where
+ * they are declared, so a scope has to redeclare them to diverge. That is
+ * what lets Settings preview an accent under the pointer without touching
+ * the document, and it keeps the tint formulas written exactly once.
+ */
+:root,
+[data-accent-scope] {
   --sea-ink: #1f2024;
   --sea-ink-soft: #6b7280;
   --lagoon: var(--brand-fill-light);
   --lagoon-deep: var(--brand-text-light);
+  --lagoon-strong: var(--brand-strong-light);
   --palm: var(--brand-text-light);
   --sand: #f4f4f5;
   --foam: #fafafa;
@@ -172,8 +201,8 @@
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.528 0.016 285.938);
+  --accent: color-mix(in oklab, var(--lagoon) 12%, oklch(0.967 0.001 286.375));
   --accent-foreground: oklch(0.21 0.006 285.885);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.577 0.245 27.325);
@@ -186,21 +215,31 @@
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.21 0.006 285.885);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.871 0.006 286.286);
+  /*
+   * The sidebar is its own surface, not a reuse of `--card`. It carries a
+   * trace of the accent so the rail reads as tinted material beside the
+   * canvas — the same trick T3 Code's palettes use, where a surface sits at
+   * roughly 0.01 chroma rather than a flat neutral. The percentages stay
+   * small on purpose: at this strength the hue registers as warmth, and the
+   * neutral foregrounds keep the contrast they had on plain white. Row
+   * states mix into `transparent` so one formula serves both appearances.
+   */
+  --sidebar: color-mix(in oklab, var(--lagoon) 5%, oklch(0.985 0 0));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: color-mix(in oklab, var(--lagoon) 14%, oklch(0.92 0.004 286.32));
+  --sidebar-control-surface: color-mix(in oklab, var(--lagoon) 6%, oklch(1 0 0));
+  --sidebar-row-hover: color-mix(in oklab, var(--lagoon) 9%, transparent);
+  --sidebar-row-active: color-mix(in oklab, var(--lagoon) 15%, transparent);
 }
 
-.dark {
+.dark,
+.dark [data-accent-scope] {
   --sea-ink: #e6e6e6;
   --sea-ink-soft: #a1a1aa;
   --lagoon: var(--brand-fill-dark);
   --lagoon-deep: var(--brand-text-dark);
+  /* Dark needs no deeper step: the 300s already clear 4.5:1 on a tinted row. */
+  --lagoon-strong: var(--brand-text-dark);
   --palm: var(--brand-text-dark);
   --sand: #242424;
   --foam: #1a1a1a;
@@ -228,8 +267,8 @@
   --secondary: oklch(0.27 0 0);
   --secondary-foreground: oklch(0.92 0 0);
   --muted: oklch(0.27 0 0);
-  --muted-foreground: oklch(0.65 0 0);
-  --accent: oklch(0.3 0 0);
+  --muted-foreground: oklch(0.671 0 0);
+  --accent: color-mix(in oklab, var(--lagoon) 16%, oklch(0.3 0 0));
   --accent-foreground: oklch(0.92 0 0);
   --destructive: oklch(0.55 0.18 25);
   --destructive-foreground: oklch(0.96 0 0);
@@ -241,14 +280,33 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.274 0.006 286.033);
-  --sidebar-ring: oklch(0.442 0.017 285.786);
+  --sidebar: color-mix(in oklab, var(--lagoon) 7%, oklch(0.245 0 0));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: color-mix(in oklab, var(--lagoon) 16%, oklch(0.32 0 0));
+  --sidebar-control-surface: color-mix(in oklab, var(--lagoon) 10%, oklch(0.29 0 0));
+  --sidebar-row-hover: color-mix(in oklab, var(--lagoon) 14%, transparent);
+  --sidebar-row-active: color-mix(in oklab, var(--lagoon) 22%, transparent);
+}
+
+/*
+ * "custom" is the one accent whose deep step is constructed rather than
+ * chosen off a scale, so it is the only one that can say what it costs: mixing
+ * an arbitrary hex this far towards black (or white, in dark) is the most
+ * colour it can keep and still clear 4.5:1 on the row its own tint paints.
+ * The worst cases are the extremes — white in light at 5.79:1, black in dark
+ * at 5.59:1 — and `accent-contrast.test.ts` sweeps sRGB to hold them there.
+ *
+ * Only this step. Links keep the CSS-driven `--brand-text-*` shade, which is
+ * the older decision this does not reopen.
+ */
+:root[data-accent-light='custom'],
+[data-accent-scope][data-accent-light='custom'] {
+  --lagoon-strong: color-mix(in oklab, var(--brand-fill-light) 50%, black);
+}
+
+.dark[data-accent-dark='custom'],
+.dark [data-accent-dark='custom'] {
+  --lagoon-strong: color-mix(in oklab, var(--brand-fill-dark) 35%, white);
 }
 
 @theme inline {
@@ -283,12 +341,10 @@
   --radius-xl: calc(var(--radius) + 4px);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-control-surface: var(--sidebar-control-surface);
+  --color-sidebar-row-hover: var(--sidebar-row-hover);
+  --color-sidebar-row-active: var(--sidebar-row-active);
 }
 
 ::selection {

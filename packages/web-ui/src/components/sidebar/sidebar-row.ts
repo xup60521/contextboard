@@ -9,13 +9,13 @@ export const sidebarRowClass = cva(
 	[
 		"group relative flex h-7 w-full items-center gap-2 rounded-md px-2 text-[13px] outline-none",
 		"transition-[background-color,color] duration-150",
-		"before:absolute before:left-0 before:top-1/2 before:h-3.5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-[var(--ring)] before:opacity-0 before:transition-opacity",
+		"before:absolute before:left-0 before:top-1/2 before:h-3.5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-[var(--lagoon-strong)] before:opacity-0 before:transition-opacity",
 		"focus-visible:ring-[3px] focus-visible:ring-ring/50",
 	].join(" "),
 	{
 		variants: {
 			active: {
-				true: "bg-[var(--accent)] font-medium text-[var(--card-foreground)] before:opacity-100",
+				true: "bg-[var(--sidebar-row-active)] font-medium text-[var(--sidebar-foreground)] before:opacity-100",
 				false: "font-normal text-[var(--muted-foreground)]",
 			},
 			tone: {
@@ -30,7 +30,7 @@ export const sidebarRowClass = cva(
 				active: false,
 				tone: "default",
 				class:
-					"hover:bg-[var(--accent)]/60 hover:text-[var(--card-foreground)]",
+					"hover:bg-[var(--sidebar-row-hover)] hover:text-[var(--sidebar-foreground)]",
 			},
 			{
 				active: false,
@@ -49,16 +49,21 @@ export const sidebarRowClass = cva(
 );
 
 /**
- * Color + transition shared by an icon and its label whenever a row wants the
- * two to move together (root board, card library) instead of the label
- * tracking `sidebarRowClass`'s own (differently-colored) active state.
+ * Colour shared by an icon and its label whenever a row wants the two to move
+ * together (root board, card library): neutral while idle, accent once active.
+ *
+ * The shade is `--lagoon-strong` rather than the fill or the link step,
+ * because the surface underneath is that same accent and closes on it as the
+ * hue gets bolder — amber's fill reads 1.79:1 on its own active row, and even
+ * the link step only reaches 3.95:1 for orange. `accent-contrast.test.ts`
+ * holds the strong step to 4.5:1 there.
  */
 export const sidebarRowAccentClass = cva("transition-colors", {
 	variants: {
 		active: {
-			true: "text-[var(--ring)]",
+			true: "text-[var(--lagoon-strong)]",
 			false:
-				"text-[var(--muted-foreground)] group-hover:text-[var(--card-foreground)]",
+				"text-[var(--muted-foreground)] group-hover:text-[var(--sidebar-foreground)]",
 		},
 		tone: {
 			default: "",
@@ -74,7 +79,15 @@ export const sidebarRowIconClass = (
 
 /** Icon buttons that live inside a row: pin, close, and the section actions. */
 export const sidebarActionClass =
-	"flex size-5 items-center justify-center rounded text-[var(--muted-foreground)] outline-none transition-colors hover:bg-[var(--surface-strong)] hover:text-[var(--card-foreground)] focus-visible:ring-[2px] focus-visible:ring-ring/50 dark:hover:bg-white/10";
+	"flex size-5 items-center justify-center rounded text-[var(--muted-foreground)] outline-none transition-colors hover:bg-[var(--sidebar-row-active)] hover:text-[var(--sidebar-foreground)] focus-visible:ring-[2px] focus-visible:ring-ring/50";
+
+/**
+ * A control resting on the rail rather than on the canvas. The shared
+ * `outline` button paints itself `--background`, which was invisible when the
+ * sidebar was white too and reads as a foreign card now that it is tinted.
+ */
+export const sidebarControlClass =
+	"border-[var(--sidebar-border)] bg-[var(--sidebar-control-surface)] text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-row-active)] hover:text-[var(--sidebar-foreground)] dark:border-[var(--sidebar-border)] dark:bg-[var(--sidebar-control-surface)] dark:hover:bg-[var(--sidebar-row-active)]";
 
 /**
  * Controls that only matter once you are looking at their row. They stay in the

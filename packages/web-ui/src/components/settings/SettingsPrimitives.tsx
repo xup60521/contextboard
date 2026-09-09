@@ -147,16 +147,21 @@ export type SettingsSwatchOption<T extends string> = {
  * `styles.css` paint it in whichever shade the current appearance calls for —
  * a swatch always shows the colour it will apply, and adding an accent needs
  * no change here.
+ *
+ * `onPreview` reports the swatch under the pointer or the keyboard, and null
+ * when it leaves, so a caller can show the value before it is committed.
  */
 export function SettingsSwatches<T extends string>({
 	value,
 	options,
 	onChange,
+	onPreview,
 	label,
 }: {
 	value: string;
 	options: ReadonlyArray<SettingsSwatchOption<T>>;
 	onChange: (value: T) => void;
+	onPreview?: (value: T | null) => void;
 	label: string;
 }) {
 	return (
@@ -172,6 +177,10 @@ export function SettingsSwatches<T extends string>({
 					aria-label={option.label}
 					aria-pressed={option.value === value}
 					onClick={() => onChange(option.value)}
+					onPointerEnter={() => onPreview?.(option.value)}
+					onPointerLeave={() => onPreview?.(null)}
+					onFocus={() => onPreview?.(option.value)}
+					onBlur={() => onPreview?.(null)}
 					className={cn(
 						"size-5 rounded-full bg-[var(--brand-fill-light)] outline-offset-2 transition-transform hover:scale-110 dark:bg-[var(--brand-fill-dark)]",
 						option.value === value &&

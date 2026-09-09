@@ -41,9 +41,9 @@ export function AppSidebarFrame({
 		>
 			<aside
 				aria-hidden={!isOpen}
-				className="flex h-full w-60 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)]"
+				className="flex h-full w-60 shrink-0 flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-[var(--sidebar-foreground)]"
 			>
-				<header className="flex h-[44px] shrink-0 items-center gap-2 border-b border-[var(--border)] px-2.5">
+				<header className="flex h-[44px] shrink-0 items-center gap-2 border-b border-[var(--sidebar-border)] px-2.5">
 					<span
 						aria-hidden
 						className="flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-[var(--primary)] text-[10px] font-bold text-[var(--primary-foreground)]"
@@ -60,7 +60,7 @@ export function AppSidebarFrame({
 						onClick={cycleTheme}
 						aria-label={`Switch theme (current: ${themeLabels[theme]})`}
 						title={themeLabels[theme]}
-						className="text-[var(--muted-foreground)] hover:text-[var(--card-foreground)]"
+						className="text-[var(--muted-foreground)] hover:text-[var(--sidebar-foreground)]"
 					>
 						{(() => {
 							const Icon = themeIcons[theme];
@@ -71,7 +71,7 @@ export function AppSidebarFrame({
 						type="button"
 						variant="ghost"
 						size="icon-xs"
-						className="text-[var(--muted-foreground)] hover:text-[var(--card-foreground)]"
+						className="text-[var(--muted-foreground)] hover:text-[var(--sidebar-foreground)]"
 						onClick={close}
 						aria-label="Close sidebar"
 					>

@@ -6,6 +6,7 @@ import { isDisconnected, syncStateLabel } from "../settings/sync-status";
 import { Button } from "../ui/button";
 import { AppSidebarFrame } from "../whiteboard/AppSidebarFrame";
 import { SidebarTabs } from "./SidebarTabs";
+import { sidebarControlClass } from "./sidebar-row";
 
 export type AccountSummary = {
 	name?: string | null;
@@ -82,14 +83,14 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 	};
 
 	return (
-		<footer className="mt-auto shrink-0 border-t border-[var(--border)] p-2">
+		<footer className="mt-auto shrink-0 border-t border-[var(--sidebar-border)] p-2">
 			{account ? (
 				<div className="flex flex-col gap-1.5">
-					<div className="group flex items-center gap-3 rounded-md px-1 py-1 transition-colors hover:bg-[var(--accent)]/50">
-						<span className="relative flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[10px] font-semibold text-[var(--card-foreground)]">
+					<div className="group flex items-center gap-3 rounded-md px-1 py-1 transition-colors hover:bg-[var(--sidebar-row-hover)]">
+						<span className="relative flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--sidebar-row-active)] text-[10px] font-semibold text-[var(--sidebar-foreground)]">
 							{initialsOf(account)}
 							<span
-								className={`absolute -bottom-px -right-px size-2.5 rounded-full border-2 border-[var(--card)] ${statusDotClass(runtime.state)}`}
+								className={`absolute -bottom-px -right-px size-2.5 rounded-full border-2 border-[var(--sidebar)] ${statusDotClass(runtime.state)}`}
 								title={label}
 							/>
 						</span>
@@ -99,7 +100,7 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 								{account.name || account.email || "Account"}
 							</p>
 							<p
-								className="truncate text-[11px] leading-4 text-[var(--muted-foreground)]"
+								className="truncate text-[11px] leading-4 text-[var(--muted-foreground)] group-hover:text-[var(--sidebar-foreground)]"
 								title={error ?? runtime.message}
 							>
 								{error ?? label}
@@ -183,7 +184,7 @@ function SidebarFooter({ runtime }: { runtime: SidebarFooterRuntime }) {
 							type="button"
 							variant="outline"
 							size="sm"
-							className="min-w-0 flex-1 justify-center text-xs"
+							className={`min-w-0 flex-1 justify-center text-xs ${sidebarControlClass}`}
 							disabled={pending !== null}
 							onClick={() => run("in", runtime.signIn)}
 						>

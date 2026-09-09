@@ -87,7 +87,7 @@ function SidebarSection({
 }) {
 	return (
 		<section className="group/section flex flex-col gap-0.5">
-			<div className="sticky top-0 z-10 flex h-6 items-center gap-1.5 bg-[var(--card)] px-2">
+			<div className="sticky top-0 z-10 flex h-6 items-center gap-1.5 bg-[var(--sidebar)] px-2">
 				<span className="text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--muted-foreground)]">
 					{label}
 				</span>
@@ -213,7 +213,9 @@ export function SidebarTabs() {
 						className={sidebarRowClass({ active: rootActive })}
 					>
 						<Layers className={sidebarRowIconClass({ active: rootActive })} />
-						<span className={`truncate ${sidebarRowAccentClass({ active: rootActive })}`}>
+						<span
+							className={`truncate ${sidebarRowAccentClass({ active: rootActive })}`}
+						>
 							{rootTab.title}
 						</span>
 					</button>
@@ -224,7 +226,9 @@ export function SidebarTabs() {
 						className={sidebarRowClass({ active: isCardLib })}
 					>
 						<Library className={sidebarRowIconClass({ active: isCardLib })} />
-						<span className={`truncate ${sidebarRowAccentClass({ active: isCardLib })}`}>
+						<span
+							className={`truncate ${sidebarRowAccentClass({ active: isCardLib })}`}
+						>
 							Card Library
 						</span>
 					</AppLink>
