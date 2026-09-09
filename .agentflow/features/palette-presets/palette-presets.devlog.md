@@ -1,22 +1,22 @@
 # STATUS
 
-Project: contextboard 
+Project: contextboard
 
 Notebook: .agentflow/features/palette-presets/palette-presets.devlog.md — stream.
 
-Current commit: stream-open only, no code commits yet.
+Current commit: 3f7e026 — implementation is ae2c8ed; tip is a record-only SHA-citation fix.
 
-Tests/scenarios: none.
+Tests/scenarios: web-ui theme.test.ts + accent-contrast.test.ts 18 of 18; full workspace bun run test --force 20 of 25 task files (sole failure the pre-existing accepted arrange-relations timeout); bun run check --force 30 of 32 (sole failure the pre-existing @contextboard/desktop#check environment issue); targeted cross-check PASS on all three axes for ae2c8ed.
 
 Configuration: .agentflow/features/palette-presets/ag.json — schema v7; validated for claude this round.
 
-Proven: the stream configuration was copied from the root configuration.
+Proven: one accent choice now drives both light and dark at once; the ten presets are researched and contrast-tested; a custom-colour picker tints fill only, leaving text on its CSS-driven, always-legible shade after the first full cross-check caught a text-contrast defect in the earlier version. Migration from the old per-appearance keys prefers the more specific light-side choice and retires the legacy keys on first use.
 
-Open: none.
+Open: not delivered — AGENTS.md requires a GitHub PR, never `agf finish --deliver`; the owner has not yet said to open it. The ten new hues are contrast-tested individually but not visually confirmed as a set (no browser available on this machine).
 
-Next: reply to the first Ask below.
+Next: owner reviews the branch/PR decision and the two batched questions in the A-001 Reply.
 
-Artifacts: none.
+Artifacts: .agentflow/features/palette-presets/artifacts/A-001-palette-presets/ — cross-check facts, review brief/report (BLOCKING), recheck brief/report (PASS), reply draft.
 
 Archived eras: none.
 
@@ -24,9 +24,9 @@ Streams: none.
 
 Backlink: main notebook `.agentflow/devlog.md` (main checkout)
 
-Feature: palette-presets — active — palette switcher redesign
+Feature: palette-presets — closed
 
-Opened by the `agf` shell shortcut on 2026-09-09, not by an agent round. The main-notebook `stream:` pointer line was deliberately NOT written — the next main-checkout session re-derives it from `.agentflow/features/*/*devlog.md`.
+`agf finish --prep` integrated `main` with no conflicts and pushed. Delivery is a GitHub PR per this repo's AGENTS.md, not `agf finish --deliver` — the owner has not yet authorized opening it. After the PR merges, `cleanup:palette-presets` runs from the laptop's main checkout.
 
 ---
 
@@ -68,3 +68,74 @@ In the color palettes switcher
 * Verified before committing: focused `theme.test.ts` + `accent-contrast.test.ts` 18 of 18 (up from 16, two new tests); `bun run check` in `packages/web-ui` clean; full workspace `bun run test --force` 20 of 25 task files pass with only the known accepted `arrange-relations` timeout failing; `bun run check --force` 30 of 32 tasks pass with only the known pre-existing `@contextboard/desktop#check` failure. `bunx biome check` (no `--write`) on every file this fix commit touched: clean except `__root.tsx`'s two confirmed-pre-existing findings.
 * Committed as `ae2c8ed`, pushed `51b0422..ae2c8ed` to `origin/palette-presets`.
 * Froze recheck facts (4 files, 154 lines) at `.agentflow/features/palette-presets/artifacts/A-001-palette-presets/recheck-facts.json`; `cross-check-plan.js` returned level `targeted`. Wrote `.agentflow/features/palette-presets/artifacts/A-001-palette-presets/recheck-brief.md`, walking the reviewer through each of the three fixes with an exact instruction to re-verify directly rather than restate the prior report from memory, and supplying the coordinator's already-passed complete-suite evidence so the reviewer reruns only the focused tests. Re-dispatching now.
+
+# ← Reply / A-001
+
+* _2026-09-09 17:55:00 (claude-sonnet-5/high)_
+
+Cross-check review: `.agentflow/features/palette-presets/artifacts/A-001-palette-presets/recheck-report.md`
+Cross-check implementation: ae2c8ed242d7ac5380bbabf1eb0f031998521ee0
+Host gate: PASS
+
+(`ae2c8ed` fixes the first full cross-check's three BLOCKING findings against `51b0422`; see Review history below.)
+
+## [SUMMARY]
+
+- All three owner requirements are implemented: one accent choice now drives both appearances at once, the ten presets were replaced after researching published accent-colour guidance and re-verified against the existing WCAG contrast test, and a custom-colour picker was added.
+- A full cross-check on the first commit (`51b0422`) returned BLOCKING on all three axes and caught two real defects — inaccessible custom text and a migration that could silently revert a user's later choice — plus an unrelated reformatting slip.
+- All three were fixed in `ae2c8ed`; a targeted re-review returned PASS on Outcome, Minimality, and Conformance, independently confirmed by the host.
+- Delivered as a stream (`palette-presets`), prepped against `main` with no conflicts, and pushed. Not yet opened as a PR — that needs your go-ahead per `AGENTS.md`'s delivery rule (PR, never `agf finish --deliver`).
+
+## [FINAL REPORT]
+
+### Request 1 — "Don't separate light and dark. They should be set simultaneously"
+
+Done. The accent switcher previously stored `{ light, dark }` independently and rendered two swatch rows ("Light accent" / "Dark accent"), so a user could pick indigo for light and rose for dark. It now stores one `Accent` and renders one "Accent" row; picking a hue sets both appearances at once. The concrete rendered colour still legitimately differs per appearance for the same hue (e.g. indigo is a lighter Tailwind step in dark mode than in light, for contrast) — only the *choice* was unified, not the underlying per-appearance colour tuning, which was already correct and is unrelated to what you asked to stop.
+
+### Request 2 — "The palettes are not good. You should search the internet to find better presets."
+
+Done. Researched published accent-colour guidance (Radix Colors' palette-composition docs, Linear's accent set, shadcn/tweakcn preset collections) rather than inventing hex values. Replaced the old 8-accent list (indigo, violet, blue, cyan, emerald, amber, rose, slate) with 10: red, orange, amber, emerald, teal, sky, indigo, violet, purple, pink — dropping slate (not really a colour) and three redundant/muted picks (blue, cyan, rose), keeping four that already read well, and adding six spaced around the full hue wheel. No new dependency: every accent is still a Tailwind CSS variable, so the existing `accent-contrast.test.ts` (which independently derives each pair's WCAG contrast ratio from the stylesheet) still guards correctness — all ten pairs pass.
+
+One real limit here, flagged by both the reviewer and by me in the brief: contrast passing does not prove the ten look good as a set side by side (e.g. indigo/violet/purple sit close in hue). I could not check this visually — per `AGENTS.md`, browser verification happens only on your laptop and must reach me as your evidence, and I must not start a dev server. Please look at the row of ten swatches yourself before trusting it fully.
+
+### Request 3 — "Leave the space for color customization"
+
+Done, with one deliberate boundary. A "custom" swatch opens a native colour picker; picking a colour applies it to both appearances at once (fill only — rings, hover backgrounds, selection, underlines). Text intentionally does **not** take the custom colour: an arbitrary hex has no guaranteed contrast against either surface, and the first cross-check caught exactly that — a white or black custom pick could make text disappear in one appearance. Text now stays on its CSS-driven, contrast-tested shade instead. The re-review judged this "a reasonable, safe customization boundary." If you'd rather custom also tint text (accepting either a second contrast-safety computation or a documented risk), say so and I'll extend it.
+
+### Review history
+
+First full cross-check (`51b0422`) — **BLOCKING** on Outcome, Minimality, and Conformance. Real findings: custom text could become illegible, and `getAccent()`'s migration read the ancient pre-split `theme-accent` key before the more specific, more recent `theme-accent-light` key, so a user who'd diverged their light/dark accents and later changed only the light one could have that later choice silently discarded. It also caught that my own `biome --write` pass had reformatted `__root.tsx` beyond the one line the change needed — a real scope-discipline miss on my part, not the reviewer's.
+
+Fixes (`ae2c8ed`): custom now overrides fill only, never text; migration checks `theme-accent-light` first and `setAccent` retires both legacy per-appearance keys on first use of the new control, so the shadowing can only happen once, never after; `__root.tsx` restored to its base formatting with only the one intended line changed (confirmed: the diff against the branch base is exactly one line).
+
+Targeted re-review of `ae2c8ed` — **PASS** on all three axes. I independently re-confirmed the risk it named: a repository search shows the legacy per-appearance keys are referenced only inside `theme.ts`'s own read/delete logic, the matching inline bootstrap script, and tests — no other reader or writer that could reintroduce the shadowing.
+
+### Evidence
+
+- `packages/web-ui`: `bun run test` (theme.test.ts + accent-contrast.test.ts) 18 of 18 passing; `bun run check` clean.
+- Full workspace, this fresh stream worktree after `bun install`: `bun run test --force` 20 of 25 task files pass — the sole failure is the pre-existing, already-accepted `arrange-relations` contention timeout in `@contextboard/application`, unrelated to this change. `bun run check --force` 30 of 32 tasks pass — the sole failure is the pre-existing `@contextboard/desktop#check` missing `@contextboard/editor` types, also pre-existing and unrelated.
+- `bunx biome check`: clean on every file this work touched, except two pre-existing findings in `__root.tsx` (import order, one indentation block) confirmed present in the branch's unmodified base commit — deliberately left alone.
+- `agf finish --prep palette-presets`: integrated `main` with no conflicts and pushed. Stream branch `palette-presets` is at `3f7e026` on `origin` (the implementation is `ae2c8ed`; the tip commit is a record-only fix expanding a short SHA citation to the full 40 characters the completion gate requires).
+
+### Limits
+
+- No browser or runtime verification — this machine must not start a dev server, and per `AGENTS.md` that evidence can only come from you, on the laptop.
+- The ten replacement hues are contrast-tested individually but not visually confirmed as a pleasant set; please look before trusting.
+- Custom accent tints fill only, not text, by design (see Request 3). If that's not what you wanted, it's a small follow-up, not a rework.
+- Not yet delivered: `AGENTS.md` requires a GitHub PR for delivery, never `agf finish --deliver`. I have not opened the PR yet — say the word and I will, or tell me if you'd rather review the branch first.
+
+## Questions (batched — each with a suggested default)
+
+- Should custom accent also tint text, accepting either a computed contrast-safe variant or a documented "pick a colour that reads well yourself" risk?
+- Suggested default: no — the current fill-only boundary is what the re-review judged safe, and a text-safety computation would need real new machinery (see the recheck brief's reasoning on why the SSR bootstrap script can't share it with theme.ts).
+- ans:
+
+- Open the GitHub PR for this branch now?
+- Suggested default: yes — the work is implemented, tested, and independently re-reviewed PASS; the only step left per AGENTS.md is the PR itself.
+- ans:
+
+---
+
+# → Ask / A-002
+
++
