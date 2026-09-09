@@ -64,6 +64,25 @@ const build_dispatch_facts = ({ args, dispatch, report, result }) => ({
   report_path: args.output,
 })
 
+// Selection lives in ag-settings, but `active_host` only reaches family
+// filtering through the third argument, so passing it in the second silently
+// disables `cli-provider` for reviews. Keep the two argument objects distinct.
+const select_reviewer = (config, { role = 'cross-check', active_host = 'claude', ...validation } = {}) =>
+  ag_settings.resolve_worker_tier(config, { role }, { active_host, ...validation })
+
+// The configured tier carries an effort that has to be spelled per family, or a
+// review runs at the CLI default while the dispatch record claims the tier.
+const family_model_flags = {
+  codex: (model, effort) => ['-m', model, '-c', `model_reasoning_effort=${effort}`],
+  claude: (model, effort) => ['--model', model, '--effort', effort],
+}
+
+const worker_invocation = (selected, worker_args, brief_text) => {
+  const flags = family_model_flags[selected.profile.family]
+  if (flags === undefined) throw new Error(`configured model and effort cannot be applied to unsupported worker family ${selected.profile.family || '<missing>'}`)
+  return [...selected.args, ...flags(selected.model, selected.effort), ...worker_args, brief_text]
+}
+
 const main = async () => {
   const args = parse_args(process.argv.slice(2))
   for (const name of ['repo', 'brief', 'output', 'stage', 'marker']) {
@@ -81,10 +100,7 @@ const main = async () => {
 
   // Fail closed on no eligible profile: resolve_worker_tier throws rather than
   // guessing, which keeps an unlaunchable worker from being selected.
-  const selected = ag_settings.resolve_worker_tier(config, {
-    role: args.role === undefined ? 'cross-check' : args.role,
-    active_host: 'claude',
-  })
+  const selected = select_reviewer(config, { role: args.role })
 
   const dispatch = {
     stage: args.stage,
@@ -100,7 +116,7 @@ const main = async () => {
 
   const result = await run_external_command({
     command: selected.executable,
-    args: [...selected.args, '--model', selected.model, ...worker_args, brief_text],
+    args: worker_invocation(selected, worker_args, brief_text),
     source_directory: repository_root,
     max_output_bytes: REPORT_MAX_BYTES,
     env: { ...process.env, AGENTFLOW_EXTERNAL_DELEGATE: args.marker },
@@ -126,4 +142,4 @@ const main = async () => {
 
 if (require.main === module) main().catch(error => fail(error.stack === undefined ? String(error) : error.stack))
 
-module.exports = { build_dispatch_facts }
+module.exports = { build_dispatch_facts, select_reviewer, worker_invocation }
