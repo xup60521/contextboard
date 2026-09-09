@@ -142,47 +142,49 @@ export type SettingsSwatchOption<T extends string> = {
 };
 
 /**
- * A row of colour swatches. Each button carries the accent attribute for the
- * appearance it edits, so the rules in `styles.css` paint it: a swatch always
- * shows the colour it will apply — including a dark-mode colour while the app
- * is still light — and adding an accent needs no change here.
+ * A row of colour swatches, one accent applying to both appearances at once.
+ * Each button carries both accent attributes itself, so the rules in
+ * `styles.css` paint it in whichever shade the current appearance calls for —
+ * a swatch always shows the colour it will apply, and adding an accent needs
+ * no change here.
+ *
+ * `onPreview` reports the swatch under the pointer or the keyboard, and null
+ * when it leaves, so a caller can show the value before it is committed.
  */
 export function SettingsSwatches<T extends string>({
 	value,
 	options,
 	onChange,
+	onPreview,
 	label,
-	appearance,
 }: {
-	value: T;
+	value: string;
 	options: ReadonlyArray<SettingsSwatchOption<T>>;
 	onChange: (value: T) => void;
+	onPreview?: (value: T | null) => void;
 	label: string;
-	appearance: "light" | "dark";
 }) {
-	const light = appearance === "light";
 	return (
-		<fieldset className="flex items-center gap-1.5">
+		<fieldset className="flex flex-wrap items-center gap-1.5">
 			<legend className="sr-only">{label}</legend>
 			{options.map((option) => (
 				<button
 					key={option.value}
 					type="button"
-					data-accent-light={light ? option.value : undefined}
-					data-accent-dark={light ? undefined : option.value}
+					data-accent-light={option.value}
+					data-accent-dark={option.value}
 					title={option.label}
-					aria-label={`${option.label} ${appearance}`}
+					aria-label={option.label}
 					aria-pressed={option.value === value}
 					onClick={() => onChange(option.value)}
+					onPointerEnter={() => onPreview?.(option.value)}
+					onPointerLeave={() => onPreview?.(null)}
+					onFocus={() => onPreview?.(option.value)}
+					onBlur={() => onPreview?.(null)}
 					className={cn(
-						"size-5 rounded-full outline-offset-2 transition-transform hover:scale-110",
-						light
-							? "bg-[var(--brand-fill-light)]"
-							: "bg-[var(--brand-fill-dark)]",
+						"size-5 rounded-full bg-[var(--brand-fill-light)] outline-offset-2 transition-transform hover:scale-110 dark:bg-[var(--brand-fill-dark)]",
 						option.value === value &&
-							(light
-								? "outline-2 outline-[var(--brand-fill-light)]"
-								: "outline-2 outline-[var(--brand-fill-dark)]"),
+							"outline-2 outline-[var(--brand-fill-light)] dark:outline-[var(--brand-fill-dark)]",
 					)}
 				/>
 			))}

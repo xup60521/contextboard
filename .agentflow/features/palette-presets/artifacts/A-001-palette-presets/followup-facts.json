@@ -1,0 +1,19 @@
+{
+  "changed_files": [
+    "packages/web-ui/src/components/settings/AppearancePreview.tsx",
+    "packages/web-ui/src/components/settings/AppearanceSection.tsx",
+    "packages/web-ui/src/components/settings/SettingsPrimitives.tsx",
+    "packages/web-ui/src/components/sidebar/AppSidebar.tsx",
+    "packages/web-ui/src/components/sidebar/SidebarTabs.tsx",
+    "packages/web-ui/src/components/sidebar/sidebar-row.ts",
+    "packages/web-ui/src/components/whiteboard/AppSidebarFrame.tsx",
+    "packages/web-ui/src/lib/accent-contrast.test.ts",
+    "packages/web-ui/src/styles.css"
+  ],
+  "changed_lines": 619,
+  "behavior_change": true,
+  "trust_boundary": false,
+  "broad_change": false,
+  "consequential_change": false,
+  "owner_control": "default"
+}

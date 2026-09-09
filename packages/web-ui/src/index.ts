@@ -114,20 +114,22 @@ export { WhiteboardCanvas } from "./components/whiteboard/WhiteboardCanvas.tsx";
 export { WhiteboardCardPreviewLayer } from "./components/whiteboard/WhiteboardCardPreviewLayer.tsx";
 export { WhiteboardPickerDialog } from "./components/whiteboard/WhiteboardPickerDialog.tsx";
 export { WhiteboardPreviewDialog } from "./components/whiteboard/WhiteboardPreviewDialog.tsx";
-export { useAccents } from "./hooks/useAccents.ts";
+export { useAccent } from "./hooks/useAccents.ts";
 export { useThemeMode } from "./hooks/useThemeMode.ts";
 export { whiteboardPreviewCardIdAtom } from "./lib/atoms.ts";
 export {
 	ACCENTS,
 	type Accent,
-	type Accents,
-	applyAccents,
+	applyAccent,
 	applyThemeMode,
 	DEFAULT_ACCENT,
-	getAccents,
+	DEFAULT_CUSTOM_COLOR,
+	getAccent,
+	getCustomColor,
 	getResolvedTheme,
 	getThemeMode,
 	initTheme,
+	type PresetAccent,
 	type ResolvedTheme,
 	setAccent,
 	setThemeMode,

@@ -1,0 +1,13 @@
+{
+  "changed_files": [
+    "apps/web/src/routes/__root.tsx",
+    "packages/web-ui/src/lib/theme.test.ts",
+    "packages/web-ui/src/lib/theme.ts",
+    "packages/web-ui/src/styles.css"
+  ],
+  "changed_lines": 154,
+  "behavior_change": true,
+  "trust_boundary": false,
+  "broad_change": false,
+  "consequential_change": false
+}
