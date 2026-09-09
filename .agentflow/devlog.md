@@ -8,7 +8,7 @@ Current commit: 1db57a2 — merged themeable-accents delivery on main, synchroni
 
 Tests/scenarios: Agentflow cleanup completed successfully; Git confirms main equals origin/main and the removed branch/worktree are absent.
 
-Configuration: ag.json — schema v7; Codex uses the shell-free Node worker wrapper; validated for codex.
+Configuration: ag.json — schema v7; validated for claude this round.
 
 Proven: `themeable-accents` was already merged; its worktree and local/remote branches were removed. Temporary untracked cleanup leftovers were moved to the Windows Recycle Bin.
 
