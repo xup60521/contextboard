@@ -81,3 +81,61 @@ node_test.test('worker invocation refuses an unsupported family rather than sile
     /unsupported worker family gemini/u,
   )
 })
+
+// The gate requires the worker stamp on line 1, but a chat-style CLI prepends a
+// sentence, so five dispatches were spent on framing rather than substance.
+
+const { normalize_report } = require('./dispatch-review.js')
+
+const stamp = '* _2026-09-09 15:28:21 (claude-opus-4-6/high)_'
+
+node_test.test('report normalization drops a chat preamble so the stamp lands on line one', () => {
+  const raw = ['Now I have everything. Here is the report:', '', stamp, '', 'Verdict: PASS'].join('\n')
+
+  const { report, trimmed_bytes } = normalize_report(raw)
+
+  node_assert.equal(report.split('\n')[0], stamp)
+  node_assert.equal(report, [stamp, '', 'Verdict: PASS'].join('\n'))
+  node_assert.equal(trimmed_bytes, Buffer.byteLength('Now I have everything. Here is the report:\n\n'))
+})
+
+node_test.test('report normalization leaves an already-clean report byte-identical', () => {
+  const raw = [stamp, '', 'Verdict: PASS'].join('\n')
+
+  const { report, trimmed_bytes } = normalize_report(raw)
+
+  node_assert.equal(report, raw)
+  node_assert.equal(trimmed_bytes, 0)
+})
+
+node_test.test('report normalization leaves a stampless report untouched rather than mangling a failure', () => {
+  const raw = 'ERROR: you have hit your usage limit\n'
+
+  const { report, trimmed_bytes } = normalize_report(raw)
+
+  node_assert.equal(report, raw)
+  node_assert.equal(trimmed_bytes, 0)
+})
+
+node_test.test('report normalization tolerates carriage returns from a Windows worker', () => {
+  const raw = ['Here is the report:', '', stamp, '', 'Verdict: PASS'].join('\r\n')
+
+  const { report } = normalize_report(raw)
+
+  node_assert.equal(report.split('\r\n')[0], stamp)
+})
+
+node_test.test('dispatch facts record the trimmed preamble so the raw output stays auditable', () => {
+  const result = {
+    status: 'completed',
+    exit_code: 0,
+    timed_out: false,
+    clone: { independent: true, remotes: [], changed: false },
+    stdout_bytes: 120,
+    stdout_truncated: false,
+    stderr: '',
+  }
+
+  node_assert.equal(build_dispatch_facts({ args: { output: 'r.md' }, dispatch: {}, report: 'x', result, trimmed_bytes: 44 }).preamble_trimmed_bytes, 44)
+  node_assert.equal(build_dispatch_facts({ args: { output: 'r.md' }, dispatch: {}, report: 'x', result }).preamble_trimmed_bytes, 0)
+})

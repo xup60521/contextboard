@@ -47,7 +47,24 @@ const parse_worker_args = raw => {
   return parsed
 }
 
-const build_dispatch_facts = ({ args, dispatch, report, result }) => ({
+// round-linter.js requires the worker stamp as the report's first line, but a
+// chat-style CLI prepends a sentence, which fails the gate on framing rather
+// than substance. Trim only what sits above the stamp, and record the trim so
+// the raw output stays auditable against stdout_bytes. The pattern is duplicated
+// from round-linter.js because that module exports no patterns.
+const REPORT_STAMP_PATTERN = /^\* _\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \([^/\r\n]+\/[^/\r\n]+\)_$/
+
+const normalize_report = raw => {
+  const lines = raw.split('\n')
+  const stamp = lines.findIndex(line => REPORT_STAMP_PATTERN.test(line.trimEnd()))
+  if (stamp <= 0) return { report: raw, trimmed_bytes: 0 }
+  return {
+    report: lines.slice(stamp).join('\n'),
+    trimmed_bytes: Buffer.byteLength(lines.slice(0, stamp).join('\n') + '\n'),
+  }
+}
+
+const build_dispatch_facts = ({ args, dispatch, report, result, trimmed_bytes = 0 }) => ({
   dispatch,
   status: result.status,
   exit_code: result.exit_code,
@@ -61,6 +78,7 @@ const build_dispatch_facts = ({ args, dispatch, report, result }) => ({
   stdout_truncated: result.stdout_truncated,
   stderr_excerpt: result.stderr.slice(0, DIAGNOSTIC_MAX_BYTES),
   report_bytes: Buffer.byteLength(report),
+  preamble_trimmed_bytes: trimmed_bytes,
   report_path: args.output,
 })
 
@@ -122,11 +140,12 @@ const main = async () => {
     env: { ...process.env, AGENTFLOW_EXTERNAL_DELEGATE: args.marker },
   })
 
-  const report = typeof result.result.value === 'string' ? result.result.value : ''
+  const raw_report = typeof result.result.value === 'string' ? result.result.value : ''
+  const { report, trimmed_bytes } = normalize_report(raw_report)
   const output_path = node_path.resolve(args.output)
   node_fs.writeFileSync(output_path, report)
   node_fs.writeFileSync(output_path + '.dispatch.json', JSON.stringify(
-    build_dispatch_facts({ args, dispatch, report, result }),
+    build_dispatch_facts({ args, dispatch, report, result, trimmed_bytes }),
     null,
     2,
   ))
@@ -142,4 +161,4 @@ const main = async () => {
 
 if (require.main === module) main().catch(error => fail(error.stack === undefined ? String(error) : error.stack))
 
-module.exports = { build_dispatch_facts, select_reviewer, worker_invocation }
+module.exports = { build_dispatch_facts, normalize_report, select_reviewer, worker_invocation }
