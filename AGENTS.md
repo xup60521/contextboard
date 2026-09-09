@@ -6,7 +6,15 @@ When the user asks for filing a PR, don't make a draft. The PR title should desc
 
 ## Environment
 
-When the user isn't explicitely ask, assume the dev server is already on. Don't spawn long lived process as it's hard for the user to manage.
+Never start the dev server, a watch task, or any other long-lived process. On the remote Linux box a dev server has already leaked memory badly enough to hang the whole machine and force a manual reboot. If you need a running app and cannot reach one, report that as a limit and stop; do not start one yourself.
+
+Code, unit tests, typecheck, and lint run on whichever machine is writing the code. Runtime and browser verification happens only on the laptop, and its results reach an agent as owner-supplied evidence, never as the agent's own command output.
+
+## Agentflow
+
+Only the laptop's main checkout writes the root notebook `.agentflow/devlog.md` and its STATUS. A stream session on any machine writes only its own `.agentflow/features/<taskkey>/` notebook and defers the root `stream:` pointer to the laptop.
+
+Delivery goes through a GitHub PR: `agf finish --prep`, the closing stream Reply, then the PR. Never `agf finish --deliver`, which fast-forwards the default branch and bypasses the PR. After the PR merges, run `cleanup:<taskkey>` from the laptop's main checkout.
 
 ## Writing cards
 

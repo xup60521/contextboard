@@ -6,7 +6,7 @@
     "cli-provider": "on",
     "auto-reply": "on",
     "lang": "en",
-    "streams": "ask",
+    "streams": "always",
     "ask-names": "on",
     "allow-ag": "on",
     "metrics": "off",

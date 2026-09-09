@@ -1,0 +1,10 @@
+{
+  "changed_files": ["AGENTS.md", "ag.json"],
+  "changed_lines": 12,
+  "behavior_change": false,
+  "broad_change": false,
+  "trust_boundary": false,
+  "consequential_change": false,
+  "workspace_layout_change": false,
+  "owner_control": "default"
+}
