@@ -806,4 +806,119 @@ The stray `stream-test.tmp.txt` file and untracked `.agentflow/A-004-themeable-a
 
 # → Ask / A-006
 
+我目前正在試用這個agentflow skill ，但有些問題想要解決
+我目前的開發流程如下：
+
+1. 在local或是remote linux box 讓agent寫code，並透過branch (PR) 來管理
+2. remote code 我通常會拉到畚箕來測試，避免效能問題和ssh forward 等麻煩。事實上之前開過dev server 結果可能是記憶體洩漏的問題，整台linux box當機，我必須手動強制重啟
+3. Pr merge 掉後，再拉最新版的main下來
+
+這樣要怎麼adopt agentflow?
+
+首先，看一下目前的版本和原本的 (https://github.com/agfnow/agentflow) 差在哪裡。我有做一些修改，但不確定具體影響程度
+再來，目前這個card-grid-geometry其實已經被其他PR解決了，並且已經merged，所以可以丟掉不管
+最後補充一點，我其實有讓其他agent 也看看agentflow 和我的開發習慣是否能對接，這是它的回覆，你可以參考但不要竟信
+
+Owner-pasted third-party agent reply (recorded as owner input, not as an Agentflow worker claim). Its substance: keep AgentFlow as the agent-session management layer and do not use `agf finish --deliver`; let GitHub PR be the cross-machine transport; open the stream on the coding machine; keep the laptop as a disposable non-AgentFlow review worktree rather than a second host on the same stream; forbid dev servers and long-lived integration tests on the remote box; replace AgentFlow delivery with PR merge and then run `cleanup:<taskkey>`; and switch the GitHub merge strategy from squash merge to merge commit so `cleanup` still sees branch ancestry. Its one-line principle was "AgentFlow 管 agent 的工作歷史與 coding worktree；GitHub 管跨機器 branch/PR；laptop 管 runtime acceptance."
+
+## [RUN-001] Event - fork compared against upstream with a same-machine control run (during round A-006)
+
+- Route: direct. `skills-lock.json` names the source `agfnow/agentflow`; cloned it to compare.
+- Upstream HEAD is `b2935f5 release: agentflow @ 18a615a7` dated 2026-09-04. All six local skill commits are dated 2026-09-07, after it. `diff -rq` reports no file present upstream and absent locally, so this fork is upstream plus local patches with no missed upstream fix.
+- Divergence is 218 diff lines across 8 files plus 4 new files totalling 244 lines, all on one theme: Windows executability and a Codex worker front end. New files are `codex-worker.js`, `dispatch-review.js`, `process-tree.js`, `windows.test.js`.
+- Impact measured by control run of `node --test *.test.js` on this Windows machine. This fork: 241 fail / 689 pass. Pristine upstream clone: 247 fail / 677 pass. The set difference of failing test names shows an empty "fails only locally" set, and three uninstall tests that fail only upstream.
+- The 241 shared failures are pre-existing upstream Windows breakage at a 26 percent rate, not caused by the local patches, so the suite cannot serve as a Windows regression gate.
+- Latent defect recorded, not fixed: `provision_env_links` in `agf.js` returns 1 on symlink failure, which would abort `agf new` entirely on a Windows host without symlink permission. This repo has five `.env.local`/`.env.production` files. Symlink creation succeeds on this machine.
+
+## [RUN-002] Event - card-grid-geometry salvaged then ditched (during round A-006)
+
+- Owner authorized discarding the stream because a separate merged PR solved the same problem. `git branch --merged main` confirmed the branch was never an ancestor of main, so `ditch` (no merge) was correct and `cleanup` (which merges and pushes) was not.
+- The stream notebook existed only on that branch; main had no `.agentflow/features/card-grid-geometry/`. Ditching first would have destroyed the record with the code, so the notebook and its `ag.json` were copied to main from the worktree working copy, which held 17 uncommitted lines the branch commit lacked, including a real finding about an undeclared `@contextboard/editor` dependency in `apps/desktop`.
+- Salvage committed as `d515b28` before anything was deleted. The stream record is marked `Feature: card-grid-geometry — ditched`.
+- `agf ditch card-grid-geometry` then removed `.worktrees/card-grid-geometry`, deleted `origin/card-grid-geometry`, and deleted the local branch. Verified: `git worktree list` shows only the main checkout and no card-grid-geometry branch remains locally or on origin.
+- Root STATUS rebuilt and committed as `ab0f386`, pushed; `main` equals `origin/main`.
+- `origin/agent-sync-architecture` is a separate dangling remote branch with no stream record. Left untouched.
+
+# ← Reply / A-006
+
+* _2026-09-09 14:23:00 (claude-opus-5[1m]/high)_
+
+## [SUMMARY]
+
+- Adopting Agentflow across two machines works, but three of its built-in assumptions collide with a PR-based flow: worktree-on-one-machine stream isolation, local fast-forward delivery with no PR concept, and coordinator-owned direct evidence.
+- The fork is upstream `agfnow/agentflow` plus six Windows/Codex commits, is not behind upstream on any file, and has zero regressions against a same-machine control test run.
+- The skill test suite fails 26 percent on pristine upstream under Windows, so it is not a usable regression gate here; a WSL run would be.
+- `card-grid-geometry` was salvaged to main and then ditched. Worktree, local branch, and `origin/card-grid-geometry` are gone; the notebook survives as a ditched record.
+- The third-party agent reply is broadly correct on mechanism, better than my first answer on laptop isolation, wrong in premise on its headline squash-merge recommendation, and silent on the biggest two-machine hazard.
+
+## [FINAL REPORT]
+
+### 1. Owner request: how to adopt Agentflow given a remote-codes / laptop-tests / PR-merges flow
+
+Answered, with three collisions identified from the rulebooks and the CLI source.
+
+`references/streams.md` builds stream isolation entirely on `.worktrees/<taskkey>` on one filesystem; `remote host`, `another machine`, and `ssh` have zero matches across `docs/`, `references/`, and `SKILL.md`. `PR`, `pull request`, and `github` likewise have zero matches, and `agf finish --deliver` verifies the main checkout, fetches, and fast-forwards the default branch locally and remotely, so it structurally bypasses a PR. Third, `SKILL.md` requires that a claim become fact only through direct command output, which the coding machine cannot supply for a dev-server journey it must never start.
+
+The adoption shape that survives all three:
+
+- Open the stream on the coding machine with `new-feature:`. The remote box is then the Agentflow host for that stream; `.agentflow/` is tracked, so its stream `ag.json` and notebook travel by Git.
+- Keep the laptop out of Agentflow entirely, as a disposable review checkout. This is the third-party agent improvement over my first answer and I adopted it.
+- Route laptop findings back as owner sentences in the next Ask of the stream, and record them as owner-supplied verification distinct from the host own command output. Without this the stream closes claiming only unit tests and the acceptance evidence never enters any record.
+- Deliver with `finish --prep`, then the closing stream Reply, then the PR. Never `finish --deliver`. After the PR merges, `cleanup:<taskkey>` from the main checkout.
+- Decide one machine as sole owner of the root notebook and STATUS. Recommendation: the laptop, since acceptance happens there and the remote box is the one that crashes. Remote streams defer the root pointer per `streams.md`.
+
+Two configuration consequences follow: `streams: ask` should become `streams: always` since every task branches, and the `AGENTS.md` line about assuming the dev server is already on is actively unsafe on the remote box, because an agent that cannot reach it will reasonably start one, which is the documented path to the memory-leak crash. It should become an unconditional prohibition with a report-and-stop fallback.
+
+### 2. Owner request: compare this version against upstream and judge the impact of my changes
+
+Succeeded, with a measured control rather than an inspection-only judgement.
+
+This fork is upstream plus local work, missing nothing: upstream HEAD `b2935f5` is dated 2026-09-04, all six local skill commits are dated 2026-09-07, and `diff -rq` finds no file that exists upstream and not here. Divergence is 218 diff lines over 8 files plus 4 new files of 244 lines, all serving Windows executability and a Codex worker front end.
+
+Impact is zero regression, proven by running the same suite twice on this machine. This fork returns 241 fail / 689 pass; a pristine upstream clone returns 247 fail / 677 pass. Differencing the failing test names yields an empty fails-only-locally set and three uninstall tests that fail only upstream. The seven new Windows, Codex-worker, and dispatch-review tests all pass.
+
+The material limit is that the 241 shared failures belong to upstream, not to this fork, and represent a 26 percent Windows failure rate concentrated in `finish`, `cleanup`, and `setup` on POSIX path assumptions. The suite therefore cannot gate changes on Windows. One latent defect is recorded in RUN-001 and not fixed, being outside the Ask: `provision_env_links` aborts `agf new` outright when a symlink cannot be created.
+
+### 3. Owner request: card-grid-geometry is obsolete, throw it away
+
+Succeeded, in the order the owner chose.
+
+`git branch --merged main` confirmed the branch was never an ancestor of main, matching the owner account that a different PR solved the problem, so `ditch` was correct and `cleanup` would have merged obsolete work into main and pushed it. Because the stream notebook existed only on that branch, it was copied to main first, from the worktree working copy that held 17 uncommitted lines the branch commit lacked, and committed as `d515b28` before any deletion. `agf ditch` then removed the worktree, `origin/card-grid-geometry`, and the local branch, all three verified absent. The root STATUS was rebuilt and pushed as `ab0f386`.
+
+### 4. Owner request: assess the third-party agent reply without trusting it
+
+Assessed against the CLI source and the history of this repository.
+
+Correct: the stream mechanics, the `--prep` versus `--deliver` boundary, `.worktrees/` being ignored, and the conclusion to abandon Agentflow delivery. Better than my first answer: keeping the laptop as a non-Agentflow disposable checkout instead of handing the same stream notebook between two hosts, which `streams.md` discourages by design. Its omission there is that runtime acceptance then never reaches any notebook, which section 1 above repairs.
+
+Wrong in premise: its headline recommendation to switch from squash merge to merge commit is already satisfied. `1db57a2`, `80599bb`, and `7fb4c0e` are all GitHub merge commits. It also understated the stake by calling squash merge merely awkward. Reading `clean_main`, cleanup performs `git merge --no-ff <key>` and then `git push`, so under squash merge it would not be awkward, it would grow a second merge commit reintroducing the squashed commits onto the remote default branch.
+
+Its significant omission is root-notebook ownership across two machines. Its own flow ends with the remote box running `cleanup:`, which makes the remote box the writer of the root notebook and STATUS; any laptop main-checkout round then collides on Ask numbering and STATUS every time. Neither the upstream documentation nor that reply addresses it. Minor: its diagram specifies a Draft PR, which contradicts the `AGENTS.md` of this repository.
+
+### Record limits
+
+The pasted third-party reply is recorded in Ask A-006 as a labelled summary of its substance rather than verbatim, to keep the round inside the 64 KB fast-intake limit; the owner own words in both messages are verbatim. Nothing in this round changed source, tests, or configuration, so no cross-check review was dispatched.
+
+## Questions (batched — each with a suggested default)
+
+- Which machine should own the root notebook and STATUS?
+- Suggested default: the laptop, because acceptance evidence and owner presence are both there, with remote streams deferring the root pointer.
+- ans:
+
+- Should the `AGENTS.md` dev-server line become an unconditional prohibition, and `streams` become `always`?
+- Suggested default: yes to both, since the current wording is what invites a remote agent to start the server that crashed the box.
+- ans:
+
+- Should the Windows-unusable test suite be given a WSL gate so this fork has a real regression check?
+- Suggested default: defer, since no Agentflow change is currently planned; revisit before the next patch to the skill.
+- ans:
+
+- `origin/agent-sync-architecture` is a dangling remote branch with no stream record. Delete it?
+- Suggested default: leave it until its origin is known, since no local branch or notebook explains it.
+- ans:
+
+---
+
+# → Ask / A-007
+
 +
