@@ -8,25 +8,19 @@ Current commit: 3f7e026 — implementation is ae2c8ed; tip is a record-only SHA-
 
 Tests/scenarios: web-ui theme.test.ts + accent-contrast.test.ts 18 of 18; full workspace bun run test --force 20 of 25 task files (sole failure the pre-existing accepted arrange-relations timeout); bun run check --force 30 of 32 (sole failure the pre-existing @contextboard/desktop#check environment issue); targeted cross-check PASS on all three axes for ae2c8ed.
 
-Configuration: .agentflow/features/palette-presets/ag.json — schema v7; validated for claude this round.
+Configuration: features/palette-presets/ag.json — schema v7; validated for claude this round.
 
 Proven: one accent choice now drives both light and dark at once; the ten presets are researched and contrast-tested; a custom-colour picker tints fill only, leaving text on its CSS-driven, always-legible shade after the first full cross-check caught a text-contrast defect in the earlier version. Migration from the old per-appearance keys prefers the more specific light-side choice and retires the legacy keys on first use.
 
 Open: not delivered — AGENTS.md requires a GitHub PR, never `agf finish --deliver`; the owner has not yet said to open it. The ten new hues are contrast-tested individually but not visually confirmed as a set (no browser available on this machine).
 
-Next: owner reviews the branch/PR decision and the two batched questions in the A-001 Reply.
+Next: this stream round is closed. Owner reviews the branch/PR decision and the two batched questions in the A-001 Reply; delivery is a GitHub PR per AGENTS.md, never `agf finish --deliver`; after it merges, run `cleanup:palette-presets` from the laptop's main checkout.
 
 Artifacts: .agentflow/features/palette-presets/artifacts/A-001-palette-presets/ — cross-check facts, review brief/report (BLOCKING), recheck brief/report (PASS), reply draft.
 
 Archived eras: none.
 
 Streams: none.
-
-Backlink: main notebook `.agentflow/devlog.md` (main checkout)
-
-Feature: palette-presets — closed
-
-`agf finish --prep` integrated `main` with no conflicts and pushed. Delivery is a GitHub PR per this repo's AGENTS.md, not `agf finish --deliver` — the owner has not yet authorized opening it. After the PR merges, `cleanup:palette-presets` runs from the laptop's main checkout.
 
 ---
 
