@@ -60,19 +60,40 @@ describe("accent", () => {
 		expect(document.documentElement.dataset.accentDark).toBe("violet");
 	});
 
-	test("custom overrides every brand variable, for both appearances, with the chosen colour", () => {
+	/**
+	 * A stale pre-split key from before light/dark existed at all must not
+	 * shadow a more specific, later per-appearance choice.
+	 */
+	test("a specific pre-split light choice outranks a stale single-key accent", () => {
+		window.localStorage.setItem("theme-accent", "indigo");
+		window.localStorage.setItem("theme-accent-light", "pink");
+
+		expect(getAccent()).toBe("pink");
+	});
+
+	test("picking an accent through the unified control retires the old per-appearance keys", () => {
+		window.localStorage.setItem("theme-accent-light", "pink");
+
+		setAccent("teal");
+
+		expect(getAccent()).toBe("teal");
+		expect(window.localStorage.getItem("theme-accent-light")).toBeNull();
+	});
+
+	test("custom overrides only the fill, for both appearances, with the chosen colour", () => {
 		setAccent("custom", "#ff00aa");
 
 		expect(getAccent()).toBe("custom");
 		expect(getCustomColor()).toBe("#ff00aa");
 		const style = document.documentElement.style;
 		expect(style.getPropertyValue("--brand-fill-light")).toBe("#ff00aa");
-		expect(style.getPropertyValue("--brand-text-light")).toBe("#ff00aa");
 		expect(style.getPropertyValue("--brand-fill-dark")).toBe("#ff00aa");
-		expect(style.getPropertyValue("--brand-text-dark")).toBe("#ff00aa");
+		// Text keeps its CSS-driven shade — an arbitrary colour has no guaranteed contrast.
+		expect(style.getPropertyValue("--brand-text-light")).toBe("");
+		expect(style.getPropertyValue("--brand-text-dark")).toBe("");
 	});
 
-	test("switching back to a preset clears the custom override", () => {
+	test("switching back to a preset clears the custom fill override", () => {
 		setAccent("custom", "#ff00aa");
 		setAccent("indigo");
 

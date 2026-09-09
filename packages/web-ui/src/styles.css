@@ -29,8 +29,9 @@
  * `data-accent-dark` always carry the same value) — only the concrete shade
  * differs per appearance, not the hue. These selectors also match the
  * swatches in Settings, which is how each swatch paints itself in the colour
- * it will apply. `"custom"` matches none of these and is applied instead as
- * an inline override in `theme.ts`.
+ * it will apply. `"custom"` matches none of these; `theme.ts` inline-overrides
+ * only `--brand-fill-*` for it, leaving `--brand-text-*` on its CSS-driven
+ * shade, since an arbitrary colour has no guaranteed text contrast.
  */
 :root {
   --brand-fill-light: var(--color-indigo-500);

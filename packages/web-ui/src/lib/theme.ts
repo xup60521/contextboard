@@ -29,8 +29,9 @@ export const DEFAULT_CUSTOM_COLOR = "#6366f1";
 const STORAGE_KEY = "theme";
 const ACCENT_KEY = "theme-accent";
 const CUSTOM_COLOR_KEY = "theme-accent-custom";
-/** Written back when light and dark accents could still diverge. */
+/** Pre-split keys: light and dark could still diverge before this file unified them. */
 const LEGACY_LIGHT_ACCENT_KEY = "theme-accent-light";
+const LEGACY_DARK_ACCENT_KEY = "theme-accent-dark";
 const listeners = new Set<() => void>();
 let systemListenerStarted = false;
 
@@ -47,16 +48,21 @@ function isAccent(value: string | null): value is Accent {
 	return value === "custom" || ACCENTS.includes(value as PresetAccent);
 }
 
-/** One accent for both appearances. */
+/**
+ * One accent for both appearances. A pre-split light choice is more specific
+ * — and, since nothing ever wrote `theme-accent` after the split, more
+ * recent — than a stale key from before the split existed at all, so it wins
+ * whenever both are present. `setAccent` retires it the first time this
+ * unified control is used, so this fallback only ever fires once per user.
+ */
 export function getAccent(): Accent {
 	if (typeof window === "undefined") return DEFAULT_ACCENT;
 
-	const stored = window.localStorage.getItem(ACCENT_KEY);
-	if (isAccent(stored)) return stored;
+	const legacyLight = window.localStorage.getItem(LEGACY_LIGHT_ACCENT_KEY);
+	if (isAccent(legacyLight)) return legacyLight;
 
-	// Anyone who had light and dark set apart keeps their light choice.
-	const legacy = window.localStorage.getItem(LEGACY_LIGHT_ACCENT_KEY);
-	return isAccent(legacy) ? legacy : DEFAULT_ACCENT;
+	const stored = window.localStorage.getItem(ACCENT_KEY);
+	return isAccent(stored) ? stored : DEFAULT_ACCENT;
 }
 
 export function getCustomColor(): string {
@@ -66,8 +72,11 @@ export function getCustomColor(): string {
 
 /**
  * Apply the accent to both appearances at once. A preset lets `styles.css`
- * pick each appearance's concrete shade; `"custom"` overrides every brand
- * variable directly, since an arbitrary colour has no per-appearance tuning.
+ * pick each appearance's concrete fill and text shade. `"custom"` overrides
+ * only the fill — rings, underlines, hover and selection backgrounds — with
+ * the chosen colour; text keeps its CSS-driven shade rather than an arbitrary
+ * hex with no guaranteed contrast, so link and label text always stays
+ * readable regardless of what colour is picked.
  */
 export function applyAccent(
 	accent: Accent,
@@ -79,15 +88,12 @@ export function applyAccent(
 	root.setAttribute("data-accent-light", accent);
 	root.setAttribute("data-accent-dark", accent);
 
-	const overrides = [
-		"--brand-fill-light",
-		"--brand-text-light",
-		"--brand-fill-dark",
-		"--brand-text-dark",
-	];
-	for (const name of overrides) {
-		if (accent === "custom") root.style.setProperty(name, customColor);
-		else root.style.removeProperty(name);
+	if (accent === "custom") {
+		root.style.setProperty("--brand-fill-light", customColor);
+		root.style.setProperty("--brand-fill-dark", customColor);
+	} else {
+		root.style.removeProperty("--brand-fill-light");
+		root.style.removeProperty("--brand-fill-dark");
 	}
 }
 
@@ -96,6 +102,8 @@ export function setAccent(accent: Accent, customColor?: string) {
 	if (typeof window === "undefined") return;
 
 	window.localStorage.setItem(ACCENT_KEY, accent);
+	window.localStorage.removeItem(LEGACY_LIGHT_ACCENT_KEY);
+	window.localStorage.removeItem(LEGACY_DARK_ACCENT_KEY);
 	if (accent === "custom" && customColor) {
 		window.localStorage.setItem(CUSTOM_COLOR_KEY, customColor);
 	}
