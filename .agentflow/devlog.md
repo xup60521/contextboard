@@ -4,25 +4,24 @@ Project: contextboard
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: 1db57a2 — merged themeable-accents delivery on main, synchronized with origin/main.
+Current commit: d515b28 — salvaged the card-grid-geometry stream record and corrected the STATUS Configuration line.
 
-Tests/scenarios: Agentflow cleanup completed successfully; Git confirms main equals origin/main and the removed branch/worktree are absent.
+Tests/scenarios: skill suite run twice on Windows — this fork 241 fail/689 pass, pristine upstream 247 fail/677 pass; no test fails here that passes upstream.
 
 Configuration: ag.json — schema v7; validated for claude this round.
 
-Proven: `themeable-accents` was already merged; its worktree and local/remote branches were removed. Temporary untracked cleanup leftovers were moved to the Windows Recycle Bin.
+Proven: this fork is upstream agfnow/agentflow plus six Windows and Codex-worker commits, with no upstream file missing and no regression against a same-machine control run. The card-grid-geometry stream was ditched unmerged after its notebook was salvaged onto main.
 
-Open: `a-002-card-library-selection` and `card-grid-geometry` remain active and untouched.
+Open: `a-002-card-library-selection` remains active and untouched. The skill suite is not a usable Windows regression gate at a 26 percent upstream failure rate; a WSL run would be needed. Two-machine main-notebook ownership is undecided.
 
-Next: continue either active stream when ready.
+Next: decide which machine owns the main notebook before running Agentflow on the remote box.
 
-Artifacts: .agentflow/features/themeable-accents/themeable-accents.devlog.md — closed stream record.
+Artifacts: .agentflow/features/themeable-accents/themeable-accents.devlog.md — closed stream record; .agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md — ditched stream record.
 
 Archived eras: none.
 
 Streams:
 stream: a-002-card-library-selection — active — .agentflow/features/a-002-card-library-selection/a-002-card-library-selection.devlog.md
-stream: card-grid-geometry — active — .agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md
 ---
 
 # → Ask / A-001
