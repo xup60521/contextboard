@@ -1,0 +1,26 @@
+{
+  "dispatch": {
+    "stage": "cross-check",
+    "profile": "claude-default",
+    "family": "claude",
+    "tier": "better",
+    "model": "claude-opus-4-6",
+    "effort": "high",
+    "marker": "A-008-cross-check-3",
+    "worker_args": []
+  },
+  "status": "completed",
+  "exit_code": 0,
+  "timed_out": false,
+  "clone": {
+    "independent": true,
+    "remotes": [],
+    "changed": false
+  },
+  "stdout_bytes": 6527,
+  "stdout_truncated": false,
+  "stderr_excerpt": "Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects[\"C:/Users/User/AppData/Local/Temp/agentflow-external-runner-h3qQAg/clone\"].hasTrustDialogAccepted: true in C:\\Users\\User\\.claude.json.\n",
+  "report_bytes": 6466,
+  "preamble_trimmed_bytes": 61,
+  "report_path": ".agentflow/A-008-dispatch-review-fixes/review-report.md"
+}

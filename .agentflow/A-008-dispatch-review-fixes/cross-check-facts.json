@@ -1,0 +1,13 @@
+{
+  "changed_files": [
+    ".agents/skills/agentflow/scripts/dispatch-review.js",
+    ".agents/skills/agentflow/scripts/dispatch-review.test.js"
+  ],
+  "changed_lines": 167,
+  "behavior_change": true,
+  "broad_change": false,
+  "trust_boundary": false,
+  "consequential_change": false,
+  "workspace_layout_change": false,
+  "owner_control": "default"
+}

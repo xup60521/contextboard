@@ -4,19 +4,19 @@ Project: contextboard
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: 7d6697a — unconditional dev-server prohibition, laptop-only root notebook ownership, and streams set to always.
+Current commit: f13cec5 — all three dispatch-review defects fixed, with ef29201 carrying the first two.
 
-Tests/scenarios: targeted cross-check PASS on Outcome, Minimality, and Conformance for 7d6697a; agf settings validate returns valid; no source or test changed so no code suite applies.
+Tests/scenarios: dispatch-review.test.js 10 of 10 pass; complete suite 243 fail/697 pass against a 241/689 baseline with no test regressing; targeted cross-check PASS on all three axes for f13cec5.
 
 Configuration: ag.json — schema v7; validated for claude this round.
 
-Proven: this fork is upstream agfnow/agentflow plus six Windows and Codex-worker commits, with no upstream file missing and no regression against a same-machine control run. The laptop main checkout is the sole writer of the root notebook and STATUS, recorded in AGENTS.md and confirmed by external review.
+Proven: this fork is upstream agfnow/agentflow plus six Windows and Codex-worker commits, with no upstream file missing and no regression against a same-machine control run. The laptop main checkout is the sole writer of the root notebook and STATUS, recorded in AGENTS.md and confirmed by external review. The review launcher now passes the configured effort, honours cli-provider, and trims a worker preamble; two of those three were verified end to end on the dispatch that reviewed them.
 
-Open: `a-002-card-library-selection` remains active and untouched. The skill suite is not a usable Windows regression gate at a 26 percent upstream failure rate; a WSL run would be needed. Two defects in dispatch-review.js are reported and unfixed: the configured tier effort is never passed to the worker, and cli-provider cannot steer review dispatch because active_host is passed in the wrong argument.
+Open: `a-002-card-library-selection` remains active and untouched. The skill suite is not a usable Windows regression gate at a 26 percent upstream failure rate; a WSL run would be needed. Two patterns are duplicated rather than shared, the per-family flags from looper.js and the stamp pattern from round-linter.js, because neither module exports them.
 
-Next: decide whether to fix the two dispatch-review.js defects, starting with the dropped effort.
+Next: decide whether the undocumented review-report contract is worth reporting upstream.
 
-Artifacts: .agentflow/features/themeable-accents/themeable-accents.devlog.md — closed stream record; .agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md — ditched stream record; .agentflow/A-007-two-machine-adoption/ — frozen facts, review brief, and passing cross-check report.
+Artifacts: .agentflow/features/themeable-accents/themeable-accents.devlog.md — closed stream record; .agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md — ditched stream record; .agentflow/A-007-two-machine-adoption/ and .agentflow/A-008-dispatch-review-fixes/ — frozen facts, review briefs, and passing cross-check reports.
 
 Archived eras: none.
 
@@ -1020,5 +1020,110 @@ Codex hit its usage limit mid-round and reports a 16:00 reset, so the first two 
 ---
 
 # → Ask / A-008
+
+值得修，請繼續
+
+## [RUN-001] Event - both dispatch-review defects fixed with failing tests first (during round A-008)
+
+- Route: direct. Owner said the defects are worth fixing.
+- Wrote four failing tests before any change: host-family selection under `cli-provider: off`, cross-family selection under `on`, family-aware model and effort arguments, and a refusal for an unsupported family. All four failed for the right reason, which is that the two functions did not exist.
+- Fix one: extracted `select_reviewer`, which passes `role` in the second argument and `active_host` in the third. `looper.js:765` and every `ag-settings.test.js` caller already use that convention, so this is conformance rather than invention.
+- Fix two: extracted `worker_invocation` with a per-family flag table, `-m <model> -c model_reasoning_effort=<effort>` for Codex and `--model <model> --effort <effort>` for Claude. Those exact spellings come from `configured_worker_args` in `looper.js:1148`. It is not reused directly because it is unexported and editing `looper.js` would trigger the mandatory WSL live gate, which this Ask does not justify.
+- No guard for a missing effort is needed: `parse_model_value` rejects a tier without one and `resolve_profile_tier` throws, so `selected.effort` is always present.
+- `.claude/skills/agentflow` is a symlink to `.agents/skills/agentflow`, so there is one real copy and no sync step.
+- Focused tests: `dispatch-review.test.js` 5 of 5 pass.
+- Complete relevant suite: 243 fail / 692 pass against a 241 / 689 baseline taken earlier this session. Differencing failing test names shows exactly one name new to the list, `Git timeout reports an unknown push result without claiming no mutation`. Stashing the change and rerunning `agf.test.js` reproduces that failure without it, so it is a pre-existing timing-sensitive test, not a regression. Nothing that passed before now fails.
+
+## [RUN-002] Event - review passed on substance, blocked on a third launcher defect (during round A-008)
+
+- Codex is still rate limited, so the dispatch fell back to `cli-provider: off`. That path selected `claude-default` correctly, which is itself end-to-end verification that the second fix works: before this commit the same switch was inert and selection fell through to Codex.
+- Dispatch `A-008-cross-check-2`: profile `claude-default`, model `claude-opus-4-6`, `status=completed exit=0 report_bytes=5305`. The report returns `Outcome: PASS`, `Minimality: PASS`, `Conformance: PASS`, `Verdict: PASS`, names the full implementation commit, and carries exactly one closing `Self-check:` line.
+- The review is substantive rather than agreeable. It verified the coordinator's `parse_model_value` claim against source lines rather than accepting it, found the spread precedent at `ag-settings.js:1503` and `1505` independently, located the exact wrong-argument read at `ag-settings.js:1482`, and separated the two defect-pinning tests from the two guard-rail tests.
+- The gate still fails on one line: the report begins "Now I have everything. Here is the report:" so the required stamp is on line 3 rather than line 1.
+- Third defect identified, and it is the root cause of this recurring cost: `dispatch-review.js` writes raw worker stdout as the report with no normalization, while `round-linter.js` requires the stamp as the first line. A chat-style CLI worker reliably prepends a sentence. Five dispatches across rounds A-007 and A-008 have now been spent on report framing rather than review substance.
+- Not fixed. The owner sentence authorized the two reported defects; a third finding does not expand scope on its own. Put to the owner as a choice.
+
+## [RUN-003] Event - third defect fixed, report normalization (during round A-008)
+
+- Owner authorized fixing the third defect together with the first two.
+- Five failing tests first: preamble stripped so the stamp lands on line one, an already-clean report left byte-identical, a stampless report left untouched so a quota failure is not mangled, CRLF tolerated, and the trim recorded in the dispatch facts.
+- `normalize_report` finds the first line matching the stamp pattern and drops only what sits above it. `stamp <= 0` covers both "no stamp" and "already first", so both return the raw text with a zero trim. The stamp pattern is duplicated from `round-linter.js` because that module exports no patterns.
+- Provenance kept: `preamble_trimmed_bytes` is recorded in the dispatch facts alongside the existing `stdout_bytes`, so the trim is auditable rather than silent.
+- Focused tests: `dispatch-review.test.js` 10 of 10 pass.
+- Complete relevant suite: 243 fail / 697 pass. Differencing failing names against the same 241 / 689 baseline again yields exactly one new name, the pre-existing timing-sensitive `Git timeout reports an unknown push result without claiming no mutation`, already proven in RUN-001 to fail without any of this work.
+- Process note: two patch attempts corrupted the regex and newline literals in the file because the shell heredoc ate backslashes. Recovered by restoring the file from the previous commit and passing the replacement block through a file instead of shell text. No committed state was affected.
+
+## [RUN-004] Event - review passed and the third fix verified itself (during round A-008)
+
+- Dispatch `A-008-cross-check-3` selected `claude-default` through `cli-provider: off`, which is again the second fix working. Codex is still rate limited.
+- The worker prepended 61 bytes of preamble a third time, and `normalize_report` trimmed it, so the stamp landed on line one and the gate contract was met. That is end-to-end verification of the third fix on the very dispatch that reviews it.
+- Trim arithmetic audited rather than trusted: `stdout_bytes` 6527 = `report_bytes` 6466 + `preamble_trimmed_bytes` 61. Nothing beyond the preamble was lost.
+- Report returns `Outcome: PASS`, `Minimality: PASS`, `Conformance: PASS`, `Verdict: PASS` and names `f13cec5aa73d1ba95d222dd33f41d29865e0ccd0`.
+- Host gate: PASS. Verified independently: `round-linter.js:12` is the stamp pattern as cited; `looper.js:1148` carries the per-family spellings; the reviewer's own reasoning about `findIndex` trimming too little rather than too much is correct.
+- One citation imprecision, not material and the same class as the A-007 report: the reviewer attributes the `validation_options.active_host` read to `ag-settings.js:371`, where that line is `select_profile`'s own read of `options.active_host`. The read it means is at `ag-settings.js:1482`. Its conclusion is unaffected.
+- `ag.json` returned to `cli-provider: on` through the settings CLI, with no priority hack needed this time because the switch now works. `git diff` reports no residue.
+
+# ← Reply / A-008
+
+* _2026-09-09 16:50:58 (claude-opus-5[1m]/high)_
+
+## [SUMMARY]
+
+- All three `dispatch-review.js` defects are fixed, each preceded by failing tests: the effort now reaches the worker, `cli-provider` can steer a review, and a worker preamble no longer fails the gate.
+- Ten focused tests pass. The complete suite shows no test that passed before now failing; the one new failing name is a pre-existing timing-sensitive test proven to fail without this work.
+- Targeted cross-check PASS on Outcome, Minimality, and Conformance for `f13cec5`. Host gate PASS after auditing its citations and the trim arithmetic.
+- Two of the three fixes verified themselves on the dispatch that reviewed them: `cli-provider: off` selected the Claude worker, and the worker's 61-byte preamble was trimmed so the gate passed.
+- `ag.json` carries no residue; no priority hack was needed this time because the switch now works.
+
+## [FINAL REPORT]
+
+Cross-check review: `.agentflow/A-008-dispatch-review-fixes/review-report.md`
+Cross-check implementation: f13cec5aa73d1ba95d222dd33f41d29865e0ccd0
+
+### 1. Owner request: the defects are worth fixing, continue
+
+Succeeded for all three. The round spans `ef29201` for the first two defects and `f13cec5` for the third, which the owner authorized after it surfaced mid-round.
+
+`select_reviewer` passes `role` in the second argument and `active_host` in the third, which is the convention `looper.js:765` and every `ag-settings.test.js` caller already use. `worker_invocation` spells the model and effort per family, `-m <model> -c model_reasoning_effort=<effort>` for Codex and `--model <model> --effort <effort>` for Claude, taken from `configured_worker_args` at `looper.js:1148`. `normalize_report` drops only what precedes the stamp line, returns a stampless report untouched so a quota failure is never mangled, and records `preamble_trimmed_bytes` next to the existing `stdout_bytes`.
+
+No guard for a missing effort exists because none is reachable: `parse_model_value` rejects a tier string without an effort and `resolve_profile_tier` throws on the null parse. The reviewer verified that claim against the source rather than accepting it.
+
+`.claude/skills/agentflow` is a symlink to `.agents/skills/agentflow`, so there was one real copy and no sync step.
+
+### 2. Evidence
+
+Every fix started from failing tests: four for the first two defects, five for the third, all failing first because the functions did not exist. Focused tests now pass 10 of 10.
+
+The complete relevant suite returns 243 fail / 697 pass against a 241 / 689 baseline taken earlier in this session on the same machine. Differencing failing test names yields exactly one name new to the list, `Git timeout reports an unknown push result without claiming no mutation`. Stashing the change and rerunning `agf.test.js` reproduces that failure without it, so it is a pre-existing timing-sensitive test, not a regression. The high absolute count is upstream Windows breakage, unchanged: a pristine upstream clone fails 247 of 924 tests on this host.
+
+Two fixes proved themselves outside their unit tests. Before this work `cli-provider: off` was inert and selection fell through to the rate-limited Codex profile, which is why the A-007 review needed a temporary `priority` edit; now the same switch selects `claude-default` cleanly. And the worker prepended a preamble a third time on the very dispatch that reviewed the trimming fix, so the stamp landed on line one and the gate passed where it had failed twice before.
+
+### 3. Host gate
+
+PASS, after checking the report rather than accepting it. `round-linter.js:12` is the stamp pattern as cited, `looper.js:1148` carries the per-family spellings, and the reviewer's argument that `findIndex` would trim too little rather than too much under a body-internal stamp is correct. The trim was audited arithmetically: `stdout_bytes` 6527 equals `report_bytes` 6466 plus `preamble_trimmed_bytes` 61, so nothing beyond the preamble was lost.
+
+One citation is imprecise without changing the conclusion, the same class of slip as the A-007 report: the reviewer attributes the `validation_options.active_host` read to `ag-settings.js:371`, which is `select_profile`'s own read of `options.active_host`; the read it means is at `ag-settings.js:1482`.
+
+### 4. What was deliberately not done
+
+Two patterns are now duplicated rather than shared: the per-family flags from `looper.js` and the stamp pattern from `round-linter.js`. Neither module exports them. Exporting from `looper.js` would trigger the mandatory WSL live gate in `references/looper.md`, which this Ask does not justify; exporting from `round-linter.js` would be smaller but still expands the change beyond the three authorized defects. The reviewer was asked to challenge this and judged the reasoning sound for both, noting that both duplications are small, comment-linked to their source, and pinned by tests that would catch divergence. It remains a maintenance debt worth naming rather than a settled matter.
+
+### 5. Process note
+
+Two patch attempts corrupted the regex and newline literals in `dispatch-review.js` because the shell heredoc consumed backslashes. Recovered by restoring the file from the previous commit and passing the replacement block through a file instead of shell text. No committed state was affected and the final content is the reviewed one.
+
+## Questions (batched — each with a suggested default)
+
+- Should the two duplicated patterns be shared in a later round, accepting the looper live gate for the flag table?
+- Suggested default: no for the looper flags, since the gate cost outweighs one two-branch conditional; yes for the stamp pattern if `round-linter.js` is ever touched for another reason.
+- ans:
+
+- Should any of this be sent upstream to agfnow/agentflow?
+- Suggested default: not the three fixes, since `dispatch-review.js` is local-only, but the undocumented review-report contract is worth reporting upstream because it is discoverable only by reading `round-linter.js`.
+- ans:
+
+---
+
+# → Ask / A-009
 
 +
