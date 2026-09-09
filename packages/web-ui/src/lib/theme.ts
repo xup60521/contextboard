@@ -2,34 +2,35 @@ export type ThemeMode = "light" | "dark" | "auto";
 export type ResolvedTheme = "light" | "dark";
 
 /**
- * The accents on offer, each a Tailwind palette wired up in `styles.css`. The
- * order is the order they appear in Settings: cool hues first, then warm, then
- * the neutral for people who want no colour at all.
+ * The preset accents on offer, each a Tailwind palette wired up in
+ * `styles.css`. One choice sets both appearances at once; only its concrete
+ * shade differs per appearance, not the hue itself.
  */
 export const ACCENTS = [
+	"red",
+	"orange",
+	"amber",
+	"emerald",
+	"teal",
+	"sky",
 	"indigo",
 	"violet",
-	"blue",
-	"cyan",
-	"emerald",
-	"amber",
-	"rose",
-	"slate",
+	"purple",
+	"pink",
 ] as const;
 
-export type Accent = (typeof ACCENTS)[number];
+export type PresetAccent = (typeof ACCENTS)[number];
+/** `"custom"` escapes the presets for any colour, via `getCustomColor`. */
+export type Accent = PresetAccent | "custom";
 
 export const DEFAULT_ACCENT: Accent = "indigo";
-
-export type Accents = Readonly<Record<ResolvedTheme, Accent>>;
+export const DEFAULT_CUSTOM_COLOR = "#6366f1";
 
 const STORAGE_KEY = "theme";
-const ACCENT_KEYS: Readonly<Record<ResolvedTheme, string>> = {
-	light: "theme-accent-light",
-	dark: "theme-accent-dark",
-};
-/** Written when the accent was one value for both appearances. */
-const LEGACY_ACCENT_KEY = "theme-accent";
+const ACCENT_KEY = "theme-accent";
+const CUSTOM_COLOR_KEY = "theme-accent-custom";
+/** Written back when light and dark accents could still diverge. */
+const LEGACY_LIGHT_ACCENT_KEY = "theme-accent-light";
 const listeners = new Set<() => void>();
 let systemListenerStarted = false;
 
@@ -43,40 +44,62 @@ export function getThemeMode(): ThemeMode {
 }
 
 function isAccent(value: string | null): value is Accent {
-	return ACCENTS.includes(value as Accent);
+	return value === "custom" || ACCENTS.includes(value as PresetAccent);
 }
 
-function readAccent(appearance: ResolvedTheme): Accent {
-	const stored = window.localStorage.getItem(ACCENT_KEYS[appearance]);
+/** One accent for both appearances. */
+export function getAccent(): Accent {
+	if (typeof window === "undefined") return DEFAULT_ACCENT;
+
+	const stored = window.localStorage.getItem(ACCENT_KEY);
 	if (isAccent(stored)) return stored;
 
-	// Anyone who chose an accent before it split in two keeps that colour.
-	const legacy = window.localStorage.getItem(LEGACY_ACCENT_KEY);
+	// Anyone who had light and dark set apart keeps their light choice.
+	const legacy = window.localStorage.getItem(LEGACY_LIGHT_ACCENT_KEY);
 	return isAccent(legacy) ? legacy : DEFAULT_ACCENT;
 }
 
-/** Light and dark carry their own accent, so a hue can suit one and not the other. */
-export function getAccents(): Accents {
-	if (typeof window === "undefined")
-		return { light: DEFAULT_ACCENT, dark: DEFAULT_ACCENT };
-
-	return { light: readAccent("light"), dark: readAccent("dark") };
+export function getCustomColor(): string {
+	if (typeof window === "undefined") return DEFAULT_CUSTOM_COLOR;
+	return window.localStorage.getItem(CUSTOM_COLOR_KEY) ?? DEFAULT_CUSTOM_COLOR;
 }
 
-export function applyAccents(accents: Accents) {
+/**
+ * Apply the accent to both appearances at once. A preset lets `styles.css`
+ * pick each appearance's concrete shade; `"custom"` overrides every brand
+ * variable directly, since an arbitrary colour has no per-appearance tuning.
+ */
+export function applyAccent(
+	accent: Accent,
+	customColor: string = getCustomColor(),
+) {
 	if (typeof document === "undefined") return;
 
 	const root = document.documentElement;
-	root.setAttribute("data-accent-light", accents.light);
-	root.setAttribute("data-accent-dark", accents.dark);
+	root.setAttribute("data-accent-light", accent);
+	root.setAttribute("data-accent-dark", accent);
+
+	const overrides = [
+		"--brand-fill-light",
+		"--brand-text-light",
+		"--brand-fill-dark",
+		"--brand-text-dark",
+	];
+	for (const name of overrides) {
+		if (accent === "custom") root.style.setProperty(name, customColor);
+		else root.style.removeProperty(name);
+	}
 }
 
-/** Persist + apply one appearance's accent and notify every subscriber. */
-export function setAccent(appearance: ResolvedTheme, accent: Accent) {
+/** Persist + apply the accent (and its colour, when custom) and notify every subscriber. */
+export function setAccent(accent: Accent, customColor?: string) {
 	if (typeof window === "undefined") return;
 
-	window.localStorage.setItem(ACCENT_KEYS[appearance], accent);
-	applyAccents({ ...getAccents(), [appearance]: accent });
+	window.localStorage.setItem(ACCENT_KEY, accent);
+	if (accent === "custom" && customColor) {
+		window.localStorage.setItem(CUSTOM_COLOR_KEY, customColor);
+	}
+	applyAccent(accent, customColor ?? getCustomColor());
 	notify();
 }
 
@@ -87,7 +110,7 @@ export function setAccent(appearance: ResolvedTheme, accent: Accent) {
  */
 export function initTheme() {
 	applyThemeMode(getThemeMode());
-	applyAccents(getAccents());
+	applyAccent(getAccent());
 }
 
 export function getResolvedTheme(): ResolvedTheme {
@@ -159,7 +182,7 @@ export function subscribeThemeMode(listener: () => void) {
 	const onStorage = (event: StorageEvent) => {
 		if (event.key === STORAGE_KEY) applyThemeMode(getThemeMode());
 		else if (event.key === null || event.key.startsWith("theme-accent"))
-			applyAccents(getAccents());
+			applyAccent(getAccent());
 		else return;
 		listener();
 	};

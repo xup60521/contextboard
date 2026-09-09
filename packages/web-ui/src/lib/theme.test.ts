@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, test } from "vitest";
-import { getAccents, initTheme, setAccent } from "./theme.ts";
+import { getAccent, getCustomColor, initTheme, setAccent } from "./theme.ts";
 
 /**
  * Node 26 gates its own global `localStorage` behind `--localstorage-file`, so
@@ -18,44 +18,66 @@ Object.defineProperty(window, "localStorage", {
 	},
 });
 
-describe("per-appearance accent", () => {
+describe("accent", () => {
 	beforeEach(() => {
 		store.clear();
 		const root = document.documentElement;
 		root.removeAttribute("data-accent-light");
 		root.removeAttribute("data-accent-dark");
+		for (const name of [
+			"--brand-fill-light",
+			"--brand-text-light",
+			"--brand-fill-dark",
+			"--brand-text-dark",
+		]) {
+			root.style.removeProperty(name);
+		}
 	});
 
-	test("light and dark hold independent accents", () => {
-		setAccent("light", "rose");
-		setAccent("dark", "emerald");
+	test("one choice applies to both appearances", () => {
+		setAccent("teal");
 
-		expect(getAccents()).toEqual({ light: "rose", dark: "emerald" });
-		expect(document.documentElement.dataset.accentLight).toBe("rose");
-		expect(document.documentElement.dataset.accentDark).toBe("emerald");
-	});
-
-	test("setting one appearance leaves the other alone", () => {
-		setAccent("light", "amber");
-
-		expect(getAccents()).toEqual({ light: "amber", dark: "indigo" });
-		expect(document.documentElement.dataset.accentDark).toBe("indigo");
+		expect(getAccent()).toBe("teal");
+		expect(document.documentElement.dataset.accentLight).toBe("teal");
+		expect(document.documentElement.dataset.accentDark).toBe("teal");
 	});
 
 	test("an unknown stored value falls back to the default", () => {
-		window.localStorage.setItem("theme-accent-light", "chartreuse");
+		window.localStorage.setItem("theme-accent", "chartreuse");
 
-		expect(getAccents().light).toBe("indigo");
+		expect(getAccent()).toBe("indigo");
 	});
 
-	/** Anyone who picked an accent before it split in two keeps that colour. */
-	test("a single legacy accent migrates to both appearances", () => {
-		window.localStorage.setItem("theme-accent", "violet");
+	/** Anyone who had light and dark set apart keeps their light choice. */
+	test("a pre-split light/dark accent migrates to the light choice", () => {
+		window.localStorage.setItem("theme-accent-light", "violet");
+		window.localStorage.setItem("theme-accent-dark", "pink");
 
-		expect(getAccents()).toEqual({ light: "violet", dark: "violet" });
+		expect(getAccent()).toBe("violet");
 
 		initTheme();
 		expect(document.documentElement.dataset.accentLight).toBe("violet");
 		expect(document.documentElement.dataset.accentDark).toBe("violet");
+	});
+
+	test("custom overrides every brand variable, for both appearances, with the chosen colour", () => {
+		setAccent("custom", "#ff00aa");
+
+		expect(getAccent()).toBe("custom");
+		expect(getCustomColor()).toBe("#ff00aa");
+		const style = document.documentElement.style;
+		expect(style.getPropertyValue("--brand-fill-light")).toBe("#ff00aa");
+		expect(style.getPropertyValue("--brand-text-light")).toBe("#ff00aa");
+		expect(style.getPropertyValue("--brand-fill-dark")).toBe("#ff00aa");
+		expect(style.getPropertyValue("--brand-text-dark")).toBe("#ff00aa");
+	});
+
+	test("switching back to a preset clears the custom override", () => {
+		setAccent("custom", "#ff00aa");
+		setAccent("indigo");
+
+		expect(
+			document.documentElement.style.getPropertyValue("--brand-fill-light"),
+		).toBe("");
 	});
 });

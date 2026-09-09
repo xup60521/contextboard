@@ -22,19 +22,81 @@
  * Accent palettes. Every accent is a window on one of Tailwind's built-in
  * colour scales: `fill` tints surfaces, rings and underlines, `text` carries
  * link and label text. A hue that needs a deeper step to stay readable on
- * white (amber, cyan, emerald, rose, slate) says so here instead of everywhere
- * it is used; `accent-contrast.test.ts` holds every one of these pairs to a
- * WCAG ratio.
+ * white says so here instead of everywhere it is used; `accent-contrast.test.ts`
+ * holds every one of these pairs to a WCAG ratio.
  *
- * Light and dark are chosen separately, so each appearance has its own
- * attribute. These selectors also match the swatches in Settings, which is
- * how each swatch paints itself in the colour it will apply.
+ * One choice sets both appearances at once (`data-accent-light` and
+ * `data-accent-dark` always carry the same value) — only the concrete shade
+ * differs per appearance, not the hue. These selectors also match the
+ * swatches in Settings, which is how each swatch paints itself in the colour
+ * it will apply. `"custom"` matches none of these and is applied instead as
+ * an inline override in `theme.ts`.
  */
 :root {
   --brand-fill-light: var(--color-indigo-500);
   --brand-text-light: var(--color-indigo-600);
   --brand-fill-dark: var(--color-indigo-400);
   --brand-text-dark: var(--color-indigo-300);
+}
+
+[data-accent-light='red'] {
+  --brand-fill-light: var(--color-red-600);
+  --brand-text-light: var(--color-red-700);
+}
+
+[data-accent-dark='red'] {
+  --brand-fill-dark: var(--color-red-400);
+  --brand-text-dark: var(--color-red-300);
+}
+
+[data-accent-light='orange'] {
+  --brand-fill-light: var(--color-orange-600);
+  --brand-text-light: var(--color-orange-700);
+}
+
+[data-accent-dark='orange'] {
+  --brand-fill-dark: var(--color-orange-400);
+  --brand-text-dark: var(--color-orange-300);
+}
+
+[data-accent-light='amber'] {
+  --brand-fill-light: var(--color-amber-500);
+  --brand-text-light: var(--color-amber-700);
+}
+
+[data-accent-dark='amber'] {
+  --brand-fill-dark: var(--color-amber-400);
+  --brand-text-dark: var(--color-amber-300);
+}
+
+[data-accent-light='emerald'] {
+  --brand-fill-light: var(--color-emerald-600);
+  --brand-text-light: var(--color-emerald-700);
+}
+
+[data-accent-dark='emerald'] {
+  --brand-fill-dark: var(--color-emerald-400);
+  --brand-text-dark: var(--color-emerald-300);
+}
+
+[data-accent-light='teal'] {
+  --brand-fill-light: var(--color-teal-600);
+  --brand-text-light: var(--color-teal-700);
+}
+
+[data-accent-dark='teal'] {
+  --brand-fill-dark: var(--color-teal-400);
+  --brand-text-dark: var(--color-teal-300);
+}
+
+[data-accent-light='sky'] {
+  --brand-fill-light: var(--color-sky-600);
+  --brand-text-light: var(--color-sky-700);
+}
+
+[data-accent-dark='sky'] {
+  --brand-fill-dark: var(--color-sky-400);
+  --brand-text-dark: var(--color-sky-300);
 }
 
 [data-accent-light='indigo'] {
@@ -57,64 +119,24 @@
   --brand-text-dark: var(--color-violet-300);
 }
 
-[data-accent-light='blue'] {
-  --brand-fill-light: var(--color-blue-500);
-  --brand-text-light: var(--color-blue-600);
+[data-accent-light='purple'] {
+  --brand-fill-light: var(--color-purple-500);
+  --brand-text-light: var(--color-purple-600);
 }
 
-[data-accent-dark='blue'] {
-  --brand-fill-dark: var(--color-blue-400);
-  --brand-text-dark: var(--color-blue-300);
+[data-accent-dark='purple'] {
+  --brand-fill-dark: var(--color-purple-400);
+  --brand-text-dark: var(--color-purple-300);
 }
 
-[data-accent-light='cyan'] {
-  --brand-fill-light: var(--color-cyan-600);
-  --brand-text-light: var(--color-cyan-700);
+[data-accent-light='pink'] {
+  --brand-fill-light: var(--color-pink-600);
+  --brand-text-light: var(--color-pink-700);
 }
 
-[data-accent-dark='cyan'] {
-  --brand-fill-dark: var(--color-cyan-400);
-  --brand-text-dark: var(--color-cyan-300);
-}
-
-[data-accent-light='emerald'] {
-  --brand-fill-light: var(--color-emerald-600);
-  --brand-text-light: var(--color-emerald-700);
-}
-
-[data-accent-dark='emerald'] {
-  --brand-fill-dark: var(--color-emerald-400);
-  --brand-text-dark: var(--color-emerald-300);
-}
-
-[data-accent-light='amber'] {
-  --brand-fill-light: var(--color-amber-500);
-  --brand-text-light: var(--color-amber-700);
-}
-
-[data-accent-dark='amber'] {
-  --brand-fill-dark: var(--color-amber-400);
-  --brand-text-dark: var(--color-amber-300);
-}
-
-[data-accent-light='rose'] {
-  --brand-fill-light: var(--color-rose-500);
-  --brand-text-light: var(--color-rose-700);
-}
-
-[data-accent-dark='rose'] {
-  --brand-fill-dark: var(--color-rose-400);
-  --brand-text-dark: var(--color-rose-300);
-}
-
-[data-accent-light='slate'] {
-  --brand-fill-light: var(--color-slate-500);
-  --brand-text-light: var(--color-slate-700);
-}
-
-[data-accent-dark='slate'] {
-  --brand-fill-dark: var(--color-slate-400);
-  --brand-text-dark: var(--color-slate-300);
+[data-accent-dark='pink'] {
+  --brand-fill-dark: var(--color-pink-400);
+  --brand-text-dark: var(--color-pink-300);
 }
 
 :root {

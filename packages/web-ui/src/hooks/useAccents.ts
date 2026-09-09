@@ -1,24 +1,34 @@
 import { useEffect, useState } from "react";
 import {
-	type Accents,
+	type Accent,
 	DEFAULT_ACCENT,
-	getAccents,
+	DEFAULT_CUSTOM_COLOR,
+	getAccent,
+	getCustomColor,
 	subscribeThemeMode,
 } from "../lib/theme.ts";
 
-const INITIAL: Accents = { light: DEFAULT_ACCENT, dark: DEFAULT_ACCENT };
+type AccentState = { accent: Accent; customColor: string };
+
+const INITIAL: AccentState = {
+	accent: DEFAULT_ACCENT,
+	customColor: DEFAULT_CUSTOM_COLOR,
+};
 
 /**
- * Returns the live accent for each appearance. Starts at the default to keep
- * SSR/first paint stable, then syncs to the persisted values and any change.
+ * Returns the live accent — one value for both appearances — plus the stored
+ * custom colour. Starts at the default to keep SSR/first paint stable, then
+ * syncs to the persisted values and any change.
  */
-export function useAccents(): Accents {
-	const [accents, setAccents] = useState<Accents>(INITIAL);
+export function useAccent(): AccentState {
+	const [state, setState] = useState<AccentState>(INITIAL);
 
 	useEffect(() => {
-		setAccents(getAccents());
-		return subscribeThemeMode(() => setAccents(getAccents()));
+		const read = () =>
+			setState({ accent: getAccent(), customColor: getCustomColor() });
+		read();
+		return subscribeThemeMode(read);
 	}, []);
 
-	return accents;
+	return state;
 }
