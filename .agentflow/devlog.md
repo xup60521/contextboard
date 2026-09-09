@@ -4,19 +4,19 @@ Project: contextboard
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: d515b28 — salvaged the card-grid-geometry stream record and corrected the STATUS Configuration line.
+Current commit: 7d6697a — unconditional dev-server prohibition, laptop-only root notebook ownership, and streams set to always.
 
-Tests/scenarios: skill suite run twice on Windows — this fork 241 fail/689 pass, pristine upstream 247 fail/677 pass; no test fails here that passes upstream.
+Tests/scenarios: targeted cross-check PASS on Outcome, Minimality, and Conformance for 7d6697a; agf settings validate returns valid; no source or test changed so no code suite applies.
 
 Configuration: ag.json — schema v7; validated for claude this round.
 
-Proven: this fork is upstream agfnow/agentflow plus six Windows and Codex-worker commits, with no upstream file missing and no regression against a same-machine control run. The card-grid-geometry stream was ditched unmerged after its notebook was salvaged onto main.
+Proven: this fork is upstream agfnow/agentflow plus six Windows and Codex-worker commits, with no upstream file missing and no regression against a same-machine control run. The laptop main checkout is the sole writer of the root notebook and STATUS, recorded in AGENTS.md and confirmed by external review.
 
-Open: `a-002-card-library-selection` remains active and untouched. The skill suite is not a usable Windows regression gate at a 26 percent upstream failure rate; a WSL run would be needed. Two-machine main-notebook ownership is undecided.
+Open: `a-002-card-library-selection` remains active and untouched. The skill suite is not a usable Windows regression gate at a 26 percent upstream failure rate; a WSL run would be needed. Two defects in dispatch-review.js are reported and unfixed: the configured tier effort is never passed to the worker, and cli-provider cannot steer review dispatch because active_host is passed in the wrong argument.
 
-Next: decide which machine owns the main notebook before running Agentflow on the remote box.
+Next: decide whether to fix the two dispatch-review.js defects, starting with the dropped effort.
 
-Artifacts: .agentflow/features/themeable-accents/themeable-accents.devlog.md — closed stream record; .agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md — ditched stream record.
+Artifacts: .agentflow/features/themeable-accents/themeable-accents.devlog.md — closed stream record; .agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md — ditched stream record; .agentflow/A-007-two-machine-adoption/ — frozen facts, review brief, and passing cross-check report.
 
 Archived eras: none.
 
@@ -903,22 +903,122 @@ The pasted third-party reply is recorded in Ask A-006 as a labelled summary of i
 
 - Which machine should own the root notebook and STATUS?
 - Suggested default: the laptop, because acceptance evidence and owner presence are both there, with remote streams deferring the root pointer.
-- ans:
+- ans: the laptop
 
 - Should the `AGENTS.md` dev-server line become an unconditional prohibition, and `streams` become `always`?
 - Suggested default: yes to both, since the current wording is what invites a remote agent to start the server that crashed the box.
-- ans:
+- ans: yes
 
 - Should the Windows-unusable test suite be given a WSL gate so this fork has a real regression check?
 - Suggested default: defer, since no Agentflow change is currently planned; revisit before the next patch to the skill.
-- ans:
+- ans: defer
 
 - `origin/agent-sync-architecture` is a dangling remote branch with no stream record. Delete it?
 - Suggested default: leave it until its origin is known, since no local branch or notebook explains it.
-- ans:
+- ans: defer
 
 ---
 
 # → Ask / A-007
+
+they are answered. continue
+
+## [RUN-001] Event - answered items implemented (during round A-007)
+
+- Route: direct. Owner answered all four A-006 questions, authorizing exactly two changes: the laptop owns the root notebook, and the dev-server line becomes an unconditional prohibition with `streams: always`. The WSL gate and the dangling remote branch were both deferred and left untouched.
+- `streams: ask → always` applied through `agf settings change --set "streams: always"`, not by hand-editing `ag.json`. `agf settings validate` returns `valid ag.json for claude`.
+- `AGENTS.md` Environment section rewritten: no dev server, watch task, or other long-lived process under any condition, with report-and-stop as the fallback when a running app is needed and unreachable. Machine roles split so runtime and browser verification belongs to the laptop and reaches an agent as owner-supplied evidence.
+- New `AGENTS.md` Agentflow section names the laptop main checkout as sole writer of the root notebook and STATUS, and records the PR delivery path. The delivery lines go slightly beyond the literal answer; they are included because a remote session running `finish --deliver` would fast-forward and push the default branch, which would defeat the ownership rule the owner just chose. Flagged for the reviewer to judge as minimal or scope creep.
+- Implementation commit `7d6697a`. No source or test file changed, so no code suite is relevant.
+
+## [RUN-002] Event - cross-check gate blocked by worker rate limit (during round A-007)
+
+- `cross-check-plan.js` on the frozen facts returned level `targeted` ("an ordinary behavior or mixed change needs focused implementation review"), because `ag.json` is configuration rather than documentation-only. Brief frozen at `.agentflow/A-007-two-machine-adoption/review-brief.md`, naming commit `7d6697a`.
+- `dispatch-review.js` selected profile `codex-default`, model `gpt-5.6-terra`, tier `better`, and returned `status=failed exit=1 report_bytes=0`.
+- Cause confirmed by invoking the worker directly: the Codex account has hit its usage limit and reports it will reset at 16:00. The failure is external quota, not a defect in the brief or the runner.
+- The round stays open. No verdict was recorded, `Host gate` is not set, and no PASS was claimed. `skip-review:` is an owner-only control and was not supplied, so it was not self-authorized.
+- `dispatch-review.js` exposes no flag to force a different profile; `resolve_worker_tier` supports `disabled_profile_ids` only in-process. Redirecting this review to the configured `claude-default` profile is therefore an owner decision about Claude usage.
+
+## [RUN-003] Event - dispatched reviews silently ignore the configured effort (during round A-007)
+
+- Observed while diagnosing the failed dispatch: the dispatch record claimed `effort: high`, but Codex printed `reasoning effort: low` for the same run.
+- Traced it. `resolve_profile_tier` in `ag-settings.js` returns `effort` from the tier string, and `dispatch-review.js` copies it into the logged dispatch object, but builds worker arguments as `[...selected.args, '--model', selected.model, ...worker_args, brief_text]`. No effort flag is ever passed, and `selected.args` is only `profile.command.slice(1)`, which is `exec` for the Codex profile.
+- Consequence: every review dispatched through this path has run at the worker's own default effort while the recorded dispatch facts asserted the configured tier effort. The tier effort half of `ag.json` is decorative for reviews, and the recorded evidence overstates what was run.
+- `dispatch-review.js` is a local-only file absent from upstream, so this is a defect in this fork, not inherited.
+- Reported, not fixed: outside this Ask. Parked as a proposal for a later round.
+
+## [RUN-004] Event - review dispatched to the Claude worker and host gate passed (during round A-007)
+
+- Owner chose to redirect this review to the configured Claude worker rather than wait for the Codex reset.
+- `cli-provider: off` was tried first and did not work, which exposed a second defect in `dispatch-review.js`: it passes `active_host` as the second argument to `resolve_worker_tier`, but that function reads `active_host` only from its third `validation_options` argument. Host family therefore resolves to the empty string, family filtering never applies, and `cli-provider` is inert for review dispatch. Reported, not fixed; outside this Ask.
+- Redirected instead through the `priority` field, raising `claude-default` to 4 for the dispatch and restoring it to 3 immediately after. `cli-provider` was restored to `on`. `git diff` confirms `ag.json` is byte-identical to commit `7d6697a` afterwards, so the round leaves no configuration residue.
+- Dispatch `A-007-cross-check-3`: profile `claude-default`, model `claude-opus-4-6`, `status=completed exit=0 report_bytes=3526`. Report at `.agentflow/A-007-two-machine-adoption/review-report.md` names commit `7d6697a` and returns `Outcome: PASS`, `Minimality: PASS`, `Conformance: PASS`.
+- Host gate: PASS. Verified independently rather than accepted: `SKILL.md` line 106 does carry the `streams` control and its legal values; `streams.md` line 5 does say only the main checkout writes the configured main notebook and STATUS; line 17 does define `always`; the commit touches exactly `AGENTS.md`, `ag.json`, and the frozen facts file; and grepping the commit for `wsl` and `agent-sync-architecture` returns zero hits, confirming both deferred items were left alone.
+- One imprecision in the report, not material: it attributes "A stream session never writes the root notebook" to `streams.md` line 23, where that clause sits one sentence later in the same paragraph.
+
+# ← Reply / A-007
+
+* _2026-09-09 14:53:35 (claude-opus-5[1m]/high)_
+
+## [SUMMARY]
+
+- Both answered items are implemented and reviewed: the dev-server prohibition is now unconditional, and the laptop is the sole writer of the root notebook and STATUS.
+- `streams: ask → always`, applied through the settings CLI and validated.
+- Targeted cross-check returned PASS on Outcome, Minimality, and Conformance for commit `7d6697a`. Host gate PASS after independent verification of its cited evidence.
+- Both deferred items were left untouched, confirmed by grepping the commit.
+- Three real defects surfaced along the way, two in `dispatch-review.js` and one in my own review brief; all reported, the fork defects not fixed as outside this Ask.
+
+## [FINAL REPORT]
+
+Cross-check review: `.agentflow/A-007-two-machine-adoption/review-report.md`
+Cross-check implementation: 7d6697a5d69fa17ab1c6ef8a1141098dba9ed54e
+
+### 1. Owner request: the questions are answered, continue
+
+Succeeded. The four answers authorized exactly two changes, and only those two were made.
+
+`AGENTS.md` Environment now forbids the dev server, watch tasks, and any other long-lived process under all conditions, states the reason so the rule is not mistaken for style, and supplies the fallback: report the missing running app as a limit and stop. A second paragraph splits machine roles, putting runtime and browser verification on the laptop and requiring its results to reach an agent as owner-supplied evidence rather than as the agent's own command output.
+
+A new `AGENTS.md` Agentflow section names the laptop main checkout as the sole writer of the root notebook and STATUS, and records the PR delivery path. `streams` was changed to `always` through `agf settings change --set "streams: always"`; `agf settings validate` returns `valid ag.json for claude`.
+
+The two deferred answers were honoured literally. Grepping commit `7d6697a` for `wsl` and `agent-sync-architecture` returns zero hits, so neither the WSL gate nor the dangling remote branch was touched.
+
+### 2. The one place this went beyond the literal answer
+
+The Agentflow section carries the PR delivery path as well as the ownership rule the owner actually answered. This was submitted to the reviewer as the point to challenge, and the reviewer accepted it: `streams.md` defines `finish --deliver` as the standard merge-back step that fast-forwards the default branch locally and remotely, so a remote stream session running it would become the de facto writer of main and defeat the laptop-only ownership the owner had just chosen. The reviewer judged the addition minimal on the grounds that it introduces no new concept and only constrains specific Agentflow operations. If the owner disagrees, the two delivery sentences are the removable part; the ownership sentence is the answer itself.
+
+### 3. Review evidence
+
+`cross-check-plan.js` on frozen facts returned level `targeted`, because `ag.json` is configuration rather than documentation-only, so `narrow` was not available. The brief froze the plan, the facts, the original Ask, and the coordinator evidence, and named commit `7d6697a`.
+
+The report returns PASS on all three axes. The host gate did not take it at face value. Each cited line was checked: `SKILL.md` line 106 carries the `streams` control and its legal values; `streams.md` line 5 does restrict the configured main notebook and STATUS to the main checkout; line 17 defines `always`; and the commit touches exactly `AGENTS.md`, `ag.json`, and the frozen facts file. One citation in the first report run was imprecise without being wrong: the clause about a stream session never writing the root notebook sits one sentence later than the line number given. Host gate: PASS.
+
+### 4. Three defects found, reported not fixed
+
+The first two are in `dispatch-review.js`, a local-only file with no upstream counterpart, so both belong to this fork rather than being inherited.
+
+Dispatched reviews silently ignore the configured effort. `resolve_profile_tier` returns `effort` and `dispatch-review.js` copies it into the logged dispatch facts, but worker arguments are built as `[...selected.args, '--model', selected.model, ...worker_args, brief_text]` with no effort flag. Codex printed `reasoning effort: low` while the dispatch record asserted `high`. The tier effort half of `ag.json` is therefore decorative for reviews, and every recorded dispatch has overstated what actually ran.
+
+`cli-provider` is inert for review dispatch. `dispatch-review.js` passes `active_host` in the options argument, while `resolve_worker_tier` reads `active_host` only from its third `validation_options` argument. Host family resolves to the empty string, so family filtering never applies. This is why `cli-provider: off` failed to steer the review to the host family and the redirect had to go through the `priority` field instead.
+
+The third defect was mine. My first brief specified an `Outcome`/`Minimality`/`Conformance` verdict block, but the completion checker requires a different machine-checked report contract: an opening `* _timestamp (model/effort)_` stamp, exactly one `Verdict:` line, the full 40-character reviewed commit, and a single closing `Self-check:` line. Three successive reports were substantively complete and still failed the gate on format alone: a conversational preamble before the stamp, a stamp copied from my own example and therefore in the future, and reasons appended on the same line as each axis verdict. The brief was corrected after each and the review re-dispatched, which cost four Claude worker runs for one 12-line change. Agentflow does not document this artifact contract in `SKILL.md` or `references/delegation.md`; it is only discoverable by reading `round-linter.js`.
+
+### 5. Process note the owner should know about
+
+Codex hit its usage limit mid-round and reports a 16:00 reset, so the first two dispatches failed with an external quota error. No verdict was invented and `skip-review:` was not self-authorized, because it is an owner-only control. The owner chose to redirect to the Claude worker. The redirect used the `priority` field for one dispatch and restored it immediately; `git diff` confirms `ag.json` is byte-identical to `7d6697a`, so the round leaves no configuration residue.
+
+## Questions (batched — each with a suggested default)
+
+- Should the two `finish --deliver` and `cleanup:` delivery sentences stay in `AGENTS.md`, or be cut back to the ownership rule alone?
+- Suggested default: keep them, since the reviewer confirmed the ownership rule has no enforcement without them.
+- ans:
+
+- Should the `dispatch-review.js` defects be fixed in a following round?
+- Suggested default: yes, fix the dropped effort first, because it is currently making every review record overstate what ran.
+- ans:
+
+---
+
+# → Ask / A-008
 
 +
