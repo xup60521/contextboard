@@ -4,7 +4,7 @@ Project: contextboard
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: f13cec5 — all three dispatch-review defects fixed, with ef29201 carrying the first two.
+Current commit: 494a3c3 — PR #35 merged the cross-whiteboard move implementation; `palette-presets` and `move-board-items-implementation` are swept.
 
 Tests/scenarios: dispatch-review.test.js 10 of 10 pass; complete suite 243 fail/697 pass against a 241/689 baseline with no test regressing; targeted cross-check PASS on all three axes for f13cec5.
 
@@ -12,16 +12,19 @@ Configuration: ag.json — schema v7; validated for claude this round.
 
 Proven: this fork is upstream agfnow/agentflow plus six Windows and Codex-worker commits, with no upstream file missing and no regression against a same-machine control run. The laptop main checkout is the sole writer of the root notebook and STATUS, recorded in AGENTS.md and confirmed by external review. The review launcher now passes the configured effort, honours cli-provider, and trims a worker preamble; two of those three were verified end to end on the dispatch that reviewed them.
 
-Open: `a-002-card-library-selection` remains active and untouched. The skill suite is not a usable Windows regression gate at a 26 percent upstream failure rate; a WSL run would be needed. Two patterns are duplicated rather than shared, the per-family flags from looper.js and the stamp pattern from round-linter.js, because neither module exports them.
+Open: `a-002-card-library-selection` remains active and untouched. Root Ask A-009, the palette switcher, still has no Reply even though PR #33 delivered it from the `palette-presets` stream. The skill suite is not a usable Windows regression gate at a 26 percent upstream failure rate; a WSL run would be needed. Two patterns are duplicated rather than shared, the per-family flags from looper.js and the stamp pattern from round-linter.js, because neither module exports them.
 
-Next: decide whether the undocumented review-report contract is worth reporting upstream.
+Next: answer or retire root Ask A-009; decide whether the undocumented review-report contract is worth reporting upstream.
 
-Artifacts: .agentflow/features/themeable-accents/themeable-accents.devlog.md — closed stream record; .agentflow/features/card-grid-geometry/card-grid-geometry.devlog.md — ditched stream record; .agentflow/A-007-two-machine-adoption/ and .agentflow/A-008-dispatch-review-fixes/ — frozen facts, review briefs, and passing cross-check reports.
+Artifacts: .agentflow/features/themeable-accents/ and .agentflow/features/palette-presets/ and .agentflow/features/move-board-items/ and .agentflow/features/move-board-items-implementation/ and .agentflow/features/enlarge-board-link/ — closed stream records; .agentflow/features/card-grid-geometry/ — ditched stream record; .agentflow/A-007-two-machine-adoption/ and .agentflow/A-008-dispatch-review-fixes/ — frozen facts, review briefs, and passing cross-check reports.
 
 Archived eras: none.
 
 Streams:
 stream: a-002-card-library-selection — active — .agentflow/features/a-002-card-library-selection/a-002-card-library-selection.devlog.md
+
+The `enlarge-board-link` stream is closed and omitted here; its work waits in draft PR #36 for the other machine. Close-outs recorded this round, both on the owner’s cleanup word: `palette-presets` was already merged, its worktree and local and remote branches are deleted. `move-board-items-implementation` was already merged by PR #35; its branches are deleted and its worktree folder needed a long-path removal after Git refused it with "Filename too long".
+
 ---
 
 # → Ask / A-001
@@ -1126,4 +1129,7 @@ Two patch attempts corrupted the regex and newline literals in `dispatch-review.
 
 # → Ask / A-009
 
-+
+In the color palettes switcher
+1. Don't separate light and dark. They should be set simultaneously
+2. The palettes are not good. You should search the internet to find better presets.
+3. Leave the space for color customization
