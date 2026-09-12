@@ -1,6 +1,10 @@
 {
   "changed_files": [
     ".agentflow/features/move-board-items-implementation/ag.json",
+    ".agentflow/features/move-board-items-implementation/artifacts/A-001-move-board-items-implementation/cross-check-facts.json",
+    ".agentflow/features/move-board-items-implementation/artifacts/A-001-move-board-items-implementation/review-brief.md",
+    ".agentflow/features/move-board-items-implementation/artifacts/A-001-move-board-items-implementation/review-report.md",
+    ".agentflow/features/move-board-items-implementation/artifacts/A-001-move-board-items-implementation/review-report.md.dispatch.json",
     ".agentflow/features/move-board-items-implementation/artifacts/A-001-move-board-items-implementation/tracker.md",
     ".agentflow/features/move-board-items-implementation/move-board-items-implementation.devlog.md",
     "packages/agent-tools/src/index.test.ts",
@@ -18,7 +22,7 @@
     "packages/web-ui/src/components/whiteboard/hooks/useSubwhiteboardDrop.ts",
     "packages/web-ui/src/components/whiteboard/hooks/useWhiteboardData.ts"
   ],
-  "changed_lines": 856,
+  "changed_lines": 1052,
   "behavior_change": true,
   "trust_boundary": false,
   "broad_change": false,
