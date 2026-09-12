@@ -7,6 +7,11 @@ describe("planCreateSubwhiteboard", () => {
 			{
 				parent: {
 					id: "parent",
+					revision: 3,
+					createdAt: 1,
+					updatedAt: 2,
+					deletedAt: null,
+					title: "Parent",
 					ancestorIds: ["root"],
 					depth: 1,
 					pathKey: "root/parent",
@@ -38,6 +43,12 @@ describe("planCreateSubwhiteboard", () => {
 		expect(plan.result).toEqual({
 			itemId: "item",
 			childWhiteboardId: "child",
+		});
+		expect(plan.writes.at(-1)).toMatchObject({
+			entity: "whiteboard",
+			id: "parent",
+			expectedRevision: 3,
+			value: { title: "Parent" },
 		});
 	});
 });

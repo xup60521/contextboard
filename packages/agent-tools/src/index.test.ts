@@ -533,6 +533,37 @@ describe("placements", () => {
 		expect(items[0]).toMatchObject({ x: 900, y: 20, w: 500, h: 300 });
 	});
 
+	test("moves an item to another whiteboard", async () => {
+		const { call } = makeTools();
+		const source = await call("create_whiteboard", {});
+		const target = await call("create_whiteboard", {});
+		const { placement } = await call("create_card", {
+			text: "Transfer",
+			whiteboardId: source.whiteboardId,
+			x: 10,
+			y: 20,
+		});
+
+		await call("move_item", {
+			whiteboardId: source.whiteboardId,
+			targetWhiteboardId: target.whiteboardId,
+			itemId: placement.itemId,
+		});
+
+		expect(
+			await call("list_board_items", { whiteboardId: source.whiteboardId }),
+		).toEqual([]);
+		expect(
+			await call("list_board_items", { whiteboardId: target.whiteboardId }),
+		).toEqual([
+			expect.objectContaining({
+				id: placement.itemId,
+				x: 10,
+				y: 20,
+			}),
+		]);
+	});
+
 	test("refuses to move an item that is not on the given board", async () => {
 		const { call } = makeTools();
 		const first = await call("create_whiteboard", {});

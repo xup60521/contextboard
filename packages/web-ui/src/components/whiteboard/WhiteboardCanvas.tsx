@@ -39,6 +39,7 @@ import { useLegacyCardContentMigration } from "./hooks/useLegacyCardContentMigra
 import { usePasteResolution } from "./hooks/usePasteResolution";
 import { useRightDragPan } from "./hooks/useRightDragPan";
 import { useStoreListener } from "./hooks/useStoreListener";
+import { useSubwhiteboardDrop } from "./hooks/useSubwhiteboardDrop";
 import { useSubwhiteboardEnterShortcut } from "./hooks/useSubwhiteboardEnterShortcut";
 import { useSubwhiteboardPrefetch } from "./hooks/useSubwhiteboardPrefetch";
 import { useThemeSync } from "./hooks/useThemeSync";
@@ -72,6 +73,10 @@ import {
 	type ManagedWhiteboardShape,
 } from "./whiteboard-canvas-helpers";
 
+export {
+	dispatchSubwhiteboardDrop,
+	registerSubwhiteboardDropHandler,
+} from "./SubwhiteboardLinkShape";
 export type { GlobalCardDeleteShortcutEvent } from "./whiteboard-canvas-helpers";
 // Re-export the public API so the test file can keep its import path
 export {
@@ -136,6 +141,7 @@ export function WhiteboardCanvas({
 		createCardItem,
 		createSubwhiteboardItem,
 		updateItemFrames,
+		moveItem,
 		completeItemHeightMeasurement,
 		archiveItem,
 		archiveWhiteboard,
@@ -397,6 +403,17 @@ export function WhiteboardCanvas({
 		setWhiteboardDeletePending,
 		queueFrameUpdate,
 		queueDrawingSave,
+	});
+
+	useSubwhiteboardDrop({
+		editor,
+		moveItem,
+		queueFrameUpdate,
+		hydratingRef,
+		itemIdByShapeIdRef,
+		latestItemsRef,
+		optimisticFramesRef,
+		queuedFrameUpdatesRef,
 	});
 
 	useCanvasEvents({
