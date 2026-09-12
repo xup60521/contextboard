@@ -1,6 +1,6 @@
 # STATUS
 
-Project: contextboard 
+Project: contextboard
 
 Notebook: .agentflow/features/move-board-items-implementation/move-board-items-implementation.devlog.md — stream.
 
@@ -60,3 +60,10 @@ now continue
 - Added a failing regression for reciprocal concurrent moves, then made the target whiteboard revision part of the same atomic write set. A conflicting move now retries from a fresh snapshot and rejects the newly visible cycle.
 - Focused canvas service tests pass 39/39. The complete application suite passes 179/179 with a 15-second timeout; the unchanged dense arrange-relations test exceeded its default 5-second timeout twice. Agent-tools pass 51/51, web-ui passes 281/281, and all three package typechecks pass.
 - Next: commit the corrected implementation, refresh frozen review facts, and dispatch an exact-commit recheck.
+
+## [RUN-005] Event - create-versus-reparent race corrected (during round A-001)
+
+- Full cross-check attempt 2 reviewed b963a02 and returned Outcome BLOCKING, Minimality PASS, Conformance BLOCKING. It found that concurrent child creation could commit ancestry derived before its parent was reparented because creation did not guard the parent revision.
+- Child creation now includes an unchanged optimistic parent upsert in its atomic write set. A concurrent parent/subtree move conflicts and retries creation against fresh ancestry; sibling creation also retries with a fresh sort key.
+- Added planner coverage for the parent guard and a concurrent create-versus-reparent service regression. Focused tests pass 41/41; complete application passes 180/180 with the documented 15-second timeout; agent-tools pass 51/51; web-ui passes 281/281; all affected package typechecks pass.
+- Removed the pre-existing trailing space in this stream notebook that attempt 2 reported. Next: commit and dispatch the third and final allowed exact-commit cross-check.

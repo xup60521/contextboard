@@ -360,6 +360,7 @@ async function createSubwhiteboardItem(
 			{
 				parent: parent
 					? {
+							...parent,
 							id: parent.id,
 							ancestorIds: Array.isArray(parent.ancestorIds)
 								? parent.ancestorIds.map(String)

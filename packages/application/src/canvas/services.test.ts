@@ -486,6 +486,51 @@ describe("repository canvas capability", () => {
 		).toHaveLength(1);
 	});
 
+	test("keeps a concurrently created child in a reparented subtree", async () => {
+		const { whiteboards, canvas, repository } = setup();
+		const sourceId = await whiteboards.createRoot();
+		const targetId = await whiteboards.createRoot();
+		const moved = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: sourceId,
+			shapeId: "shape:moved",
+		});
+
+		const [, created] = await Promise.all([
+			canvas.moveItem({
+				itemId: moved.itemId,
+				targetWhiteboardId: targetId,
+			}),
+			whiteboards.createSubwhiteboard({
+				parentWhiteboardId: moved.childWhiteboardId,
+				shapeId: "shape:concurrent-child",
+			}),
+		]);
+
+		const movedBoard = await whiteboards.get(moved.childWhiteboardId);
+		const createdBoard = await whiteboards.get(created.childWhiteboardId);
+		expect(movedBoard).toMatchObject({
+			parentWhiteboardId: targetId,
+			ancestorIds: [targetId],
+			depth: 1,
+		});
+		expect(createdBoard).toMatchObject({
+			parentWhiteboardId: moved.childWhiteboardId,
+			ancestorIds: [targetId, moved.childWhiteboardId],
+			depth: 2,
+		});
+		const movedRow = await repository.query<Record<string, unknown> | null>({
+			type: "whiteboards.get",
+			input: { id: moved.childWhiteboardId },
+		});
+		const createdRow = await repository.query<Record<string, unknown> | null>({
+			type: "whiteboards.get",
+			input: { id: created.childWhiteboardId },
+		});
+		expect(String(createdRow?.pathKey)).toMatch(
+			new RegExp(`^${String(movedRow?.pathKey)}/`),
+		);
+	});
+
 	test("updates multiple item frames with one atomic repository command", async () => {
 		const { whiteboards, canvas, repository } = setup();
 		const rootId = await whiteboards.createRoot();
