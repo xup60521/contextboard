@@ -8,7 +8,7 @@
 
 - **Goal:** Implement the hierarchy-safe card and whiteboard move design merged in PR #34.
 
-- **Last update:** 2026-09-12 14:00:04 Asia/Taipei.
+- **Last update:** 2026-09-12 17:06:58 Asia/Taipei.
 
 - **Evidence commit:** uncommitted.
 
@@ -16,7 +16,7 @@
 
 - **State:** active.
 
-- **Reason:** The implementation is verified; commit, independent review, Result Go, and PR delivery remain.
+- **Reason:** A blocking concurrency finding was corrected; exact-commit re-review, Result Go, and PR delivery remain.
 
 - **Total:** 3.
 
@@ -40,11 +40,11 @@
 
 - **Current item:** T-3.
 
-- **Last proven result:** Complete application, agent-tool, and web-ui suites pass (178, 51, and 281 tests), and all three package typechecks pass.
+- **Last proven result:** The reciprocal-move regression passes; complete application, agent-tool, and web-ui suites pass (179, 51, and 281 tests), and all three package typechecks pass.
 
 - **Active blocker or running process:** None.
 
-- **Next safe action:** Inspect and commit the exact implementation, then run the targeted external cross-check.
+- **Next safe action:** Commit the concurrency correction, refresh frozen facts, and run the exact-commit external recheck.
 
 - **Expected changed files:** `.agentflow/features/move-board-items-implementation/**`, `packages/application/src/{runtime.ts,canvas/**}`, `packages/agent-tools/src/{index.ts,index.test.ts}`, `packages/web-ui/src/components/whiteboard/**`.
 

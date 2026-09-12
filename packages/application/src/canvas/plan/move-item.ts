@@ -96,6 +96,12 @@ export function planMoveItem(
 			"A sub-whiteboard cannot be moved into itself or a descendant",
 		);
 	}
+	if (target) {
+		// Touching the target with its expected revision makes hierarchy validation
+		// atomic with the move. A concurrent move that changes either hierarchy
+		// conflicts, retries from a fresh snapshot, and cannot create a cycle.
+		writes.push(upsertWrite("whiteboard", target, target.revision));
+	}
 
 	const siblingCount = activeBoards.filter(
 		(board) =>

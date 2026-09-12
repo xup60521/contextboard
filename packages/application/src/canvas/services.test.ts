@@ -447,6 +447,45 @@ describe("repository canvas capability", () => {
 		});
 	});
 
+	test("prevents reciprocal concurrent sub-whiteboard moves from creating a cycle", async () => {
+		const { whiteboards, canvas } = setup();
+		const first = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: null,
+			shapeId: "shape:first",
+		});
+		const second = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: null,
+			shapeId: "shape:second",
+		});
+
+		const results = await Promise.allSettled([
+			canvas.moveItem({
+				itemId: first.itemId,
+				targetWhiteboardId: second.childWhiteboardId,
+			}),
+			canvas.moveItem({
+				itemId: second.itemId,
+				targetWhiteboardId: first.childWhiteboardId,
+			}),
+		]);
+
+		expect(results.map((result) => result.status).sort()).toEqual([
+			"fulfilled",
+			"rejected",
+		]);
+		const firstBoard = await whiteboards.get(first.childWhiteboardId);
+		const secondBoard = await whiteboards.get(second.childWhiteboardId);
+		expect(
+			firstBoard?.parentWhiteboardId === second.childWhiteboardId &&
+				secondBoard?.parentWhiteboardId === first.childWhiteboardId,
+		).toBe(false);
+		expect(
+			[firstBoard?.parentWhiteboardId, secondBoard?.parentWhiteboardId].filter(
+				(parentId) => typeof parentId === "string",
+			),
+		).toHaveLength(1);
+	});
+
 	test("updates multiple item frames with one atomic repository command", async () => {
 		const { whiteboards, canvas, repository } = setup();
 		const rootId = await whiteboards.createRoot();

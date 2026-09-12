@@ -53,3 +53,10 @@ now continue
 - Complete package suites pass: application 178/178, agent-tools 51/51, web-ui 281/281. Package typechecks pass for all three affected packages.
 - Root verification limits are unrelated baseline failures: desktop typecheck cannot resolve @contextboard/editor, and apps/web lint reports existing operations.ts explicit-any warnings plus provider.tsx bootstrapNonce dependency error. No dev server or browser run was started under repository policy.
 - Changed paths match the tracker boundary. Next: commit the exact implementation and obtain the required targeted cross-check.
+
+## [RUN-004] Event - blocking concurrency finding corrected (during round A-001)
+
+- Full cross-check attempt 1 reviewed implementation commit 3a45e25 and returned Outcome BLOCKING, Minimality PASS, Conformance BLOCKING. It reproduced reciprocal concurrent sub-whiteboard moves committing a parent cycle because the destination revision was not guarded.
+- Added a failing regression for reciprocal concurrent moves, then made the target whiteboard revision part of the same atomic write set. A conflicting move now retries from a fresh snapshot and rejects the newly visible cycle.
+- Focused canvas service tests pass 39/39. The complete application suite passes 179/179 with a 15-second timeout; the unchanged dense arrange-relations test exceeded its default 5-second timeout twice. Agent-tools pass 51/51, web-ui passes 281/281, and all three package typechecks pass.
+- Next: commit the corrected implementation, refresh frozen review facts, and dispatch an exact-commit recheck.
