@@ -42,8 +42,8 @@ import { planReferences } from "./plan/references";
 import { planRestoreOrAdoptCardItem } from "./plan/restore-or-adopt-card-item";
 
 const DEFAULT_CARD_WIDTH = 576;
-const DEFAULT_CARD_HEIGHT = 180;
-const DEFAULT_SUBWHITEBOARD_WIDTH = 320;
+const DEFAULT_SUBWHITEBOARD_WIDTH = 384;
+const DEFAULT_SUBWHITEBOARD_HEIGHT = 208;
 const DEFAULT_ROOT_TITLE = "Untitled whiteboard";
 
 type ServiceOptions = {
@@ -376,7 +376,7 @@ async function createSubwhiteboardItem(
 				x: input.x ?? 0,
 				y: input.y ?? 0,
 				w: input.w ?? DEFAULT_SUBWHITEBOARD_WIDTH,
-				h: input.h ?? DEFAULT_CARD_HEIGHT,
+				h: input.h ?? DEFAULT_SUBWHITEBOARD_HEIGHT,
 				rotation: input.rotation ?? 0,
 			},
 			{ now: timestamp, deviceId },
