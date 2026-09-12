@@ -9,6 +9,7 @@ import {
 	resizeBox,
 	stopEventPropagation,
 	type TLResizeInfo,
+	type TLShape,
 	useEditor,
 	type VecLike,
 } from "tldraw";
@@ -19,6 +20,31 @@ import {
 	type SubwhiteboardLinkShape,
 	subwhiteboardLinkShapeProps,
 } from "./MarkdownCardShapeTypes";
+
+type SubwhiteboardDropHandler = (
+	target: SubwhiteboardLinkShape,
+	shapes: TLShape[],
+) => void;
+
+const dropHandlers = new WeakMap<Editor, SubwhiteboardDropHandler>();
+
+export function registerSubwhiteboardDropHandler(
+	editor: Editor,
+	handler: SubwhiteboardDropHandler,
+) {
+	dropHandlers.set(editor, handler);
+	return () => {
+		if (dropHandlers.get(editor) === handler) dropHandlers.delete(editor);
+	};
+}
+
+export function dispatchSubwhiteboardDrop(
+	editor: Editor,
+	target: SubwhiteboardLinkShape,
+	shapes: TLShape[],
+) {
+	dropHandlers.get(editor)?.(target, shapes);
+}
 
 export function makeSubwhiteboardId() {
 	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -195,6 +221,10 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 		info: TLResizeInfo<SubwhiteboardLinkShape>,
 	) {
 		return resizeBox(shape, info, { minWidth: 180, minHeight: 64 });
+	}
+
+	override onDropShapesOver(shape: SubwhiteboardLinkShape, shapes: TLShape[]) {
+		dispatchSubwhiteboardDrop(this.editor, shape, shapes);
 	}
 
 	override component(shape: SubwhiteboardLinkShape) {

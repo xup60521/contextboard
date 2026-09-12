@@ -327,6 +327,17 @@ export type CanvasItemFrameUpdate = {
 	zIndex: number;
 };
 
+export type CanvasItemMove = {
+	itemId: string;
+	targetWhiteboardId: string | null;
+	x?: number;
+	y?: number;
+	w?: number;
+	h?: number;
+	rotation?: number;
+	zIndex?: number;
+};
+
 export type CreateCardItemResult = { itemId: string; cardId: string };
 
 export type TldrawDocument = {
@@ -390,6 +401,7 @@ export interface CanvasService {
 	}): Promise<string | null>;
 	updateItemFrame(input: CanvasItemFrameUpdate): Promise<void>;
 	updateItemFrames(input: { updates: CanvasItemFrameUpdate[] }): Promise<void>;
+	moveItem(input: CanvasItemMove): Promise<void>;
 	completeItemHeightMeasurement(input: {
 		itemId: string;
 		height: number;
@@ -411,7 +423,7 @@ export interface CanvasService {
 	subscribeItems(
 		whiteboardId: string | null,
 		listener: () => void,
-		options?: { cardIds?: string[] },
+		options?: { cardIds?: string[]; itemIds?: string[] },
 	): () => void;
 	subscribeDocument(
 		whiteboardId: string | null,

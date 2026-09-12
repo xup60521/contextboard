@@ -1,9 +1,10 @@
+import type { EntityRow } from "../../repository/entities";
 import type { EntityWrite } from "../../workspace";
 import { deriveChildHierarchy } from "../derive/hierarchy";
 import type { Plan } from "../planner";
+import { upsertWrite } from "../planner";
 
-type ParentWhiteboard = {
-	id: string;
+type ParentWhiteboard = EntityRow & {
 	ancestorIds: string[];
 	depth: number;
 	pathKey: string;
@@ -74,6 +75,13 @@ export function planCreateSubwhiteboard(
 			value: item,
 		},
 	];
+	if (snapshot.parent) {
+		// Serializes child creation with reparenting and sibling creation. A
+		// conflict retries with fresh ancestry and a fresh sibling sort key.
+		writes.push(
+			upsertWrite("whiteboard", snapshot.parent, snapshot.parent.revision),
+		);
+	}
 	return {
 		writes,
 		result: { itemId: item.id, childWhiteboardId: board.id },

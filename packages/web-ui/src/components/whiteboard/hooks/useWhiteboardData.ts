@@ -206,6 +206,10 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		[items],
 	);
 	const itemCardIdsKey = itemCardIds.join("\0");
+	const itemIdsKey = useMemo(
+		() => (items ?? []).map((item) => item.id).join("\0"),
+		[items],
+	);
 	const loadedItemsKeyRef = useRef<string | null>(null);
 
 	useEffect(() => {
@@ -257,13 +261,16 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		const unsubscribe = canvas.subscribeItems(
 			whiteboardId ?? null,
 			() => void load(),
-			{ cardIds: itemCardIdsKey ? itemCardIdsKey.split("\0") : [] },
+			{
+				cardIds: itemCardIdsKey ? itemCardIdsKey.split("\0") : [],
+				itemIds: itemIdsKey ? itemIdsKey.split("\0") : [],
+			},
 		);
 		return () => {
 			active = false;
 			unsubscribe();
 		};
-	}, [canvas, canvasKey, itemCardIdsKey, whiteboardId]);
+	}, [canvas, canvasKey, itemCardIdsKey, itemIdsKey, whiteboardId]);
 
 	useEffect(() => {
 		if (!canvas) return;
@@ -338,6 +345,11 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 	const updateItemFrames = useCallback(
 		(input: Parameters<Canvas["updateItemFrames"]>[0]) =>
 			requireCanvas().updateItemFrames(input),
+		[requireCanvas],
+	);
+	const moveItem = useCallback(
+		(input: Parameters<Canvas["moveItem"]>[0]) =>
+			requireCanvas().moveItem(input),
 		[requireCanvas],
 	);
 	const completeItemHeightMeasurement = useCallback(
@@ -431,6 +443,7 @@ export function useWhiteboardData(whiteboardId: Id<"whiteboards"> | null) {
 		createCardItem,
 		createSubwhiteboardItem,
 		updateItemFrames,
+		moveItem,
 		completeItemHeightMeasurement,
 		archiveItem,
 		archiveWhiteboard,

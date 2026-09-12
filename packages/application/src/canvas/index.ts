@@ -9,6 +9,7 @@ export * from "./plan/archive-whiteboard-tree";
 export * from "./plan/arrange-relations";
 export * from "./plan/create-card-item";
 export * from "./plan/create-subwhiteboard";
+export * from "./plan/move-item";
 export * from "./plan/place-card-frame";
 export * from "./plan/references";
 export * from "./plan/restore-or-adopt-card-item";
