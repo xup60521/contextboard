@@ -48,3 +48,14 @@ It seems that the same problem persists in the api layer. You might as well take
 - A sub-whiteboard move rewrites its placement plus the moved board and all descendants. Cards cannot target the virtual root, and whiteboards cannot target themselves or descendants.
 - Rejected archive-plus-create because it changes identity and placement counts, and rejected a separate reparent API because the placement and parent would gain competing write paths.
 - Tracker validation: PASS. Source edits are gated on Design Go for the next exact plan commit.
+
+## [RUN-003] Event - Design Go accepted for plan commit 0d70da7 (during round A-001)
+
+- Owner supplied the exact required gate: `Design Go: 0d70da7`.
+- The commit is pushed on `move-board-items`; it is not merged into `main`. Source implementation may now start against that frozen design.
+- Dependency installation completed from the frozen lockfile. No dev server or watch process was started.
+
+## [RUN-004] Event - owner split the approved design into its own PR (during round A-001)
+
+- Owner interrupted before source edits and requested a design-only PR. No implementation files changed.
+- The design branch will target `main` as a non-draft PR. Implementation waits for the design PR's disposition, then proceeds on a separate branch so the review boundaries stay real.
