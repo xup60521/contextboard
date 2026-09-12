@@ -8,15 +8,15 @@
 
 - **Goal:** Implement the hierarchy-safe card and whiteboard move design merged in PR #34.
 
-- **Last update:** 2026-09-12 17:17:42 Asia/Taipei.
+- **Last update:** 2026-09-12 17:30:13 Asia/Taipei.
 
-- **Evidence commit:** uncommitted.
+- **Evidence commit:** dcf53bdb591ad6e33bbb8c36d039e5a42a01f302.
 
 ## Overall state
 
 - **State:** active.
 
-- **Reason:** A second hierarchy concurrency finding was corrected; the final allowed exact-commit review, Result Go, and PR delivery remain.
+- **Reason:** Implementation and Host gate are PASS; Result Go and PR delivery remain.
 
 - **Total:** 3.
 
@@ -42,9 +42,9 @@
 
 - **Last proven result:** Reciprocal-move and concurrent-create regressions pass; complete application, agent-tool, and web-ui suites pass (180, 51, and 281 tests), and all three package typechecks pass.
 
-- **Active blocker or running process:** None.
+- **Active blocker or running process:** Awaiting Result Go for exact implementation commit dcf53bd.
 
-- **Next safe action:** Commit the parent revision guard, refresh frozen facts, and run the third and final allowed exact-commit cross-check.
+- **Next safe action:** Receive `Result Go: dcf53bd`, then prepare the non-draft implementation PR.
 
 - **Expected changed files:** `.agentflow/features/move-board-items-implementation/**`, `packages/application/src/{runtime.ts,canvas/**}`, `packages/agent-tools/src/{index.ts,index.test.ts}`, `packages/web-ui/src/components/whiteboard/**`.
 
@@ -52,13 +52,13 @@
 
 - **All accepted tasks checked:** no.
 
-- **Blocking accepted decision:** none.
+- **Blocking accepted decision:** Result Go for dcf53bd is required before PR preparation.
 
 - **Operation running:** no.
 
 - **Next action remaining:** T-3.
 
-- **Evidence status:** current.
+- **Evidence status:** current; cross-check and Host gate PASS for dcf53bd.
 
 - **Judgment:** active.
 

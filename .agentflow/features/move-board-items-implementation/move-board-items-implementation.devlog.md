@@ -67,3 +67,10 @@ now continue
 - Child creation now includes an unchanged optimistic parent upsert in its atomic write set. A concurrent parent/subtree move conflicts and retries creation against fresh ancestry; sibling creation also retries with a fresh sort key.
 - Added planner coverage for the parent guard and a concurrent create-versus-reparent service regression. Focused tests pass 41/41; complete application passes 180/180 with the documented 15-second timeout; agent-tools pass 51/51; web-ui passes 281/281; all affected package typechecks pass.
 - Removed the pre-existing trailing space in this stream notebook that attempt 2 reported. Next: commit and dispatch the third and final allowed exact-commit cross-check.
+
+## [RUN-006] Event - final cross-check and Host gate passed (during round A-001)
+
+- Cross-check attempt 3 reviewed exact implementation commit dcf53bd and returned Outcome PASS, Minimality PASS, Conformance PASS, Verdict PASS. Dispatch completed without timeout, truncation, remotes, or clone changes.
+- The reviewer reran focused application hierarchy tests (41/41), application (180/180 with the documented timeout), agent-tools (51/51), web-ui (281/281), and all three package typechecks. It confirmed both optimistic hierarchy guards and the complete original move/drop/API boundary.
+- Host gate: PASS. Direct inspection confirms the report names dcf53bdb591ad6e33bbb8c36d039e5a42a01f302, its evidence agrees with coordinator results, its verdict axes are internally consistent, and its dispatch metadata records the configured model and a clean disposable clone.
+- Consequential Result Go remains required for exact implementation commit dcf53bd before preparing the non-draft implementation PR.
