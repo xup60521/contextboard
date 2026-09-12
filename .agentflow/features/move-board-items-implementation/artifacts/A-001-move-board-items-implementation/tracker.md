@@ -8,21 +8,21 @@
 
 - **Goal:** Implement the hierarchy-safe card and whiteboard move design merged in PR #34.
 
-- **Last update:** 2026-09-12 17:30:13 Asia/Taipei.
+- **Last update:** 2026-09-12 22:11:04 Asia/Taipei.
 
 - **Evidence commit:** dcf53bdb591ad6e33bbb8c36d039e5a42a01f302.
 
 ## Overall state
 
-- **State:** active.
+- **State:** complete.
 
-- **Reason:** Implementation and Host gate are PASS; Result Go and PR delivery remain.
+- **Reason:** Implementation, verification, final review, Result Go, push, and PR preparation are complete.
 
 - **Total:** 3.
 
-- **Completed:** 2.
+- **Completed:** 3.
 
-- **Remaining:** 1.
+- **Remaining:** 0.
 
 ## Accepted task checklist
 
@@ -30,7 +30,7 @@
 
 - [x] **T-2:** Extend the existing agent `move_item` API with a destination whiteboard and add canvas drag/drop onto an unselected sub-whiteboard tile, with a restrained receiving state and no pointer-move persistence. Scope excludes moving drawings or inventing a second reparent API. Proof: failing-first agent-tool and UI helper/hook tests plus package typecheck. Source: A-001 and merged design PR #34.
 
-- [ ] **T-3:** Run focused tests, relevant package suites, typecheck, lint, commit and push the implementation, obtain a targeted cross-check PASS for the exact commit, then prepare a non-draft implementation PR. Runtime/browser verification remains owner-supplied under AGENTS.md. Proof: direct command output and review report. Source: A-001.
+- [x] **T-3:** Run focused tests, relevant package suites, typecheck, lint, commit and push the implementation, obtain a targeted cross-check PASS for the exact commit, then prepare a non-draft implementation PR. Runtime/browser verification remains owner-supplied under AGENTS.md. Proof: direct command output and review report. Source: A-001.
 
 ## Accepted scope changes
 
@@ -38,29 +38,29 @@
 
 ## Current recovery
 
-- **Current item:** T-3.
+- **Current item:** complete.
 
 - **Last proven result:** Reciprocal-move and concurrent-create regressions pass; complete application, agent-tool, and web-ui suites pass (180, 51, and 281 tests), and all three package typechecks pass.
 
-- **Active blocker or running process:** Awaiting Result Go for exact implementation commit dcf53bd.
+- **Active blocker or running process:** None.
 
-- **Next safe action:** Receive `Result Go: dcf53bd`, then prepare the non-draft implementation PR.
+- **Next safe action:** none.
 
 - **Expected changed files:** `.agentflow/features/move-board-items-implementation/**`, `packages/application/src/{runtime.ts,canvas/**}`, `packages/agent-tools/src/{index.ts,index.test.ts}`, `packages/web-ui/src/components/whiteboard/**`.
 
 ## Completion proof
 
-- **All accepted tasks checked:** no.
+- **All accepted tasks checked:** yes.
 
-- **Blocking accepted decision:** Result Go for dcf53bd is required before PR preparation.
+- **Blocking accepted decision:** none.
 
 - **Operation running:** no.
 
-- **Next action remaining:** T-3.
+- **Next action remaining:** none.
 
-- **Evidence status:** current; cross-check and Host gate PASS for dcf53bd.
+- **Evidence status:** complete.
 
-- **Judgment:** active.
+- **Judgment:** complete.
 
 ## Update meaning
 

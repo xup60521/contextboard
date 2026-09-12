@@ -1,6 +1,8 @@
 * _2026-09-12 17:29:19 (gpt-5.6-terra/high)_
 
-Reviewed commit `dcf53bdb591ad6e33bbb8c36d039e5a42a01f302` against `cce4030ad466fa74fe73b79b5f2652dcc18b411c`. No blocking findings.
+Reviewed implementation commit: dcf53bdb591ad6e33bbb8c36d039e5a42a01f302
+
+Compared against `cce4030ad466fa74fe73b79b5f2652dcc18b411c`. No blocking findings.
 
 The guarded destination write prevents reciprocal moves. A subtree move writes its placement, destination, moved board, and every descendant. Creation beneath any non-root parent guards that parent, so move-vs-create, sibling create-vs-create, and move-to-target-vs-create-under-target conflict and retry from fresh rows. Virtual-root creation has no persisted parent and cannot leave stale subtree ancestry.
 

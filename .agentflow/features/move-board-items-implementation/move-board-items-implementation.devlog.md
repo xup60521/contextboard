@@ -4,29 +4,23 @@ Project: contextboard
 
 Notebook: .agentflow/features/move-board-items-implementation/move-board-items-implementation.devlog.md — stream.
 
-Current commit: stream-open only, no code commits yet.
+Current commit: implementation dcf53bdb591ad6e33bbb8c36d039e5a42a01f302; closing records pending commit.
 
-Tests/scenarios: none.
+Tests/scenarios: application 180/180, agent-tools 51/51, web-ui 281/281; all three package typechecks pass; final full cross-check PASS.
 
 Configuration: .agentflow/features/move-board-items-implementation/ag.json — schema v7; validated for codex this round.
 
-Proven: the stream configuration was copied from the root configuration.
+Proven: cross-whiteboard card and nested-whiteboard moves, hierarchy concurrency guards, canvas drop handoff, and agent API destination handling pass tests and independent review.
 
-Open: none.
+Open: runtime/browser verification remains owner-supplied; non-draft implementation PR filing follows the closing-record push.
 
-Next: reply to the first Ask below.
+Next: commit and push the closing records, then file and link the GitHub PR.
 
-Artifacts: none.
+Artifacts: .agentflow/features/move-board-items-implementation/artifacts/A-001-move-board-items-implementation/ — tracker, review facts/briefs/reports, and dispatch evidence.
 
 Archived eras: none.
 
 Streams: none.
-
-Backlink: main notebook `.agentflow/devlog.md` (main checkout)
-
-Feature: move-board-items-implementation — active — Implement moving cards and whiteboards between boards
-
-Opened by the `agf` shell shortcut on 2026-09-12, not by an agent round. The main-notebook `stream:` pointer line was deliberately NOT written — the next main-checkout session re-derives it from `.agentflow/features/*/*devlog.md`.
 
 ---
 
@@ -74,3 +68,60 @@ now continue
 - The reviewer reran focused application hierarchy tests (41/41), application (180/180 with the documented timeout), agent-tools (51/51), web-ui (281/281), and all three package typechecks. It confirmed both optimistic hierarchy guards and the complete original move/drop/API boundary.
 - Host gate: PASS. Direct inspection confirms the report names dcf53bdb591ad6e33bbb8c36d039e5a42a01f302, its evidence agrees with coordinator results, its verdict axes are internally consistent, and its dispatch metadata records the configured model and a clean disposable clone.
 - Consequential Result Go remains required for exact implementation commit dcf53bd before preparing the non-draft implementation PR.
+
+## [RUN-007] Event - Result Go accepted and PR preparation passed (during round A-001)
+
+- Owner requested `great. file the pr`, then supplied the exact gate `Result Go: dcf53bd` for the implementation commit that passed the final cross-check and Host gate.
+- `agf finish --prep move-board-items-implementation` completed and pushed the stream branch. Per repository policy, `finish --deliver` will not be used; delivery continues through a GitHub PR.
+- The worktree is clean. Two files briefly appeared modified only because of stale CRLF index metadata; both had empty diffs, and refreshing their exact index entries changed or staged no content.
+- T-3 is complete. Next: write and push the closing stream Reply, then create and link the non-draft implementation PR.
+
+# ← Reply / A-001
+
+* _2026-09-12 22:11:04 (gpt-5.6-sol/medium)_
+
+## [SUMMARY]
+
+- Succeeded: cards and nested whiteboards can move between whiteboards through the canvas and agent API while preserving identity and frame data.
+- Safety: subtree ancestry stays consistent, invalid/root/cyclic moves are rejected, and concurrent reparent/create races are serialized through revision guards.
+- Verification: application 180/180, agent-tools 51/51, and web-ui 281/281 passed; all three package typechecks passed; final independent review passed Outcome, Minimality, and Conformance for `dcf53bd`.
+- Delivery: Result Go was accepted, the branch is pushed, and Agentflow PR preparation passed. The non-draft GitHub PR is the immediate next action.
+
+## [FINAL REPORT]
+
+### Continue the merged move design
+
+- Succeeded. `CanvasService.moveItem` now atomically changes placement ownership and optional frame fields.
+- Moving a nested whiteboard rewrites its full descendant hierarchy. Cards cannot move to the virtual root, sub-whiteboards can, and self/descendant targets are rejected.
+- Concurrent reciprocal moves and child creation during reparenting cannot commit stale hierarchy metadata; regression tests cover both races.
+
+### Add canvas and API movement
+
+- Succeeded. Dropping managed cards or sub-whiteboards over a sub-whiteboard tile uses tldraw's native receiving hint and moves the selected placements after release.
+- Source shapes are removed only after successful service commits; failed moves restore their pending frame updates. Arbitrary drawing records remain on the source board as designed.
+- The existing agent `move_item` tool accepts `targetWhiteboardId`, retains its source-board guard, distinguishes omitted destination from explicit root `null`, and preserves omitted frame values.
+
+### Verify and prepare delivery
+
+- Focused application hierarchy tests passed 41/41.
+- Complete suites passed: application 180/180 with the documented extended timeout for the unchanged dense-graph test, agent-tools 51/51, and web-ui 281/281.
+- Application, agent-tools, and web-ui typechecks passed.
+- Root checks remain limited only by pre-existing unrelated desktop module resolution and web lint failures recorded in RUN-003.
+- Final external review and Host gate passed for exact implementation commit `dcf53bdb591ad6e33bbb8c36d039e5a42a01f302`.
+Tracker: .agentflow/features/move-board-items-implementation/artifacts/A-001-move-board-items-implementation/tracker.md
+
+Cross-check review: .agentflow/features/move-board-items-implementation/artifacts/A-001-move-board-items-implementation/final-recheck-report.md
+
+Cross-check implementation: dcf53bdb591ad6e33bbb8c36d039e5a42a01f302
+- No dev server or browser/runtime verification was performed, as required by `AGENTS.md`; that evidence remains owner-supplied.
+- `agf finish --prep` completed and pushed the branch. Delivery will use a non-draft GitHub PR, never `finish --deliver`.
+
+## Questions (batched — each with a suggested default)
+
+- None.
+
+---
+
+# → Ask / A-002
+
++
