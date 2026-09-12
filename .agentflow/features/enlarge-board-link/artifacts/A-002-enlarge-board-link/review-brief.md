@@ -64,3 +64,36 @@ Conformance: PASS|BLOCKING
 ```
 
 with a short justification under each, and cite exact files and line numbers for any claim.
+
+## Report file contract — exact, and enforced by regex
+
+The report is rejected unless it matches this shape exactly. Emit nothing before the first line and nothing after the last.
+
+```
+* _2026-09-12 23:55:00 (codex/gpt-5.6-terra)_
+
+Reviewed implementation commit: aa4e2b742467d7c7aa7c3ff103914c184526b366
+
+Verdict: PASS
+
+Outcome: PASS
+
+<justification>
+
+Minimality: PASS
+
+<justification>
+
+Conformance: PASS
+
+<justification>
+
+Self-check: <one line stating what you verified directly and what you did not>
+```
+
+Rules:
+
+- Line 1 is the opening stamp, exactly `* _<YYYY-MM-DD HH:MM:SS> (<family>/<model>)_`, using the real current Asia/Taipei time and your own family and model.
+- `Reviewed implementation commit:` must carry the full 40-character SHA, `aa4e2b742467d7c7aa7c3ff103914c184526b366`.
+- Exactly one `Verdict:` line, and exactly one each of `Outcome:`, `Minimality:`, `Conformance:`. Use `PASS` or `BLOCKING`. Do not write these words on any other line in this form.
+- The last line of the file is the single `Self-check:` line. Nothing may follow it.
