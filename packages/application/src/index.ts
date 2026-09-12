@@ -51,6 +51,7 @@ export type {
 	CanvasItem,
 	CanvasItemCard,
 	CanvasItemFrameUpdate,
+	CanvasItemMove,
 	CanvasItemWhiteboard,
 	CanvasRecordPatch,
 	CanvasService,

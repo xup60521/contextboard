@@ -5,11 +5,13 @@ import { describe, expect, test, vi } from "vitest";
 import type { MarkdownCardShape } from "./custom-shapes";
 import {
 	collectGlobalDeleteCardIdsFromShapes,
+	dispatchSubwhiteboardDrop,
 	getRightDragPanNextCamera,
 	hasExceededRightDragPanThreshold,
 	hasManagedShapeFrameChanged,
 	isGlobalCardDeleteShortcut,
 	itemToShape,
+	registerSubwhiteboardDropHandler,
 	syncRightDragPanPointer,
 } from "./WhiteboardCanvas";
 import {
@@ -531,5 +533,22 @@ describe("isGlobalCardDeleteShortcut", () => {
 				repeat: true,
 			}),
 		).toBe(false);
+	});
+});
+
+describe("sub-whiteboard drop bridge", () => {
+	test("dispatches to the current canvas handler and unregisters cleanly", () => {
+		const editor = {} as Editor;
+		const target = { id: "shape:target" } as never;
+		const shapes = [{ id: "shape:card" }] as never;
+		const handler = vi.fn();
+		const unregister = registerSubwhiteboardDropHandler(editor, handler);
+
+		dispatchSubwhiteboardDrop(editor, target, shapes);
+		expect(handler).toHaveBeenCalledWith(target, shapes);
+
+		unregister();
+		dispatchSubwhiteboardDrop(editor, target, shapes);
+		expect(handler).toHaveBeenCalledTimes(1);
 	});
 });

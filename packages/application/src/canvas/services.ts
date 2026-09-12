@@ -38,6 +38,7 @@ import { planArchiveItem } from "./plan/archive-item";
 import { planArchiveWhiteboardTree } from "./plan/archive-whiteboard-tree";
 import { planCreateCardItem } from "./plan/create-card-item";
 import { planCreateSubwhiteboard } from "./plan/create-subwhiteboard";
+import { planMoveItem } from "./plan/move-item";
 import { planReferences } from "./plan/references";
 import { planRestoreOrAdoptCardItem } from "./plan/restore-or-adopt-card-item";
 
@@ -755,6 +756,23 @@ export function createRepositoryCanvasService(
 			return applyItemFrameUpdates(updates);
 		},
 
+		async moveItem(input) {
+			await withRetry(async () => {
+				const [item, whiteboards] = await Promise.all([
+					getRow(repository, "items", input.itemId),
+					listRows(repository, "whiteboards"),
+				]);
+				if (!item || !isActiveRow(item)) {
+					throw new Error(`Item not found: ${input.itemId}`);
+				}
+				const plan = planMoveItem({ item, whiteboards }, input, {
+					now: now(),
+					deviceId,
+				});
+				await applyWrites(repository, "items.move", plan.writes);
+			});
+		},
+
 		completeItemHeightMeasurement,
 
 		async archiveItem({ itemId, deleteCards }) {
@@ -1062,6 +1080,15 @@ export function createRepositoryCanvasService(
 					whiteboardIds: [whiteboardId],
 				}),
 			];
+			const itemIds = options?.itemIds ?? [];
+			if (itemIds.length) {
+				unsubscribes.push(
+					repository.subscribe(() => listener(), {
+						entityTypes: ["boardItem"],
+						entityIds: itemIds,
+					}),
+				);
+			}
 			const cardIds = options?.cardIds ?? [];
 			if (cardIds.length) {
 				unsubscribes.push(

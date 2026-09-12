@@ -288,6 +288,165 @@ describe("repository canvas capability", () => {
 		expect(detail?.placements).toEqual([]);
 	});
 
+	test("moves a card placement to another whiteboard and keeps omitted frame fields", async () => {
+		const { whiteboards, canvas, repository } = setup();
+		const sourceId = await whiteboards.createRoot();
+		const targetId = await whiteboards.createRoot();
+		const { itemId } = await canvas.createCardItem({
+			whiteboardId: sourceId,
+			shapeId: "shape:moved-card",
+			x: 10,
+			y: 20,
+			w: 500,
+			h: 300,
+			rotation: 0.25,
+		});
+		const commandCount = repository.pendingCommands.length;
+		let sourceInvalidations = 0;
+		const unsubscribe = canvas.subscribeItems(
+			sourceId,
+			() => {
+				sourceInvalidations += 1;
+			},
+			{ itemIds: [itemId] },
+		);
+
+		await canvas.moveItem({
+			itemId,
+			targetWhiteboardId: targetId,
+			x: 900,
+		});
+
+		expect(await canvas.listItems(sourceId)).toEqual([]);
+		expect(await canvas.listItems(targetId)).toEqual([
+			expect.objectContaining({
+				id: itemId,
+				x: 900,
+				y: 20,
+				w: 500,
+				h: 300,
+				rotation: 0.25,
+			}),
+		]);
+		expect(repository.pendingCommands.slice(commandCount)).toEqual([
+			"items.move",
+		]);
+		expect(sourceInvalidations).toBeGreaterThan(0);
+		unsubscribe();
+	});
+
+	test("reparents a sub-whiteboard and rewrites its descendant hierarchy", async () => {
+		const { whiteboards, canvas, repository } = setup();
+		const sourceId = await whiteboards.createRoot();
+		const targetId = await whiteboards.createRoot();
+		const child = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: sourceId,
+			shapeId: "shape:child",
+		});
+		const grandchild = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: child.childWhiteboardId,
+			shapeId: "shape:grandchild",
+		});
+
+		await canvas.moveItem({
+			itemId: child.itemId,
+			targetWhiteboardId: targetId,
+		});
+
+		expect(await canvas.listItems(sourceId)).toEqual([]);
+		expect(await canvas.listItems(targetId)).toEqual([
+			expect.objectContaining({
+				id: child.itemId,
+				childWhiteboardId: child.childWhiteboardId,
+			}),
+		]);
+		const moved = await whiteboards.get(child.childWhiteboardId);
+		const descendant = await whiteboards.get(grandchild.childWhiteboardId);
+		expect(moved).toMatchObject({
+			parentWhiteboardId: targetId,
+			ancestorIds: [targetId],
+			depth: 1,
+		});
+		expect(descendant).toMatchObject({
+			parentWhiteboardId: child.childWhiteboardId,
+			ancestorIds: [targetId, child.childWhiteboardId],
+			depth: 2,
+		});
+		const movedRow = await repository.query<Record<string, unknown> | null>({
+			type: "whiteboards.get",
+			input: { id: child.childWhiteboardId },
+		});
+		const descendantRow = await repository.query<Record<
+			string,
+			unknown
+		> | null>({
+			type: "whiteboards.get",
+			input: { id: grandchild.childWhiteboardId },
+		});
+		expect(String(descendantRow?.pathKey)).toMatch(
+			new RegExp(`^${String(movedRow?.pathKey)}/`),
+		);
+	});
+
+	test("moves a sub-whiteboard to the virtual root", async () => {
+		const { whiteboards, canvas } = setup();
+		const parentId = await whiteboards.createRoot();
+		const child = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: parentId,
+			shapeId: "shape:child",
+		});
+
+		await canvas.moveItem({
+			itemId: child.itemId,
+			targetWhiteboardId: null,
+		});
+
+		expect(await whiteboards.get(child.childWhiteboardId)).toMatchObject({
+			parentWhiteboardId: null,
+			ancestorIds: [],
+			depth: 0,
+		});
+		expect(await canvas.listItems(null)).toEqual([
+			expect.objectContaining({ id: child.itemId }),
+		]);
+	});
+
+	test("rejects card moves to the virtual root and whiteboard hierarchy cycles", async () => {
+		const { whiteboards, canvas } = setup();
+		const parentId = await whiteboards.createRoot();
+		const card = await canvas.createCardItem({
+			whiteboardId: parentId,
+			shapeId: "shape:card",
+		});
+		const child = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: parentId,
+			shapeId: "shape:child",
+		});
+		const grandchild = await whiteboards.createSubwhiteboard({
+			parentWhiteboardId: child.childWhiteboardId,
+			shapeId: "shape:grandchild",
+		});
+
+		await expect(
+			canvas.moveItem({ itemId: card.itemId, targetWhiteboardId: null }),
+		).rejects.toThrow(/Cards cannot be moved to the root/);
+		await expect(
+			canvas.moveItem({
+				itemId: card.itemId,
+				targetWhiteboardId: "missing-whiteboard",
+			}),
+		).rejects.toThrow(/Whiteboard not found/);
+		await expect(
+			canvas.moveItem({
+				itemId: child.itemId,
+				targetWhiteboardId: grandchild.childWhiteboardId,
+			}),
+		).rejects.toThrow(/descendant/);
+		expect(await whiteboards.get(child.childWhiteboardId)).toMatchObject({
+			parentWhiteboardId: parentId,
+		});
+	});
+
 	test("updates multiple item frames with one atomic repository command", async () => {
 		const { whiteboards, canvas, repository } = setup();
 		const rootId = await whiteboards.createRoot();

@@ -537,11 +537,14 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 		{
 			name: "move_item",
 			description:
-				"Move or resize something already placed on a whiteboard — a card or a sub-whiteboard link. Get itemId and the current layout from list_board_items. Anything you leave out keeps its current value, so passing only x and y moves the item without resizing it. This edits the user's board directly, so keep changes purposeful.",
+				"Move or resize something already placed on a whiteboard, including moving a card or sub-whiteboard into another whiteboard. Get itemId and the current layout from list_board_items. Set targetWhiteboardId to change its owner; omit it to keep the current owner. Sub-whiteboards can move to the root with null, but cards require a real whiteboard. Anything else you leave out keeps its current value. This edits the user's board directly, so keep changes purposeful.",
 			inputSchema: object(
 				{
 					whiteboardId: stringOrNull(
 						"The whiteboard the item is on. Pass null for the root board.",
+					),
+					targetWhiteboardId: stringOrNull(
+						"The destination whiteboard. Omit to keep the current owner; pass null to move a sub-whiteboard to the root.",
 					),
 					itemId: string("The placement to move, from list_board_items."),
 					x: number("New canvas x position."),
@@ -554,13 +557,19 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 			),
 			handler: async (input) => {
 				const itemId = requireString(input, "itemId");
-				const items = await canvas.listItems(
-					optionalString(input, "whiteboardId") ?? null,
-				);
+				const sourceWhiteboardId =
+					optionalString(input, "whiteboardId") ?? null;
+				const items = await canvas.listItems(sourceWhiteboardId);
 				const item = items.find((row) => row.id === itemId);
 				if (!item) throw new Error(`item ${itemId} is not on this whiteboard`);
+				const targetWhiteboardId = Object.hasOwn(input, "targetWhiteboardId")
+					? input.targetWhiteboardId === null
+						? null
+						: requireString(input, "targetWhiteboardId")
+					: sourceWhiteboardId;
 				const frame = {
 					itemId,
+					targetWhiteboardId,
 					x: optionalNumber(input, "x") ?? item.x,
 					y: optionalNumber(input, "y") ?? item.y,
 					w: optionalNumber(input, "w") ?? item.w,
@@ -568,7 +577,7 @@ export function createTools(services: ToolServices): ToolDefinition[] {
 					rotation: optionalNumber(input, "rotation") ?? item.rotation,
 					zIndex: item.zIndex,
 				};
-				await canvas.updateItemFrame(frame);
+				await canvas.moveItem(frame);
 				return frame;
 			},
 		},

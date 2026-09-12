@@ -32,4 +32,24 @@ Opened by the `agf` shell shortcut on 2026-09-12, not by an agent round. The mai
 
 # → Ask / A-001
 
-+ 
+ok pr has been merged
+now continue
+
+## [RUN-001] Event - merged design resumed in code-only stream (during round A-001)
+
+- PR #34 is verified merged at cce4030. The former design worktree was swept with the Agentflow cleanup command before this branch opened from merged `main`.
+- Route: direct. The exact design approval remains recorded in the merged design notebook, and this round implements that approved contract without expanding it.
+- First source action: write failing application, agent-tool, and canvas interaction tests.
+
+## [RUN-002] Event - failing move tests captured (during round A-001)
+
+- Application service tests have 34 passes and four new failures because canvas.moveItem does not exist.
+- Agent tool tests have 50 passes and one new failure because move_item ignores the destination and leaves the item on its source board.
+- The combined command reached its time limit before the UI test ran. No source implementation existed when these failures were captured.
+
+## [RUN-003] Event - implementation verified before review (during round A-001)
+
+- Implemented the approved atomic move contract across the application service, agent move_item tool, and native tldraw drop handling for managed cards and sub-whiteboards.
+- Complete package suites pass: application 178/178, agent-tools 51/51, web-ui 281/281. Package typechecks pass for all three affected packages.
+- Root verification limits are unrelated baseline failures: desktop typecheck cannot resolve @contextboard/editor, and apps/web lint reports existing operations.ts explicit-any warnings plus provider.tsx bootstrapNonce dependency error. No dev server or browser run was started under repository policy.
+- Changed paths match the tracker boundary. Next: commit the exact implementation and obtain the required targeted cross-check.
