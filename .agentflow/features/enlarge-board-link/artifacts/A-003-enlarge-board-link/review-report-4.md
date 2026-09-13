@@ -1,0 +1,10 @@
+* _2026-09-13 11:39:12 (codex/gpt-5.6-terra)_
+Reviewed implementation commit: 517b7fe294b3637b126739d450b60371214cde48
+Verdict: PASS
+Outcome: PASS
+All creation owners now use 480x256: the shape util, repository service, and local operation agree at `packages/web-ui/src/components/whiteboard/SubwhiteboardLinkShape.tsx:182`, `packages/application/src/canvas/services.ts:374`, and `apps/web/src/integrations/local/operations.ts:670`. The UI leaves dimensions to the shared service at `packages/web-ui/src/components/whiteboard/hooks/useItemCreation.ts:47`, while hydrated links retain stored `w` and `h` at `packages/web-ui/src/components/whiteboard/whiteboard-canvas-helpers.ts:247`. The title row owns the available vertical space at `packages/web-ui/src/components/whiteboard/SubwhiteboardLinkShape.tsx:109`: at the 320x152 floor, the 272x112 inner area leaves 92px above the 20px footer, fitting the 44px badge with 24px of centered slack. At 480px wide, the title input gets 376px after padding, badge, and gap, or 368px after its own padding, enough for "Untitled whiteboard." The larger default frame and removal of the top-to-bottom dead-band layout satisfy the ask.
+Minimality: PASS
+The code change is limited to the three required default owners, the title-row layout and proportional badge/type sizing, and the resize floor. The stream notebook records the owner decision; no unrelated behavior, dependency, or migration changed.
+Conformance: PASS
+The diff is clean. Every added concept has an owner: creation defaults are owned by the three creation paths, frame rendering and the floor by the shape util, and vertical distribution plus proportional type by the component. Existing managed links remain persisted-frame driven, while legacy canvas-record migration excludes them at `apps/web/src/integrations/local/operations.ts:741`.
+Self-check: I inspected the exact diff, creation, projection, resize, and persistence paths; I did not run the full suite, and the package-local Vitest command could not run because Vitest is absent.

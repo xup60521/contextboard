@@ -70,3 +70,17 @@ Cross-check plan: level `targeted`, reason "an ordinary behavior or mixed change
 4. Reconstruct the outcome directly from the original Ask: is the default frame larger, and is the void gone?
 5. Account for every added concept and name its current owner outcome or reproduced failure.
 6. Return exactly one each of `Outcome: PASS|BLOCKING`, `Minimality: PASS|BLOCKING`, and `Conformance: PASS|BLOCKING`, each with a short justification.
+
+## Report file contract — follow it exactly or the report is rejected
+
+Write the report as exactly this shape. A completion checker parses it mechanically; extra or missing lines fail it.
+
+1. First line, nothing before it: `* _YYYY-MM-DD HH:MM:SS (codex/gpt-5.6-terra)_` using the current local time.
+2. A line `Reviewed implementation commit: 517b7fe294b3637b126739d450b60371214cde48` — the full 40 characters, exactly this commit.
+3. Exactly one line `Verdict: PASS` or `Verdict: BLOCKING`.
+4. Exactly one `Outcome: PASS|BLOCKING` line, followed by its justification paragraph with `path:line` citations.
+5. Exactly one `Minimality: PASS|BLOCKING` line, followed by its justification paragraph.
+6. Exactly one `Conformance: PASS|BLOCKING` line, followed by its justification paragraph.
+7. The very last line of the file, with nothing after it: `Self-check: <one sentence on what you actually inspected and what you did not run>`.
+
+Use the words PASS and BLOCKING nowhere else in the file, and do not write `Verdict:`, `Outcome:`, `Minimality:`, `Conformance:` or `Self-check:` at the start of any other line.
