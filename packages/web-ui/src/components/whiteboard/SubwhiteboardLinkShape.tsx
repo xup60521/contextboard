@@ -106,8 +106,8 @@ function SubwhiteboardLinkComponent({
 
 	return (
 		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
-			<div className="flex h-full w-full flex-col rounded-md border border-[var(--border)] bg-[var(--card)] px-6 py-5 text-[var(--card-foreground)] shadow-sm">
-				<div className="flex flex-1 items-center gap-3 text-[28px] font-bold leading-9">
+			<div className="flex h-full w-full flex-col justify-between rounded-md border border-[var(--border)] bg-[var(--card)] px-6 py-5 text-[var(--card-foreground)] shadow-sm">
+				<div className="flex items-center gap-3 text-[28px] font-bold leading-9">
 					<span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[var(--accent)] text-[24px] text-[var(--lagoon-deep)]">
 						-&gt;
 					</span>
