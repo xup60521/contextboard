@@ -1137,6 +1137,10 @@ In the color palettes switcher
 + godev
   I have updated the skill. commit and push to main
 
++ why they fail? This is actually my custom fork of agfnow/agentflow. In order to improve the compatibility for windows, as well as fit my remote-code-local-review workflow (i.e. agent write code in the remote linux pc, creating pull request and I review locally on my laptop. or handoff the job back to my laptop instead of coding remotely)
+
++ you should checkout agfnow/agentflow to have a better picture
+
 ---
 
 ## [RUN-001] Event — 2026-09-13 14:41:08 +0800 (A-009)
