@@ -1150,3 +1150,11 @@ In the color palettes switcher
 - Full cross-check returned BLOCKING. Direct inspection confirms `ag-settings.js` now emits `gpt-6-astra/xhigh` and `gpt-5.6-luna/low`, while committed tests still require `gpt-6-astra/low` and `gpt-5.4-mini/medium`. The script guide also omits the new public completion-cleanup controls.
 - The Claude hook finding is not a current-checkout defect: its absolute path resolves to this laptop main checkout, and `install-hook.js` intentionally installs the same handler for Stop and UserPromptSubmit. It remains non-portable until setup is rerun after a move or clone.
 - Push is held because the committed skill and its tests disagree. Generated `.setup-checked`, stale `agentflow-skill.zip`, line-ending-only `.gitignore`, active stream work, and `tmp/` remain uncommitted.
+
+## [RUN-002] Event — 2026-09-13 15:11:20 +0800 (A-009)
+
+- Clean upstream checkout `fcb6878be0b2316cdba5a111f040655f161bfe03` shows the installed fork is current upstream plus a 15-path Windows and remote-review delta: 888 additions and 29 deletions.
+- The earlier blockers are upstream or installation-context failures. Release/alignment results are identical at 10 pass and 9 fail. The settings/control batch is 95 pass and 16 fail in the fork versus 74 pass and 34 fail upstream.
+- The fork-changed runtime boundary is 71 pass and 6 fail versus upstream 47 pass and the same 6 failures. Every fork-only Codex worker, dispatcher, and Windows test passed.
+- Re-review at `.agentflow/A-009-agentflow-update/review-report-2.md` independently cloned the exact upstream commit and returned Outcome PASS, Minimality PASS, Conformance PASS, and Verdict PASS for implementation `3d2fdbd4cdcff6e0fc36451e86aac98e27ac70be`.
+- Host gate: PASS. The trusted dispatch ran `gpt-5.6-terra/high`; the report stamp says `gpt-5/unspecified`, which is recorded as an identity warning and does not change the verified commit, clean clone, or substantive verdict.
