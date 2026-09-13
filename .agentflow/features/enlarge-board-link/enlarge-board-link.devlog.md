@@ -226,4 +226,10 @@ Existing links are untouched, same as last round. Hydration copies each stored f
 
 # → Ask / A-004
 
-+
+No. What I mean is the default size on creation is too small. The thing I talk about is always the tldraw shape. Though it's resizable, I want a larger default shape size for sub-whiteboard link
+
+(answers to the batched size question: default size "576x320 — card width"; layout "keep it but it's own commit so it's easier to compare")
+
+## [RUN-001] Event — route and change (during round A-004)
+
+Route: direct. The owner corrected the target: the Ask was always the tldraw shape's creation default, not the rendered contents. A-003 delivered 480x256 and that is still too small. Default frame 480x256 -> 576x320 on the same three sites, 576 being the markdown card default width so a link and a card line up flush. Size only, in its own commit 4a877af, on the owner's word that the layout change stays but stays separable from it. No type, padding, or resize-floor change this round. Changed paths: apps/web/src/integrations/local/operations.ts, packages/application/src/canvas/services.ts, packages/web-ui/src/components/whiteboard/SubwhiteboardLinkShape.tsx — matches the expected set exactly.
