@@ -4,27 +4,23 @@ Project: contextboard
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: 494a3c3 — PR #35 merged the cross-whiteboard move implementation; `palette-presets` and `move-board-items-implementation` are swept.
+Current commit: Agentflow v8.2.0 fork update and review records delivered to main.
 
-Tests/scenarios: dispatch-review.test.js 10 of 10 pass; complete suite 243 fail/697 pass against a 241/689 baseline with no test regressing; targeted cross-check PASS on all three axes for f13cec5.
+Tests/scenarios: 70 JavaScript syntax checks pass; fork runtime boundary 71 pass and 6 upstream-matching failures; upstream control 47 pass and the same 6 failures.
 
-Configuration: ag.json — schema v7; validated for claude this round.
+Configuration: ag.json — schema v7; validated for codex this round.
 
-Proven: this fork is upstream agfnow/agentflow plus six Windows and Codex-worker commits, with no upstream file missing and no regression against a same-machine control run. The laptop main checkout is the sole writer of the root notebook and STATUS, recorded in AGENTS.md and confirmed by external review. The review launcher now passes the configured effort, honours cli-provider, and trims a worker preamble; two of those three were verified end to end on the dispatch that reviewed them.
+Proven: The custom fork is current upstream plus a reviewed 15-path Windows and remote-review delta with no fork-only failing test in the compared boundary.
 
-Open: `a-002-card-library-selection` remains active and untouched. Root Ask A-009, the palette switcher, still has no Reply even though PR #33 delivered it from the `palette-presets` stream. The skill suite is not a usable Windows regression gate at a 26 percent upstream failure rate; a WSL run would be needed. Two patterns are duplicated rather than shared, the per-family flags from looper.js and the stamp pattern from round-linter.js, because neither module exports them.
+Open: a-002-card-library-selection remains active; upstream Windows and source-repository test assumptions remain outside this fork update.
 
-Next: answer or retire root Ask A-009; decide whether the undocumented review-report contract is worth reporting upstream.
+Next: continue the active card-library stream or await the owner.
 
-Artifacts: .agentflow/features/themeable-accents/ and .agentflow/features/palette-presets/ and .agentflow/features/move-board-items/ and .agentflow/features/move-board-items-implementation/ and .agentflow/features/enlarge-board-link/ — closed stream records; .agentflow/features/card-grid-geometry/ — ditched stream record; .agentflow/A-007-two-machine-adoption/ and .agentflow/A-008-dispatch-review-fixes/ — frozen facts, review briefs, and passing cross-check reports.
+Artifacts: .agentflow/A-009-agentflow-update/ contains the frozen facts, briefs, dispatch records, and passing re-review.
 
 Archived eras: none.
 
-Streams:
-stream: a-002-card-library-selection — active — .agentflow/features/a-002-card-library-selection/a-002-card-library-selection.devlog.md
-
-The `enlarge-board-link` stream is closed and omitted here; its work waits in draft PR #36 for the other machine. Close-outs recorded this round, both on the owner’s cleanup word: `palette-presets` was already merged, its worktree and local and remote branches are deleted. `move-board-items-implementation` was already merged by PR #35; its branches are deleted and its worktree folder needed a long-path removal after Git refused it with "Filename too long".
-
+Streams: none.
 ---
 
 # → Ask / A-001
@@ -1158,3 +1154,52 @@ In the color palettes switcher
 - The fork-changed runtime boundary is 71 pass and 6 fail versus upstream 47 pass and the same 6 failures. Every fork-only Codex worker, dispatcher, and Windows test passed.
 - Re-review at `.agentflow/A-009-agentflow-update/review-report-2.md` independently cloned the exact upstream commit and returned Outcome PASS, Minimality PASS, Conformance PASS, and Verdict PASS for implementation `3d2fdbd4cdcff6e0fc36451e86aac98e27ac70be`.
 - Host gate: PASS. The trusted dispatch ran `gpt-5.6-terra/high`; the report stamp says `gpt-5/unspecified`, which is recorded as an identity warning and does not change the verified commit, clean clone, or substantive verdict.
+
+# ← Reply / A-009
+
+* _2026-09-13 15:27:20 +0800 (gpt-5.6-sol/medium)_
+
+## [SUMMARY]
+
+- The Agentflow v8.2.0 skill update is committed and ready for `origin/main`.
+- A clean checkout of current `agfnow/agentflow` showed that the reported failures come from upstream or from running source-repository tests inside an installed skill.
+- Your fork's 15-path Windows and remote-review delta has no fork-only failing test in the checked boundary. Independent re-review returned PASS for Outcome, Minimality, and Conformance.
+- The earlier palette-switcher request was already delivered through PR #33.
+
+## [FINAL REPORT]
+
+### Agentflow fork update
+
+Committed the installed Agentflow v8.2.0 update as `3d2fdbd`. The update points `skills-lock.json` at `xup60521/agentflow` and includes the project Claude hooks.
+
+The first review used the wrong baseline. It compared the new installation with this project's older installed copy, so it blamed the fork for failures that exist in current upstream. I cloned `agfnow/agentflow` at `fcb6878be0b2316cdba5a111f040655f161bfe03` and reran the same checks.
+
+Current upstream and the fork differ in 15 skill paths, with 888 additions and 29 deletions. The delta covers Windows execution and the remote-Linux-code, laptop-review or laptop-handoff workflow.
+
+Evidence:
+
+- Release and alignment batch: fork 10 pass and 9 fail; upstream 10 pass and 9 fail.
+- Settings and completion batch: fork 95 pass and 16 fail; upstream 74 pass and 34 fail.
+- Fork-changed runtime boundary: fork 71 pass and 6 fail; upstream 47 pass and the same 6 failing test names.
+- Every fork-only Codex worker, dispatch-review, and Windows test passed.
+- JavaScript syntax checks passed for all 70 installed scripts.
+
+The stale model assertions and missing release-repository documents are upstream issues. The remaining process and executable-bit tests assume POSIX behavior and fail unchanged on Windows. The fork removes many upstream Windows failures without adding a new failing test in the compared boundary.
+
+The final independent review cloned the exact upstream commit and returned PASS for Outcome, Minimality, Conformance, and its final verdict. The review clone's only changed path was `.gitignore` from line-ending normalization; reviewed source and configuration stayed unchanged.
+
+### Palette switcher
+
+The three palette-switcher requests at the start of A-009 were delivered earlier through PR #33. This round did not alter that product code.
+
+
+## Questions (batched — each with a suggested default)
+
+- None.
+
+
+---
+
+# → Ask / A-010 (xup60521)
+
++
