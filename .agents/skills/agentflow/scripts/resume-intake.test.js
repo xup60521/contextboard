@@ -1,5 +1,7 @@
 'use strict'
 
+// A remote default must be compared to its local branch, not its raw output.
+
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -11,12 +13,39 @@ const intake = require('./resume-intake.js')
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'agentflow-resume-intake-'))
 const drop = directory => fs.rmSync(directory, { recursive: true, force: true })
+
+test('remote default trunk is normalized even when main also exists', () => {
+  const directory = make_repo()
+  try {
+    git(directory, ['branch', 'trunk'])
+    git(directory, ['update-ref', 'refs/remotes/origin/trunk', 'HEAD'])
+    git(directory, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk'])
+    git(directory, ['switch', 'trunk'])
+    const result = intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' })
+    assert.notEqual(result.stream_decision.reason, 'foreign_or_parallel_work')
+    git(directory, ['switch', 'main'])
+    assert.equal(intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' }).stream_decision.reason, 'foreign_or_parallel_work')
+  } finally { drop(directory) }
+})
 const git = (directory, args) => execFileSync('git', args, { cwd: directory, encoding: 'utf8' }).trim()
+
+const identity = file => {
+  const stat = fs.statSync(file, { bigint: true })
+  return {
+    dev: String(stat.dev),
+    ino: String(stat.ino),
+    size: String(stat.size),
+    mode: String(stat.mode),
+    mtime: String(stat.mtimeNs),
+    ctime: String(stat.ctimeNs),
+  }
+}
 
 const config = () => JSON.stringify({
   'schema-version': 7,
   switches: {
     'target-doc': 'devlog.md',
+    'workspace-dir': '.agentflow',
     'cli-provider': 'on',
     'auto-reply': 'off',
     lang: 'English',
@@ -57,20 +86,8 @@ test('one intake result validates configuration and treats a newly written final
     assert.equal(result.branch, 'main')
     assert.deepEqual(result.changed_paths, ['devlog.md'])
     assert.equal(result.expected_owner_input, true)
-    assert.equal(result.stream_rulebook_required, false)
+    assert.equal(result.stream_decision.reason, 'owner_input_only')
     assert.deepEqual(result.current_ask, { id: 'A-001', text: '+ explain the current setup result' })
-    assert.match(result.status, /^# STATUS/m)
-  } finally {
-    drop(directory)
-  }
-})
-
-test('intake accepts a notebook with Windows line endings', () => {
-  const directory = make_repo()
-  try {
-    fs.writeFileSync(path.join(directory, 'devlog.md'), notebook('inspect this request').replaceAll('\n', '\r\n'))
-    const result = intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' })
-    assert.deepEqual(result.current_ask, { id: 'A-001', text: '+ inspect this request' })
     assert.match(result.status, /^# STATUS/m)
   } finally {
     drop(directory)
@@ -84,7 +101,8 @@ test('a change outside the notebook stays a foreign-work stream trigger', () => 
     fs.writeFileSync(path.join(directory, 'other.js'), 'module.exports = true\n')
     const result = intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' })
     assert.equal(result.expected_owner_input, false)
-    assert.equal(result.stream_rulebook_required, true)
+    assert.equal(result.stream_decision.reason, 'foreign_or_parallel_work')
+    assert.equal(result.stream_decision.required_next_rulebook, 'references/streams.md')
     assert.deepEqual(result.changed_paths, ['devlog.md', 'other.js'])
   } finally {
     drop(directory)
@@ -97,7 +115,7 @@ test('an earlier notebook edit is not disguised as expected owner input', () => 
     fs.writeFileSync(path.join(directory, 'devlog.md'), notebook('inspect this request').replace('Project: test.', 'Project: foreign edit.'))
     const result = intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' })
     assert.equal(result.expected_owner_input, false)
-    assert.equal(result.stream_rulebook_required, true)
+    assert.equal(result.stream_decision.reason, 'foreign_or_parallel_work')
   } finally {
     drop(directory)
   }
@@ -109,7 +127,7 @@ test('a notebook edit that is not a final unresolved Ask remains a stream trigge
     fs.writeFileSync(path.join(directory, 'devlog.md'), `${notebook('inspect this request')}\n# ← Reply / A-001\n\nanswer\n`)
     const result = intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' })
     assert.equal(result.expected_owner_input, false)
-    assert.equal(result.stream_rulebook_required, true)
+    assert.equal(result.stream_decision.reason, 'foreign_or_parallel_work')
   } finally {
     drop(directory)
   }
@@ -162,7 +180,77 @@ test('intake returns the current Ask when completed history exceeds the old whol
     assert.deepEqual(result.current_ask, { id: 'A-001', text: '+ large notebook request' })
     assert.match(result.status, /^# STATUS/m)
     assert.equal(result.expected_owner_input, true)
-    assert.equal(result.stream_rulebook_required, false)
+    assert.equal(result.stream_decision.reason, 'owner_input_only')
+  } finally {
+    drop(directory)
+  }
+})
+
+test('current startup provenance is required before setup files suppress the stream rulebook', () => {
+  const directory = make_repo()
+  try {
+    fs.writeFileSync(path.join(directory, 'bootstrap.js'), 'module.exports = true\n')
+    const result = intake.collect_intake({
+      repo_root: directory,
+      notebook_path: 'devlog.md',
+      active_host: 'codex',
+      bootstrap_provenance: [{
+        path: 'bootstrap.js',
+        before: null,
+        after: identity(path.join(directory, 'bootstrap.js')),
+      }],
+    })
+    assert.equal(result.stream_decision.reason, 'bootstrap_files_only')
+  } finally {
+    drop(directory)
+  }
+})
+
+test('a mixed bootstrap and foreign change takes the conservative decision', () => {
+  const directory = make_repo()
+  try {
+    fs.writeFileSync(path.join(directory, 'bootstrap.js'), 'module.exports = true\n')
+    fs.writeFileSync(path.join(directory, 'foreign.js'), 'module.exports = false\n')
+    const result = intake.collect_intake({
+      repo_root: directory,
+      notebook_path: 'devlog.md',
+      active_host: 'codex',
+      bootstrap_provenance: [{
+        path: 'bootstrap.js',
+        before: null,
+        after: identity(path.join(directory, 'bootstrap.js')),
+      }],
+    })
+    assert.equal(result.stream_decision.reason, 'foreign_or_parallel_work')
+  } finally {
+    drop(directory)
+  }
+})
+
+test('filename-only similarity never proves bootstrap provenance', () => {
+  const directory = make_repo()
+  try {
+    fs.writeFileSync(path.join(directory, 'ag.json'), `${config().replace('streams": "always"', 'streams": "off"')}`)
+    const result = intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' })
+    assert.equal(result.stream_decision.reason, 'foreign_or_parallel_work')
+  } finally {
+    drop(directory)
+  }
+})
+
+test('a non-default branch and an active stream remain foreign-work reasons', () => {
+  const directory = make_repo()
+  try {
+    git(directory, ['switch', '-c', 'feature'])
+    fs.writeFileSync(path.join(directory, 'devlog.md'), notebook('owner request'))
+    let result = intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' })
+    assert.equal(result.stream_decision.reason, 'foreign_or_parallel_work')
+
+    git(directory, ['switch', 'main'])
+    const active = notebook('').replace('Project: test.', 'Project: test.\n\nStreams:\n\nstream: work — active — features/work/work.devlog.md')
+    fs.writeFileSync(path.join(directory, 'devlog.md'), active)
+    result = intake.collect_intake({ repo_root: directory, notebook_path: 'devlog.md', active_host: 'codex' })
+    assert.equal(result.stream_decision.reason, 'foreign_or_parallel_work')
   } finally {
     drop(directory)
   }

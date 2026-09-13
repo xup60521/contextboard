@@ -60,8 +60,6 @@ const legacy_public_syntax = Object.freeze([
 	['routine_scan', /(?:^|[^A-Za-z0-9_-])routine_scan(?:$|[^A-Za-z0-9_-])/],
 ])
 
-const private_protocol_names = Object.freeze(['$target_doc', '$cli_provider', '$auto_reply_mode', '$ask_names'])
-
 const is_explicitly_rejected_migration_example = line =>
 	/\b(?:rejected|obsolete|legacy)\b/i.test(line) && /\b(?:use|instead|replacement|not accepted)\b/i.test(line)
 
@@ -116,9 +114,8 @@ const make_removed_schema_fixture = (host, schema) => {
 	}
 }
 
-const legacy_root_config = host => {
+const custom_notebook_config = host => {
 	const config = settings.make_template(host)
-	delete config.switches['workspace-dir']
 	config.switches['target-doc'] = 'devlog.md'
 	return config
 }
@@ -128,14 +125,38 @@ test('version-7 templates contain the exact switches and defaults', () => {
 		const config = settings.make_template(host)
 		assert.equal(config['schema-version'], 7)
 		assert.deepEqual(Object.keys(config.switches), [
-			'target-doc', 'cli-provider', 'auto-reply', 'lang', 'streams', 'ask-names', 'allow-ag', 'metrics', 'large-work-minutes',
+			'target-doc', 'workspace-dir', 'cli-provider', 'auto-reply', 'lang', 'streams', 'ask-names', 'allow-ag', 'metrics', 'large-work-minutes', 'completion-cleanup', 'completion-cleanup-interval-days',
 		])
-		assert.equal(config.switches['allow-ag'], host === 'codex' ? 'on' : 'ask')
+		assert.equal(config.switches['allow-ag'], 'on')
 		assert.equal(config.switches.metrics, 'off')
 		assert.equal(config.switches['large-work-minutes'], 120)
+		assert.equal(config.switches['completion-cleanup'], 'off')
+		assert.equal(config.switches['completion-cleanup-interval-days'], 7)
 		assert.equal(config['external-workers'].length, 2)
 		assert.equal(settings.validate_config(config, { active_host: host, ...all_executables }).valid, true)
 	}
+})
+
+test('schema-7 configs may omit optional cleanup switches and changes/help expose them', () => {
+	const config = settings.make_template('codex')
+	delete config.switches['completion-cleanup']
+	delete config.switches['completion-cleanup-interval-days']
+	const validation = settings.validate_config(config, { active_host: 'codex', ...all_executables })
+	assert.equal(validation.valid, true)
+	assert.equal(settings.canonical_config(config).switches['completion-cleanup'], undefined)
+	assert.equal(settings.canonical_config(config).switches['completion-cleanup-interval-days'], undefined)
+	const changed = settings.apply_changes(config, ['completion-cleanup: on', 'completion-cleanup-interval-days: 14'], { active_host: 'codex', ...all_executables })
+	assert.equal(changed.config.switches['completion-cleanup'], 'on')
+	assert.equal(changed.config.switches['completion-cleanup-interval-days'], 14)
+	assert.deepEqual(changed.changes, ['completion-cleanup: undefined → on', 'completion-cleanup-interval-days: undefined → 14'])
+	const display = settings.format_settings_display(settings.make_template('codex'), all_executables)
+	assert.match(display, /completion-cleanup: off/)
+	assert.match(display, /completion-cleanup-interval-days: 7/)
+	assert.match(display, /completion-cleanup: off or on/)
+	assert.match(display, /completion-cleanup-interval-days: integer from 1 through 365/)
+	let help_text = ''
+	assert.equal(settings.cli_main(['help'], { output: value => { help_text = value }, error: () => {} }), 0)
+	assert.match(help_text, /completion-cleanup-interval-days/)
 })
 
 test('profile validation accepts the exact v7 shape and diagnoses legacy worker keys', () => {
@@ -277,7 +298,7 @@ test('host templates provide the exact ordered codex and claude profiles', () =>
 				{ id: 'claude-default', command: ['claude', '-p'], priority: 3, family: 'claude' },
 				{ id: 'codex-default', command: ['codex', 'exec'], priority: 3, family: 'codex' },
 			])
-		assert.equal(config['external-workers'][0].tiers.best, host === 'codex' ? 'gpt-5.6-sol/low' : 'claude-opus-5/high')
+		assert.equal(config['external-workers'][0].tiers.best, host === 'codex' ? 'gpt-6-astra/low' : 'claude-opus-5/high')
 	}
 })
 
@@ -285,7 +306,7 @@ test('profile public setting changes use ids and reject removed worker paths', (
 	const config = make_v5_fixture('codex')
 	const changed = settings.apply_changes(config, ['codex-default.best: gpt-5.6-terra/high'], { active_host: 'codex', ...all_executables })
 	assert.equal(changed.config['external-workers'][0].tiers.best, 'gpt-5.6-terra/high')
-	assert.deepEqual(changed.changes, ['codex-default.best: gpt-5.6-sol/low → gpt-5.6-terra/high'])
+	assert.deepEqual(changed.changes, ['codex-default.best: gpt-6-astra/low → gpt-5.6-terra/high'])
 	assert.throws(() => settings.parse_change_lines(['internal-worker.best: gpt-5.6-terra/high']), /unsupported setting change: internal-worker\.best/)
 	assert.throws(() => settings.parse_change_lines(['external-worker.best: claude-opus-5/high']), /unsupported setting change: external-worker\.best/)
 })
@@ -354,12 +375,12 @@ test('host templates are exact, valid, and use the owner-approved defaults', () 
 	const codex = settings.make_template('codex')
 	const claude = settings.make_template('claude')
 
-	assert.equal(codex['external-workers'][0].tiers.best, 'gpt-5.6-sol/low')
-	assert.equal(codex['external-workers'][0].tiers.better, 'gpt-5.6-terra/high')
+	assert.equal(codex['external-workers'][0].tiers.best, 'gpt-6-astra/low')
+	assert.equal(codex['external-workers'][0].tiers.better, 'gpt-5.6-sol/low')
 	assert.equal(codex['external-workers'][0].tiers.basic, 'gpt-5.6-luna/max')
 	assert.equal(codex['external-workers'][1].tiers.best, 'claude-opus-5/high')
 	assert.equal(claude['external-workers'][0].tiers.best, 'claude-opus-5/high')
-	assert.equal(claude['external-workers'][1].tiers.best, 'gpt-5.6-sol/medium')
+	assert.equal(claude['external-workers'][1].tiers.best, 'gpt-6-astra/low')
 	assert.equal(claude['external-workers'][1].tiers.basic, 'gpt-5.6-luna/max')
 	assert.deepEqual(settings.validate_config(codex, { active_host: 'codex', ...all_executables }).errors, [])
 	assert.deepEqual(settings.validate_config(claude, { active_host: 'claude', ...all_executables }).errors, [])
@@ -390,7 +411,7 @@ test('missing recognized properties fail while unknown properties warn and are i
 		switches: settings.switch_names,
 	})) {
 		for (const key of keys) {
-			if (key === 'workspace-dir') continue
+			if (key === 'workspace-dir' || settings.optional_switch_names.includes(key)) continue
 			const copy = JSON.parse(JSON.stringify(config))
 			delete copy[location][key]
 			expect_invalid(copy, new RegExp(`configuration\\.${location}\\.${key} is required`))
@@ -473,7 +494,7 @@ test('public setting paths use kebab-case and address profile ids', () => {
 		'cli-provider: off → on',
 		'auto-reply: on → off',
 		'ask-names: on → off',
-		'codex-default.best: gpt-5.6-sol/low → gpt-5.6-terra/high',
+		'codex-default.best: gpt-6-astra/low → gpt-5.6-terra/high',
 		'claude-default.basic: claude-sonnet-5/high → claude-opus-5/high',
 	])
 
@@ -503,14 +524,15 @@ test('current public instructions use canonical syntax while private names and r
 	const inventory = public_instruction_inventory()
 
 	assert.deepEqual(inventory.legacy_occurrences, [], `obsolete public syntax remains:\n${inventory.legacy_occurrences.join('\n')}`)
-	for (const [label, pattern] of canonical_public_syntax) assert.match(inventory.combined, pattern, `missing canonical public syntax: ${label}`)
+	for (const [label, pattern] of canonical_public_syntax) {
+		if (label.endsWith(':')) assert.match(inventory.combined, new RegExp(`\\b${label.slice(0, -1)}\\b`), `missing public setting: ${label}`)
+		else assert.match(inventory.combined, pattern, `missing canonical public syntax: ${label}`)
+	}
 	const settings_display = settings.format_settings_display(settings.make_template('codex'), all_executables)
 	for (const worker of ['codex-default', 'claude-default']) {
 		for (const tier of settings.tier_names) assert.match(settings_display, new RegExp(`${worker}\\.${tier}`), `missing canonical worker setting: ${worker}.${tier}`)
 	}
 
-	const skill_text = inventory.files.find(file => file.relative_path === 'skills/agentflow/SKILL.md').text
-	for (const name of private_protocol_names) assert.match(skill_text, new RegExp(`\\${name}`), `private protocol name was renamed: ${name}`)
 })
 
 test('obsolete public setting paths and role values are rejected without translation', () => {
@@ -728,6 +750,63 @@ test('first-run initialization creates an adjacent configuration and is idempote
 	}
 })
 
+test('initial language normalizes locale tags and falls back without requiring locale tools', () => {
+	for (const [raw, expected] of [
+		['zh_TW.UTF-8', 'zh-tw'], ['zh-Hant-US', 'zh-tw'], ['zh_HK', 'zh-tw'], ['zh_MO', 'zh-tw'],
+		['zh-Hans-TW', 'zh-cn'], ['zh_CN.UTF-8', 'zh-cn'], ['zh_SG', 'zh-cn'], ['zh', 'zh-cn'],
+		['ja_JP.UTF-8', 'ja-jp'], ['pt_BR.UTF-8', 'pt-br'], ['en_US.UTF-8', 'en-us'],
+	]) {
+		assert.equal(settings.detect_initial_language({ platform: 'linux', env: { LANG: raw } }), expected, raw)
+	}
+	const options = { platform: 'linux', intl_locale: () => 'fr-FR' }
+	assert.equal(settings.detect_initial_language({ ...options, env: { LC_ALL: 'ja_JP', LC_MESSAGES: 'zh_TW', LANG: 'en_US' } }), 'ja-jp')
+	assert.equal(settings.detect_initial_language({ ...options, env: { LC_ALL: 'C.UTF-8', LC_MESSAGES: 'zh_TW', LANG: 'en_US' } }), 'zh-tw')
+	assert.equal(settings.detect_initial_language({ ...options, env: { LANG: 'POSIX' } }), 'fr-fr')
+	assert.equal(settings.detect_initial_language({ ...options, platform: 'win32', env: {} }), 'fr-fr')
+	assert.equal(settings.detect_initial_language({ ...options, env: { LANG: 'not a locale' }, intl_locale: () => 'und' }), 'en')
+	assert.equal(settings.detect_initial_language({ ...options, env: {}, intl_locale: () => { throw new Error('unavailable') } }), 'en')
+})
+
+test('initial language prefers the first macOS UI language over terminal formatting', () => {
+	const calls = []
+	const options = {
+		platform: 'darwin', env: { LC_ALL: 'C.UTF-8', LANG: 'en_US.UTF-8' },
+		exec_file_sync: (file, args, opts) => {
+			calls.push(args[2])
+			assert.equal(file, '/usr/bin/defaults')
+			assert.deepEqual(args.slice(0, 2), ['read', '-g'])
+			assert.equal(opts.timeout, 1000)
+			assert.equal(opts.maxBuffer, 4096)
+			return '(\n    "zh-Hant-TW",\n    "en-US"\n)\n'
+		},
+	}
+	assert.equal(settings.detect_initial_language(options), 'zh-tw')
+	assert.deepEqual(calls, ['AppleLanguages'])
+	assert.equal(settings.detect_initial_language({ ...options, exec_file_sync: () => '(en, "zh-Hant-TW")' }), 'en')
+	assert.equal(settings.detect_initial_language({ ...options, exec_file_sync: (file, args) => args[2] === 'AppleLanguages' ? '()' : 'zh_TW' }), 'zh-tw')
+	assert.equal(settings.detect_initial_language({ ...options, exec_file_sync: () => { throw new Error('unavailable') } }), 'en-us')
+})
+
+test('new configuration detects Traditional Chinese and preserves an existing language', () => {
+	for (const initialize of [settings.ensure_configuration, settings.initialize_project]) for (const active_host of ['codex', 'claude']) {
+		const repo = make_repo()
+		try {
+			const options = { repo_root: repo, active_host, ...all_executables, platform: 'linux', env: { LANG: 'zh_TW.UTF-8' } }
+			const first = initialize(options)
+			assert.equal(first.config.switches.lang, 'zh-tw')
+			const before = fs.readFileSync(first.config_path, 'utf8')
+			const second = initialize({ ...options, env: { LANG: 'en_US.UTF-8' } })
+			assert.equal(second.created, false)
+			assert.equal(fs.readFileSync(first.config_path, 'utf8'), before)
+			const custom = { ...second.config, switches: { ...second.config.switches, lang: '日本語' } }
+			fs.writeFileSync(first.config_path, JSON.stringify(custom))
+			assert.equal(initialize(options).config.switches.lang, '日本語')
+		} finally {
+			drop(repo)
+		}
+	}
+})
+
 test('project initialization creates the validated configuration and fixed notebook together', () => {
 	const repo = make_repo()
 	try {
@@ -737,58 +816,8 @@ test('project initialization creates the validated configuration and fixed noteb
 		assert.ok(fs.existsSync(path.join(repo, '.agentflow/devlog.md')))
 		const notebook = fs.readFileSync(path.join(repo, '.agentflow/devlog.md'), 'utf8')
 	assert.match(notebook, /^Configuration: ag\.json — schema v7; validated for claude this round\./m)
-		assert.match(notebook, /# → Ask \/ A-001\n\n\+ /)
+		assert.match(notebook, /# → Ask \/ A-001(?: \([^\r\n)]+\))?\n\n\+ /)
 		assert.equal(notebook.includes('Settings:'), false)
-	} finally {
-		drop(repo)
-	}
-})
-
-test('workspace migration moves tracked legacy records only from a clean repository', () => {
-	const repo = make_repo()
-	try {
-		const config_path = path.join(repo, 'ag.json')
-		const config = legacy_root_config('codex')
-		const status = settings.format_status({ project: 'demo', notebook: 'devlog.md', notebook_kind: 'root', current_commit: 'initial', tests_scenarios: 'none', config_path: 'ag.json', host: 'codex', validation: 'validated', proven: 'none', open: 'none', next: 'await', artifacts: 'none', archived_eras: 'devlog.archive.md' })
-		fs.writeFileSync(path.join(repo, 'devlog.md'), status)
-		fs.writeFileSync(path.join(repo, 'devlog.archive.md'), 'archive\n')
-		fs.mkdirSync(path.join(repo, 'artifacts/item'), { recursive: true })
-		fs.writeFileSync(path.join(repo, 'artifacts/item/proof.txt'), 'proof\n')
-		settings.write_config_atomic(config_path, config, { repo_root: repo, active_host: 'codex', ...all_executables })
-		git(repo, ['init', '-b', 'main'])
-		git(repo, ['config', 'user.email', 'test@example.com'])
-		git(repo, ['config', 'user.name', 'Test'])
-		git(repo, ['add', '-A'])
-		git(repo, ['commit', '-m', 'initial'])
-		const changed = settings.apply_changes(config, ['workspace-dir: .agentflow'], { repo_root: repo, active_host: 'codex', ...all_executables }).config
-		settings.write_config_atomic(config_path, changed, { repo_root: repo, active_host: 'codex', ...all_executables })
-		git(repo, ['add', 'ag.json'])
-		git(repo, ['commit', '-m', 'configure workspace'])
-		const result = settings.migrate_workspace({ repo_root: repo, active_host: 'codex', ...all_executables, date: '2026-09-02' })
-		assert.equal(result.workspace, '.agentflow')
-		assert.ok(fs.existsSync(path.join(repo, '.agentflow/devlog.md')))
-		assert.ok(fs.existsSync(path.join(repo, '.agentflow/devlog.archive.md')))
-		assert.ok(fs.existsSync(path.join(repo, '.agentflow/artifacts/item/proof.txt')))
-		assert.equal(fs.existsSync(path.join(repo, 'devlog.md')), false)
-		assert.equal(JSON.parse(fs.readFileSync(config_path, 'utf8')).switches['target-doc'], '.agentflow/devlog.md')
-		assert.match(fs.readFileSync(path.join(repo, '.agentflow/devlog.md'), 'utf8'), /Notebook: \.agentflow\/devlog\.md — root\./)
-	} finally {
-		drop(repo)
-	}
-})
-
-test('workspace migration refuses a dirty repository before moving records', () => {
-	const repo = make_repo()
-	try {
-		fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n')
-		git(repo, ['init', '-b', 'main'])
-		git(repo, ['config', 'user.email', 'test@example.com'])
-		git(repo, ['config', 'user.name', 'Test'])
-		git(repo, ['add', '-A'])
-		git(repo, ['commit', '-m', 'initial'])
-		fs.writeFileSync(path.join(repo, 'devlog.md'), '# STATUS\n')
-		assert.throws(() => settings.migrate_workspace({ repo_root: repo, active_host: 'codex', ...all_executables }), /clean working tree/)
-		assert.ok(fs.existsSync(path.join(repo, 'devlog.md')))
 	} finally {
 		drop(repo)
 	}
@@ -839,12 +868,12 @@ test('settings changes validate the complete batch before one atomic write', () 
 	const repo = make_repo()
 	try {
 		const config_path = path.join(repo, 'ag.json')
-		settings.write_config_atomic(config_path, legacy_root_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
+		settings.write_config_atomic(config_path, custom_notebook_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
 		const before = fs.readFileSync(config_path, 'utf8')
 		assert.throws(() => settings.change_configuration(config_path, ['auto-reply: off', 'streams: invalid'], { repo_root: repo, active_host: 'codex', ...all_executables }), /streams/)
 		assert.equal(fs.readFileSync(config_path, 'utf8'), before)
 		const result = settings.change_configuration(config_path, ['auto-reply: off', 'codex-default.best: gpt-5.6-terra/high'], { repo_root: repo, active_host: 'codex', ...all_executables })
-		assert.deepEqual(result.changes, ['auto-reply: on → off', 'codex-default.best: gpt-5.6-sol/low → gpt-5.6-terra/high'])
+		assert.deepEqual(result.changes, ['auto-reply: on → off', 'codex-default.best: gpt-6-astra/low → gpt-5.6-terra/high'])
 	} finally {
 		drop(repo)
 	}
@@ -854,12 +883,14 @@ test('atomic write failure keeps the old bytes and does not execute hostile stri
 	const repo = make_repo()
 	try {
 		const config_path = path.join(repo, 'ag.json')
-		settings.write_config_atomic(config_path, legacy_root_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
+		settings.write_config_atomic(config_path, custom_notebook_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
 		const before = fs.readFileSync(config_path, 'utf8')
 		const failing_fs = { ...fs, renameSync: () => { throw new Error('injected failure') } }
 		assert.throws(() => settings.write_config_atomic(config_path, settings.make_template('codex'), { repo_root: repo, active_host: 'codex', fs: failing_fs, ...all_executables }), /could not be written atomically/)
 		assert.equal(fs.readFileSync(config_path, 'utf8'), before)
 		assert.equal(fs.existsSync(path.join(repo, 'owned')), false)
+		const denied_fs = { ...fs, openSync: () => { throw Object.assign(new Error('private detail'), { code: 'EPERM' }) } }
+		assert.throws(() => settings.write_text_atomic(path.join(repo, '.codex', 'hooks.json'), '{}', { fs: denied_fs }), /EPERM.*permission.*Do not retry/)
 	} finally {
 		drop(repo)
 	}
@@ -872,7 +903,7 @@ test('stream configuration copies are adjacent and independent', () => {
 		const stream_path = 'features/search/search.devlog.md'
 		const stream_config = settings.copy_for_notebook(root_config, stream_path, { repo_root: repo, active_host: 'codex', ...all_executables })
 		assert.equal(stream_config.switches['target-doc'], stream_path)
-		assert.equal(root_config.switches['target-doc'], 'devlog.md')
+		assert.equal(root_config.switches['target-doc'], '.agentflow/devlog.md')
 		assert.equal(settings.resolve_config_path(repo, stream_path), path.join(repo, 'features/search/ag.json'))
 		fs.writeFileSync(path.join(repo, 'ag.json'), JSON.stringify({ switches: { 'target-doc': '.agentflow/devlog.md', 'workspace-dir': '.agentflow' } }))
 		assert.equal(settings.active_config_path(repo, '.agentflow/devlog.md'), path.join(repo, 'ag.json'))
@@ -890,7 +921,7 @@ test('stream resolution loads its own configuration instead of the worktree root
 		const stream_path = 'features/search/search.devlog.md'
 		fs.mkdirSync(path.join(repo, 'features/search'), { recursive: true })
 		fs.writeFileSync(path.join(repo, stream_path), settings.format_status({ project: 'demo', notebook: stream_path, notebook_kind: 'stream', current_commit: 'initial', tests_scenarios: 'none', config_path: 'features/search/ag.json', host: 'codex', validation: 'validated', proven: 'none', open: 'none', next: 'await', artifacts: 'none', archived_eras: 'none' }))
-		settings.write_config_atomic(path.join(repo, 'ag.json'), legacy_root_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
+		settings.write_config_atomic(path.join(repo, 'ag.json'), custom_notebook_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
 		const stream_config = settings.copy_for_notebook(settings.make_template('codex'), stream_path, { repo_root: repo, active_host: 'codex', ...all_executables })
 		stream_config.switches['auto-reply'] = 'off'
 		settings.write_config_atomic(path.join(repo, 'features/search/ag.json'), stream_config, { repo_root: repo, active_host: 'codex', ...all_executables })
@@ -975,8 +1006,8 @@ test('tier routing resolves roles through configured tiers and exposes ordered f
 	const config = settings.make_template('codex')
 	const acceptance = settings.resolve_worker_tier(config, { role: 'acceptance' }, { active_host: 'codex', ...all_executables })
 	assert.equal(acceptance.tier, 'better')
-	assert.equal(acceptance.model, 'gpt-5.6-terra')
-	assert.equal(acceptance.effort, 'high')
+	assert.equal(acceptance.model, 'gpt-5.6-sol')
+	assert.equal(acceptance.effort, 'low')
 	const coding = settings.resolve_worker_tier(config, { role: 'coding' }, { active_host: 'codex', ...all_executables })
 	assert.equal(coding.tier, 'basic')
 	assert.deepEqual(settings.fallback_tiers('better'), ['basic', 'best', 'cheap'])
@@ -987,7 +1018,7 @@ test('tier routing resolves roles through configured tiers and exposes ordered f
 
 test('templates expose cheap models and session exhaustion falls through to the next eligible profile', () => {
 	const config = settings.make_template('codex')
-	assert.equal(config['external-workers'].find(profile => profile.family === 'codex').tiers.cheap, 'gpt-5.4/medium')
+	assert.equal(config['external-workers'].find(profile => profile.family === 'codex').tiers.cheap, 'gpt-5.4-mini/medium')
 	assert.equal(config['external-workers'].find(profile => profile.family === 'claude').tiers.cheap, 'haiku/high')
 	const first = settings.resolve_worker_tier(config, { role: 'acceptance' }, { active_host: 'codex', ...all_executables, cli_provider: 'on' })
 	const failure = settings.resolve_dispatch_failure(config, first, {
@@ -1119,7 +1150,7 @@ test('generic changes reject target-doc and dedicated rename preserves both comm
 		const status = settings.format_status({ project: 'demo', notebook: 'devlog.md', notebook_kind: 'root', current_commit: 'initial', tests_scenarios: 'none', config_path: 'ag.json', host: 'codex', validation: 'validated', proven: 'none', open: 'none', next: 'await', artifacts: 'none', archived_eras: 'devlog.archive.md' })
 		fs.writeFileSync(path.join(repo, 'devlog.md'), status)
 		fs.writeFileSync(path.join(repo, 'devlog.archive.md'), 'archive\n')
-		settings.write_config_atomic(config_path, legacy_root_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
+		settings.write_config_atomic(config_path, custom_notebook_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
 		git(repo, ['init', '-b', 'main'])
 		git(repo, ['config', 'user.email', 'test@example.com'])
 		git(repo, ['config', 'user.name', 'Test'])
@@ -1146,12 +1177,41 @@ test('generic changes reject target-doc and dedicated rename preserves both comm
 	}
 })
 
+test('dedicated rename finishes the canonical root-config layout without a nonexistent commit path', () => {
+	const repo = make_repo()
+	try {
+		const notebook = '.agentflow/devlog.md'
+		fs.mkdirSync(path.join(repo, '.agentflow'))
+		const status = settings.format_status({ project: 'demo', notebook, notebook_kind: 'root', current_commit: 'initial', tests_scenarios: 'none', config_path: 'ag.json', host: 'codex', validation: 'validated', proven: 'none', open: 'none', next: 'await', artifacts: 'none', archived_eras: 'none' })
+		fs.writeFileSync(path.join(repo, notebook), status)
+		settings.write_config_atomic(path.join(repo, 'ag.json'), settings.make_template('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
+		git(repo, ['init', '-b', 'main'])
+		git(repo, ['config', 'user.email', 'test@example.com'])
+		git(repo, ['config', 'user.name', 'Test'])
+		git(repo, ['add', '-A'])
+		git(repo, ['commit', '-m', 'initial'])
+
+		const result = settings.rename_target_document({ repo_root: repo, old_notebook: notebook, new_notebook: 'notes.md', active_host: 'codex', ...all_executables })
+
+		assert.equal(result.second_commit, true)
+		assert.equal(git(repo, ['rev-list', '--count', 'HEAD']).trim(), '3')
+		assert.equal(git(repo, ['show', 'HEAD^:notes.md']), status)
+		assert.doesNotMatch(git(repo, ['show', '--format=', '--name-only', 'HEAD^']), /ag\.json/)
+		assert.match(git(repo, ['log', '--follow', '--oneline', '--', 'notes.md']), /initial/)
+		assert.equal(fs.readFileSync(path.join(repo, notebook), 'utf8'), 'Moved to: notes.md — write your asks there.\n')
+		assert.equal(JSON.parse(fs.readFileSync(path.join(repo, 'ag.json'))).switches['target-doc'], 'notes.md')
+		assert.equal(git(repo, ['status', '--porcelain']).trim(), '')
+	} finally {
+		drop(repo)
+	}
+})
+
 test('dedicated rename updates a shared adjacent ag.json when both notebooks are in one directory', () => {
 	const repo = make_repo()
 	try {
 		const status = settings.format_status({ project: 'demo', notebook: 'devlog.md', notebook_kind: 'root', current_commit: 'initial', tests_scenarios: 'none', config_path: 'ag.json', host: 'codex', validation: 'validated', proven: 'none', open: 'none', next: 'await', artifacts: 'none', archived_eras: 'none' })
 		fs.writeFileSync(path.join(repo, 'devlog.md'), status)
-		settings.write_config_atomic(path.join(repo, 'ag.json'), legacy_root_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
+		settings.write_config_atomic(path.join(repo, 'ag.json'), custom_notebook_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
 		git(repo, ['init', '-b', 'main'])
 		git(repo, ['config', 'user.email', 'test@example.com'])
 		git(repo, ['config', 'user.name', 'Test'])
@@ -1192,7 +1252,7 @@ test('dedicated rename preserves stream identity and refuses malformed STATUS be
 		try {
 			const malformed_status = status.replace('Open: none.\n\n', '')
 			fs.writeFileSync(path.join(malformed_repo, 'devlog.md'), malformed_status)
-			settings.write_config_atomic(path.join(malformed_repo, 'ag.json'), legacy_root_config('codex'), { repo_root: malformed_repo, active_host: 'codex', ...all_executables })
+			settings.write_config_atomic(path.join(malformed_repo, 'ag.json'), custom_notebook_config('codex'), { repo_root: malformed_repo, active_host: 'codex', ...all_executables })
 			git(malformed_repo, ['init', '-b', 'main'])
 			git(malformed_repo, ['config', 'user.email', 'test@example.com'])
 			git(malformed_repo, ['config', 'user.name', 'Test'])
@@ -1215,7 +1275,7 @@ test('dedicated rename resumes its confined second commit and carries asks exact
 	try {
 		const status = settings.format_status({ project: 'demo', notebook: 'devlog.md', notebook_kind: 'root', current_commit: 'initial', tests_scenarios: 'none', config_path: 'ag.json', host: 'codex', validation: 'validated', proven: 'none', open: 'none', next: 'await', artifacts: 'none', archived_eras: 'none' })
 		fs.writeFileSync(path.join(repo, 'devlog.md'), status)
-		settings.write_config_atomic(path.join(repo, 'ag.json'), legacy_root_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
+		settings.write_config_atomic(path.join(repo, 'ag.json'), custom_notebook_config('codex'), { repo_root: repo, active_host: 'codex', ...all_executables })
 		git(repo, ['init', '-b', 'main'])
 		git(repo, ['config', 'user.email', 'test@example.com'])
 		git(repo, ['config', 'user.name', 'Test'])
@@ -1293,6 +1353,32 @@ test('exact STATUS fixtures accept valid contexts and reject authoritative extra
 		fixtures[5].replace('.agentflow/features/x/x.devlog.md', 'unrelated/features/x/x.devlog.md'),
 		fixtures[0].replace('Streams: none.', 'Streams:\n\nstream: x — closed — features/x/x.devlog.md'),
 		fixtures[0].replace('Next:', 'Settings: target_doc=devlog.md\n\nNext:'),
+	]) assert.equal(settings.validate_status_projection(bad).valid, false)
+})
+
+test('STATUS accepts canonical stream Backlink/Feature metadata and dot-prefixed workspace configuration paths', () => {
+	const stream_status = (config_path, notebook = 'features/fast-closeout/fast-closeout.devlog.md') => settings.format_status({
+		project: 'demo', notebook, notebook_kind: 'stream', current_commit: 'abc', tests_scenarios: 'none', config_path, host: 'claude', validation: 'validated', proven: 'none', open: 'none', next: 'await', artifacts: 'none', archived_eras: 'none',
+	})
+	const closed = `${stream_status('.agentflow/features/fast-closeout/ag.json')}\nBacklink: main notebook \`.agentflow/devlog.md\` (main checkout)\n\nFeature: fast-closeout — closed\n\n---\n\n# → Ask / A-001\n\n+ \n`
+	const active = `${stream_status('features/fast-closeout/ag.json')}\nBacklink: main notebook \`devlog.md\` (main checkout)\n\nFeature: fast-closeout — active — Fast closeout\n\n---\n\n# → Ask / A-001\n\n+ \n`
+	assert.deepEqual(settings.validate_status_projection(closed), { valid: true, errors: [] })
+	assert.deepEqual(settings.validate_status_projection(active), { valid: true, errors: [] })
+
+	const root_status = settings.format_status({
+		project: 'demo', notebook: '.agentflow/devlog.md', notebook_kind: 'root', current_commit: 'abc', tests_scenarios: 'none', config_path: '.agentflow/ag.json', host: 'claude', validation: 'validated', proven: 'none', open: 'none', next: 'await', artifacts: 'none', archived_eras: 'none', streams: [],
+	})
+	assert.deepEqual(settings.validate_status_projection(root_status), { valid: true, errors: [] })
+
+	const reordered = closed.replace('Backlink: main notebook `.agentflow/devlog.md` (main checkout)\n\nFeature: fast-closeout — closed', 'Feature: fast-closeout — closed\n\nBacklink: main notebook `.agentflow/devlog.md` (main checkout)')
+	assert.equal(settings.validate_status_projection(reordered).valid, true)
+	assert.ok(settings.validate_status_projection(reordered).warnings.length)
+	for (const bad of [
+		closed.replace('Feature: fast-closeout — closed\n\n', 'Backlink: main notebook `.agentflow/devlog.md` (main checkout)\n\n'),
+		closed.replace('Feature: fast-closeout — closed', 'Feature: fast-closeout is closed'),
+		root_status.replace('Streams: none.', 'Streams: none.\n\nBacklink: main notebook `.agentflow/devlog.md` (main checkout)\n\nFeature: fast-closeout — closed'),
+		closed.replace('.agentflow/features/fast-closeout/ag.json', '..agentflow/features/fast-closeout/ag.json'),
+		closed.replace('.agentflow/features/fast-closeout/ag.json', './agentflow/features/fast-closeout/ag.json'),
 	]) assert.equal(settings.validate_status_projection(bad).valid, false)
 })
 
@@ -1565,8 +1651,17 @@ test('refresh active-guide scan contains only the supported current contract', (
 	for (const relative_path of active_guides) {
 		const text = fs.readFileSync(path.join(repo_root, relative_path), 'utf8')
 		text.split(/\r?\n/).forEach((line, index) => {
-			if (removed.test(line)) findings.push(`${relative_path}:${index + 1}: ${line}`)
+			const supported = line.replace(/built-in (?:subagents?|workers?) are not a fallback/gu, 'unsupported fallback')
+			if (removed.test(supported)) findings.push(`${relative_path}:${index + 1}: ${line}`)
 		})
 	}
 	assert.deepEqual(findings, [], findings.join('\n'))
+})
+
+test('current configuration requires workspace-dir and never generates root fallback paths', () => {
+  const config = settings.make_template('codex')
+  delete config.switches['workspace-dir']
+  assert.equal(settings.validate_config(config, { active_host: 'codex', ...all_executables }).valid, false)
+  assert.throws(() => settings.workspace_paths(config), /workspace-dir/)
+  assert.equal(settings.migrate_workspace, undefined)
 })

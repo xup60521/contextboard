@@ -6,9 +6,9 @@ Use this file for all looper operation, monitoring, recovery, and delivery work.
 
 ## Triggers
 
-- `run-looper` authorizes direct execution of `looper.js`. Run `node <agentflow-skill-dir>/scripts/looper.js [options] [planned-directory]` from the checkout where the plans must change files.
+- `run-looper` authorizes direct execution through `agf-looper`. Run `agf-looper [options] [planned-directory]` from the checkout where the plans must change files.
 
-- `run-plans` authorizes completion of the existing `$workspace_dir/planned/` queue. Run the installed `agf-looper` shell command from the checkout where the work belongs. Do not replace it with a handwritten loop.
+- `run-plans` authorizes completion of the existing workspace-default queue defined in `SKILL.md` → Task artifact locations. Run the installed `agf-looper` shell command from the checkout where the work belongs. Do not replace it with a handwritten loop.
 
 - A plain mention of looper, plans, `planned/`, or a request to create plans does not start the queue. `make-plans` routes each job as simple or complex, publishes a frozen queue, and stops before implementation. Before `plan_jobs`, the natural-language host inspects the owner request and relevant repository evidence and supplies `complexity_reasons`: a unique list containing only applicable reasons from `material_uncertainty`, `cross_subsystem_coordination`, `public_or_stored_data_contract`, `trust_boundary`, and `unresolved_material_decision`.
 
@@ -16,11 +16,11 @@ Use this file for all looper operation, monitoring, recovery, and delivery work.
 
 ## Supported queues
 
-- A handwritten queue contains regular files named exactly `plan-NNN.md`, where `NNN` is three digits. Put them in `$workspace_dir/planned/` or pass their directory with `--tasks-dir`. It does not need `.queue-generation.json` and uses the configured notebook completion line.
+- A handwritten queue contains regular files named exactly `plan-NNN.md`, where `NNN` is three digits. Use the default queue or select another with `--tasks-dir`, following `SKILL.md` → Task artifact locations. It does not need `.queue-generation.json` and uses the configured notebook completion line.
 
 - A queue produced by `make-plans` contains numbered plans plus `.queue-generation.json`. Leave every plan and that file unchanged. The envelope records route-specific authority: simple plans use the owner request and repository evidence, and complex plans use the accepted contract. Looper checks their saved fingerprints, order, dependencies, notebook, and final integration plan before it starts work.
 
-- Run only from the checkout where the plan must change files. Use `agf-looper --tasks-dir <path>` for the installed shortcut or `node <agentflow-skill-dir>/scripts/looper.js --tasks-dir <path>` for `run-looper`.
+- Run only from the checkout where the plan must change files. Use `agf-looper --tasks-dir <path>`.
 
 ## Normal operation
 

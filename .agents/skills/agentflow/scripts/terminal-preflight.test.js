@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { preflight, run } = require('./terminal-preflight');
 const { spawnSync } = require('node:child_process');
+const { format_local_timestamp } = require('./local-time.js');
 
 test('terminal preflight reports an incomplete completed round', () => {
 	const result = preflight({ devlog_text: '# → Ask / A-001\n\n+ cross-check: implement it\n\n---\n\n# ← Reply / A-001\n' });
@@ -36,7 +37,7 @@ test('terminal preflight accepts bounded context through standard input', () => 
 test('terminal preflight derives missing checkpoint evidence from the repository context', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentflow-terminal-preflight-'));
   try {
-    const stamp = new Date(Date.now() - 120000 + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
+		const stamp = format_local_timestamp(new Date(Date.now() - 120000));
     const devlog_text = `# → Ask / A-001\n\n+ request\n\n## [RUN-001] Event — ${stamp} (during round A-001)\n\n- **Scope check:** Changed paths match the tracker.\n\n## [WIP-001] Checkpoint — ${stamp} (during round A-001)\n\n- **Finished:**\n\n  1. Evidence.\n\n- **Running now:** None.\n\n- **Still to do:** None.\n\n- **Next work action:** continue.\n\n- **Checks:** [x] tracker.md | [x] devlog RUN | [x] scope matches tracker\n`;
     const result = preflight({
       devlog_text,

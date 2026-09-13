@@ -12,7 +12,7 @@ Run declared tests/builds when behavior needs execution. If writable fixtures ar
 
 First give one verdict per requirements-summary `R-<n>`: `covered`, `missing`, or `not proven`, naming the specification section, `INV-<n>` IDs, and evidence. Only covered passes. Then report every specification invariant once under its original ID.
 
-For each, state satisfied/violated/not proven, evidence (commands/results or exact paths/lines), behavior finding against starting/result/failure conditions, and correction needed or `none`. Return exactly `Outcome: PASS|BLOCKING`, `Minimality: PASS|BLOCKING`, and `Conformance: PASS|BLOCKING`, then one overall `Verdict: PASS|BLOCKING`; an overall PASS requires all three PASS. Minimality lists every added concept and its current owner outcome, reproduced failure, or declared trust-boundary reason.
+For each, state satisfied/violated/not proven, evidence (commands/results or exact paths/lines), behavior finding against starting/result/failure conditions, and correction needed or `none`. Return exactly `Outcome: PASS|BLOCKING`, `Minimality: PASS|BLOCKING`, and `Conformance: PASS|BLOCKING`, then one overall `Verdict: PASS|BLOCKING`; an overall PASS requires all three PASS. Minimality lists every added concept and its current owner outcome, reproduced failure, or declared trust-boundary reason. Independently attempt at least one plausible deletion, combination, or reuse of existing behavior. Return Minimality: BLOCKING when the smaller design still satisfies the Ask; otherwise name the simplifications examined and why they do not work.
 
 A BLOCKING verdict never starts an automatic repair loop. Real declared commands are required when static reading cannot prove behavior; passing implementer tests alone is insufficient.
 
@@ -20,13 +20,13 @@ Keep behavior-versus-spec, code quality/conventions, and record quality separate
 
 Missing or blocked evidence stays not proven. Behavior defects block the affected behavior and its evidence. If important evidence came from an untrusted or unverifiable source, do not rely on it.
 
-Cosmetic record defects are warnings only when trusted facts remain proven; they do not reopen source work or rerun source suites. Security evidence supports but does not replace independent invariant checks. Acceptance never starts an automatic repair loop.
+Cosmetic record defects are warnings only when trusted facts remain proven; they do not reopen source work or rerun source suites. Security evidence supports but does not replace independent invariant checks.
 
 A failed or unproven requirement or invariant invalidates only the evidence that depends on it and sends corrections that can affect behavior back to specification or coding. Any change to visible behavior, scope, or starting conditions requires an owner decision.
 
 ## Output contract
 
-- **Identity boundary:** Line one is exactly `* _YYYY-MM-DD HH:MM:SS (<Model>/<Effort>)_`, with fresh Asia/Taipei time and the brief's exact single-line model (1–128 characters) and effort (1–32).
+- **Identity boundary:** Line one is exactly `* _YYYY-MM-DD HH:MM:SS ±HHMM (<Model>/<Effort>)_`, with fresh machine-local time and the brief's exact single-line model (1–128 characters) and effort (1–32).
 - **Final boundary:** Include exactly one Self-check: line as final content; a trailing newline is allowed. Any boundary violation fails.
 
 Write one Markdown report to the exact output path. State revision, repository, evidence paths, environment, trusted identity facts, all requirement verdicts, invariant results, quality findings, missing evidence, corrections, and conclusion; return the report path and a short factual summary.

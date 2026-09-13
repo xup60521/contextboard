@@ -16,18 +16,25 @@
 // stderr = every human-facing message.
 
 const { execFileSync, spawn } = require('node:child_process')
-const { randomBytes } = require('node:crypto')
+const { createHash, randomBytes } = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
 const { TextDecoder } = require('node:util')
 const ag_settings = require('./ag-settings.js')
 const install_hook = require('./install-hook.js')
 const setup = require('./setup.js')
+const resume_intake = require('./resume-intake.js')
+const notebook_writer = require('./notebook-write.js')
+const completion_context = require('./completion-context.js')
+const { format_local_timestamp } = require('./local-time.js')
 
 const MAX_GIT_TIMEOUT_MS = 30_000
 const DELIVERY_LOCK_NAME = 'agf-delivery.lock'
 
 const USAGE_COMMANDS = [
+	{ label: 'skills', syntax: 'agf skills audit [--json]', description: 'inventory local skills and provide a read-only conflict audit prompt' },
+	{ label: 'start', syntax: 'agf start --repo <path> --host <codex|claude> --message-stdin [--json]', description: 'initialize, record the owner message, and return one bounded intake result' },
+	{ label: 'close', syntax: 'agf close --manifest-stdin [--push-authorized]', description: 'validate, replace, commit, and optionally push one prepared closeout manifest' },
 	{ label: 'init', syntax: 'agf init', description: 'create Agentflow records, ignore entries, and project hooks in one repeatable action' },
 	{ label: 'new', syntax: 'agf new <name> [taskkey] [-m "first ask"]', description: 'open a stream and write its initial notebook; root records stay with the agent' },
 	{ label: 'finish', syntax: 'agf finish --prep [taskkey]', description: 'prepare a worktree by pushing its branch and integrating the default branch' },
@@ -37,7 +44,7 @@ const USAGE_COMMANDS = [
 	{ label: 'uninstall', syntax: 'agf uninstall [--skills]', description: 'preview and remove owned project hooks and shell shortcuts; optionally preserve skill copies as recoverable backups' },
 	{ label: 'setup', syntax: 'agf setup [--fix]', description: 'check or install the shell shortcuts used to run Agentflow' },
 	{ label: 'hooks', syntax: 'agf hooks [--project|--global] [--host <name>] [--off]', description: 'install or remove verified Stop hooks and the project commit guard' },
-	{ label: 'settings', syntax: 'agf settings <show|validate|change|rename|migrate-workspace> [options]', description: 'inspect or change the current project configuration' },
+	{ label: 'settings', syntax: 'agf settings <show|validate|change|rename> [options]', description: 'inspect or change the current project configuration' },
 ]
 
 
@@ -135,6 +142,54 @@ const parse_clean_args = (argv) => {
 	return { help: false, key: argv[0] || '' }
 }
 
+const parse_start_args = (argv) => {
+	const result = { repo: '', host: '', message_stdin: false, json: false }
+	for (let index = 0; index < argv.length; index += 1) {
+		const flag = argv[index]
+		if (flag === '--repo' || flag === '--host') {
+			if (result[flag.slice(2)] || index + 1 >= argv.length || argv[index + 1].startsWith('--')) return { error: `${flag} requires a value` }
+			result[flag.slice(2)] = argv[++index]
+			continue
+		}
+		if (flag === '--message-stdin') {
+			if (result.message_stdin) return { error: 'duplicate option --message-stdin' }
+			result.message_stdin = true
+			continue
+		}
+		if (flag === '--json') {
+			if (result.json) return { error: 'duplicate option --json' }
+			result.json = true
+			continue
+		}
+		if (flag === '-h' || flag === '--help') return { help: true }
+		return { error: `unknown start option "${flag}"` }
+	}
+	if (!result.repo) return { error: 'start requires --repo <path>' }
+	if (!['codex', 'claude'].includes(result.host)) return { error: 'start requires --host <codex|claude>' }
+	if (!result.message_stdin) return { error: 'start requires --message-stdin' }
+	return result
+}
+
+const parse_close_args = (argv) => {
+	const result = { help: false, manifest_stdin: false, push_authorized: false }
+	for (const flag of argv) {
+		if (flag === '-h' || flag === '--help') return { help: true }
+		if (flag === '--manifest-stdin') {
+			if (result.manifest_stdin) return { error: 'duplicate option --manifest-stdin' }
+			result.manifest_stdin = true
+			continue
+		}
+		if (flag === '--push-authorized') {
+			if (result.push_authorized) return { error: 'duplicate option --push-authorized' }
+			result.push_authorized = true
+			continue
+		}
+		return { error: `unknown close option "${flag}"` }
+	}
+	if (!result.manifest_stdin) return { error: 'close requires --manifest-stdin' }
+	return result
+}
+
 const update_ignore_file = (repo) => {
 	const ignore_path = path.join(repo, '.gitignore')
 	const current = fs.existsSync(ignore_path) ? fs.readFileSync(ignore_path, 'utf8') : ''
@@ -154,7 +209,7 @@ const init_main = (argv, cwd, log) => {
 	const host = active_host_for_cli(repo)
 	const result = ag_settings.initialize_project({ repo_root: repo, explicit_host: host })
 	update_ignore_file(repo)
-	install_hook.install({ cwd: repo, quiet: true, say: () => {} })
+	install_hook.install({ cwd: repo, hosts: [host], quiet: true, say: () => {} })
 	const notebook = path.relative(repo, result.notebook_path || path.join(repo, result.config.switches['target-doc'])).split(path.sep).join('/')
 	log(`${result.created ? 'initialized' : 'ready'}: ${notebook}`)
 	return { dir: repo, notebook }
@@ -189,11 +244,11 @@ const resolve_key = ({ name, key }) => {
 	return derived
 }
 
-const devlog_template = ({ taskkey, name, project_line, config_path, feature_root = 'features', root_notebook = 'devlog.md', host, date, wish }) => {
+const devlog_template = ({ taskkey, name, project_line, config_path, feature_root = 'features', root_notebook = 'devlog.md', host, date, wish, config, repo_root }) => {
 	const doc = `${feature_root}/${taskkey}/${taskkey}.devlog.md`
 	const ask = wish
-		? `# → Ask / A-001\n\n+ ${wish}\n\n---\n\n# → Ask / A-002\n\n+ \n`
-		: `# → Ask / A-001\n\n+ \n`
+		? `${ag_settings.format_ask_heading('A-001', { config, repo_root })}\n\n+ ${wish}\n\n---\n\n${ag_settings.format_ask_heading('A-002', { config, repo_root })}\n\n+ \n`
+		: `${ag_settings.format_ask_heading('A-001', { config, repo_root })}\n\n+ \n`
 	const status = ag_settings.format_status({
 		project: project_line.replace(/^Project:\s*/, ''),
 		notebook: doc,
@@ -281,6 +336,7 @@ const git = (cwd, args, { preserve_nul = false } = {}) => {
 		return {
 			ok: false,
 			out: sanitize_diagnostic(`${String(err.stdout || '')}${String(err.stderr || err.message || '')}`),
+			status: Number.isInteger(err.status) ? err.status : null,
 			timed_out,
 			mutation_unknown: timed_out,
 		}
@@ -310,6 +366,203 @@ const git_blob = (cwd, args) => {
 	}
 }
 
+const close_usage = 'usage: agf close --manifest-stdin [--push-authorized]'
+
+const read_close_stdin = () => {
+	const chunks = []
+	let total = 0
+	while (true) {
+		const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, 1024 * 1024 + 1 - total))
+		const count = fs.readSync(0, buffer, 0, buffer.length, null)
+		if (count === 0) break
+		total += count
+		if (total > 1024 * 1024) throw new Error('close manifest standard input exceeds 1048576 bytes')
+		chunks.push(buffer.subarray(0, count))
+	}
+	const content = Buffer.concat(chunks, total)
+	if (!Buffer.from(content.toString('utf8'), 'utf8').equals(content)) throw new Error('close manifest standard input is not valid UTF-8')
+	return content.toString('utf8')
+}
+
+const is_plain_object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+
+const exact_keys = (value, expected, label) => {
+	if (!is_plain_object(value)) throw new Error(`${label} must be a JSON object`)
+	const expected_set = new Set(expected)
+	const unknown = Object.keys(value).filter(key => !expected_set.has(key))
+	const missing = expected.filter(key => !Object.hasOwn(value, key))
+	if (unknown.length > 0) throw new Error(`${label} has undeclared field ${unknown[0]}`)
+	if (missing.length > 0) throw new Error(`${label} is missing ${missing[0]}`)
+}
+
+const canonical_json_value = value => {
+	if (Array.isArray(value)) return value.map(canonical_json_value)
+	if (is_plain_object(value)) return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical_json_value(value[key])]))
+	return value
+}
+
+const close_id_for = manifest => {
+	const material = {
+		notebook: manifest.notebook,
+		ask: manifest.ask,
+		run_events: manifest.run_events,
+		reply: manifest.reply,
+		status: manifest.status,
+		allowed_paths: manifest.allowed_paths,
+		commit_message: manifest.commit_message,
+	}
+	return createHash('sha256').update(JSON.stringify(canonical_json_value(material)), 'utf8').digest('hex')
+}
+
+const close_delivery_result = delivery => {
+	const mode = delivery?.mode === 'push' ? 'push' : 'local'
+	return {
+		mode,
+		state: mode === 'push' ? 'not_requested' : 'not_requested',
+		...(mode === 'push' ? { remote: delivery.remote, branch: delivery.branch } : {}),
+	}
+}
+
+const close_result = ({ manifest, close_id = null } = {}) => ({
+	version: 1,
+	ok: false,
+	phase: 'none',
+	close_id,
+	notebook: { path: manifest?.notebook ?? null },
+	ask: manifest?.ask ?? null,
+	next_ask: null,
+	validation: null,
+	commit: { state: 'not_attempted' },
+	delivery: close_delivery_result(manifest?.delivery),
+	error: null,
+	recovery: null,
+})
+
+const close_success_result = result => ({
+	version: result.version,
+	ok: true,
+	phase: result.phase,
+	close_id: result.close_id,
+	notebook: { path: result.notebook.path },
+	ask: result.ask,
+	next_ask: result.next_ask,
+	commit: result.commit,
+	delivery: result.delivery,
+	...(result.validation?.checks.some(check => check.status === 'warn')
+		? { warnings: result.validation.checks.filter(check => check.status === 'warn').map(({ id, detail }) => ({ id, detail })) }
+		: {}),
+})
+
+const set_close_error = (result, code, message, recovery = 'correct the manifest or inspect the reported state before retrying') => {
+	result.ok = false
+	result.error = { code, message: sanitize_diagnostic(message).slice(0, 4096) }
+	result.recovery = recovery
+	return result
+}
+
+const close_validation_failure = (result, message) => {
+	result.validation = {
+		ok: false,
+		checks: [{ id: 'close_candidate', status: 'fail', detail: sanitize_diagnostic(message) }],
+	}
+}
+
+const close_validate_manifest = (manifest, repo) => {
+	exact_keys(manifest, ['version', 'notebook', 'ask', 'run_events', 'reply', 'status', 'allowed_paths', 'commit_message', 'delivery'], 'close manifest')
+	if (manifest.version !== 1 || !Number.isInteger(manifest.version)) throw new Error('close manifest version must be integer 1')
+	if (typeof manifest.notebook !== 'string') throw new Error('close manifest notebook must be a repository-relative path')
+	if (typeof manifest.ask !== 'string' || !/^A-\d{3}$/u.test(manifest.ask) || manifest.ask === 'A-999') throw new Error('close manifest Ask must use the exact A-NNN form except A-999')
+	if (!Array.isArray(manifest.run_events) || !manifest.run_events.every(event => typeof event === 'string')) throw new Error('close manifest run_events must be an array of text events')
+	if (typeof manifest.reply !== 'string') throw new Error('close manifest reply must be complete text')
+	if (typeof manifest.status !== 'string' && !is_plain_object(manifest.status)) throw new Error('close manifest status must be a STATUS text string or fields object')
+	if (!Array.isArray(manifest.allowed_paths) || manifest.allowed_paths.length === 0 || !manifest.allowed_paths.every(file => typeof file === 'string')) throw new Error('close manifest allowed_paths must be a non-empty array of paths')
+	if (new Set(manifest.allowed_paths).size !== manifest.allowed_paths.length) throw new Error('close manifest allowed_paths must not contain duplicates')
+	if (!manifest.allowed_paths.includes(manifest.notebook)) throw new Error('close manifest allowed_paths must contain notebook')
+	if (typeof manifest.commit_message !== 'string' || manifest.commit_message.trim().length === 0) throw new Error('close manifest commit_message must be non-empty')
+	if (Buffer.byteLength(manifest.commit_message, 'utf8') > 128 * 1024) throw new Error('close manifest commit_message is oversized')
+	if (/^Agentflow-Close-Id:\s*[0-9a-f]{64}\s*$/imu.test(manifest.commit_message)) throw new Error('close manifest commit_message must not contain an Agentflow-Close-Id trailer')
+
+	if (!is_plain_object(manifest.delivery)) throw new Error('close manifest delivery must be an object')
+	if (manifest.delivery.mode === 'local') {
+		exact_keys(manifest.delivery, ['mode'], 'local delivery')
+	} else if (manifest.delivery.mode === 'push') {
+		exact_keys(manifest.delivery, ['mode', 'remote', 'branch'], 'push delivery')
+		for (const [label, value] of [['remote', manifest.delivery.remote], ['branch', manifest.delivery.branch]]) {
+			if (typeof value !== 'string' || value.length === 0 || /[\u0000-\u001f\u007f\s]/u.test(value)) throw new Error(`push delivery ${label} must be a non-empty name without whitespace or control characters`)
+		}
+	} else {
+		throw new Error('close manifest delivery.mode must be local or push')
+	}
+
+	const notebook_file = notebook_writer.resolve_path(repo, manifest.notebook, 'notebook')
+	const allowed_files = manifest.allowed_paths.map(file => {
+		if (/[*?\[\]]/u.test(file)) throw new Error(`allowed path ${file} must name one regular file, not a glob`)
+		const absolute = notebook_writer.resolve_path(repo, file, 'allowed')
+		const stat = fs.lstatSync(absolute)
+		if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`allowed path ${file} must be a regular non-symbolic-link file`)
+		return { relative: file, absolute }
+	})
+	return { manifest, close_id: close_id_for(manifest), notebook_file, allowed_files }
+}
+
+const close_porcelain_paths = output => {
+	const paths = []
+	const records = String(output).split('\0')
+	for (let index = 0; index < records.length; index += 1) {
+		const record = records[index]
+		if (record.length < 4) continue
+		const status = record.slice(0, 2)
+		const file = record.slice(3)
+		if (file) paths.push(file)
+		if (status.includes('R') || status.includes('C')) index += 1
+	}
+	return [...new Set(paths)]
+}
+
+const close_working_paths = repo => {
+	const status = git(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], { preserve_nul: true })
+	return status.ok ? { paths: close_porcelain_paths(status.out) } : { error: git_failure_detail('reading working-tree paths', status) }
+}
+
+const close_index_paths = repo => {
+	const status = git(repo, ['diff', '--cached', '--name-only', '-z'], { preserve_nul: true })
+	return status.ok ? { paths: String(status.out).split('\0').filter(Boolean) } : { error: git_failure_detail('reading staged paths', status) }
+}
+
+const repository_identity = repo => {
+	const branch = git(repo, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+	if (!branch.ok) return { error: git_failure_detail('reading repository branch', branch) }
+	const head = git(repo, ['rev-parse', '--verify', 'HEAD'])
+	if (head.ok) return { branch: branch.out, head: head.out, state: 'committed' }
+	const unborn = git(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${branch.out}`])
+	if (unborn.status === 1) return { branch: branch.out, head: null, state: 'unborn' }
+	return { error: git_failure_detail('reading repository commit', head) }
+}
+
+const close_head_identity = repository_identity
+
+const close_find_commit = (repo, close_id, notebook, expected_bytes) => {
+	const history = git(repo, ['log', '--all', '--fixed-strings', `--grep=Agentflow-Close-Id: ${close_id}`, '--format=%H%x00%B%x00'], { preserve_nul: true })
+	if (!history.ok) {
+		const identity = repository_identity(repo)
+		if (!identity.error && identity.state === 'unborn') return { sha: null }
+		return { error: git_failure_detail('reading closeout history', history) }
+	}
+	const matches = []
+	const records = String(history.out).split('\0')
+	for (let index = 0; index + 1 < records.length; index += 1) {
+		const sha = records[index].replace(/^\n/u, '')
+		const message = records[index + 1]
+		if (!/^[0-9a-f]{40}$/u.test(sha)) continue
+		const trailer = message.match(new RegExp(`^Agentflow-Close-Id: ${close_id}$`, 'gmu'))
+		if (trailer === null || trailer.length !== 1) continue
+		const blob = git_blob(repo, ['show', `${sha}:${notebook}`])
+		if (blob.ok && Buffer.isBuffer(blob.out) && blob.out.equals(expected_bytes)) matches.push(sha)
+	}
+	if (matches.length > 1) return { error: 'more than one matching Agentflow-Close-Id commit was found' }
+	return { sha: matches[0] || null }
+}
+
 const dirs = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => !n.startsWith('.')) : [])
 
 const branch_names = (repo) => {
@@ -320,18 +573,18 @@ const branch_names = (repo) => {
 const workspace_features = (repo) => {
 	try {
 		const config = JSON.parse(fs.readFileSync(path.join(repo, 'ag.json'), 'utf8'))
-		return ag_settings.workspace_paths(config).features || 'features'
+		return ag_settings.workspace_paths(config).features
 	} catch {
-		return 'features'
+		return '.agentflow/features'
 	}
 }
 
 const main_notebook = (repo) => {
 	try {
 		const config = JSON.parse(fs.readFileSync(path.join(repo, 'ag.json'), 'utf8'))
-		return ag_settings.workspace_paths(config).notebook || 'devlog.md'
+		return config.switches['target-doc'] || ag_settings.workspace_paths(config).notebook
 	} catch {
-		return 'devlog.md'
+		return '.agentflow/devlog.md'
 	}
 }
 
@@ -354,11 +607,288 @@ const write_all_sync = (descriptor, text, write = fs.writeSync) => {
 	}
 }
 
+const start_file_identity = file => resume_intake.file_identity(file)
+
+const same_start_identity = (left, right) => {
+	if (left === null || right === null) return left === right
+	return Object.keys(left).length === Object.keys(right).length && Object.keys(left).every(key => String(left[key]) === String(right[key]))
+}
+
+const start_relative = (repo, file) => path.relative(repo, file).split(path.sep).join('/')
+
+const start_snapshot_paths = (repo, host, target = '.agentflow/devlog.md') => [...new Set([
+	'ag.json', '.gitignore', target, '.agentflow/devlog.md',
+	`.${host}/settings.json`, `.${host}/hooks.json`,
+	'.claude/settings.json', '.codex/hooks.json',
+])]
+
+const start_provenance = ({ repo, paths, before }) => paths.flatMap(relative => {
+	const previous = before.get(relative) ?? null
+	const after = start_file_identity(path.join(repo, relative))
+	return same_start_identity(previous, after) ? [] : [{ path: relative, before: previous, after }]
+})
+
+const write_text_atomic_preserve_mode = (file, text, mode) => {
+	const temporary = `${file}.${process.pid}.${Date.now()}.${randomBytes(8).toString('hex')}.tmp`
+	let descriptor = null
+	let renamed = false
+	try {
+		fs.mkdirSync(path.dirname(file), { recursive: true })
+		descriptor = fs.openSync(temporary, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600)
+		fs.writeFileSync(descriptor, text, 'utf8')
+		fs.fsyncSync(descriptor)
+		fs.closeSync(descriptor)
+		descriptor = null
+		fs.chmodSync(temporary, mode)
+		fs.renameSync(temporary, file)
+		renamed = true
+	} finally {
+		if (descriptor !== null) {
+			try { fs.closeSync(descriptor) } catch {}
+		}
+		if (!renamed) {
+			try { fs.unlinkSync(temporary) } catch (error) { if (error.code !== 'ENOENT') throw error }
+		}
+	}
+}
+
+const acquire_start_lock = repo => {
+	const lock_path = path.join(repo, '.agentflow-start.lock')
+	let descriptor
+	try {
+		descriptor = fs.openSync(lock_path, 'wx', 0o600)
+		fs.writeFileSync(descriptor, [
+			'Agentflow startup lock',
+			`pid: ${process.pid}`,
+			`started: ${format_local_timestamp()}`,
+			`repository: ${repo}`,
+			'',
+		].join('\n'), 'utf8')
+		fs.fsyncSync(descriptor)
+		return { path: lock_path, descriptor }
+	} catch (error) {
+		if (descriptor !== undefined) {
+			try { fs.closeSync(descriptor) } catch {}
+		}
+		if (error.code === 'EEXIST') return { path: lock_path, existing: true }
+		throw error
+	}
+}
+
+const release_start_lock = lock => {
+	if (!lock || lock.existing) return
+	try { fs.closeSync(lock.descriptor) } finally { fs.unlinkSync(lock.path) }
+}
+
+const read_start_message = () => {
+	const message = fs.readFileSync(0, 'utf8').replace(/\r\n?/gu, '\n')
+	if (message.trim().length === 0) throw new Error('start received an empty owner message on standard input')
+	if (Buffer.byteLength(message, 'utf8') > 64 * 1024) throw new Error('start owner message exceeds the 65536-byte limit')
+	return message.endsWith('\n') ? message.slice(0, -1) : message
+}
+
+const is_activation_only_message = message => ['godev', '/godev'].includes(String(message).trim().toLowerCase())
+
+const insert_start_message = (text, current_ask, message) => {
+	const { parse_fast_lane } = require('./fast-lane.js')
+	if (current_ask && !['', '+'].includes(current_ask.text.trim()) && parse_fast_lane(message) && !parse_fast_lane(current_ask.text)) {
+		const tail = text.slice(current_ask.body_start)
+		const record_start = tail.search(/^(?:---[ \t]*$|## \[(?:RUN|WIP)-\d+\])/mu)
+		const position = record_start < 0 ? text.length : current_ask.body_start + record_start
+		return { text: `${text.slice(0, position).trimEnd()}\n\n${notebook_writer.format_owner_input(message)}\n\n${text.slice(position)}`, inserted: true, reason: 'fast_lane_selected' }
+	}
+	if (current_ask === null || !['', '+'].includes(current_ask.text.trim())) return { text, inserted: false, reason: 'already_present' }
+	if (is_activation_only_message(message)) {
+		if (current_ask.text.trim() === '+') return { text, inserted: false, reason: 'activation_only' }
+		return { text: `${text.trimEnd()}\n\n+\n`, inserted: true, reason: 'activation_placeholder_repaired' }
+	}
+	const listed = notebook_writer.format_owner_input(message)
+	if (current_ask.text.trim() === '') return { text: `${text.trimEnd()}\n\n${listed}\n`, inserted: true, reason: 'empty_ask_repaired' }
+	const plus = text.indexOf('+', current_ask.body_start)
+	if (plus < 0 || text.slice(current_ask.body_start, plus).trim() !== '') throw new Error(`Ask ${current_ask.id} is not a single empty + placeholder`)
+	const line_end = text.indexOf('\n', plus)
+	const after_plus = text.slice(plus + 1)
+	const next_ask = after_plus.search(/^# → Ask \/ /mu)
+	const body_tail = next_ask < 0 ? after_plus : after_plus.slice(0, next_ask)
+	if (body_tail.trim() !== '') throw new Error(`Ask ${current_ask.id} is not a single empty + placeholder`)
+	return { text: `${text.slice(0, plus)}${listed}${text.slice(line_end < 0 ? text.length : line_end)}`, inserted: true, reason: 'empty_placeholder_replaced' }
+}
+
+const next_run_id = (notebook_text, current_ask) => {
+	const heading = current_ask === null ? '' : `# → Ask / ${current_ask.id}`
+	const start = heading === '' ? -1 : String(notebook_text).lastIndexOf(heading)
+	const round = start < 0 ? '' : String(notebook_text).slice(start)
+	const ids = [...round.matchAll(/^## \[RUN-(\d{3})\] Event\b/gmu)].map(match => Number(match[1]))
+	return `RUN-${String((ids.length === 0 ? 0 : Math.max(...ids)) + 1).padStart(3, '0')}`
+}
+
+const start_result = ({ repo, host, notebook, notebook_text, intake, setup_result, message_result, provenance, git_identity }) => ({
+	repository: repo,
+	notebook,
+	active_host: host,
+	git: git_identity,
+	next_run_id: next_run_id(notebook_text, intake.current_ask),
+	configuration: intake.configuration,
+	setup_created: setup_result.created,
+	setup_created_files: setup_result.created_files,
+	hooks_restart_required: setup_result.changed_files.includes(host === 'codex' ? '.codex/hooks.json' : '.claude/settings.json'),
+	setup: {
+		created: setup_result.created,
+		already_complete: setup_result.changed_files.length === 0,
+		changed_files: setup_result.changed_files,
+		provenance,
+		tracked_project_records: setup_result.changed_files.filter(file => [notebook, 'ag.json', '.gitignore'].includes(file)),
+		ignored_local_host_settings: setup_result.changed_files.filter(file => ['.codex/hooks.json', '.claude/settings.json'].includes(file)),
+	},
+	message: { inserted: message_result.inserted, reason: message_result.reason },
+	current_ask_identifier: intake.current_ask?.id || null,
+	current_ask: intake.current_ask,
+	changed_paths: intake.changed_paths,
+	stream_decision: intake.stream_decision,
+	...(intake.fast_lane ? { fast_lane: intake.fast_lane } : {}),
+	required_next_rulebook: intake.stream_decision.required_next_rulebook,
+})
+
+const start_public_result = result => ({
+	repository: result.repository,
+	notebook: result.notebook,
+	active_host: result.active_host,
+	local_timestamp: format_local_timestamp(),
+	configuration: result.configuration,
+	git: result.git,
+	next_run_id: result.next_run_id,
+	setup_created: result.setup_created,
+	setup_created_files: result.setup_created_files,
+	hooks_restart_required: result.hooks_restart_required,
+	message: result.message,
+	current_ask_identifier: result.current_ask_identifier,
+	changed_paths: result.changed_paths,
+	stream_decision: result.stream_decision,
+	...(result.fast_lane ? { fast_lane: result.fast_lane } : {}),
+	required_next_rulebook: result.required_next_rulebook,
+})
+
+const emit_start_result = (result, args, repo, log) => {
+	if (args.json && result.message.reason === 'activation_only') return {
+		dir: repo,
+		json: {
+			repository: result.repository,
+			notebook: result.notebook,
+			configuration: result.configuration,
+			git: result.git,
+			setup_created: result.setup_created,
+			setup_created_files: result.setup_created_files,
+			hooks_restart_required: result.hooks_restart_required,
+			message: result.message,
+		},
+	}
+	if (args.json) return { dir: repo, json: start_public_result(result) }
+	log(`ready: ${repo}`)
+	log(`notebook: ${result.notebook}`)
+	log(`setup: ${result.setup.created ? 'initialized' : 'already complete'}`)
+	log(`owner message: ${result.message.inserted ? 'recorded' : 'already present'}`)
+	log(`current Ask: ${result.current_ask_identifier || 'none'}`)
+	log(`stream decision: ${result.stream_decision.reason}`)
+	if (result.required_next_rulebook) log(`next rulebook: ${result.required_next_rulebook}`)
+	return { dir: repo }
+}
+
+const start_main = (argv, cwd, log, _ask, _width = 80) => {
+	const args = parse_start_args(argv)
+	if (args.help) { log(render_usage(80)); return 1 }
+	if (args.error) { log(`${args.error}\n\n${render_usage(80)}`); return 1 }
+
+	const requested = path.resolve(cwd, args.repo)
+	const repo_path = real_path(requested)
+	if (!fs.existsSync(repo_path) || !fs.statSync(repo_path).isDirectory()) throw new Error('start repository path must be an existing directory')
+	const top = git(repo_path, ['rev-parse', '--show-toplevel'])
+	const repo = top.ok ? real_path(top.out) : repo_path
+	const message = read_start_message()
+	const git_identity = top.ok ? repository_identity(repo) : { branch: null, head: null, state: 'unavailable' }
+	if (git_identity.error) throw new Error(git_identity.error)
+	let configured_target = '.agentflow/devlog.md'
+	let config_file = path.join(repo, 'ag.json')
+	if (fs.existsSync(config_file)) {
+		const existing_config = ag_settings.load_config(config_file, { repo_root: repo, active_host: args.host })
+		configured_target = existing_config.switches['target-doc'] || configured_target
+	}
+	if (top.ok && fs.statSync(path.join(repo, '.git')).isFile()) {
+		configured_target = stream_doc(repo, git_identity.branch)
+		if (!configured_target) throw new Error('stream notebook is missing for this worktree; restore its canonical notebook before intake')
+		config_file = ag_settings.resolve_config_path(repo, configured_target)
+		if (!fs.existsSync(config_file)) throw new Error('stream configuration is missing; restore its notebook/configuration pair before intake')
+	}
+	let lock = acquire_start_lock(repo)
+	if (lock.existing) {
+		const intake = resume_intake.collect_intake({ repo_root: repo, notebook_path: configured_target, active_host: args.host, interrupted_start: true })
+		const result = start_result({
+			repo,
+			host: args.host,
+			notebook: intake.notebook,
+			notebook_text: fs.readFileSync(path.join(repo, intake.notebook), 'utf8'),
+			intake,
+			setup_result: { created: false, created_files: [], changed_files: [] },
+			message_result: { inserted: false, reason: 'startup_lock_present', owner_message: message },
+			provenance: [],
+			git_identity,
+		})
+		return emit_start_result(result, args, repo, log)
+	}
+
+	try {
+		const before_paths = start_snapshot_paths(repo, args.host, configured_target)
+		const before = new Map(before_paths.map(relative => [relative, start_file_identity(path.join(repo, relative))]))
+		const initialized = fs.existsSync(config_file)
+			? ag_settings.ensure_configuration({
+				repo_root: repo,
+				notebook_path: configured_target,
+				config_path: config_file,
+				explicit_host: args.host,
+			})
+			: ag_settings.initialize_project({ repo_root: repo, explicit_host: args.host })
+		const notebook = start_relative(repo, initialized.notebook_path || path.join(repo, initialized.config.switches['target-doc']))
+		const paths = start_snapshot_paths(repo, args.host, notebook)
+		const notebook_file = path.join(repo, notebook)
+		if (!fs.existsSync(notebook_file)) throw new Error(`configured notebook ${notebook} is missing; restore it or repair the pair explicitly`)
+		update_ignore_file(repo)
+		install_hook.install({ cwd: repo, hosts: [args.host], quiet: true, say: () => {} })
+		const setup_provenance = start_provenance({ repo, paths, before })
+		let message_result
+		const input_lock = notebook_writer.acquire_close_round_lock(`${notebook_file}.close-round.lock`)
+		try {
+			const original = notebook_writer.read_regular_file(notebook_file, 'notebook')
+			const current = resume_intake.final_ask_span(original.text)
+			message_result = insert_start_message(original.text, current, message)
+			message_result.owner_message = message
+			const populated = resume_intake.final_ask_span(message_result.text || original.text)
+			if (populated && populated.text !== '+') notebook_writer.capture_input_scope(repo, notebook, args.host, populated.id)
+			if (message_result.inserted) {
+				notebook_writer.verify_notebook_unchanged(notebook_file, original)
+				notebook_writer.atomic_replace(notebook_file, Buffer.from(message_result.text), original.mode)
+			}
+		} finally { notebook_writer.release_close_round_lock(input_lock) }
+		const provenance = start_provenance({ repo, paths, before })
+		const changed_files = setup_provenance.map(record => record.path)
+		const created_files = setup_provenance.filter(record => record.before === null).map(record => record.path)
+		const setup_result = {
+			created: Boolean(initialized.created || created_files.length > 0),
+			created_files,
+			changed_files,
+		}
+		release_start_lock(lock)
+		lock = null
+		const intake = resume_intake.collect_intake({ repo_root: repo, notebook_path: notebook, active_host: args.host, bootstrap_provenance: provenance })
+		return emit_start_result(start_result({ repo, host: args.host, notebook, notebook_text: message_result.text, intake, setup_result, message_result, provenance, git_identity }), args, repo, log)
+	} finally {
+		if (lock !== null) release_start_lock(lock)
+	}
+}
+
 const host_from_root_status = (repo) => {
-	let notebook = path.join(repo, 'devlog.md')
+	let notebook = path.join(repo, '.agentflow/devlog.md')
 	try {
 		const config = JSON.parse(fs.readFileSync(path.join(repo, 'ag.json'), 'utf8'))
-		notebook = path.join(repo, ag_settings.workspace_paths(config).notebook)
+		notebook = path.join(repo, config.switches['target-doc'] || ag_settings.workspace_paths(config).notebook)
 	} catch {}
 	if (!fs.existsSync(notebook)) return ''
 	const text = fs.readFileSync(notebook, 'utf8')
@@ -378,12 +908,11 @@ const active_host_for_cli = (repo) => {
 	}
 }
 
-// The stream notebook, current name or legacy name; '' when neither exists.
+// The canonical stream notebook; '' when absent.
 const stream_doc = (repo, key) => {
 	const features = workspace_features(repo)
 	const candidates = [
 		path.join(features, key, `${key}.devlog.md`),
-		path.join(features, key, 'devlog.md'),
 	]
 	return candidates.find((rel) => fs.existsSync(path.join(repo, rel))) || ''
 }
@@ -569,7 +1098,7 @@ const acquire_delivery_lock = (context) => {
 	const details = [
 		'Agentflow delivery lock',
 		`pid: ${process.pid}`,
-		`started: ${new Date().toISOString()}`,
+		`started: ${format_local_timestamp()}`,
 		`owner-token: ${owner_token}`,
 		`repository: ${context.repo}`,
 		`worktree: ${context.worktree}`,
@@ -599,6 +1128,318 @@ const release_delivery_lock = (lock) => {
 	const close_error = close_delivery_lock_fd(lock)
 	return [release_error ? `lock release refused or failed: ${release_error}` : '', close_error ? `closing the lock descriptor failed: ${close_error}` : '']
 		.filter(Boolean).join('; ') || null
+}
+
+const close_relative_lock = (repo, file) => path.relative(repo, file).split(path.sep).join('/')
+
+const close_captured_validation = ({ repo, notebook, notebook_path, config_file, ignore_paths, candidate_paths }) => {
+	const facts = completion_context.collect({
+		project_root: repo,
+		notebook_path,
+		config_path: config_file,
+		active_host: active_host_for_cli(repo),
+		devlog_text: notebook.text,
+		require_status_projection: true,
+		ignore_paths,
+		candidate_paths,
+	})
+	const validation = completion_context.validate_candidate_facts({
+		devlog_text: notebook.text,
+		context: { ...facts, captured_context: true },
+	})
+	return { facts, validation }
+}
+
+const close_audit_paths = ({ repo, allowed_paths, ignore_paths }) => {
+	const working = close_working_paths(repo)
+	if (working.error) return working
+	const ignored = new Set(ignore_paths)
+	const paths = working.paths.filter(file => !ignored.has(file))
+	const allowed = new Set(allowed_paths)
+	const outside = paths.filter(file => !allowed.has(file))
+	return { paths, outside }
+}
+
+const close_commit_message = (message, close_id) => `${message.trimEnd()}\n\nAgentflow-Close-Id: ${close_id}`
+
+const close_push = ({ repo, manifest, commit_sha, result }) => {
+	const remote = manifest.delivery.remote
+	const branch = manifest.delivery.branch
+	result.delivery.remote = remote
+	result.delivery.branch = branch
+	const remotes = git(repo, ['remote'])
+	if (!remotes.ok || !remotes.out.split('\n').includes(remote)) {
+		result.delivery.state = 'not_configured'
+		set_close_error(result, 'remote_not_configured', `push remote ${remote} is not configured`, 'configure the named remote or retry the same manifest with local delivery')
+		return
+	}
+	const fetched = git(repo, ['fetch', remote])
+	if (!fetched.ok) {
+		result.delivery.state = fetched.timed_out ? 'unknown' : 'failed'
+		set_close_error(result, fetched.timed_out ? 'push_unknown' : 'push_fetch_failed', git_failure_detail(`fetching ${remote}`, fetched), 'inspect the remote result before retrying the same manifest')
+		return
+	}
+
+	const remote_ref = git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${branch}`])
+	if (remote_ref.ok && remote_ref.out === commit_sha) {
+		result.delivery.remote_sha = remote_ref.out
+		result.delivery.state = 'pushed'
+		result.phase = 'pushed'
+		result.ok = true
+		result.error = null
+		result.recovery = null
+		return
+	}
+	if (remote_ref.ok) {
+		const ancestor = git(repo, ['merge-base', '--is-ancestor', remote_ref.out, commit_sha])
+		if (!ancestor.ok) {
+			result.delivery.state = 'failed'
+			set_close_error(result, 'remote_diverged', `remote ${remote}/${branch} is not an ancestor of ${commit_sha}`, 'inspect the remote divergence and retry only after choosing the correct recovery')
+			return
+		}
+	}
+
+	result.delivery.state = 'unknown'
+	const pushed = git(repo, ['push', remote, `HEAD:${branch}`])
+	if (!pushed.ok) {
+		result.delivery.state = pushed.timed_out ? 'unknown' : 'failed'
+		set_close_error(result, pushed.timed_out ? 'push_unknown' : 'push_failed', git_failure_detail(`pushing ${remote}/${branch}`, pushed, { network: true }), 'inspect the remote result before retrying the same manifest')
+		return
+	}
+	const verified = git(repo, ['ls-remote', remote, `refs/heads/${branch}`])
+	const remote_sha = verified.ok ? (verified.out.split(/\s+/u)[0] || '') : ''
+	if (!verified.ok || remote_sha !== commit_sha) {
+		result.delivery.state = 'unknown'
+		set_close_error(result, 'push_verification_unknown', 'push completed but the remote branch could not be verified as the committed SHA', 'inspect the remote result before retrying the same manifest')
+		return
+	}
+	result.delivery.remote_sha = remote_sha
+	result.delivery.state = 'pushed'
+	result.phase = 'pushed'
+	result.ok = true
+	result.error = null
+	result.recovery = null
+}
+
+const close_execute = ({ repo, manifest, close_id, notebook_file, allowed_files }) => {
+	const result = close_result({ manifest, close_id })
+	const notebook_path = manifest.notebook
+	const lock_context = { repo, worktree: repo, key: 'closeout', git_common_dir: real_path(git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).out) }
+	let source
+	try {
+		source = notebook_writer.read_regular_file(notebook_file, 'notebook')
+	} catch (error) {
+		return set_close_error(result, 'notebook_unreadable', error.message, 'correct the notebook path or restore the regular notebook, then retry the same manifest')
+	}
+	result.notebook.source_identity = source.identity
+	const config_file = ag_settings.active_config_path(repo, notebook_path)
+	const lock_path = `${notebook_file}.close-round.lock`
+	const delivery_lock = acquire_delivery_lock(lock_context)
+	if (delivery_lock.error) return set_close_error(result, 'delivery_lock_busy', delivery_lock.error, `inspect ${delivery_lock.path || delivery_lock.error} and retry only after the active closeout has stopped`)
+	let close_lock = null
+	let outcome = result
+	let candidate = null
+	let expected_identity = null
+	const allowed_paths = allowed_files.map(file => file.relative)
+	const ignore_paths = [close_relative_lock(repo, lock_path), close_relative_lock(repo, delivery_lock.path)]
+	try {
+		try {
+			close_lock = notebook_writer.acquire_close_round_lock(lock_path)
+		} catch (error) {
+			set_close_error(outcome, 'notebook_lock_busy', error.message, `inspect ${lock_path} and retry only after the active notebook writer has stopped`)
+			return outcome
+		}
+
+		const current = notebook_writer.read_regular_file(notebook_file, 'notebook')
+		if (!notebook_writer.match_closed_close({ notebook_text: current.text, input: manifest, project_root: repo, notebook_path })) {
+			if (!Object.keys(source.identity).every(key => source.identity[key] === current.identity[key]) || source.hash !== current.hash) {
+				set_close_error(outcome, 'notebook_stale', 'notebook identity changed before closeout locks were held', 'inspect the notebook and prepare a fresh manifest before retrying')
+				return outcome
+			}
+		}
+
+		const index = close_index_paths(repo)
+		if (index.error) {
+			set_close_error(outcome, 'git_state_unknown', index.error, 'inspect Git state before retrying the same manifest')
+			return outcome
+		}
+		if (index.paths.length > 0) {
+			set_close_error(outcome, 'dirty_index', `staged paths are present before notebook mutation: ${index.paths.join(', ')}`, 'clear the staged index deliberately, then retry the same manifest')
+			return outcome
+		}
+		const before_audit = close_audit_paths({ repo, allowed_paths, ignore_paths })
+		if (before_audit.error) {
+			set_close_error(outcome, 'git_state_unknown', before_audit.error, 'inspect Git state before retrying the same manifest')
+			return outcome
+		}
+
+		const identity = close_head_identity(repo)
+		if (identity.error) {
+			set_close_error(outcome, 'git_state_unknown', identity.error, 'inspect repository identity before retrying the same manifest')
+			return outcome
+		}
+		if (manifest.delivery.mode === 'push' && identity.branch !== manifest.delivery.branch) {
+			set_close_error(outcome, 'push_branch_mismatch', `push manifest branch ${manifest.delivery.branch} does not match current branch ${identity.branch}`, 'switch to the named branch or prepare a manifest for the current branch')
+			return outcome
+		}
+
+		const closed = notebook_writer.match_closed_close({ notebook_text: current.text, input: manifest, project_root: repo, notebook_path })
+		const outside_snapshot = closed ? {} : notebook_writer.snapshot_scope_paths(repo, before_audit.outside)
+		if (closed) {
+			candidate = current
+			result.next_ask = closed.next_ask
+			result.notebook.replacement_identity = current.identity
+			result.notebook.candidate_sha256 = current.hash
+			result.phase = 'notebook_replaced'
+		} else {
+			try {
+				const prepared = notebook_writer.prepare_close_candidate({ notebook: current, input: manifest, root: repo, notebook_path })
+				candidate = { ...current, content: prepared.candidate, text: prepared.candidate_text, hash: createHash('sha256').update(prepared.candidate).digest('hex') }
+				result.next_ask = prepared.next_ask
+				result.notebook.candidate_sha256 = candidate.hash
+			} catch (error) {
+				close_validation_failure(outcome, error.message)
+				set_close_error(outcome, 'candidate_invalid', error.message, 'correct the supplied RUN, Reply, or STATUS material and retry the manifest')
+				return outcome
+			}
+		}
+
+		// Only allowed paths can enter this commit. Preserve outside working files,
+		// while completion still checks every committed change after the review.
+		const captured = close_captured_validation({ repo, notebook: candidate, notebook_path, config_file: fs.existsSync(config_file) ? config_file : undefined, ignore_paths: [...ignore_paths, ...Object.keys(outside_snapshot)], candidate_paths: before_audit.paths.filter(file => allowed_paths.includes(file)) })
+		outcome.validation = captured.validation
+		if (!captured.validation.ok) {
+			set_close_error(outcome, 'completion_failed', `candidate completion check failed: ${captured.validation.checks.filter(check => check.status === 'fail').map(check => `${check.id}: ${check.detail}`).join('; ')}`, 'correct the completion evidence or review state, then retry the same manifest')
+			return outcome
+		}
+		if (result.phase === 'none') result.phase = 'validated'
+
+		if (!notebook_writer.match_closed_close({ notebook_text: current.text, input: manifest, project_root: repo, notebook_path })) {
+			const before_replace_identity = close_head_identity(repo)
+			if (before_replace_identity.error || before_replace_identity.branch !== identity.branch || before_replace_identity.head !== identity.head) {
+				set_close_error(outcome, 'repository_changed', before_replace_identity.error || 'repository branch or HEAD changed before notebook replacement', 'inspect repository identity and retry the same manifest')
+				return outcome
+			}
+			try {
+				notebook_writer.verify_notebook_unchanged(notebook_file, source)
+				notebook_writer.atomic_replace(notebook_file, candidate.content, current.mode)
+			} catch (error) {
+				try {
+					const after_failure = notebook_writer.read_regular_file(notebook_file, 'notebook')
+					if (notebook_writer.match_closed_close({ notebook_text: after_failure.text, input: manifest, project_root: repo, notebook_path })) {
+						result.phase = 'notebook_replaced'
+						result.notebook.replacement_identity = after_failure.identity
+						result.notebook.candidate_sha256 = after_failure.hash
+					}
+				} catch {}
+				set_close_error(outcome, 'notebook_replace_failed', error.message, 'retry the same manifest; the notebook is either the old complete file or the new complete file')
+				return outcome
+			}
+			const replaced = notebook_writer.read_regular_file(notebook_file, 'notebook')
+			result.phase = 'notebook_replaced'
+			result.notebook.replacement_identity = replaced.identity
+			result.notebook.candidate_sha256 = replaced.hash
+			candidate = replaced
+		}
+
+		const after_identity = close_head_identity(repo)
+		if (after_identity.error || after_identity.branch !== identity.branch || after_identity.head !== identity.head) {
+			set_close_error(outcome, 'repository_changed', after_identity.error || 'repository branch or HEAD changed during notebook closeout', 'inspect repository identity and retry the same manifest')
+			return outcome
+		}
+		const after_audit = close_audit_paths({ repo, allowed_paths, ignore_paths })
+		if (after_audit.error) {
+			set_close_error(outcome, 'git_state_unknown', after_audit.error, 'inspect Git state before retrying the same manifest')
+			return outcome
+		}
+
+		const existing = close_find_commit(repo, close_id, notebook_path, candidate.content)
+		if (existing.error) {
+			set_close_error(outcome, 'commit_identity_unknown', existing.error, 'inspect closeout history before retrying the same manifest')
+			return outcome
+		}
+		let commit_sha = existing.sha
+		if (commit_sha) {
+			result.commit = { state: 'existing', sha: commit_sha }
+			result.phase = 'committed'
+		} else {
+			const to_stage = after_audit.paths.filter(file => allowed_paths.includes(file))
+			if (!to_stage.includes(notebook_path)) {
+				set_close_error(outcome, 'notebook_not_changed', 'the closeout notebook is not present in the allowed changed paths', 'inspect the notebook and retry the same manifest')
+				return outcome
+			}
+			const staged = git(repo, ['add', '--', ...to_stage])
+			if (!staged.ok) {
+				result.commit = { state: staged.timed_out ? 'unknown' : 'failed' }
+				set_close_error(outcome, staged.timed_out ? 'commit_unknown' : 'stage_failed', git_failure_detail('staging closeout paths', staged), 'inspect the index before retrying the same manifest')
+				return outcome
+			}
+			const staged_paths = close_index_paths(repo)
+			if (staged_paths.error || staged_paths.paths.some(file => !allowed_paths.includes(file))) {
+				result.commit = { state: 'failed' }
+				set_close_error(outcome, 'staging_scope_failed', staged_paths.error || `staging included an unapproved path: ${staged_paths.paths.find(file => !allowed_paths.includes(file))}`, 'inspect the index and correct the explicit manifest scope before retrying')
+				return outcome
+			}
+			const before_commit = close_head_identity(repo)
+			if (before_commit.error || before_commit.branch !== identity.branch || before_commit.head !== identity.head) {
+				set_close_error(outcome, 'repository_changed', before_commit.error || 'repository branch or HEAD changed before the closeout commit', 'inspect repository identity and the staged index before retrying the same manifest')
+				return outcome
+			}
+			const committed = git(repo, ['commit', '-m', close_commit_message(manifest.commit_message, close_id)])
+			if (!committed.ok) {
+				const recovered = close_find_commit(repo, close_id, notebook_path, candidate.content)
+				if (recovered.sha) {
+					commit_sha = recovered.sha
+					result.commit = { state: 'existing', sha: commit_sha }
+					result.phase = 'committed'
+				} else {
+					result.commit = { state: committed.timed_out ? 'unknown' : 'failed' }
+					set_close_error(outcome, committed.timed_out ? 'commit_unknown' : 'commit_failed', git_failure_detail('creating the closeout commit', committed), 'inspect the index and closeout history before retrying the same manifest')
+					return outcome
+				}
+			} else {
+				const verified = close_find_commit(repo, close_id, notebook_path, candidate.content)
+				if (verified.error || !verified.sha) {
+					result.commit = { state: 'unknown' }
+					set_close_error(outcome, 'commit_verification_unknown', verified.error || 'the closeout commit was created but could not be verified', 'inspect closeout history before retrying the same manifest')
+					return outcome
+				}
+				commit_sha = verified.sha
+				result.commit = { state: 'created', sha: commit_sha }
+				result.phase = 'committed'
+			}
+		}
+
+		if (!closed) notebook_writer.save_close_scope(repo, notebook_path, active_host_for_cli(repo), manifest.ask, commit_sha, candidate.hash, outside_snapshot)
+		if (manifest.delivery.mode === 'local') {
+			result.delivery.state = 'local'
+			result.ok = true
+			result.error = null
+			result.recovery = null
+			return outcome
+		}
+		// The verified commit owns the delivered bytes. Input capture may now write
+		// the next Ask while network delivery retains its separate repository lock.
+		notebook_writer.release_close_round_lock(close_lock)
+		close_lock = null
+		close_push({ repo, manifest, commit_sha, result: outcome })
+		return outcome
+	} catch (error) {
+		set_close_error(outcome, 'close_failed', error.message || error, 'inspect the reported phase and retry the same manifest')
+		return outcome
+	} finally {
+		let release_error = null
+		if (close_lock !== null) {
+			try { notebook_writer.release_close_round_lock(close_lock) } catch (error) { release_error = `notebook lock release failed: ${error.message}` }
+		}
+		const delivery_release = release_delivery_lock(delivery_lock)
+		if (delivery_release) release_error = [release_error, delivery_release].filter(Boolean).join('; ')
+		if (release_error) {
+			outcome.ok = false
+			outcome.error = { code: 'lock_release_failed', message: sanitize_diagnostic(release_error).slice(0, 4096) }
+			outcome.recovery = 'inspect the named lock and retained closeout phase before retrying the same manifest'
+		}
+	}
 }
 
 const local_delivery_collision = (context, target, expected_tip = '') => {
@@ -705,7 +1546,7 @@ const closing_record = (context) => {
 	const doc = stream_doc(context.worktree, context.key)
 	if (!doc) {
 		const features = workspace_features(context.worktree)
-		return { error: `delivery requires the stream notebook ${features}/${context.key}/${context.key}.devlog.md or ${features}/${context.key}/devlog.md` }
+		return { error: `delivery requires the stream notebook ${features}/${context.key}/${context.key}.devlog.md` }
 	}
 	const head = git(context.worktree, ['rev-parse', 'HEAD'])
 	if (!head.ok) return { error: git_failure_detail('reading the stream tip', head) }
@@ -935,14 +1776,20 @@ const finish_main = (argv, cwd, log, _ask, width = 80) => {
 // ---------- agf new ----------
 
 const LOCAL_ENV_NAMES = new Set(['.env.local', '.env.production'])
-const ENV_SCAN_IGNORES = new Set(['.git', '.worktrees', 'node_modules'])
+const ENV_SCAN_IGNORES = ['.git', '.worktrees', 'node_modules']
 
-const provision_env_links = (repo, worktree) => {
+// A feature worktree is a fresh checkout, so the ignored local environment
+// files a remote agent needs to run the project are simply absent. Link rather
+// than copy: an edit on either side has to be visible from the other, or the
+// main checkout and the worktree drift apart without anyone noticing.
+const provision_env_links = (repo, worktree, extra_ignores = []) => {
+	const skip = new Set([...ENV_SCAN_IGNORES, ...extra_ignores.filter(Boolean)])
 	const linked = []
-	const visit = (directory) => {
+	const failed = []
+	const visit = directory => {
 		for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
 			if (entry.isDirectory()) {
-				if (!ENV_SCAN_IGNORES.has(entry.name)) visit(path.join(directory, entry.name))
+				if (!skip.has(entry.name)) visit(path.join(directory, entry.name))
 				continue
 			}
 			if (!entry.isFile() || !LOCAL_ENV_NAMES.has(entry.name)) continue
@@ -950,12 +1797,21 @@ const provision_env_links = (repo, worktree) => {
 			const relative = path.relative(repo, source)
 			const target = path.join(worktree, relative)
 			fs.mkdirSync(path.dirname(target), { recursive: true })
-			fs.symlinkSync(source, target, 'file')
+			try {
+				fs.symlinkSync(source, target, 'file')
+			} catch (error) {
+				// Symlink creation on Windows needs Developer Mode or elevation. A
+				// hard link needs neither and keeps both names on one inode, so the
+				// contents still cannot diverge. Copying would let them diverge, so
+				// it is not a fallback worth having.
+				if (!['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) { failed.push({ relative, reason: error.message }); continue }
+				try { fs.linkSync(source, target) } catch (link_error) { failed.push({ relative, reason: link_error.message }); continue }
+			}
 			linked.push(relative)
 		}
 	}
 	visit(repo)
-	return linked
+	return { linked, failed }
 }
 
 const new_main = (argv, cwd, log, ask, width = 80) => {
@@ -989,8 +1845,8 @@ const new_main = (argv, cwd, log, ask, width = 80) => {
 		active_host = active_host_for_cli(repo)
 		const configured = ag_settings.ensure_configuration({ repo_root: repo, active_host })
 		root_config = configured.config
-		feature_root = ag_settings.workspace_paths(root_config).features || 'features'
-		root_notebook = ag_settings.workspace_paths(root_config).notebook
+		feature_root = ag_settings.workspace_paths(root_config).features
+		root_notebook = root_config.switches['target-doc'] || ag_settings.workspace_paths(root_config).notebook
 	} catch (error) {
 		log(`configuration blocked: ${error.message}`)
 		return 1
@@ -998,12 +1854,15 @@ const new_main = (argv, cwd, log, ask, width = 80) => {
 
 	const added = git(repo, ['worktree', 'add', wt_rel, '-b', taskkey])
 	if (!added.ok) { log(`git worktree add failed:\n${added.out}`); return 1 }
+
+	// The worktree already exists at this point, so a linking problem must not
+	// abort and strand a half-provisioned branch. Report it and continue.
 	try {
-		const linked = provision_env_links(repo, wt)
-		if (linked.length > 0) log(`linked ${linked.length} local environment file${linked.length === 1 ? '' : 's'} from the main checkout`)
+		const provisioned = provision_env_links(repo, wt, [root_config.switches['workspace-dir']])
+		if (provisioned.linked.length > 0) log(`linked ${provisioned.linked.length} local environment file${provisioned.linked.length === 1 ? '' : 's'} from the main checkout`)
+		for (const failure of provisioned.failed) log(`warning: could not link ${failure.relative} — ${failure.reason}`)
 	} catch (error) {
-		log(`local environment files could not be linked: ${error.message}`)
-		return 1
+		log(`warning: local environment files could not be linked — ${error.message}`)
 	}
 
 	const doc_rel = path.join(feature_root, taskkey, `${taskkey}.devlog.md`)
@@ -1011,7 +1870,7 @@ const new_main = (argv, cwd, log, ask, width = 80) => {
 	const root_devlog = fs.existsSync(path.join(repo, root_notebook))
 		? fs.readFileSync(path.join(repo, root_notebook), 'utf8')
 		: ''
-	const date = new Date().toISOString().slice(0, 10)
+	const date = format_local_timestamp().slice(0, 10)
 	const body = devlog_template({
 		taskkey,
 		name: args.name,
@@ -1022,6 +1881,8 @@ const new_main = (argv, cwd, log, ask, width = 80) => {
 		host: active_host,
 		date,
 		wish: args.wish,
+		config: root_config,
+		repo_root: repo,
 	})
 	fs.mkdirSync(path.join(wt, feature_root, taskkey), { recursive: true })
 	try {
@@ -1059,6 +1920,9 @@ const new_main = (argv, cwd, log, ask, width = 80) => {
 	log(path.join(wt, doc_rel))
 	log('')
 	log('root stream pointer not written — the next `godev` in the main project folder adds it')
+	log('')
+	log('exit the current host, then continue in the stream:')
+	log(`cd ${shell_quote(wt)} && ${active_host}`)
 
 	const agf_open = process.env.AGF_OPEN
 	if (agf_open) {
@@ -1327,7 +2191,7 @@ const uninstall_main = (argv, cwd, log, ask, width = 80) => {
 		log(uninstall_help(width))
 		return 0
 	}
-	const unknown = argv.find((argument, index) => argument !== '--skills' && argument !== '--profile' && argv[index - 1] !== '--profile')
+	const unknown = argv.find(argument => argument !== '--skills')
 	if (unknown) {
 		log(`unknown uninstall option "${unknown}"\n\n${uninstall_help(width)}`)
 		return 1
@@ -1412,7 +2276,7 @@ const hooks_main = (argv, cwd, log, ask, width = 80) => {
 	return 0
 }
 
-const settings_help = width => `${usage_words('usage: agf settings <show|validate|change|rename|migrate-workspace> [options]', width).join('\n')}\n\n${usage_words('Use --set "key: value" with change. Use --from and --to with rename.', width).join('\n')}\n`
+const settings_help = width => `${usage_words('usage: agf settings <show|validate|change|rename> [options]', width).join('\n')}\n\n${usage_words('Use --set "key: value" with change. Use --from and --to with rename.', width).join('\n')}\n`
 
 const settings_main = (argv, cwd, log, ask, width = 80) => {
 	if (argv.length === 0 || argv.some(argument => argument === '-h' || argument === '--help')) {
@@ -1427,9 +2291,60 @@ const settings_main = (argv, cwd, log, ask, width = 80) => {
 	}
 }
 
+const close_main = (argv, cwd, log, _ask, _width = 80) => {
+	const args = parse_close_args(argv)
+	if (args.help) { log(close_usage); return 0 }
+	if (args.error) { log(`${args.error}\n\n${close_usage}`); return 1 }
+
+	let manifest
+	try {
+		const input = read_close_stdin()
+		const duplicate = ag_settings.duplicate_json_key(input)
+		if (duplicate !== null) throw new Error(`close manifest contains duplicate JSON object key '${duplicate}'`)
+		manifest = JSON.parse(input)
+	} catch (error) {
+		const result = close_result()
+		set_close_error(result, 'invalid_manifest', error.message, 'correct the bounded UTF-8 JSON manifest and retry the same command')
+		return { json: result, exitCode: 1 }
+	}
+
+	let result = close_result({ manifest })
+	let validated
+	try {
+		const root = git(cwd, ['rev-parse', '--show-toplevel'])
+		const repo = real_path(root.ok ? root.out : cwd)
+		validated = close_validate_manifest(manifest, repo)
+		result = close_result({ manifest, close_id: validated.close_id })
+		if (manifest.delivery.mode === 'push' && !args.push_authorized) {
+			set_close_error(result, 'push_not_authorized', 'push delivery requires the separate --push-authorized command authority', 'obtain the already-authorized push decision, then retry the same manifest with --push-authorized')
+			return { json: result, exitCode: 1 }
+		}
+		if (manifest.delivery.mode === 'local' && args.push_authorized) {
+			set_close_error(result, 'push_authority_mismatch', '--push-authorized is valid only when delivery.mode is push', 'remove --push-authorized or prepare a push manifest explicitly')
+			return { json: result, exitCode: 1 }
+		}
+		if (!root.ok) {
+			if (manifest.delivery.mode !== 'local') throw new Error('push delivery requires a Git repository; use local delivery for a plain folder')
+			const current = notebook_writer.read_regular_file(validated.notebook_file, 'notebook')
+			const closed = notebook_writer.match_closed_close({ notebook_text: current.text, input: manifest, project_root: repo, notebook_path: manifest.notebook })
+			const saved = closed || notebook_writer.close_round({ root: repo, notebook: manifest.notebook, input: manifest })
+			result.ok = true
+			result.phase = 'notebook_replaced'
+			result.next_ask = saved.next_ask
+			result.commit = { state: 'not_applicable' }
+			result.delivery.state = 'local'
+		} else result = close_execute({ repo, ...validated })
+		return { json: result.ok ? close_success_result(result) : result, exitCode: result.ok ? 0 : 1 }
+	} catch (error) {
+		close_validation_failure(result, error.message)
+		set_close_error(result, error.code || 'invalid_manifest', error.message, 'correct the manifest or repository state, then retry the same command')
+		return { json: result, exitCode: 1 }
+	}
+}
+
 // ---------- dispatch ----------
 
-const COMMANDS = { init: init_main, new: new_main, finish: finish_main, cleanup: clean_main, clean: clean_main, merge: clean_main, ditch: ditch_main, uninstall: uninstall_main, setup: setup_main, hooks: hooks_main, settings: settings_main }
+const COMMANDS = { skills: (...args) => require('./skills-audit.js').main(...args), start: start_main, close: close_main, init: init_main, new: new_main, finish: finish_main, cleanup: clean_main, clean: clean_main, merge: clean_main, ditch: ditch_main, uninstall: uninstall_main, setup: setup_main, hooks: hooks_main, settings: settings_main }
 
 const main = (argv, cwd, log, ask, width = 80) => {
 	const cmd = COMMANDS[argv[0]]
@@ -1443,8 +2358,8 @@ const main = (argv, cwd, log, ask, width = 80) => {
 
 module.exports = {
 	kebab_case, is_key, next_key, parse_new_args, parse_clean_args, parse_finish_args, resolve_key,
-	render_usage, devlog_template, key_from_path, default_from_origin_head,
-	is_yes, near_keys, stream_doc, host_from_root_status, active_host_for_cli, sanitize_diagnostic, git_timeout_ms, delivery_lock_path, write_all_sync, update_ignore_file, provision_env_links, init_main, new_main, finish_main, clean_main, ditch_main, uninstall_main, setup_main, hooks_main, settings_main, main,
+	parse_start_args, parse_close_args, render_usage, devlog_template, key_from_path, default_from_origin_head,
+	is_yes, near_keys, stream_doc, host_from_root_status, active_host_for_cli, sanitize_diagnostic, git_timeout_ms, delivery_lock_path, write_all_sync, update_ignore_file, provision_env_links, init_main, start_main, close_main, new_main, finish_main, clean_main, ditch_main, uninstall_main, setup_main, hooks_main, settings_main, main,
 }
 
 if (require.main === module) {
@@ -1454,7 +2369,9 @@ if (require.main === module) {
 			: 80
 		const r = main(process.argv.slice(2), process.cwd(), (m) => write_all_sync(process.stderr.fd, `${m}\n`), undefined, usage_width)
 		if (typeof r === 'number') process.exit(r)
-		write_all_sync(process.stdout.fd, `${r.dir}\n`)
+		if (r.json !== undefined) write_all_sync(process.stdout.fd, `${JSON.stringify(r.json, null, 2)}\n`)
+		else write_all_sync(process.stdout.fd, `${r.dir}\n`)
+		if (r.exitCode !== undefined) process.exitCode = r.exitCode
 	} catch (err) {
 		write_all_sync(process.stderr.fd, `${err.message}\n`)
 		process.exit(1)

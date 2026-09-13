@@ -189,6 +189,19 @@ const output = async () => {
     return
   }
 
+  if (config.mode === 'nested') {
+    const nested = spawn(config.nested_executable || process.execPath, [__filename, JSON.stringify({ mode: 'nested-child' })], { stdio: 'ignore' })
+    stream.write('nested child ' + nested.pid + '\n')
+    await wait(300)
+    stream.write(marker + '\n')
+    return
+  }
+
+  if (config.mode === 'nested-child') {
+    setInterval(() => {}, 50)
+    return
+  }
+
   if (config.mode === 'stop') {
     stream.write(marker + '\n')
     fs.writeFileSync(path.join(config.tasks_dir, '.stop.txt'), 'child stop\n', { flag: 'wx' })
@@ -323,6 +336,11 @@ const write_generated_queue = (queue, overrides = {}) => {
   const digest = value => crypto.createHash('sha256').update(value).digest('hex')
   const built = queue_contract.build_queue({
     tasks_dir: queue,
+    schema_version: 2,
+    authorities: [
+      { id: 'work', route: 'complex', original_request_sha256: digest('looper generated request'), requirements_sha256: digest('looper generated requirements'), specification_sha256: digest('looper generated specification') },
+      { id: 'integration', route: 'integration', included_authority_ids: ['work'] },
+    ],
     allow_ag: 'on',
     contract: {
       original_request_sha256: digest('looper generated request'),
@@ -362,14 +380,14 @@ const write_generated_queue = (queue, overrides = {}) => {
         order: 3,
         contract_part: 'final-integration',
         outcome: 'Verify the complete generated request.',
-        dependencies: ['plan-001.md', 'plan-002.md'],
+        dependencies: ['plan-002.md'],
         required_work: ['Run the integration suite.'],
         constraints: ['Change integration tests only.'],
         tests_and_evidence: ['Run the complete suite.'],
         completion_conditions: ['All generated work passes together.'],
         final_integration: true,
       },
-    ],
+    ].map(plan => ({ ...plan, route: plan.final_integration ? 'integration' : 'complex', authority_id: plan.final_integration ? 'integration' : 'work' })),
     completion_path: overrides.completion_path || 'records/work.devlog.md',
     generation_id: 'looper-generated-001',
     created_at: '2026-08-30T14:00:00.000Z',
@@ -620,7 +638,8 @@ test('a running plan periodically shows elapsed time and bounded latest worker d
     const result = await run_looper(base_options(queue, fake_child, {
       mode: 'slow-output',
       output: detail,
-      delay: 80,
+      // Leave several progress polls after child startup even on a loaded full-suite run.
+      delay: 500,
     }, {
       silent: false,
       milestone_interval_ms: 15,
@@ -758,6 +777,29 @@ test('failure result gives a concrete review checklist and paths', async () => {
   }
 })
 
+test('nested worker violations preserve the plan and produce a recovery warning', async () => {
+  const dir = make_temp_dir('agentflow-looper-nested-worker')
+  const queue = make_queue()
+  const nested_executable = path.join(dir, 'codex')
+  fs.symlinkSync(process.execPath, nested_executable)
+  try {
+    const fake_child = make_fake_child(dir)
+    write_plan(queue, 'plan-001.md')
+    const result = await run_looper(base_options(queue, fake_child, { mode: 'nested', nested_executable }, { nested_poll_ms: 20 }))
+    assert.notEqual(result.code, 0)
+    assert.match(result.message, /nested worker|quarantined|fresh coordinator-controlled review/i)
+    assert.equal(fs.existsSync(path.join(queue, 'plan-001.md')), true)
+    assert.equal(fs.existsSync(path.join(queue, 'done', 'plan-001.md')), false)
+    const attempt = JSON.parse(fs.readFileSync(attempt_path(queue), 'utf8'))
+    assert.equal(attempt.nested_worker.detected, true)
+    assert.equal(attempt.nested_worker.recovery.evidence_status, 'quarantined')
+    assert.equal(attempt.nested_worker.processes.some(process_info => process_info.executable === nested_executable), true)
+  } finally {
+    remove_temp_dir(dir)
+    remove_temp_dir(queue)
+  }
+})
+
 test('default launch selects and preserves the literal external-workers command', async (t) => {
   const dir = make_temp_dir('agentflow-looper-worker-profile')
   const queue = make_queue()
@@ -785,7 +827,7 @@ test('default launch selects and preserves the literal external-workers command'
   assert.equal(result.code, 0)
   assert.equal(calls[0].executable, 'configured-worker')
   assert.deepEqual(calls[0].args.slice(0, 1), ['--literal-flag'])
-  assert.match(calls[0].args[1], /^godev: execute /)
+  assert.match(calls[0].args[1], /^Execute the frozen plan directly: /)
   assert.match(calls[0].args[1], /already launched by agf-looper/i)
   assert.match(calls[0].args[1], /execute the named plan directly/i)
   assert.match(calls[0].args[1], /do not invoke agf-looper/i)
@@ -2803,7 +2845,7 @@ test('the default child boundary is injected, ephemeral, shell-free, and fresh p
     assert.notEqual(children[0], children[1])
     for (const [index, call] of calls.entries()) {
       const task = `plan-${String(index + 1).padStart(3, '0')}.md`
-      const prompt = `godev: execute ${path.relative(dir, path.join(queue, task))}\n\nYou are the plan worker already launched by agf-looper. Execute the named plan directly. Do not invoke agf-looper or start another plan worker. Complete the Agentflow notebook record for this plan. A completed round must contain its exact \`# ← Reply / A-NNN\` heading and must end with the next sequential scaffold in exactly this form, including the bare plus line: \`# → Ask / A-NNN\n\n+\`. Do not treat a summary, final report, commit, or bare completion signal as a completed notebook round without the Reply heading and that full next-Ask scaffold. When the plan and its record are safely complete, your entire final response must be exactly: ${completion_line}`
+      const prompt = `Execute the frozen plan directly: ${path.relative(dir, path.join(queue, task))}\n\nYou are the plan worker already launched by agf-looper. Execute the named plan directly and complete the product work yourself. Do not invoke agf-looper or start another plan worker. Do not invoke Agentflow, codex, claude, another model CLI, a subagent, a delegate, or an independent review process. Complete the Agentflow notebook record for this plan. A completed round must contain its exact \`# ← Reply / A-NNN\` heading and must end with the next sequential scaffold in exactly this form, including the bare plus line: \`# → Ask / A-NNN\n\n+\`. Do not treat a summary, final report, commit, or bare completion signal as a completed notebook round without the Reply heading and that full next-Ask scaffold. When the plan and its record are safely complete, your entire final response must be exactly: ${completion_line}`
       assert.equal(call.executable, 'codex')
       assert.deepEqual(call.args, ['exec', '--sandbox', 'workspace-write', '--ephemeral', '--output-last-message', '/dev/fd/3', prompt])
       assert.equal(call.options.shell, false)

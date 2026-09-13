@@ -2,6 +2,7 @@
 
 const node_fs = require('node:fs')
 const node_path = require('node:path')
+const { spawn } = require('node:child_process')
 
 const mode = process.argv[2]
 
@@ -39,6 +40,18 @@ if (mode === 'text') {
 } else if (mode === 'environment') {
   const names = process.argv.slice(3)
   process.stdout.write(JSON.stringify(Object.fromEntries(names.map(name => [name, process.env[name] || null]))) + '\n')
+} else if (mode === 'nested' || mode === 'nested-hold') {
+  const nested = spawn(process.env.FAKE_NESTED_EXECUTABLE || process.execPath, [__filename, 'nested-child'], {
+    cwd: process.cwd(),
+    stdio: 'ignore',
+  })
+  process.stdout.write(`PARENT_STARTED ${nested.pid}\n`)
+  setTimeout(() => {
+    process.stdout.write('PARENT_COMPLETED\n')
+    process.exit(0)
+  }, mode === 'nested-hold' ? 1000 : 300)
+} else if (mode === 'nested-child') {
+  setInterval(() => {}, 50)
 } else {
   process.stderr.write(`unknown fake-worker mode: ${mode}\n`)
   process.exitCode = 2

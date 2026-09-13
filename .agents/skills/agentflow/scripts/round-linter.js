@@ -6,10 +6,12 @@ const ag_settings = require('./ag-settings.js');
 const delegation_route = require('./delegation-route.js');
 const suite_evidence = require('./suite-evidence.js');
 const queue_contract = require('./queue-contract.js');
+const { parse_numeric_timestamp } = require('./local-time.js');
+const node_child_process = require('node:child_process');
 
 const ask_heading_pattern = /^# → Ask \/ (A-\d+)(?: \([^)\r\n]*\))?[ \t]*\r?$/gm;
-const stamp_pattern = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?/g;
-const artifact_opening_stamp_pattern = /^\* _(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \(([^\/\r\n]+)\/([^\/\r\n]+)\)_$/;
+const stamp_pattern = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?(?: [+-]\d{4}| Asia\/Taipei)?/g;
+const artifact_opening_stamp_pattern = /^\* _(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: [+-]\d{4})?) \(([^\/\r\n]+)\/([^\/\r\n]+)\)_$/;
 const artifact_self_check_pattern = /^Self-check:\s+\S.*$/;
 const artifact_identity_limits = { model: 128, effort: 32 };
 const artifact_freshness_ms = 5 * 60 * 1000;
@@ -19,9 +21,6 @@ const advisor_roster = Object.freeze(['requirements', 'codewalk', 'explore', 'sp
 const advisor_roster_text = advisor_roster.join(', ');
 const push_claim_pattern = /\bpushed\b|\bpush succeeded\b/i;
 const reply_heading_pattern = /^# ← Reply \/ A-\d+(?: \([^)\r\n]*\))?[ \t]*\r?$/m;
-const section_heading_pattern = /^##[ \t]+(.+?)[ \t]*\r?$/gm;
-const required_reply_headings = ['## [SUMMARY]', '## Questions (batched — each with a suggested default)'];
-const final_report_heading = '[FINAL REPORT]';
 const default_pipeline_files = ['requirements-report.md', 'spec-report.md', 'acceptance-report.md'];
 const artifact_authorship_note = 'authorship (dispatched-worker vs coordinator) is not file-checkable; host dispatch-tracking must confirm it';
 const max_review_attempts = 3;
@@ -58,6 +57,23 @@ const material_claim_kinds = Object.freeze([
   'limitations',
   'push'
 ]);
+
+const resolve_commit_prefix = (prefix, repository_root = process.cwd()) => {
+  if (typeof prefix !== 'string' || !/^[0-9a-f]{7}$/u.test(prefix)) throw new Error('commit prefix must contain exactly seven lowercase hexadecimal characters');
+  let commits;
+  try {
+    commits = node_child_process.execFileSync('git', ['-C', repository_root, 'rev-list', '--all', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    }).trim().split(/\r?\n/u).filter(Boolean);
+  } catch {
+    throw new Error(`commit prefix ${prefix} could not be resolved in the repository`);
+  }
+  const matches = commits.filter(commit => commit.startsWith(prefix));
+  if (matches.length === 0) throw new Error(`commit prefix ${prefix} does not resolve to a repository commit`);
+  if (matches.length > 1) throw new Error(`commit prefix ${prefix} is ambiguous (${matches.length} repository commits match)`);
+  return matches[0];
+};
 
 const make_check = (id, name, status, detail) => ({ id, name, status, detail });
 
@@ -280,9 +296,7 @@ const lint_executor_record = (facts, options = {}) => {
   if (typeof facts.substantive_delegated_capable !== 'boolean') {
     return 'executor decision substantive_delegated_capable must be an actual boolean';
   }
-  if (facts.substantive_delegated_capable === true && facts.executor_class === 'direct_coordinator') {
-    return 'substantive delegated-capable work must use external-runner-v1 instead of direct_coordinator';
-  }
+  // Delegation capability is descriptive; the host chooses whether a handoff is worthwhile.
 
   const delegated = facts.executor_class !== 'direct_coordinator';
 	if (facts.executor_class === 'generic_external') {
@@ -322,7 +336,7 @@ const lint_executor_decision = (facts, options = {}) => {
   }).filter(Boolean);
 
   return errors.length === 0
-    ? make_check('executor_decision', 'Executor decision is justified and supported', 'pass', `${records.length} executor decision(s) use direct or supported internal work unless justified different-family independence is recorded`)
+    ? make_check('executor_decision', 'Executor decision is justified and supported', 'pass', `${records.length} executor decision(s) record a reason and satisfy the selected execution contract`)
     : make_check('executor_decision', 'Executor decision is justified and supported', 'fail', errors.join('; '));
 };
 
@@ -331,11 +345,24 @@ const lint_executor_decision = (facts, options = {}) => {
 // old date must not fail a faithful reply as "too old".
 const stamp_line_pattern = /^\s*(?:\*\s*_|##\s+Progress checkpoint|##\s*\[(?:WIP|RUN)-\d+\]\s*(?:Checkpoint|Event))/;
 
-const extract_stamps = round_text =>
-  round_text
-    .split(/\r?\n/)
-    .filter(line => stamp_line_pattern.test(line))
-    .flatMap(line => [...line.matchAll(stamp_pattern)].map(match => match[0]));
+const extract_stamps = (round_text, record_text = '') => {
+  const record_lines = new Set(record_text.split(/\r?\n/u).filter(line => /^## \[(?:WIP|RUN)-\d+\]/u.test(line)));
+  const stamps = [];
+  let fenced = false;
+  let in_reply = false;
+  for (const line of round_text.split(/\r?\n/u)) {
+    if (line.startsWith('```') || line.startsWith('~~~')) {
+      fenced = !fenced;
+      continue;
+    }
+    const record_line = record_lines.has(line) || in_reply && /^## \[(?:WIP|RUN)-\d+\]/u.test(line);
+    if (!fenced && (record_line || /^\* _/u.test(line) || /^##\s+Progress checkpoint/u.test(line))) {
+      stamps.push(...[...line.matchAll(stamp_pattern)].map(match => match[0]));
+    }
+    if (!fenced && /^(?:# ← Reply \/|## Reply \/)/u.test(line)) in_reply = true;
+  }
+  return stamps;
+};
 
 // A completed Reply always appends a fresh EMPTY next-Ask scaffold, so the final
 // `# → Ask` heading is normally that scaffold (blank lines plus a bare `+`). An
@@ -348,6 +375,37 @@ const is_empty_ask_body = body =>
 
     return trimmed === '' || trimmed === '+';
   });
+
+const split_round_body = body => {
+  const reply_match = /^(?:# ← Reply \/ A-\d+(?: \([^\)\r\n]*\))?[ \t]*\r?|## Reply \/ A-\d+\b[^\r\n]*\r?)$/mu.exec(body);
+  const reply_index = reply_match?.index ?? body.length;
+  const before_reply = body.slice(0, reply_index);
+  let fenced = false;
+  let offset = 0;
+  let divider_end;
+  let legacy_record_start;
+  for (const line of before_reply.split(/(\r?\n)/u)) {
+    if (line.startsWith('```') || line.startsWith('~~~')) fenced = !fenced;
+    if (!fenced && line === '---\n' || !fenced && line === '---\r\n' || !fenced && line === '---') {
+      divider_end = offset + line.length;
+      break;
+    }
+    if (!fenced && legacy_record_start === undefined && /^## \[(?:WIP|RUN)-\d+\] (?:Checkpoint|Event)[^\r\n]*$/u.test(line)) {
+      legacy_record_start = offset;
+    }
+    offset += line.length;
+  }
+  const record_start = divider_end ?? legacy_record_start ?? before_reply.length;
+  return {
+    ask_text: body.slice(0, legacy_record_start ?? divider_end ?? before_reply.length),
+    record_text: before_reply.slice(record_start),
+    reply_text: reply_match === null ? '' : body.slice(reply_index + reply_match[0].length),
+    reply_index,
+  };
+};
+
+const owner_input_text = text => text.replace(/^<!-- agentflow-input: [a-f0-9]{64} -->\r?\n\r?\n((?:>[^\r\n]*(?:\r?\n|$))+)/gmu,
+  (_marker, quoted) => quoted.replace(/^> ?/gmu, ''));
 
 const parse_devlog = devlog_text => {
   const ask_matches = [...devlog_text.matchAll(ask_heading_pattern)];
@@ -374,14 +432,7 @@ const parse_devlog = devlog_text => {
   const rounds = ask_matches.map((ask, index) => {
     const text = round_span(index);
     const body = text.slice(ask[0].length);
-    const reply_match = /^(?:# ← Reply \/ A-\d+(?: \([^\)\r\n]*\))?[ \t]*\r?|## Reply \/ A-\d+\b[^\r\n]*\r?)$/mu.exec(body);
-    const checkpoint_match = /^## \[WIP-\d+\] Checkpoint[^\r\n]*$/mu.exec(body);
-    const run_match = /^## \[RUN-\d+\] Event[^\r\n]*$/mu.exec(body);
-    const boundary = [reply_match?.index, checkpoint_match?.index, run_match?.index]
-      .filter(index_value => index_value !== undefined)
-      .sort((left, right) => left - right)[0] ?? body.length;
-    const reply_start = reply_match?.index;
-    const reply_text = reply_start === undefined ? '' : body.slice(reply_start + reply_match[0].length);
+    const region = split_round_body(body);
 
     return {
       id: ask[1],
@@ -390,16 +441,17 @@ const parse_devlog = devlog_text => {
       end: ask.index + text.length,
       text,
       body,
-      ask_text: body.slice(0, boundary),
-      wip_text: body.slice(boundary, reply_start ?? body.length),
-      reply_text
+      ask_text: region.ask_text,
+      owner_text: owner_input_text(region.ask_text),
+      wip_text: region.record_text,
+      reply_text: region.reply_text
     };
   });
 
   return {
     ask_ids,
     last_round,
-    stamps: extract_stamps(last_round),
+    stamps: extract_stamps(last_round, rounds[last_index]?.wip_text || ''),
     rounds
   };
 };
@@ -408,34 +460,49 @@ const checkpoint_heading_line_pattern = /^## \[WIP-\d+\] Checkpoint[^\r\n]*$/gmu
 const run_heading_line_pattern = /^## \[RUN-(\d+)\] Event[^\r\n]*$/gmu;
 const run_like_heading_line_pattern = /^## \[RUN-[^\r\n]*$/gmu;
 const valid_run_heading_line_pattern = /^## \[RUN-\d+\] Event[^\r\n]*$/u;
-const checkpoint_round_pattern = /\(during round (A-\d+)\)[ \t]*$/u;
+const run_segment_boundary_pattern = /^## \[RUN-\d+\] Event[^\r\n]*$/mu;
+const checkpoint_round_pattern = /\((?:during round )?(A-\d+)\)[ \t]*$/u;
 const bare_scaffold_pattern = /^[ \t]*\+[ \t]*$/u;
 const reply_heading_line_pattern = /^(?:# ← Reply \/ A-\d+|## Reply \/ A-\d+\b)/u;
+const record_heading_timestamp_pattern = /^## \[(WIP|RUN)-(\d{3})\] (?:Checkpoint|Event) — (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{4})(?: \((?:during round )?(A-\d+)\))?$/u;
+
+const record_heading_has_valid_local_timestamp = (line, now_ms) => {
+  const match = record_heading_timestamp_pattern.exec(line);
+  if (match === null) return false;
+  const stamp = `${match[3]} ${match[4]}`;
+  const timestamp_ms = parse_numeric_timestamp(`${stamp} ${match[5]}`);
+  if (!Number.isFinite(timestamp_ms)) return false;
+  return now_ms === undefined || (timestamp_ms >= now_ms - 24 * 3600000 && timestamp_ms <= now_ms + 5 * 60000);
+};
+
+const record_heading_has_valid_taipei_timestamp = (line, now_ms) => record_heading_has_valid_local_timestamp(line, now_ms);
 
 const lint_round_boundaries = devlog_text => {
   const asks = [...devlog_text.matchAll(ask_heading_pattern)];
   const errors = [];
+  const parsed = parse_devlog(devlog_text);
   asks.forEach((ask, index) => {
     const end = index + 1 < asks.length ? asks[index + 1].index : devlog_text.length;
     const body = devlog_text.slice(ask.index + ask[0].length, end);
-    for (const checkpoint of body.matchAll(checkpoint_heading_line_pattern)) {
+    const region = split_round_body(body);
+    for (const checkpoint of region.record_text.matchAll(checkpoint_heading_line_pattern)) {
       const declared_round = checkpoint_round_pattern.exec(checkpoint[0])?.[1];
-      if (declared_round === undefined) errors.push(`${ask[1]} checkpoint must declare its physical round`);
-      else if (declared_round !== ask[1]) errors.push(`${declared_round} checkpoint is physically inside ${ask[1]}`);
+      if (declared_round !== undefined && declared_round !== ask[1]) errors.push(`${declared_round} checkpoint is physically inside ${ask[1]}`);
+      if (parsed.last_round.includes(checkpoint[0]) && !record_heading_has_valid_local_timestamp(checkpoint[0])) errors.push(`${ask[1]} checkpoint must have a real YYYY-MM-DD HH:MM:SS ±HHMM timestamp`);
     }
-    const runs = [...body.matchAll(run_heading_line_pattern)];
-    for (const run_like of body.matchAll(run_like_heading_line_pattern)) {
+    const runs = [...region.record_text.matchAll(run_heading_line_pattern)];
+    for (const run_like of region.record_text.matchAll(run_like_heading_line_pattern)) {
       if (!valid_run_heading_line_pattern.test(run_like[0])) errors.push(`${ask[1]} has a malformed RUN heading`);
     }
     for (const run of runs) {
       const declared_round = checkpoint_round_pattern.exec(run[0])?.[1];
-      if (declared_round === undefined) errors.push(`${ask[1]} RUN event must declare its physical round`);
-      else if (declared_round !== ask[1]) errors.push(`${declared_round} RUN event is physically inside ${ask[1]}`);
+      if (declared_round !== undefined && declared_round !== ask[1]) errors.push(`${declared_round} RUN event is physically inside ${ask[1]}`);
+      if (parsed.last_round.includes(run[0]) && !record_heading_has_valid_local_timestamp(run[0])) errors.push(`${ask[1]} RUN event must have a real YYYY-MM-DD HH:MM:SS ±HHMM timestamp`);
     }
     const run_numbers = runs.map(run => Number(run[1]));
     if (new Set(run_numbers).size !== run_numbers.length) errors.push(`${ask[1]} has duplicate RUN numbers`);
     if (run_numbers.some((number, run_index) => run_index > 0 && number < run_numbers[run_index - 1])) errors.push(`${ask[1]} RUN events are out of physical order`);
-    const reply_index = body.search(/^(?:# ← Reply \/|## Reply \/)/mu);
+    const reply_index = region.record_text.search(/^(?:# ← Reply \/|## Reply \/)/mu);
     if (reply_index >= 0 && runs.some(run => run.index > reply_index)) errors.push(`${ask[1]} has a RUN event after its Reply`);
 
     const body_lines = body.split(/\r?\n/);
@@ -462,42 +529,35 @@ const tracker_headings = [
 const tracker_escape_regexp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const tracker_sections = text => {
-  const headings = [...text.matchAll(/^## [^\r\n]+$/gmu)];
-  const sections = {};
-  const errors = [];
+  const headings = [...text.matchAll(/^#{1,6} [^\r\n]+$/gmu)];
+  const sections = {}, errors = [], warnings = [];
   let previous = -1;
-
-  tracker_headings.forEach(heading => {
-    const matches = headings.filter(match => match[0].trim() === heading);
+  for (const heading of tracker_headings) {
+    const matches = headings.filter(match => match[0].replace(/^#+\s+/u, '').trim().toLowerCase() === heading.slice(3).toLowerCase());
     if (matches.length !== 1) {
-      errors.push(matches.length === 0 ? `tracker is missing ${heading}` : `tracker repeats ${heading}`);
-      return;
+      (heading === '## Update meaning' && !matches.length ? warnings : errors).push(matches.length === 0 ? 'tracker is missing ' + heading : 'tracker repeats ' + heading);
+      sections[heading] = '';
+      continue;
     }
-    if (matches[0].index <= previous) errors.push(`tracker sections are out of order at ${heading}`);
-    previous = matches[0].index;
-  });
-
-  if (errors.length > 0) return { sections: null, errors };
-
-  tracker_headings.forEach((heading, index) => {
-    const start = headings.find(match => match[0].trim() === heading);
-    const next = tracker_headings[index + 1] === undefined
-      ? { index: text.length }
-      : headings.find(match => match[0].trim() === tracker_headings[index + 1]);
-    sections[heading] = text.slice(start.index + start[0].length, next.index);
-  });
-  return { sections, errors };
+    const start = matches[0];
+    if (start.index <= previous) warnings.push('tracker sections are out of order at ' + heading);
+    if (start[0] !== heading) warnings.push('tracker section presentation differs at ' + heading);
+    previous = start.index;
+    const next = headings.find(match => match.index > start.index);
+    sections[heading] = text.slice(start.index + start[0].length, next?.index ?? text.length);
+  }
+  return { sections, errors, warnings };
 };
 
 const tracker_field = (section, label) => {
-  const pattern = new RegExp(`^- \\*\\*${tracker_escape_regexp(label)}:\\*\\*[ \\t]*([^\\r\\n]*)[ \\t]*$`, 'gmu');
+  const pattern = new RegExp(`^- (?:\\*\\*)?${tracker_escape_regexp(label)}:(?:\\*\\*)?[ \\t]*([^\\r\\n]*)[ \\t]*$`, 'gimu');
   const matches = [...section.matchAll(pattern)];
   if (matches.length === 0) return { value: undefined, error: `tracker is missing ${label}` };
   if (matches.length > 1) return { value: undefined, error: `tracker repeats ${label}` };
   const value = matches[0][1].trim();
   return value.length === 0
     ? { value: undefined, error: `tracker has an empty ${label}` }
-    : { value, error: null };
+    : { value, error: null, warning: matches[0][0].startsWith(`- **${label}:**`) ? null : `tracker field presentation differs at ${label}` };
 };
 
 const tracker_plain_value = value => String(value ?? '').trim().replace(/[.,;:]+$/u, '').trim().toLowerCase();
@@ -573,19 +633,26 @@ const lint_tracker = facts => {
   if (facts.current === false || facts.stale === true) return make_check('tracker', 'Durable tracker is honest', 'fail', 'tracker evidence is stale');
   const file_error = tracker_file_evidence(facts);
   if (file_error !== null) return make_check('tracker', 'Durable tracker is honest', 'fail', file_error);
-  const text = facts.text;
+  const original_text = facts.text;
+  const text = typeof original_text === 'string' ? original_text
+    .replace(/^[*+] /gmu, '- ')
+    .replace(/^- \[([ xX])\] (?:\*\*)?(T-\d+):(?:\*\*)?[ \t]*/gmu, (_line, checked, id) => `- [${checked.toLowerCase()}] **${id}:** `)
+    : original_text;
   if (typeof text !== 'string' || text.trim() === '') return make_check('tracker', 'Durable tracker is honest', 'fail', 'required tracker text is missing');
   if (Buffer.byteLength(text, 'utf8') > max_artifact_bytes) return make_check('tracker', 'Durable tracker is honest', 'fail', 'tracker exceeds the maximum bounded file size');
 
   const parsed_sections = tracker_sections(text);
   if (parsed_sections.errors.length > 0) return make_check('tracker', 'Durable tracker is honest', 'fail', parsed_sections.errors.join('; '));
   const sections = parsed_sections.sections;
+  const warnings = [...parsed_sections.warnings];
+  if (text !== original_text) warnings.push('tracker bullet presentation differs from the template');
   const errors = [];
   const fields = {};
   const require_fields = (section_name, names) => names.forEach(name => {
     const result = tracker_field(sections[section_name], name);
     fields[name] = result.value;
     if (result.error !== null) errors.push(result.error);
+    if (result.warning) warnings.push(result.warning);
   });
 
   require_fields('## Identity', ['Work key', 'Active Ask', 'Goal', 'Last update', 'Evidence commit']);
@@ -595,8 +662,8 @@ const lint_tracker = facts => {
 
   const last_update = fields['Last update']?.replace(/[.,;:]+$/u, '').trim();
   if (last_update !== undefined) {
-    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} Asia\/Taipei$/u.test(last_update) || !Number.isFinite(parse_taipei_timestamp(last_update.slice(0, 19)))) {
-      errors.push('Last update must be a real Asia/Taipei timestamp');
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: [+-]\d{4}| Asia\/Taipei)$/u.test(last_update) || !Number.isFinite(parse_local_timestamp(last_update))) {
+      errors.push('Last update must be a real local numeric-offset timestamp');
     }
   }
 
@@ -693,9 +760,10 @@ const lint_tracker = facts => {
 
   const update_meaning = sections['## Update meaning'];
   if (!/recovery checkpoint/i.test(update_meaning) || !/not a stop signal/i.test(update_meaning) || !/continues? with the next unfinished item/i.test(update_meaning) || !/independent stop condition/i.test(update_meaning)) {
-    errors.push('Update meaning must explain recovery, continuation, and independent stops');
+    warnings.push('Update meaning should explain recovery, continuation, and independent stops');
   }
 
+  if (errors.length === 0 && warnings.length) return make_check('tracker', 'Durable tracker is honest', 'warn', warnings.join('; '));
   return errors.length === 0
     ? format_only
       ? make_check('tracker', 'Tracker has the canonical format', 'pass', `${state} tracker has the canonical sections, fields, checklist, counts, recovery values, and internally consistent judgment; evidence truth is checked separately`)
@@ -709,7 +777,10 @@ const checkpoint_segments = round => {
     const next_checkpoint = checkpoints[index + 1]?.index ?? round.length;
     const following_text = round.slice(checkpoint.index, next_checkpoint);
     const reply = /^(?:# ← Reply \/ A-\d+|## Reply \/ A-\d+\b)/mu.exec(following_text);
-    const end = reply === null ? next_checkpoint : checkpoint.index + reply.index;
+    const run = run_segment_boundary_pattern.exec(following_text);
+    let end = next_checkpoint;
+    if (reply !== null) end = Math.min(end, checkpoint.index + reply.index);
+    if (run !== null) end = Math.min(end, checkpoint.index + run.index);
     return round.slice(checkpoint.index, end);
   });
 };
@@ -717,8 +788,8 @@ const checkpoint_segments = round => {
 const lint_checkpoint_verification = (devlog_text, facts) => {
   if (facts === undefined) return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'skip', 'verification facts were not provided');
   if (facts === null || typeof facts !== 'object' || facts.required !== true) return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'skip', 'new checkpoint verification is not required');
-  const boolean_facts = ['tracker_current', 'run_current', 'progress_current', 'scope_checked'];
-  if (boolean_facts.some(name => facts[name] !== true)) return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'fail', 'one or more checked checkpoint claims lack current evidence');
+  const boolean_facts = ['tracker_current', 'run_current', 'progress_current'];
+  if (boolean_facts.some(name => facts[name] !== true) || facts.scope_checked === false) return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'fail', 'one or more checked checkpoint claims lack current evidence');
   const segments = checkpoint_segments(parse_devlog(devlog_text).last_round);
   if (segments.length === 0) return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'fail', 'current round has no checkpoint');
   const combined = '- **Checks:** [x] tracker.md | [x] devlog RUN | [x] scope matches tracker';
@@ -727,10 +798,12 @@ const lint_checkpoint_verification = (devlog_text, facts) => {
     if (nonempty_lines[nonempty_lines.length - 1] === '---') nonempty_lines.pop();
     const combined_valid = nonempty_lines.filter(line => line === combined).length === 1 && nonempty_lines[nonempty_lines.length - 1] === combined;
     if (!combined_valid) {
-      return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'fail', 'every checkpoint must end with the exact combined verification line');
+      return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'warn', 'presentation only: checkpoints should end with the combined verification line; do not repeat completed work');
     }
   }
-  return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'pass', `all ${segments.length} checkpoint(s) end with labels that match supplied current evidence`);
+  if (facts.scope_checked !== true) return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'warn', 'tracker and RUN checks passed; scope remains unverified by automation and requires host inspection');
+  if (facts.scope_label_present === false) return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'warn', 'presentation only: the Scope check label is absent; scope verification remains the host responsibility');
+  return make_check('checkpoint_verification', 'Latest checkpoint claims have evidence', 'pass', `current tracker and RUN evidence supports ${segments.length} checkpoint(s); prose labels do not prove scope verification`);
 };
 
 const lint_next_ask_scaffold = devlog_text => {
@@ -755,9 +828,7 @@ const lint_next_ask_scaffold = devlog_text => {
     return make_check('next_ask_scaffold', 'Completed Reply has the next empty Ask scaffold', 'skip', 'the notebook contains only its initial empty Ask scaffold');
   }
 
-  if (!/^\s*\+\s*$/u.test(last_body)) {
-    return make_check('next_ask_scaffold', 'Completed Reply has the next empty Ask scaffold', 'fail', 'the trailing empty Ask scaffold must contain one bare + marker');
-  }
+  const marker_warning = !/^\s*\+\s*$/u.test(last_body);
 
   const previous_start = ask_matches[last_index - 1].index;
   const previous_round = devlog_text.slice(previous_start, last_start);
@@ -770,7 +841,7 @@ const lint_next_ask_scaffold = devlog_text => {
   const next_number = Number.parseInt(ask_matches[last_index][1].slice(2), 10);
 
   return next_number === previous_number + 1
-    ? make_check('next_ask_scaffold', 'Completed Reply has the next empty Ask scaffold', 'pass', `the notebook ends with empty ${ask_matches[last_index][1]}`)
+    ? make_check('next_ask_scaffold', 'Completed Reply has the next empty Ask scaffold', marker_warning ? 'warn' : 'pass', marker_warning ? 'presentation only: the empty Ask scaffold should contain one bare + marker' : `the notebook ends with empty ${ask_matches[last_index][1]}`)
     : make_check('next_ask_scaffold', 'Completed Reply has the next empty Ask scaffold', 'fail', 'the trailing empty Ask scaffold does not use the next sequential Ask id');
 };
 
@@ -787,7 +858,7 @@ const lint_terminal_output = terminal_output => {
 	  line.length > 0 && /\S+\s+updated(?:\s|$)/i.test(line) && !/\b(?:not|never|failed|unable|cannot)\s+updated\b/i.test(line)
 	);
 
-	if (!establishes_update) return make_check('terminal_one_line', 'Terminal output establishes completion', 'fail', 'completion evidence must contain a path update ending in " updated"');
+	if (!establishes_update) return make_check('terminal_one_line', 'Terminal output uses the completion wording', 'warn', 'presentation only: expected a path ending in " updated"; saved notebook and delivery facts are checked separately');
 	if (/\r|\n/.test(trimmed_output)) reasons.push(`found ${line_count} lines; the completion evidence is not one line`);
 	if (!trimmed_output.endsWith(' updated')) reasons.push('completion evidence has extra framing after the required update fact');
 
@@ -806,7 +877,7 @@ const lint_timestamps = (devlog_text, now_ms, future_skew_min, max_age_hours) =>
   const future_limit_ms = now_ms + future_skew_min * 60000;
   const age_limit_ms = now_ms - max_age_hours * 3600000;
   const bad_stamps = stamps.reduce((bad, stamp) => {
-    const stamp_ms = Date.parse(`${stamp.replace(' ', 'T')}+08:00`);
+    const stamp_ms = parse_numeric_timestamp(stamp);
     const reasons = [];
 
     if (!Number.isFinite(stamp_ms)) {
@@ -843,24 +914,65 @@ const split_artifact_lines = file_text => {
   return lines;
 };
 
-const parse_taipei_timestamp = timestamp => {
-  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(timestamp);
-  if (match === null) {
-    return NaN;
-  }
-
-  const stamp_ms = Date.parse(timestamp.replace(' ', 'T') + '+08:00');
-  const local = new Date(stamp_ms + 8 * 60 * 60 * 1000);
-  return Number.isFinite(stamp_ms)
-    && local.getUTCFullYear() === Number(match[1])
-    && local.getUTCMonth() + 1 === Number(match[2])
-    && local.getUTCDate() === Number(match[3])
-    && local.getUTCHours() === Number(match[4])
-    && local.getUTCMinutes() === Number(match[5])
-    && local.getUTCSeconds() === Number(match[6])
-    ? stamp_ms
-    : NaN;
+const unfenced_text = text => {
+  let fenced = false;
+  return text.split('\n').map(line => {
+    if (/^\s*(?:`{3,}|~{3,})/u.test(line)) { fenced = !fenced; return ' '.repeat(line.length); }
+    return fenced ? ' '.repeat(line.length) : line;
+  }).join('\n');
 };
+
+const plain_record_text = text => unfenced_text(text.split('\n').map(line => line
+  .replace(/^[ \t]*(?:[-*+][ \t]+)?/u, '')
+  .replace(/\*\*/gu, '')).join('\n'));
+
+const parse_local_timestamp = parse_numeric_timestamp;
+
+// Only Reply metadata uses this reader; owner commands and review reports keep
+// their existing example-excluding readers.
+const inline_completion_metadata = reply => {
+  let fence;
+  let blocks = 0;
+  const errors = [];
+  const lines = [];
+  for (const line of reply.split(/\r?\n/u)) {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line.replace(/^ {0,3}[-*+] /u, ''));
+    if (fence) {
+      if (marker && marker[1][0] === fence.char && marker[1].length >= fence.length && marker[2].trim() === '') {
+        fence = undefined;
+      } else if (fence.metadata) {
+        lines.push(line);
+      }
+      continue;
+    }
+    if (marker) {
+      const metadata = marker[2].trim() === 'completion-metadata';
+      if (metadata) blocks += 1;
+      fence = { char: marker[1][0], length: marker[1].length, metadata };
+      continue;
+    }
+    // Quoted and indented examples cannot supply completion authority.
+    if (!/^(?: {0,3}>| {4}|\t)/u.test(line)) lines.push(line);
+  }
+  if (fence?.metadata) errors.push('completion-metadata fence must be closed');
+  if (blocks > 1) errors.push('Reply permits only one completion-metadata fence');
+  const text = lines.filter(line => !/^(?: {0,3}>| {4}|\t)/u.test(line)).map(line => line
+    .replace(/^[ \t]*(?:[-*+][ \t]+)?/u, '').replace(/\*\*/gu, '')).join('\n');
+  const seen = new Set();
+  const document_effects = [];
+  for (const line of text.split('\n')) {
+    const singleton = /^(Cross-check implementation|Cross-check review|Host review):/iu.exec(line);
+    const effect = /^(Informational document|Non-behavioral change):\s*([^\r\n]+?)\s+—\s+(\S[^\r\n]*)$/iu.exec(line);
+    const path = effect?.[2].trim().replace(/^`([^`]+)`$/u, '$1');
+    const key = singleton ? singleton[1].toLowerCase() : effect ? 'path:' + path : undefined;
+    if (key !== undefined && seen.has(key)) errors.push('duplicate completion metadata: ' + key);
+    if (key !== undefined) seen.add(key);
+    if (effect) document_effects.push({ path, effect: effect[1].toLowerCase() === 'informational document' ? 'informational' : 'non-behavioral', reason: effect[3].trim() });
+  }
+  return { text, document_effects, error: errors.join('; ') };
+};
+
+const completion_metadata = (reply, options) => require('./completion-record').read_metadata(reply, options, inline_completion_metadata);
 
 const validate_artifact_identity = (model, effort) => {
   const errors = [];
@@ -1087,22 +1199,25 @@ const check_artifact = (artifact_dir, requirement) => {
         failure = file_name + ': opened object changed while reading';
       } else {
         const content_lines = split_artifact_lines(file_text);
-        const opening_match = artifact_opening_stamp_pattern.exec(content_lines[0] || '');
+        const evidence_lines = split_artifact_lines(unfenced_text(file_text));
+        const stamp_lines = evidence_lines.filter(line => artifact_opening_stamp_pattern.test(line));
+        const opening_match = stamp_lines.length === 1 ? artifact_opening_stamp_pattern.exec(stamp_lines[0]) : null;
 
         if (opening_match === null) {
-          failure = file_name + ': opening stamp must be the exact first line';
+          failure = file_name + ': opening stamp must contain one unambiguous identity and timestamp';
         } else {
-          const stamp_ms = parse_taipei_timestamp(opening_match[1]);
+          const stamp_ms = parse_local_timestamp(opening_match[1]);
 
           if (!Number.isFinite(stamp_ms)) {
-            failure = file_name + ': opening stamp timestamp is not a valid Asia/Taipei time';
+            failure = file_name + ': opening stamp timestamp is not a valid local numeric-offset time';
           } else if (stamp_ms < now_ms - artifact_freshness_ms || stamp_ms > now_ms + artifact_freshness_ms) {
             failure = file_name + ': opening stamp timestamp is not fresh';
           } else {
+            if (content_lines[0] !== stamp_lines[0]) warning = file_name + ': opening stamp should be the first line';
             if (opening_match[2] !== model || opening_match[3] !== effort) {
               warning = file_name + ': opening stamp identity does not match the immutable context';
             }
-            const self_check_lines = content_lines.filter(line => line.startsWith('Self-check:'));
+            const self_check_lines = evidence_lines.filter(line => line.startsWith('Self-check:'));
 
             if (self_check_lines.length === 0) {
               failure = file_name + ': missing final Self-check boundary';
@@ -1111,7 +1226,7 @@ const check_artifact = (artifact_dir, requirement) => {
             } else if (!artifact_self_check_pattern.test(self_check_lines[0])) {
               failure = file_name + ': malformed Self-check boundary';
             } else if (content_lines[content_lines.length - 1] !== self_check_lines[0]) {
-              failure = file_name + ': content follows the final Self-check boundary';
+              warning = file_name + ': content follows the final Self-check boundary';
             }
           }
         }
@@ -1138,7 +1253,7 @@ const check_artifact = (artifact_dir, requirement) => {
   return warning;
 };
 
-const cosmetic_artifact_failure_pattern = /opening stamp must be the exact first line|opening stamp timestamp is not valid|opening stamp timestamp is not fresh|opening stamp identity does not match|missing final Self-check boundary|duplicate Self-check boundaries|malformed Self-check boundary|content follows the final Self-check boundary/;
+const cosmetic_artifact_failure_pattern = /opening stamp must contain one unambiguous identity and timestamp|opening stamp timestamp is not valid|opening stamp timestamp is not fresh|opening stamp identity does not match|missing final Self-check boundary|duplicate Self-check boundaries|malformed Self-check boundary|content follows the final Self-check boundary/;
 
 const trusted_artifact_metadata = value => {
   if (value === true) return true;
@@ -1147,7 +1262,7 @@ const trusted_artifact_metadata = value => {
 };
 
 const artifact_failure_is_cosmetic = (failure, requirement) =>
-  /opening stamp identity does not match/.test(failure) ||
+  /opening stamp identity does not match|opening stamp should be the first line|content follows the final Self-check boundary/.test(failure) ||
   (cosmetic_artifact_failure_pattern.test(failure) && trusted_artifact_metadata(requirement.trusted_metadata));
 
 const lint_pipeline_artifacts = pipeline => {
@@ -1226,21 +1341,24 @@ const quality_questions_body = reply_text => {
 };
 
 const quality_reply_decisions = (rounds, kind) => {
-  const pattern = new RegExp(`\\b${kind} Go:\\s*([0-9a-f]{40})(?![0-9a-f])`, 'gu');
+  const display_pattern = kind === 'Design' ? '[0-9a-f]{7}(?:[0-9a-f]{33})?' : '[0-9a-f]{40}';
+  const pattern = new RegExp(`\\b${kind} Go:\\s*(${display_pattern})(?![0-9a-f])`, 'gu');
   return rounds.flatMap(round => [...quality_questions_body(round.reply_text).matchAll(pattern)].map(match => ({
     kind,
     commit: match[1],
+    display_commit: match[1].length === 40 ? match[1].slice(0, 7) : match[1],
     round_index: round.index,
     round
   })));
 };
 
 const quality_owner_decisions = (rounds, kind) => {
-  const go_pattern = new RegExp(`^${kind} Go: ([0-9a-f]{40})$`, 'u');
+  const display_pattern = kind === 'Design' ? '[0-9a-f]{7}(?:[0-9a-f]{33})?' : '[0-9a-f]{40}';
+  const go_pattern = new RegExp(`^${kind} Go: (${display_pattern})$`, 'u');
   const stop_pattern = new RegExp(`^${kind} Stop: (\\S.*)$`, 'u');
   return rounds.flatMap(round => {
     let fenced = false;
-    return round.ask_text.split(/\r?\n/).flatMap(line => {
+    return (round.owner_text ?? round.ask_text).split(/\r?\n/).flatMap(line => {
       if (/^\s*(?:`{3,}|~{3,})/u.test(line)) {
         fenced = !fenced;
         return [];
@@ -1256,6 +1374,22 @@ const quality_owner_decisions = (rounds, kind) => {
   });
 };
 
+const resolve_quality_decision = (decision, repository_root) => {
+  if (decision.commit === undefined) return { ...decision, resolved_commit: null, resolution_error: null };
+  if (decision.commit.length === 40) return { ...decision, resolved_commit: decision.commit, resolution_error: null };
+  if (decision.kind !== 'Design') return { ...decision, resolved_commit: null, resolution_error: 'Design Go must name a seven-character prefix' };
+  if (typeof repository_root === 'string' && repository_root.length > 0) {
+    try {
+      return { ...decision, resolved_commit: resolve_commit_prefix(decision.commit, repository_root), resolution_error: null };
+    } catch (error) {
+      return { ...decision, resolved_commit: null, resolution_error: error.message };
+    }
+  }
+  return { ...decision, resolved_commit: decision.commit, resolution_error: null };
+};
+
+const quality_decision_commit = decision => decision.resolved_commit ?? decision.commit;
+
 const quality_blocked_concepts = rounds => rounds.flatMap(round => {
   const pattern = /^(?:- )?Blocked concept: (\S.*)$/gmu;
   return [...round.wip_text.matchAll(pattern)].map(match => ({
@@ -1267,7 +1401,7 @@ const quality_blocked_concepts = rounds => rounds.flatMap(round => {
 
 const quality_latest_nonempty_round = rounds => [...rounds].reverse().find(round => !is_empty_ask_body(round.body));
 
-const lint_quality_gate = (facts, devlog_text) => {
+const lint_quality_gate = (facts, devlog_text, project_root, metadata_context = {}) => {
   if (facts === undefined) {
     return make_check('quality_gate', 'Consequential quality gate is current', 'skip', 'quality-gate facts were not provided');
   }
@@ -1348,12 +1482,15 @@ const lint_quality_gate = (facts, devlog_text) => {
   const rounds = parsed.rounds ?? [];
   if (typeof devlog_text !== 'string') errors.push('devlog text is required for owner decision validation');
   const current_round = quality_latest_nonempty_round(rounds);
-  const away_authorized = facts.away_gates === true && current_round?.ask_text.split(/\r?\n/u).includes('away: gates');
+  const away_authorized = facts.away_gates === true && (current_round?.owner_text ?? current_round?.ask_text)?.split(/\r?\n/u).includes('away: gates');
   if (facts.away_gates === true && !away_authorized) errors.push('away_gates requires exact current owner Ask input away: gates');
-  const plan_replies = quality_reply_decisions(rounds, 'Design');
-  const result_replies = quality_reply_decisions(rounds, 'Result');
-  const design_decisions = quality_owner_decisions(rounds, 'Design');
-  const result_decisions = quality_owner_decisions(rounds, 'Result');
+  const plan_replies = quality_reply_decisions(rounds, 'Design').map(decision => resolve_quality_decision(decision, project_root));
+  const result_replies = quality_reply_decisions(rounds, 'Result').map(decision => resolve_quality_decision(decision, project_root));
+  const design_decisions = quality_owner_decisions(rounds, 'Design').map(decision => resolve_quality_decision(decision, project_root));
+  const result_decisions = quality_owner_decisions(rounds, 'Result').map(decision => resolve_quality_decision(decision, project_root));
+  for (const decision of [...plan_replies, ...design_decisions]) {
+    if (decision.resolution_error !== null) errors.push(`${decision.kind} Go ${decision.commit}: ${decision.resolution_error}`);
+  }
   const plan_commit = facts.plan_commit;
 
   if (facts.design_decision === 'stop') {
@@ -1363,11 +1500,11 @@ const lint_quality_gate = (facts, devlog_text) => {
   } else if (facts.design_decision === 'go' && quality_valid_commit(plan_commit)) {
     const latest_plan_reply = plan_replies.at(-1);
     const matching_design_go = design_decisions
-      .filter(decision => decision.decision === 'go' && decision.commit === plan_commit)
+      .filter(decision => decision.decision === 'go' && quality_decision_commit(decision) === plan_commit)
       .at(-1);
     if (design_decisions.at(-1)?.decision === 'stop') {
       errors.push('Design Stop is the latest owner decision');
-    } else if (latest_plan_reply === undefined || latest_plan_reply.commit !== plan_commit) {
+    } else if (latest_plan_reply === undefined || quality_decision_commit(latest_plan_reply) !== plan_commit) {
       errors.push('Design Go must match the latest plan-only Reply and plan_commit');
     } else if (!away_authorized && (matching_design_go === undefined || matching_design_go.round_index <= latest_plan_reply.round_index)) {
       errors.push('a later owner Ask must contain Design Go for plan_commit');
@@ -1381,11 +1518,11 @@ const lint_quality_gate = (facts, devlog_text) => {
   } else if (facts.result_decision === 'go' && quality_valid_commit(final_commit)) {
     const latest_result_reply = result_replies.at(-1);
     const matching_result_go = result_decisions
-      .filter(decision => decision.decision === 'go' && decision.commit === final_commit)
+      .filter(decision => decision.decision === 'go' && quality_decision_commit(decision) === final_commit)
       .at(-1);
     if (result_decisions.at(-1)?.decision === 'stop') {
       errors.push('Result Stop is the latest owner decision');
-    } else if (latest_result_reply === undefined || latest_result_reply.commit !== final_commit) {
+    } else if (latest_result_reply === undefined || quality_decision_commit(latest_result_reply) !== final_commit) {
       errors.push('Result Go must match the latest result-review Reply and final_implementation_commit');
     } else if (!away_authorized && (matching_result_go === undefined || matching_result_go.round_index <= latest_result_reply.round_index)) {
       errors.push('a later owner Ask must contain Result Go for final_implementation_commit');
@@ -1394,7 +1531,7 @@ const lint_quality_gate = (facts, devlog_text) => {
     }
   }
 
-  const cross_check_commits = rounds.flatMap(round => [...round.reply_text.matchAll(quality_cross_check_implementation_pattern)].map(match => ({ commit: match[1], round_index: round.index })));
+  const cross_check_commits = rounds.flatMap(round => [...completion_metadata(round.reply_text, { ...metadata_context, project_root, ask: round.id }).text.matchAll(quality_cross_check_implementation_pattern)].map(match => ({ commit: match[1], round_index: round.index })));
   const existing_cross_check = cross_check_commits.at(-1)?.commit;
   if (quality_valid_commit(existing_cross_check) && quality_valid_commit(final_commit) && existing_cross_check !== final_commit) {
     errors.push('cross-check implementation commit must match final_implementation_commit');
@@ -1414,14 +1551,14 @@ const lint_quality_gate = (facts, devlog_text) => {
       const second_block = repeated[1];
       const prior_plan_commits = plan_replies
         .filter(reply => reply.round_index < second_block.round_index)
-        .map(reply => reply.commit);
+        .map(reply => quality_decision_commit(reply));
       if (!prior_plan_commits.some(commit => commit !== plan_commit)) {
         errors.push('repeated concept requires a new plan commit after the second Blocked concept');
       }
-      const replacement_reply = plan_replies.find(reply => reply.round_index >= second_block.round_index && reply.commit === plan_commit);
+      const replacement_reply = plan_replies.find(reply => reply.round_index >= second_block.round_index && quality_decision_commit(reply) === plan_commit);
       if (replacement_reply === undefined) {
         errors.push('repeated concept requires a later plan-only Reply for the new plan commit');
-      } else if (!design_decisions.some(decision => decision.decision === 'go' && decision.commit === plan_commit && decision.round_index > replacement_reply.round_index)) {
+      } else if (!design_decisions.some(decision => decision.decision === 'go' && quality_decision_commit(decision) === plan_commit && decision.round_index > replacement_reply.round_index)) {
         errors.push('repeated concept requires a still-later owner Ask containing Design Go for the new plan commit');
       }
     }
@@ -1432,8 +1569,26 @@ const lint_quality_gate = (facts, devlog_text) => {
     : make_check('quality_gate', 'Consequential quality gate is current', 'fail', errors.join('; '));
 };
 
-const lint_cross_check = (devlog_text, project_root, decision) => {
+// One classifier for collected Git facts and their final validation. A workspace
+// can contain products and review evidence, so directory membership is not proof.
+const review_eligible = (file, facts = {}) => {
+  if ((facts.record_files || []).includes(file)) return false;
+  const config = facts.configuration_files || [];
+  if ((facts.bootstrap_files || []).includes(file) && (file === '.gitignore' || config.includes(file))) return false;
+  if ((facts.document_effects || []).some(item => item.path === file && item.effect === 'non-behavioral' && nonempty_text(item.reason))) return false;
+  if (config.includes(file)) return true;
+  if (/\.(?:md|txt)$/iu.test(file)) {
+    return !(facts.document_effects || []).some(item => item.path === file && item.effect === 'informational' && nonempty_text(item.reason));
+  }
+  return true;
+};
+
+const lint_cross_check = (devlog_text, project_root, decision, metadata_context = {}) => {
   const last_round = parse_devlog(devlog_text).last_round;
+  let presentation_warning = false;
+  const round = parse_devlog(last_round).rounds.at(-1);
+  const metadata = completion_metadata(round?.reply_text || '', { ...metadata_context, project_root, ask: round?.id });
+  if (metadata.error) return make_check('cross_check', 'Completion metadata is available and unambiguous', 'fail', metadata.error);
   if (decision === undefined) {
     return make_check('cross_check', 'Requested implementation has an external cross-check', 'skip', 'a host-recorded review decision was not supplied');
   }
@@ -1449,33 +1604,37 @@ const lint_cross_check = (devlog_text, project_root, decision) => {
   if (!reply_heading_pattern.test(last_round)) {
     return make_check('cross_check', 'Requested implementation has an external cross-check', 'skip', 'the triggered round is still in progress');
   }
+
   if (decision.status === 'not-requested') {
     const changed_files = Array.isArray(decision.changed_files) && decision.changed_files.every(nonempty_text) ? decision.changed_files : null;
-    const record_files = Array.isArray(decision.record_files) && decision.record_files.every(nonempty_text) ? decision.record_files : [];
-    const record_roots = Array.isArray(decision.record_roots) && decision.record_roots.every(nonempty_text) ? decision.record_roots : [];
-    const configuration_files = Array.isArray(decision.configuration_files) && decision.configuration_files.every(nonempty_text) ? decision.configuration_files : [];
-    const bootstrap_bookkeeping_only = decision.bootstrap_bookkeeping_only === true && changed_files !== null && changed_files.length > 0 && changed_files.every(file =>
-      file === '.gitignore' || configuration_files.includes(file) || record_files.includes(file) || record_roots.some(root => file.startsWith(root))
-    );
-    const implementation_changed = changed_files === null || (!bootstrap_bookkeeping_only && changed_files.some(file =>
-      configuration_files.includes(file) || (!record_files.includes(file) && !record_roots.some(root => file.startsWith(root)))
-    ));
+    const implementation_changed = changed_files === null || changed_files.some(file => review_eligible(file, decision));
     return implementation_changed === false
-      ? make_check('cross_check', 'Requested implementation has an external cross-check', 'pass', bootstrap_bookkeeping_only ? 'the host recorded no review because a first-time empty project changed only Agentflow bookkeeping' : 'the host recorded no review because no source, test, configuration, or user-document change exists')
+      ? make_check('cross_check', 'Requested implementation has an external cross-check', 'pass', 'no review-eligible change exists outside exact records and declared informational or non-behavioral changes')
       : make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', changed_files === null ? 'not-requested requires Git-derived changed-file facts' : 'not-requested conflicts with a changed path outside the declared Agentflow record boundary');
   }
   if (decision.status === 'skip-review') {
-    return decision.owner_authorized === true
-      ? make_check('cross_check', 'Requested implementation has an external cross-check', 'pass', 'the owner authorized the recorded final-review skip')
-      : make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'skip-review requires owner authorization and a recorded reason');
+    if (decision.owner_authorized !== true) return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'skip-review requires owner authorization and a recorded reason');
+    const host_reviews = metadata.text.split(/\r?\n/u).map(line => line.trim()).filter(line => /^Host review:/iu.test(line));
+    const host_reviewed = host_reviews.length === 1 && /^Host review:\s+PASS\s+[—–-]\s+\S.*$/iu.test(host_reviews[0]);
+    return host_reviewed
+      ? make_check('cross_check', 'Requested implementation has a review', 'pass', 'the owner waived external review; the host recorded its self-review result')
+      : make_check('cross_check', 'Requested implementation has a review', 'fail', 'external review is waived, but host self-review is required: record Host review: PASS — <inspected scope, evidence and findings> in the Reply');
   }
-  const review_match = cross_check_review_pattern.exec(last_round);
-  if (review_match === null) {
-    return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'completed cross-check round is missing its external review report path');
+  const reply_fields = metadata.text;
+  const review_matches = [...reply_fields.matchAll(new RegExp(cross_check_review_pattern.source, 'gimu'))];
+  const review_match = review_matches[0];
+  if (review_matches.length !== 1) {
+    const changed_files = Array.isArray(decision.changed_files) ? decision.changed_files.filter(file => review_eligible(file, decision)) : [];
+    const document_only = changed_files.length > 0 && changed_files.every(file => /\.(?:md|txt)$/iu.test(file));
+    const missing_report_detail = document_only
+      ? `completed cross-check round is missing its external review report path; if ${changed_files.join(', ')} ${changed_files.length === 1 ? 'is' : 'are'} informational or non-behavioral rather than operating instruction${changed_files.length === 1 ? '' : 's'}, add one standalone Reply line for each: Informational document: <path> — <reason>, or Non-behavioral change: <path> — <reason>`
+      : 'completed cross-check round is missing its external review report path';
+    return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', review_matches.length === 0 ? missing_report_detail : 'completed cross-check round requires exactly one external review report path');
   }
-  const implementation_match = cross_check_implementation_pattern.exec(last_round);
-  if (implementation_match === null) {
-    return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'completed cross-check round is missing its exact implementation commit');
+  const implementation_matches = [...reply_fields.matchAll(new RegExp(cross_check_implementation_pattern.source, 'gimu'))];
+  const implementation_match = implementation_matches[0];
+  if (implementation_matches.length !== 1) {
+    return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', implementation_matches.length === 0 ? 'completed cross-check round is missing its exact implementation commit' : 'completed cross-check round requires exactly one exact implementation commit');
   }
   if (!nonempty_text(project_root)) {
     return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'project root is unavailable for external review report verification');
@@ -1505,22 +1664,26 @@ const lint_cross_check = (devlog_text, project_root, decision) => {
     if (node_fs.realpathSync(report_path) !== report_path) {
       return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'external review report resolved to a different path');
     }
-    const report = node_fs.readFileSync(report_path, 'utf8');
+    const report = unfenced_text(node_fs.readFileSync(report_path, 'utf8'));
     const lines = split_artifact_lines(report);
     const self_checks = lines.filter(line => line.startsWith('Self-check:'));
-    if (artifact_opening_stamp_pattern.exec(lines[0] || '') === null || self_checks.length !== 1 || !artifact_self_check_pattern.test(self_checks[0]) || lines[lines.length - 1] !== self_checks[0]) {
+    const stamps = lines.filter(line => artifact_opening_stamp_pattern.test(line));
+    if (stamps.length !== 1 || self_checks.length !== 1 || !artifact_self_check_pattern.test(self_checks[0])) {
       return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'external review report does not have the required worker stamp and final Self-check boundary');
     }
-    const reviewed_match = reviewed_commit_pattern.exec(report);
-    const verdicts = [...report.matchAll(verdict_pattern)].map(match => match[1].toUpperCase());
+    presentation_warning = lines[0] !== stamps[0] || lines[lines.length - 1] !== self_checks[0];
+    const report_fields = plain_record_text(report);
+    const reviewed_matches = [...report_fields.matchAll(new RegExp(reviewed_commit_pattern.source, 'gimu'))];
+    const reviewed_match = reviewed_matches[0];
+    const verdicts = [...report_fields.matchAll(verdict_pattern)].map(match => match[1].toUpperCase());
     if (verdicts.length !== 1) {
       return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'external review report must contain exactly one verdict');
     }
-    if (verdicts[0] !== 'PASS' || reviewed_match === null) {
+    if (verdicts[0] !== 'PASS' || reviewed_matches.length !== 1) {
       return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'external review report must record Verdict: PASS and the reviewed 40-character implementation commit');
     }
     for (const [dimension, pattern] of Object.entries(cross_check_dimension_patterns)) {
-      const dimension_verdicts = [...report.matchAll(pattern)].map(match => match[1].toUpperCase());
+      const dimension_verdicts = [...report_fields.matchAll(pattern)].map(match => match[1].toUpperCase());
       if (dimension_verdicts.length !== 1 || dimension_verdicts[0] !== 'PASS') {
         return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', `external review report must contain exactly one ${dimension[0].toUpperCase()}${dimension.slice(1)}: PASS verdict`);
       }
@@ -1528,11 +1691,26 @@ const lint_cross_check = (devlog_text, project_root, decision) => {
     if (reviewed_match[1] !== implementation_match[1]) {
       return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'external review report commit does not match the round\'s final implementation commit');
     }
+    const git = args => node_child_process.execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
+    const target = implementation_match[1];
+    try {
+      git(['cat-file', '-e', `${target}^{commit}`]);
+      git(['merge-base', '--is-ancestor', target, 'HEAD']);
+      const committed = git(['diff', '--name-only', '-z', `${target}..HEAD`, '--']).split('\0');
+      const ignored_working = new Set(decision.ignored_working_paths || []);
+      const working = [...git(['diff', '--name-only', '-z', 'HEAD', '--']).split('\0'), ...git(['ls-files', '--others', '--exclude-standard', '-z']).split('\0')]
+        .filter(file => !ignored_working.has(file));
+      const changed = [...new Set([...committed, ...working])].filter(Boolean);
+      const stale = changed.filter(file => file !== relative_path && review_eligible(file, { ...decision, bootstrap_files: [] }));
+      if (stale.length) return make_check('cross_check', 'Reviewed source is current', 'fail', `unreviewed changes after the review target: ${stale.join(', ')}`);
+    } catch {
+      return make_check('cross_check', 'Reviewed source is current', 'fail', 'review target must be an existing ancestor commit with available current Git evidence');
+    }
   } catch (error) {
     return make_check('cross_check', 'Requested implementation has an external cross-check', 'fail', 'external review report is missing or unreadable');
   }
 
-  return make_check('cross_check', 'Requested implementation has an external cross-check', 'pass', `${relative_path} records a PASS verdict for a named implementation commit; pipeline acceptance may supply this same report`);
+  return make_check('cross_check', 'Requested implementation has an external cross-check', presentation_warning ? 'warn' : 'pass', `${relative_path} records a PASS verdict for a named implementation commit; ${presentation_warning ? 'stamp or Self-check placement is presentation only' : 'pipeline acceptance may supply this same report'}`);
 };
 
 const lint_no_invented_ask = (devlog_text, owner_ask_ids) => {
@@ -1662,88 +1840,47 @@ const lint_status_projection = (devlog_text, required) => {
 
   const result = ag_settings.validate_status_projection(devlog_text);
 	return result.valid
-		? make_check('status_projection_valid', 'STATUS uses the fixed projection', 'pass', 'STATUS has every fixed field exactly once and in order, with valid configuration and stream fields')
+		? make_check('status_projection_valid', 'STATUS contains its recovery fields', result.warnings?.length ? 'warn' : 'pass', result.warnings?.join('; ') || 'STATUS has every fixed field exactly once with valid configuration and stream fields')
     : make_check('status_projection_valid', 'STATUS uses the fixed projection', 'fail', result.errors.join('; '));
 };
 
-// The completed Reply must carry the three mandatory `##` headings, in order,
-// each with a non-empty body. This needs no host-supplied facts (it reads the
-// devlog text alone), so the Stop hook runs it on every turn. It self-gates: a
-// round with no completed Reply skips instead of failing.
+// Presentation is advisory. Empty report content remains a substantive failure;
+// trusted coverage and material-claim checks independently verify completeness.
+const reply_sections = text => {
+  const headings = [...unfenced_text(text).matchAll(/^(#{1,6})[ \t]+(.+?)[ \t]*\r?$/gmu)];
+  return headings.map(heading => ({
+    heading: heading[0],
+    label: heading[2].replace(/^\[|\]$/gu, '').trim().toLowerCase(),
+    index: heading.index,
+    body: text.slice(heading.index + heading[0].length, headings.find(next => next.index > heading.index && next[1].length <= heading[1].length)?.index ?? text.length).trim()
+  }));
+};
+
 const lint_reply_structure = (devlog_text, substantial) => {
   const last_round = parse_devlog(devlog_text).last_round;
   const reply_match = reply_heading_pattern.exec(last_round);
-
-  if (reply_match === null) {
-    return make_check('reply_structure', 'Reply has the mandatory headings', 'skip', 'the last round has no completed Reply to check');
-  }
-
+  if (reply_match === null) return make_check('reply_structure', 'Reply contains its report', 'skip', 'the last round has no completed Reply to check');
   const reply_body = last_round.slice(reply_match.index + reply_match[0].length);
-  const headings = [...reply_body.matchAll(section_heading_pattern)];
-  const problems = [];
-  const summary_problems = [];
-  let summary_body = '';
-  let previous_index = -1;
-
-  required_reply_headings.forEach(required => {
-    const label = required.slice('## '.length);
-    const found = headings.find(heading => heading[1] === label);
-
-    if (found === undefined) {
-      problems.push(`missing "${required}"`);
-
-      return;
-    }
-
-    if (found.index < previous_index) {
-      problems.push(`"${required}" is out of order`);
-    }
-
-    previous_index = found.index;
-
-    const next = headings.find(heading => heading.index > found.index);
-    const body_end = next === undefined ? reply_body.length : next.index;
-    const body = reply_body.slice(found.index + found[0].length, body_end).trim();
-
-    if (body.length === 0) {
-      problems.push(`"${required}" has an empty body`);
-    }
-    if (required === '## [SUMMARY]') summary_body = body;
-  });
-
-  if (problems.length === 0 && summary_body.length > 0) {
-    const lines = summary_body.split(/\r?\n/u).filter(line => line.trim().length > 0);
-    const bullets = lines.filter(line => /^- \S/u.test(line));
-    if (bullets.length < 1) summary_problems.push('Summary must contain at least one top-level bullet item');
-    if (bullets.length !== lines.length) summary_problems.push('Summary must not contain prose or continuation lines outside its top-level bullets');
+  const sections = reply_sections(reply_body);
+  const warnings = [];
+  const errors = [];
+  let previous = -1;
+  const required = ['## [SUMMARY]', ...(substantial === true || /^## \[WIP-\d{3}\] Checkpoint\b/mu.test(last_round) ? ['## [FINAL REPORT]'] : []), '## Questions (batched — each with a suggested default)'];
+  for (const heading of required) {
+    const name = heading.includes('SUMMARY') ? 'summary' : heading.includes('FINAL REPORT') ? 'final report' : 'questions';
+    const matches = sections.filter(section => section.label === name || name === 'questions' && section.label.startsWith('questions ('));
+    const section = matches[0];
+    if (!section) { warnings.push('presentation only: missing "' + heading + '"; the host must still cover the complete request'); continue; }
+    if (matches.length > 1) warnings.push('presentation only: repeated "' + heading + '"');
+    if (section.heading !== heading) warnings.push('presentation only: expected "' + heading + '"');
+    if (section.index < previous) warnings.push('"' + heading + '" is out of order');
+    previous = section.index;
+    if (!section.body) errors.push('"' + heading + '" has an empty body');
+    if (name === 'summary' && section.body.split(/\r?\n/u).filter(line => line.trim()).some(line => !/^- \S/u.test(line))) warnings.push('Summary presentation should use top-level bullet items rather than prose');
   }
-
-  const requires_exact_final_report = substantial === true;
-  const has_checkpoint = /^## \[WIP-\d{3}\] Checkpoint\b/m.test(last_round);
-
-  if (requires_exact_final_report || has_checkpoint) {
-    const final_report = headings.find(heading => heading[1] === final_report_heading);
-    const summary = headings.find(heading => heading[1] === '[SUMMARY]');
-
-    if (final_report === undefined) {
-      problems.push('missing "## [FINAL REPORT]" for the completed substantial round');
-    } else {
-      const summary_position = headings.indexOf(summary);
-      const final_position = headings.indexOf(final_report);
-      if (summary_position < 0 || final_position !== summary_position + 1) {
-        problems.push('"## [FINAL REPORT]" must be the first substance heading after "## [SUMMARY]"');
-      }
-
-      const next = headings.find(heading => heading.index > final_report.index);
-      const body_end = next === undefined ? reply_body.length : next.index;
-      const body = reply_body.slice(final_report.index + final_report[0].length, body_end).trim();
-      if (body.length === 0) problems.push('"## Final report" has an empty body');
-    }
-  }
-
-	if (problems.length > 0) return make_check('reply_structure', 'Reply has the mandatory headings', 'fail', problems.join('; '));
-	if (summary_problems.length > 0) return make_check('reply_structure', 'Reply has the mandatory headings', 'warn', summary_problems.join('; '));
-	return make_check('reply_structure', 'Reply has the mandatory headings', 'pass', 'the mandatory headings are present, ordered, and non-empty');
+  const report_content = reply_body.replace(/^\* _[^\r\n]*_\s*$/gmu, '').replace(/^#{1,6}[^\r\n]*$/gmu, '').replace(/^---\s*$/gmu, '').trim();
+  if (!report_content) errors.push('Reply has no report content');
+  return make_check('reply_structure', 'Reply contains its report', errors.length ? 'fail' : warnings.length ? 'warn' : 'pass', [...errors, ...warnings].join('; ') || 'the report sections are present, ordered and non-empty');
 };
 
 const fact_timestamp_ms = value => {
@@ -1752,12 +1889,8 @@ const fact_timestamp_ms = value => {
   if (typeof value !== 'string' || value.trim().length === 0) return NaN;
 
   const text = value.trim();
-  const taipei_match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2}))?$/.exec(text);
-  if (taipei_match !== null) {
-    const seconds = taipei_match[3] === undefined ? '00' : taipei_match[3];
-    return Date.parse(`${taipei_match[1]}T${taipei_match[2]}:${seconds}+08:00`);
-  }
-
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2} [+-]\d{4}$/u.test(text)) return parse_numeric_timestamp(text.replace('T', ' '));
+  if (!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/u.test(text)) return NaN;
   return Date.parse(text);
 };
 
@@ -1773,7 +1906,7 @@ const checkpoint_heading_records = devlog_text => {
     .split(/\r?\n/)
     .map(line => line.trim())
     .map(line => {
-      const match = /^## \[WIP-(\d{3})\] Checkpoint — (.+?)(?: \(during round [^)]+\))?$/.exec(line);
+      const match = /^## \[WIP-(\d{3})\] Checkpoint — (.+?)(?: \((?:during round )?A-\d+\))?$/.exec(line);
       if (match === null) return null;
       return {
         id: `WIP-${match[1]}`,
@@ -1900,12 +2033,7 @@ const final_report_body = devlog_text => {
   if (reply_match === null) return null;
 
   const reply_body = last_round.slice(reply_match.index + reply_match[0].length);
-  const headings = [...reply_body.matchAll(section_heading_pattern)];
-  const report_heading = headings.find(heading => heading[1] === final_report_heading);
-  if (report_heading === undefined) return null;
-  const next_heading = headings.find(heading => heading.index > report_heading.index);
-  const end = next_heading === undefined ? reply_body.length : next_heading.index;
-  return reply_body.slice(report_heading.index + report_heading[0].length, end).trim();
+  return reply_sections(reply_body).find(section => section.label === 'final report')?.body ?? null;
 };
 
 const lint_round_reporting = (facts, devlog_text) => {
@@ -1975,6 +2103,24 @@ const lint_round_reporting = (facts, devlog_text) => {
     return make_check('round_reporting', 'Substantial rounds have timely progress and final records', 'fail', checkpoint_errors.join('; '));
   }
 
+  const coverage = facts.final_report_coverage;
+  if (coverage === null || typeof coverage !== 'object' || Array.isArray(coverage)) {
+    return make_check('round_reporting', 'Substantial rounds have timely progress and final records', 'fail', 'final_report_coverage must be a trusted object');
+  }
+  const coverage_fields = [
+    ['works', 'what works'],
+    ['does_not_work', 'what does not work'],
+    ['decisions', 'decisions'],
+    ['limitations', 'limitations'],
+    ['owner_action', 'owner next action']
+  ];
+  const missing_report_items = coverage_fields
+    .filter(([field]) => coverage[field] !== true)
+    .map(([, label]) => label);
+  if (missing_report_items.length > 0) {
+    return make_check('round_reporting', 'Substantial rounds have timely progress and final records', 'fail', `trusted final-report coverage is missing ${missing_report_items.join(', ')}`);
+  }
+
   const actual = checkpoint_heading_records(devlog_text);
   if (actual.length !== declared.length || actual.some((checkpoint, index) =>
     checkpoint.id !== declared[index].id || checkpoint.timestamp_ms !== declared[index].timestamp_ms)) {
@@ -2026,23 +2172,6 @@ const lint_round_reporting = (facts, devlog_text) => {
   const report_body = final_report_body(devlog_text);
   if (report_body === null) {
     return make_check('round_reporting', 'Substantial rounds have timely progress and final records', 'warn', 'record presentation warning: the exact final report is missing or cannot be read as a standalone section');
-  }
-  const coverage = facts.final_report_coverage;
-  if (coverage === null || typeof coverage !== 'object' || Array.isArray(coverage)) {
-    return make_check('round_reporting', 'Substantial rounds have timely progress and final records', 'fail', 'final_report_coverage must be a trusted object');
-  }
-  const coverage_fields = [
-    ['works', 'what works'],
-    ['does_not_work', 'what does not work'],
-    ['decisions', 'decisions'],
-    ['limitations', 'limitations'],
-    ['owner_action', 'owner next action']
-  ];
-  const missing_report_items = coverage_fields
-    .filter(([field]) => coverage[field] !== true)
-    .map(([, label]) => label);
-  if (missing_report_items.length > 0) {
-    return make_check('round_reporting', 'Substantial rounds have timely progress and final records', 'fail', `trusted final-report coverage is missing ${missing_report_items.join(', ')}`);
   }
 
   return make_check('round_reporting', 'Substantial rounds have timely progress and final records', 'pass', `WIP-001 precedes work, ${declared.length} checkpoints cover milestones and incidents, and the final report is standalone`);
@@ -2451,13 +2580,9 @@ const availability_state = facts => {
 
 const missing_fact = value => value === undefined || value === null;
 
-const fact_value = (facts, names) => {
-  for (const name of names) {
-    if (Object.prototype.hasOwnProperty.call(facts, name)) return { supplied: true, value: facts[name] };
-  }
-
-  return { supplied: false, value: undefined };
-};
+const fact_value = (facts, names) => Object.hasOwn(facts, names[0])
+  ? { supplied: true, value: facts[names[0]] }
+  : { supplied: false, value: undefined };
 
 const nonnegative_number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const nonnegative_integer = value => nonnegative_number(value) && Number.isInteger(value);
@@ -2486,33 +2611,25 @@ const same_alias_value = (left, right) => {
   return left === right;
 };
 
-const aliases_agree = (facts, names, normalize = value => value) => {
-  const values = names
-    .filter(name => Object.prototype.hasOwnProperty.call(facts, name))
-    .map(name => normalize(facts[name]));
-
-  return values.length < 2 || values.slice(1).every(value => same_alias_value(value, values[0]));
-};
+const aliases_agree = (facts, names) => !names.slice(1).some(name => Object.hasOwn(facts, name));
 
 const report_boolean_fact = (facts, names, label) => {
-  const present = names.filter(name => Object.prototype.hasOwnProperty.call(facts, name));
-  if (present.length === 0) return { value: undefined, error: `${label} must be supplied as an actual boolean` };
-  if (present.some(name => typeof facts[name] !== 'boolean')) return { value: undefined, error: `${label} must be an actual boolean` };
-  if (!present.slice(1).every(name => facts[name] === facts[present[0]])) return { value: undefined, error: `${label} aliases must agree` };
-  return { value: facts[present[0]], error: null };
+  if (!aliases_agree(facts, names)) return { value: undefined, error: `${label} uses an unsupported alias` };
+  if (typeof facts[names[0]] !== 'boolean') return { value: undefined, error: `${label} must be an actual boolean` };
+  return { value: facts[names[0]], error: null };
 };
 
 const report_suite_input_records = value => {
   if (!Array.isArray(value)) return null;
   const records = value.map(record => {
     if (record === null || typeof record !== 'object' || Array.isArray(record)) return null;
-    const path = record.path ?? record.canonical_path ?? record.file;
-    const identity = record.identity ?? record.content_identity ?? record.sha256 ?? record.digest;
+    const path = record.path;
+    const identity = record.identity;
     if (!nonempty_text(path) || !nonempty_text(identity)) return null;
     return {
       path,
       identity,
-      kind: record.kind ?? record.input_kind ?? '',
+      kind: record.kind ?? '',
       reason: record.reason ?? ''
     };
   });
@@ -2564,8 +2681,8 @@ const lint_report_only_validation = facts => {
   if (!reports.every(path => changed.includes(path))) errors.push('every report path must be one of changed_paths');
   if (!report_only.every(path => reports.includes(path))) errors.push('report_only_paths must be report paths');
 
-  const suite_inputs = report_suite_input_records(facts.suite_inputs ?? facts.declared_suite_inputs);
-  const current_suite_inputs = report_suite_input_records(facts.current_suite_inputs ?? facts.observed_suite_inputs);
+  const suite_inputs = report_suite_input_records(facts.suite_inputs);
+  const current_suite_inputs = report_suite_input_records(facts.current_suite_inputs);
   if (suite_inputs === null) errors.push('suite_inputs must contain canonical paths and content identities');
   if (current_suite_inputs === null) errors.push('current_suite_inputs must contain canonical paths and content identities');
   if (suite_inputs !== null && current_suite_inputs !== null) {
@@ -2590,8 +2707,8 @@ const lint_report_only_validation = facts => {
     }
   }
 
-  const previous_manifest = facts.previous_suite_manifest ?? facts.previous_manifest;
-  const current_manifest = facts.current_suite_manifest ?? facts.current_manifest;
+  const previous_manifest = facts.previous_suite_manifest;
+  const current_manifest = facts.current_suite_manifest;
   if (previous_manifest !== undefined || current_manifest !== undefined) {
     if (previous_manifest === undefined || current_manifest === undefined) {
       errors.push('report-only suite comparison needs previous and current suite manifests');
@@ -2632,21 +2749,11 @@ const lint_report_only_validation = facts => {
     : make_check('report_only_validation', 'Report-only changes preserve valid evidence', 'fail', errors.join('; '));
 };
 
-const normalize_review_stage_list = facts => {
-  if (Array.isArray(facts)) return facts;
-  if (facts !== null && typeof facts === 'object' && Array.isArray(facts.stages)) return facts.stages;
-  if (facts !== null && typeof facts === 'object' && Array.isArray(facts.review_stages)) return facts.review_stages;
-  return facts;
-};
-
 const process_started_record = record => {
   if (typeof record === 'boolean') return { valid: true, started: record };
   if (record === null || typeof record !== 'object' || Array.isArray(record)) return { valid: false, started: false };
-
-  const names = ['worker_started', 'model_started', 'process_started', 'started'];
-  if (!aliases_have_type(record, names, value => typeof value === 'boolean')) return { valid: false, started: false };
-  if (!aliases_agree(record, names)) return { valid: false, started: false };
-  return { valid: true, started: names.some(name => record[name] === true) };
+  if (['model_started', 'process_started', 'started'].some(name => Object.hasOwn(record, name))) return { valid: false, started: false };
+  return { valid: typeof record.worker_started === 'boolean', started: record.worker_started === true };
 };
 
 const lint_large_work_route = facts => {
@@ -2673,7 +2780,7 @@ const lint_large_work_route = facts => {
     return make_check('large_work_route', 'Large work uses a controller-only route', 'fail', 'large-work estimate must be a finite non-negative number');
   }
   if (!aliases_agree(facts, coherent_names) || !aliases_agree(facts, estimate_names)) {
-    return make_check('large_work_route', 'Large work uses a controller-only route', 'fail', 'large-work aliases must agree');
+    return make_check('large_work_route', 'Large work uses a controller-only route', 'fail', 'large-work retired aliases are unsupported');
   }
 
   const coherent = coherent_fact.value;
@@ -2696,7 +2803,7 @@ const lint_large_work_route = facts => {
     return make_check('large_work_route', 'Large work uses a controller-only route', 'fail', 'visible queue count must be a non-negative integer');
   }
   if (!aliases_agree(facts, queue_count_names)) {
-    return make_check('large_work_route', 'Large work uses a controller-only route', 'fail', 'visible queue-count aliases must agree');
+    return make_check('large_work_route', 'Large work uses a controller-only route', 'fail', 'visible queue-count retired aliases are unsupported');
   }
 
   if (!qualifies) {
@@ -2717,7 +2824,7 @@ const lint_large_work_route = facts => {
   if (!aliases_have_type(master_plan, ['controller_only', 'executor_visible', 'exposed_to_executor'], value => typeof value === 'boolean')) {
     master_errors.push('master plan decision flags must be actual booleans');
   }
-  if (!aliases_agree(master_plan, ['executor_visible', 'exposed_to_executor'])) master_errors.push('master plan exposure aliases disagree');
+  if (!aliases_agree(master_plan, ['executor_visible', 'exposed_to_executor'])) master_errors.push('master plan exposure retired aliases are unsupported');
   if (master_plan.controller_only !== true) master_errors.push('master plan is not controller-only');
   if (master_plan.executor_visible === true || master_plan.exposed_to_executor === true) master_errors.push('master plan is exposed to executor state');
   if (typeof master_plan.complete_outcome !== 'string' || master_plan.complete_outcome.trim().length === 0) master_errors.push('complete outcome is missing');
@@ -2756,7 +2863,7 @@ const lint_large_work_route = facts => {
     const plan_hour_names = ['active_hours_estimate', 'estimated_active_hours', 'estimated_hours'];
     const plan_hours = fact_value(plan, plan_hour_names);
     if (!aliases_have_type(plan, plan_hour_names, nonnegative_number)) queue_errors.push(`queue plan ${index + 1} has an invalid active-hours estimate`);
-    if (!aliases_agree(plan, plan_hour_names)) queue_errors.push(`queue plan ${index + 1} active-hours aliases disagree`);
+    if (!aliases_agree(plan, plan_hour_names)) queue_errors.push(`queue plan ${index + 1} active-hours retired aliases are unsupported`);
     if (plan_hours.supplied && plan_hours.value * 60 > large_work_minutes) queue_errors.push(`queue plan ${index + 1} exceeds the configured ${large_work_minutes}-minute target`);
     if (plan.boundaries === undefined) queue_errors.push(`queue plan ${index + 1} boundaries are missing`);
     if (plan.evidence === undefined) queue_errors.push(`queue plan ${index + 1} evidence is missing`);
@@ -2780,16 +2887,11 @@ const lint_queue_contract = facts => {
     return make_check('queue_contract', 'make-plans freezes trusted queue authority', 'fail', 'queue-contract facts must describe the make-plans operation');
   }
 
-  const contract = queue_contract.validate_contract_gate({ ...facts, contract: facts.contract });
-  if (!contract.valid) {
-    return make_check('queue_contract', 'make-plans freezes trusted queue authority', 'fail', contract.errors.join('; '));
-  }
-
   let envelope = facts.envelope;
   let plan_bytes = facts.plan_bytes;
   if (facts.tasks_dir !== undefined) {
     try {
-      const frozen = queue_contract.read_frozen_queue(facts.tasks_dir, { contract: contract.contract });
+      const frozen = queue_contract.read_frozen_queue(facts.tasks_dir);
       envelope = frozen.envelope;
       plan_bytes = frozen.plan_bytes;
     } catch (error) {
@@ -2800,15 +2902,18 @@ const lint_queue_contract = facts => {
     return make_check('queue_contract', 'make-plans freezes trusted queue authority', 'fail', 'make-plans facts must include the frozen queue envelope or tasks_dir');
   }
 
-  for (const name of ['original_request_sha256', 'requirements_sha256', 'specification_sha256']) {
-    if (envelope[name] !== contract.contract[name]) {
-      return make_check('queue_contract', 'make-plans freezes trusted queue authority', 'fail', `frozen queue ${name} does not match the accepted contract identity`);
-    }
-  }
-
   const envelope_result = queue_contract.validate_queue_envelope(envelope, { plan_bytes });
   if (!envelope_result.valid) {
     return make_check('queue_contract', 'make-plans freezes trusted queue authority', 'fail', envelope_result.errors.join('; '));
+  }
+
+  const complex_authorities = envelope.authorities.filter(authority => authority.route === 'complex');
+  if (complex_authorities.length > 0) {
+    const contract = queue_contract.validate_contract_gate({ ...facts, contract: facts.contract });
+    if (!contract.valid) return make_check('queue_contract', 'make-plans freezes trusted queue authority', 'fail', contract.errors.join('; '));
+    for (const authority of complex_authorities) for (const name of ['original_request_sha256', 'requirements_sha256', 'specification_sha256']) {
+      if (authority[name] !== contract.contract[name]) return make_check('queue_contract', 'make-plans freezes trusted queue authority', 'fail', `frozen queue ${name} does not match the accepted contract identity`);
+    }
   }
 
   const publication = facts.publication ?? {};
@@ -2836,21 +2941,21 @@ const lint_review_preflight = facts => {
     return make_check('review_preflight', 'Review launch preflight is complete', 'fail', 'preflight facts must be an object');
   }
 
+  if (["working_dir","tests_accessible","executable","authenticated","worker_started","process_started"].some(name => Object.hasOwn(facts, name))) return make_check('review_preflight', 'Canonical facts are required', 'fail', 'retired fact aliases are unsupported');
   const availability = availability_state(facts);
   if (availability === 'invalid') return make_check('review_preflight', 'Review launch preflight is complete', 'fail', 'preflight availability must be an actual boolean or documented unavailable token');
   if (availability === 'unavailable') return make_check('review_preflight', 'Review launch preflight is complete', 'skip', 'preflight facts are unavailable to the live check');
 
   const fields = [
-    ['working directory', facts.working_directory ?? facts.working_dir],
-    ['test access', facts.test_access ?? facts.tests_accessible],
-    ['executable availability', facts.executable_available ?? facts.executable],
-    ['authentication', facts.authentication ?? facts.authenticated]
+    ['working directory', facts.working_directory],
+    ['test access', facts.test_access],
+    ['executable availability', facts.executable_available],
+    ['authentication', facts.authentication]
   ];
   const capability_names = [
-    'working_directory', 'working_dir', 'test_access', 'tests_accessible',
-    'executable_available', 'executable', 'authentication', 'authenticated'
+    'working_directory', 'test_access', 'executable_available', 'authentication'
   ];
-  const launch_names = ['launch_started', 'worker_started', 'process_started'];
+  const launch_names = ['launch_started'];
   if (fields.some(([, value]) => typeof value !== 'boolean') || !aliases_have_type(facts, capability_names, value => typeof value === 'boolean')) {
     return make_check('review_preflight', 'Review launch preflight is complete', 'fail', 'all four preflight checks must be actual booleans');
   }
@@ -2860,16 +2965,6 @@ const lint_review_preflight = facts => {
   if (Object.prototype.hasOwnProperty.call(facts, 'completed') && typeof facts.completed !== 'boolean') {
     return make_check('review_preflight', 'Review launch preflight is complete', 'fail', 'preflight completion must be an actual boolean');
   }
-  const capability_groups = [
-    ['working_directory', 'working_dir'],
-    ['test_access', 'tests_accessible'],
-    ['executable_available', 'executable'],
-    ['authentication', 'authenticated']
-  ];
-  if (capability_groups.some(names => !aliases_agree(facts, names)) || !aliases_agree(facts, launch_names)) {
-    return make_check('review_preflight', 'Review launch preflight is complete', 'fail', 'preflight aliases must agree');
-  }
-
   const launch_started = launch_names.some(name => facts[name] === true);
   const missing = fields.filter(([, value]) => missing_fact(value)).map(([label]) => label);
   const failed = fields.filter(([, value]) => value === false).map(([label]) => label);
@@ -2905,11 +3000,9 @@ const lint_review_attempts = facts => {
     const availability = availability_state(facts);
     if (availability === 'invalid') return make_check('review_attempts', 'Review stages use bounded stable attempts', 'fail', 'review-stage availability must be an actual boolean or documented unavailable token');
     if (availability === 'unavailable') return make_check('review_attempts', 'Review stages use bounded stable attempts', 'skip', 'review-stage facts are unavailable to the live check');
-    if (!aliases_have_type(facts, ['stages', 'review_stages'], Array.isArray)) {
+    if (Object.hasOwn(facts, 'review_stages')) return make_check('review_attempts', 'Canonical review stages are required', 'fail', 'review_stages is not a stage-list field; use stages');
+    if (!aliases_have_type(facts, ['stages'], Array.isArray)) {
       return make_check('review_attempts', 'Review stages use bounded stable attempts', 'fail', 'review-stage aliases must be arrays');
-    }
-    if (!aliases_agree(facts, ['stages', 'review_stages'])) {
-      return make_check('review_attempts', 'Review stages use bounded stable attempts', 'fail', 'review-stage list aliases must agree');
     }
   }
 
@@ -2917,9 +3010,7 @@ const lint_review_attempts = facts => {
     ? facts
     : facts && Array.isArray(facts.stages)
       ? facts.stages
-      : facts && Array.isArray(facts.review_stages)
-        ? facts.review_stages
-        : null;
+      : null;
 
   if (stage_list === null) {
     return make_check('review_attempts', 'Review stages use bounded stable attempts', 'fail', 'review-stage facts must contain a stages array');
@@ -2933,43 +3024,37 @@ const lint_review_attempts = facts => {
       return;
     }
 
-    const stage_id = stage.stable_id ?? stage.stage_id ?? stage.id;
+    if (["stage_id","id","identities","attempt_count_reset","preserved_unresolved","auto_cycle_stopped","model_started","process_started","started","process_starts","starts","attempts_started","post_start_failures","failures","attempt_count","attempts"].some(name => Object.hasOwn(stage, name))) { errors.push(`stage ${index + 1} uses retired fact aliases`); return; }
+    const stage_id = stage.stable_id;
     if (typeof stage_id !== 'string' || stage_id.trim().length === 0) errors.push(`stage ${index + 1} has no stable identity`);
-    if (!aliases_have_type(stage, ['stable_id', 'stage_id', 'id'], value => typeof value === 'string' && value.trim().length > 0)) {
+    if (!aliases_have_type(stage, ['stable_id'], value => typeof value === 'string' && value.trim().length > 0)) {
       errors.push(`stage ${index + 1} has an invalid stable identity alias`);
     }
-    if (!aliases_agree(stage, ['stable_id', 'stage_id', 'id'])) errors.push(`stage ${index + 1} stable identity aliases disagree`);
 
-    const identities = stage.identity_history ?? stage.identities;
-    const identity_history_names = ['identity_history', 'identities'];
+    const identities = stage.identity_history;
+    const identity_history_names = ['identity_history'];
     if (
       identities !== undefined &&
       !aliases_have_type(stage, identity_history_names, value => Array.isArray(value) && value.every(identity => typeof identity === 'string' && identity.trim().length > 0))
     ) {
       errors.push(`stage ${index + 1} identity history must be an array of non-empty strings`);
     }
-    if (!aliases_agree(stage, identity_history_names)) errors.push(`stage ${index + 1} identity history aliases disagree`);
     if (Array.isArray(identities) && new Set(identities).size > 1) errors.push(`stage ${index + 1} changed stable identity`);
     const decision_flags = [
-      'identity_stable', 'count_reset', 'renamed_reset', 'attempt_count_reset',
-      'exhausted', 'unresolved', 'preserved_unresolved', 'automatic_cycle_stopped', 'auto_cycle_stopped',
-      'worker_started', 'model_started', 'process_started', 'started'
+      'identity_stable', 'count_reset', 'renamed_reset',
+      'exhausted', 'unresolved', 'automatic_cycle_stopped',
+      'worker_started'
     ];
     if (!aliases_have_type(stage, decision_flags, value => typeof value === 'boolean')) {
       errors.push(`stage ${index + 1} has a non-boolean decision flag`);
     }
-    if (!aliases_agree(stage, ['count_reset', 'attempt_count_reset'])) errors.push(`stage ${index + 1} reset aliases disagree`);
-    if (!aliases_agree(stage, ['unresolved', 'preserved_unresolved'])) errors.push(`stage ${index + 1} unresolved aliases disagree`);
-    if (!aliases_agree(stage, ['automatic_cycle_stopped', 'auto_cycle_stopped'])) errors.push(`stage ${index + 1} automatic-cycle aliases disagree`);
-    if (!aliases_agree(stage, ['worker_started', 'model_started', 'process_started', 'started'])) errors.push(`stage ${index + 1} process-start aliases disagree`);
-    if (stage.identity_stable === false || stage.count_reset === true || stage.renamed_reset === true || stage.attempt_count_reset === true) {
+    if (stage.identity_stable === false || stage.count_reset === true || stage.renamed_reset === true) {
       errors.push(`stage ${index + 1} reset its attempt count when renamed or restored`);
     }
 
-    const start_names = ['worker_starts', 'process_starts', 'starts', 'attempts_started'];
+    const start_names = ['worker_starts'];
     const starts_value = fact_value(stage, start_names).value ?? 0;
     if (!aliases_have_type(stage, start_names, nonnegative_integer)) errors.push(`stage ${index + 1} has an invalid worker-start alias`);
-    if (!aliases_agree(stage, start_names)) errors.push(`stage ${index + 1} worker-start aliases disagree`);
     const starts = count_fact(starts_value, false);
     if (!Number.isFinite(starts)) errors.push(`stage ${index + 1} has an invalid worker-start count`);
     if (Number.isFinite(starts) && starts > max_review_attempts) errors.push(`stage ${index + 1} started more than three workers`);
@@ -2986,12 +3071,11 @@ const lint_review_attempts = facts => {
     const charged_failures = preflight_records.filter(record => record.valid && record.started);
     if (free_failures.length > 1) errors.push(`stage ${index + 1} used more than one free preflight failure`);
 
-    const post_failure_names = ['failures_after_start', 'post_start_failures', 'failures'];
+    const post_failure_names = ['failures_after_start'];
     const post_start_failures_value = fact_value(stage, post_failure_names).value;
     if (!aliases_have_type(stage, post_failure_names, value => Array.isArray(value) || nonnegative_integer(value))) {
       errors.push(`stage ${index + 1} has an invalid post-start failure alias`);
     }
-    if (!aliases_agree(stage, post_failure_names)) errors.push(`stage ${index + 1} post-start failure aliases disagree`);
     const post_start_failures = post_start_failures_value === undefined
       ? 0
       : Array.isArray(post_start_failures_value)
@@ -3006,10 +3090,9 @@ const lint_review_attempts = facts => {
     const computed_attempts = Number.isFinite(starts) && Number.isFinite(post_start_failures)
       ? Math.max(starts, charged_failures.length, post_start_failures)
       : NaN;
-    const attempt_names = ['total_attempts', 'attempt_count', 'attempts'];
+    const attempt_names = ['total_attempts'];
     const declared_attempts_value = fact_value(stage, attempt_names).value;
     if (!aliases_have_type(stage, attempt_names, nonnegative_integer)) errors.push(`stage ${index + 1} has an invalid total attempt alias`);
-    if (!aliases_agree(stage, attempt_names)) errors.push(`stage ${index + 1} total-attempt aliases disagree`);
     const declared_attempts = declared_attempts_value === undefined ? computed_attempts : declared_attempts_value;
 
     if (!Number.isInteger(declared_attempts) || declared_attempts < 0) {
@@ -3021,8 +3104,8 @@ const lint_review_attempts = facts => {
     }
 
     if (stage.exhausted === true) {
-      const unresolved = stage.unresolved === true || stage.result === 'unresolved' || stage.preserved_unresolved === true;
-      const stopped = stage.automatic_cycle_stopped === true || stage.auto_cycle_stopped === true;
+      const unresolved = stage.unresolved === true || stage.result === 'unresolved';
+      const stopped = stage.automatic_cycle_stopped === true;
       if (!unresolved || !stopped) errors.push(`stage ${index + 1} exhaustion did not preserve the unresolved result and stop automatic cycling`);
     }
   });
@@ -3033,31 +3116,8 @@ const lint_review_attempts = facts => {
 };
 
 const lint_review_context = context => {
-  const review_supplied = context.review !== undefined;
-  const stages_supplied = context.review_stages !== undefined;
-
-  if (!review_supplied || !stages_supplied) {
-    return lint_review_attempts(stages_supplied ? context.review_stages : context.review);
-  }
-
-  const review_result = lint_review_attempts(context.review);
-  const stages_result = lint_review_attempts(context.review_stages);
-
-  if (review_result.status === 'fail' || stages_result.status === 'fail') {
-    return make_check('review_attempts', 'Review stages use bounded stable attempts', 'fail', 'top-level review aliases must each be valid');
-  }
-
-  if (review_result.status !== stages_result.status) {
-    return make_check('review_attempts', 'Review stages use bounded stable attempts', 'fail', 'top-level review aliases must agree');
-  }
-
-  if (review_result.status === 'skip') return review_result;
-
-  if (!same_alias_value(normalize_review_stage_list(context.review), normalize_review_stage_list(context.review_stages))) {
-    return make_check('review_attempts', 'Review stages use bounded stable attempts', 'fail', 'top-level review aliases must agree');
-  }
-
-  return stages_result;
+  if (context.review !== undefined) return make_check('review_attempts', 'Canonical review facts are required', 'fail', 'use review_stages; review is unsupported');
+  return lint_review_attempts(context.review_stages);
 };
 
 const lint_progress_boundaries = facts => {
@@ -3069,13 +3129,14 @@ const lint_progress_boundaries = facts => {
     return make_check('progress_boundaries', 'Progress records separate estimates and actual time', 'warn', 'progress facts must be an object');
   }
 
+  if (["estimated_hours","actual_hours","checkpoints","visible_warning","progress_warning","split_assessment"].some(name => Object.hasOwn(facts, name))) return make_check('progress_boundaries', 'Canonical facts are required', 'warn', 'retired fact aliases are unsupported');
   const availability = availability_state(facts);
   if (availability === 'invalid') return make_check('progress_boundaries', 'Progress records separate estimates and actual time', 'warn', 'progress availability must be an actual boolean or documented unavailable token');
   if (availability === 'unavailable') return make_check('progress_boundaries', 'Progress records separate estimates and actual time', 'skip', 'progress facts are unavailable to the live check');
 
-  const estimated_names = ['estimated_active_hours', 'estimated_hours'];
-  const actual_names = ['actual_active_hours', 'actual_hours'];
-  const checkpoint_names = ['checkpoint_count', 'checkpoints'];
+  const estimated_names = ['estimated_active_hours'];
+  const actual_names = ['actual_active_hours'];
+  const checkpoint_names = ['checkpoint_count'];
   const estimated_fact = fact_value(facts, estimated_names);
   const actual_fact = fact_value(facts, actual_names);
   const checkpoint_fact = fact_value(facts, checkpoint_names);
@@ -3091,22 +3152,16 @@ const lint_progress_boundaries = facts => {
   ) {
     return make_check('progress_boundaries', 'Progress records separate estimates and actual time', 'warn', 'estimated active hours, actual active hours, and checkpoint count must be recorded separately');
   }
-  if (!aliases_agree(facts, estimated_names) || !aliases_agree(facts, actual_names) || !aliases_agree(facts, checkpoint_names)) {
-    return make_check('progress_boundaries', 'Progress records separate estimates and actual time', 'warn', 'progress measurement aliases must agree');
-  }
 
-  const warning_names = ['warning_recorded', 'visible_warning', 'progress_warning'];
-  const split_names = ['split_assessment_recorded', 'split_assessment'];
+  const warning_names = ['warning_recorded'];
+  const split_names = ['split_assessment_recorded'];
   if (!aliases_have_type(facts, warning_names, value => typeof value === 'boolean') || !aliases_have_type(facts, split_names, value => typeof value === 'boolean')) {
     return make_check('progress_boundaries', 'Progress records separate estimates and actual time', 'warn', 'warning and split-assessment facts must be actual booleans');
   }
-  if (!aliases_agree(facts, warning_names) || !aliases_agree(facts, split_names)) {
-    return make_check('progress_boundaries', 'Progress records separate estimates and actual time', 'warn', 'warning and split-assessment aliases must agree');
-  }
 
   const warning_needed = checkpoint_count > max_checkpoint_count;
-  const warning_recorded = facts.warning_recorded === true || facts.visible_warning === true || facts.progress_warning === true;
-  const split_recorded = facts.split_assessment_recorded === true || facts.split_assessment === true;
+  const warning_recorded = facts.warning_recorded === true;
+  const split_recorded = facts.split_assessment_recorded === true;
 
   if (warning_needed && !warning_recorded) return make_check('progress_boundaries', 'Progress records separate estimates and actual time', 'warn', 'crossing ten checkpoints should record a visible warning');
   if (warning_needed && !split_recorded) return make_check('progress_boundaries', 'Progress records separate estimates and actual time', 'warn', 'crossing ten checkpoints should record a split assessment');
@@ -3134,18 +3189,16 @@ const lint_security_disposition = facts => {
     return make_check('security_disposition', 'Security review has one advisory disposition', 'fail', 'security facts must be an object');
   }
 
+  if (["review_passes","passes"].some(name => Object.hasOwn(facts, name))) return make_check('security_disposition', 'Canonical facts are required', 'fail', 'retired fact aliases are unsupported');
   const availability = availability_state(facts);
   if (availability === 'invalid') return make_check('security_disposition', 'Security review has one advisory disposition', 'fail', 'security availability must be an actual boolean or documented unavailable token');
   if (availability === 'unavailable') return make_check('security_disposition', 'Security review has one advisory disposition', 'skip', 'security facts are unavailable to the live check');
 
-  const pass_names = ['pass_count', 'review_passes', 'passes'];
+  const pass_names = ['pass_count'];
   const pass_fact = fact_value(facts, pass_names);
   const pass_count = pass_fact.value;
   if (!pass_fact.supplied || !aliases_have_type(facts, pass_names, nonnegative_integer) || pass_count !== 1) {
     return make_check('security_disposition', 'Security review has one advisory disposition', 'fail', 'security requires exactly one planned advisory pass');
-  }
-  if (!aliases_agree(facts, pass_names)) {
-    return make_check('security_disposition', 'Security review has one advisory disposition', 'fail', 'security pass-count aliases must agree');
   }
 
   if (Object.prototype.hasOwnProperty.call(facts, 'automatic_repair_loop') && typeof facts.automatic_repair_loop !== 'boolean') {
@@ -3168,22 +3221,15 @@ const lint_security_disposition = facts => {
       return;
     }
 
-    const class_fact = fact_value(finding, ['class', 'category', 'kind']);
-    const disposition_fact = fact_value(finding, ['disposition', 'action']);
-    if (!class_fact.supplied || !aliases_have_type(finding, ['class', 'category', 'kind'], value => typeof value === 'string' && value.trim().length > 0)) {
+    if (['category', 'kind', 'action'].some(name => Object.hasOwn(finding, name))) { errors.push(`finding ${index + 1} uses retired fact aliases`); return; }
+    const class_fact = fact_value(finding, ['class']);
+    const disposition_fact = fact_value(finding, ['disposition']);
+    if (!class_fact.supplied || !aliases_have_type(finding, ['class'], value => typeof value === 'string' && value.trim().length > 0)) {
       errors.push(`finding ${index + 1} has no non-empty class`);
       return;
     }
-    if (!disposition_fact.supplied || !aliases_have_type(finding, ['disposition', 'action'], value => typeof value === 'string' && value.trim().length > 0)) {
+    if (!disposition_fact.supplied || !aliases_have_type(finding, ['disposition'], value => typeof value === 'string' && value.trim().length > 0)) {
       errors.push(`finding ${index + 1} has no non-empty disposition`);
-      return;
-    }
-    if (!aliases_agree(finding, ['class', 'category', 'kind'], normalize_security_class)) {
-      errors.push(`finding ${index + 1} class aliases disagree`);
-      return;
-    }
-    if (!aliases_agree(finding, ['disposition', 'action'], normalize_security_class)) {
-      errors.push(`finding ${index + 1} disposition aliases disagree`);
       return;
     }
 
@@ -3211,20 +3257,18 @@ const lint_acceptance_disposition = facts => {
     return make_check('acceptance_disposition', 'Acceptance separates behavior from record quality', 'fail', 'acceptance facts must be an object');
   }
 
+  if (["behavior_result","owner_visible_behavior","record_result","record_quality_result"].some(name => Object.hasOwn(facts, name))) return make_check('acceptance_disposition', 'Canonical facts are required', 'fail', 'retired fact aliases are unsupported');
   const availability = availability_state(facts);
   if (availability === 'invalid') return make_check('acceptance_disposition', 'Acceptance separates behavior from record quality', 'fail', 'acceptance availability must be an actual boolean or documented unavailable token');
   if (availability === 'unavailable') return make_check('acceptance_disposition', 'Acceptance separates behavior from record quality', 'skip', 'acceptance facts are unavailable to the live check');
 
-  const behavior_names = ['behavior', 'behavior_result', 'owner_visible_behavior'];
-  const record_names = ['record_quality', 'record_result', 'record_quality_result'];
+  const behavior_names = ['behavior'];
+  const record_names = ['record_quality'];
   const behavior = fact_value(facts, behavior_names).value;
   const record_quality = fact_value(facts, record_names).value;
   const nonempty_string = value => typeof value === 'string' && value.trim().length > 0;
   if (!aliases_have_type(facts, behavior_names, nonempty_string) || !aliases_have_type(facts, record_names, nonempty_string) || !nonempty_string(behavior) || !nonempty_string(record_quality)) {
     return make_check('acceptance_disposition', 'Acceptance separates behavior from record quality', 'fail', 'acceptance must record separate behavior and record-quality results');
-  }
-  if (!aliases_agree(facts, behavior_names, normalize_security_class) || !aliases_agree(facts, record_names, normalize_security_class)) {
-    return make_check('acceptance_disposition', 'Acceptance separates behavior from record quality', 'fail', 'acceptance result aliases must agree');
   }
 
   if (Object.prototype.hasOwnProperty.call(facts, 'automatic_repair_loop') && typeof facts.automatic_repair_loop !== 'boolean') {
@@ -3260,7 +3304,7 @@ const lint_formal_repair = facts => {
     return make_check('formal_repair', 'Formal repair stays within fixed byte-preserving spans', 'fail', 'repair span must be a non-empty string');
   }
   if (!aliases_agree(facts, ['span', 'span_type'], value => value.toLowerCase())) {
-    return make_check('formal_repair', 'Formal repair stays within fixed byte-preserving spans', 'fail', 'repair span aliases must agree');
+    return make_check('formal_repair', 'Formal repair stays within fixed byte-preserving spans', 'fail', 'repair span retired aliases are unsupported');
   }
   if (!formal_repair_spans.includes(span)) return make_check('formal_repair', 'Formal repair stays within fixed byte-preserving spans', 'fail', 'repair span is not a fixed stamp, heading, path label, or final boundary');
   const proof_names = ['source_authoritative', 'outside_bytes_unchanged', 'complete_gate_rerun'];
@@ -3269,9 +3313,9 @@ const lint_formal_repair = facts => {
     return make_check('formal_repair', 'Formal repair stays within fixed byte-preserving spans', 'fail', 'repair proof and judgment facts must be actual booleans');
   }
   if (facts.source_authoritative !== true) return make_check('formal_repair', 'Formal repair stays within fixed byte-preserving spans', 'fail', 'repair replacement source is not authoritative');
-  const replacement_source = facts.replacement_source ?? facts.source;
-  const before_identity = facts.before_content_identity ?? facts.before_identity ?? facts.before_sha256;
-  const after_identity = facts.after_content_identity ?? facts.after_identity ?? facts.after_sha256;
+  const replacement_source = facts.replacement_source;
+  const before_identity = facts.before_content_identity;
+  const after_identity = facts.after_content_identity;
   if (!nonempty_text(replacement_source)) return make_check('formal_repair', 'Formal repair stays within fixed byte-preserving spans', 'fail', 'repair replacement source is missing');
   if (!nonempty_text(before_identity) || !nonempty_text(after_identity)) return make_check('formal_repair', 'Formal repair stays within fixed byte-preserving spans', 'fail', 'repair must record before and after content identities');
   if (before_identity === after_identity) return make_check('formal_repair', 'Formal repair stays within fixed byte-preserving spans', 'fail', 'repair before and after content identities must differ');
@@ -3284,6 +3328,12 @@ const lint_formal_repair = facts => {
 
 const lint_round = context => {
   const devlog_text = context.devlog_text;
+  const parsed = parse_devlog(devlog_text);
+  const current_round = parsed.rounds.find(round => round.text === parsed.last_round);
+  const fast_lane = require('./fast-lane.js').parse_fast_lane(current_round?.owner_text);
+  const workflow_check = (id, check) => fast_lane
+    ? make_check(id, 'Optional workflow requirement', 'skip', 'owner selected fast-lane; this workflow requirement is waived')
+    : check();
   const now_ms = context.now_ms === undefined ? Date.now() : context.now_ms;
   const future_skew_min = context.future_skew_min === undefined ? 5 : context.future_skew_min;
   const max_age_hours = context.max_age_hours === undefined ? 24 : context.max_age_hours;
@@ -3300,6 +3350,9 @@ const lint_round = context => {
       ? { claims: context.claims, evidence: context.evidence, repository_state: context.repository_state }
       : undefined;
   const checks = [
+    ...(fast_lane?.state === 'pending' && current_round.reply_text.trim()
+      ? [make_check('fast_lane_task', 'Fast-lane activation waits for a task', 'fail', 'bare fast-lane must remain open until a task arrives; do not close an activation-only round')]
+      : []),
     lint_terminal_output(context.terminal_output),
     lint_timestamps(devlog_text, now_ms, future_skew_min, max_age_hours),
     lint_reply_structure(devlog_text, substantial),
@@ -3309,23 +3362,25 @@ const lint_round = context => {
     lint_checkpoint_still_to_do(devlog_text),
     lint_checkpoint_verification(devlog_text, context.checkpoint_verification),
     lint_round_reporting(reporting_facts, devlog_text),
-    lint_direct_route_completion(direct_facts, context),
+    workflow_check('direct_route_completion', () => lint_direct_route_completion(direct_facts, context)),
     lint_evidence_classification(context.evidence_classification ?? context.defect_classes),
     lint_material_claims(material_claim_facts),
     lint_report_only_validation(context.report_only ?? context.report_only_validation),
-    lint_route_decision(context.route_decision),
-    lint_executor_decision(context.executor_decision ?? context.executor_decisions),
-    lint_large_work_route(context.large_work),
-    lint_queue_contract(context.queue_contract ?? context.make_plans),
-    lint_review_preflight(context.preflight),
-    lint_review_context(context),
+    workflow_check('route_decision', () => lint_route_decision(context.route_decision)),
+    workflow_check('executor_decision', () => lint_executor_decision(context.executor_decision ?? context.executor_decisions)),
+    workflow_check('large_work_route', () => lint_large_work_route(context.large_work)),
+    workflow_check('queue_contract', () => lint_queue_contract(context.queue_contract ?? context.make_plans)),
+    workflow_check('review_preflight', () => lint_review_preflight(context.preflight)),
+    workflow_check('review_attempts', () => lint_review_context(context)),
     lint_progress_boundaries(context.progress),
-    lint_security_disposition(context.security),
-    lint_acceptance_disposition(context.acceptance),
+    workflow_check('security_disposition', () => lint_security_disposition(context.security)),
+    workflow_check('acceptance_disposition', () => lint_acceptance_disposition(context.acceptance)),
     lint_formal_repair(context.formal_repair),
-    lint_pipeline_artifacts(context.pipeline),
-    lint_quality_gate(context.quality_gate, devlog_text),
-    lint_cross_check(devlog_text, context.project_root, context.review_decision),
+    workflow_check('pipeline_artifacts', () => lint_pipeline_artifacts(context.pipeline)),
+    workflow_check('quality_gate', () => lint_quality_gate(context.quality_gate, devlog_text, context.project_root, context)),
+    lint_cross_check(devlog_text, context.project_root, fast_lane
+      ? { status: 'skip-review', owner_authorized: true, reason: 'owner selected fast-lane' }
+      : context.review_decision, context),
     lint_no_invented_ask(devlog_text, context.owner_ask_ids),
     lint_push_claim(devlog_text, context.terminal_output, context.push),
     lint_configuration(context),
@@ -3362,6 +3417,9 @@ const run_cli = () => {
 };
 
 module.exports = {
+  completion_metadata,
+  plain_record_text,
+  review_eligible,
   lint_configuration,
   lint_cross_check,
   lint_quality_gate,
@@ -3382,6 +3440,10 @@ module.exports = {
   parse_advisor_authority,
   parse_advisor_selection,
   parse_devlog,
+  parse_numeric_timestamp,
+  record_heading_has_valid_taipei_timestamp,
+  record_heading_has_valid_local_timestamp,
+  resolve_commit_prefix,
   read_context_json
 };
 

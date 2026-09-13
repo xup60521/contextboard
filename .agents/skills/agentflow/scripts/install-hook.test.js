@@ -33,6 +33,8 @@ test('project install writes both host configs', () => {
   const codex = read_json(node_path.join(dir, '.codex', 'hooks.json'));
   assert.ok(has_our_stop_hook(claude));
   assert.ok(has_our_stop_hook(codex));
+  assert.equal(codex.hooks.UserPromptSubmit.length, 1);
+  assert.equal(claude.hooks.UserPromptSubmit.length, 1);
   assert.match(claude.hooks.Stop[0].hooks[0].command, /--host claude$/);
   assert.match(codex.hooks.Stop[0].hooks[0].command, /--host codex$/);
 });
@@ -63,6 +65,7 @@ test('running twice never duplicates the entry', () => {
 
   assert.strictEqual(claude.hooks.Stop.length, 1);
   assert.strictEqual(codex.hooks.Stop.length, 1);
+  assert.strictEqual(codex.hooks.UserPromptSubmit.length, 1);
 });
 
 test('project install replaces stale worktree hooks and collapses owned duplicates', () => {

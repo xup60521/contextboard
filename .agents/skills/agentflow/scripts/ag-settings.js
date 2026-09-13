@@ -9,6 +9,7 @@
 const node_fs = require('node:fs')
 const node_path = require('node:path')
 const node_child_process = require('node:child_process')
+const { format_local_timestamp } = require('./local-time.js')
 
 const schema_version = 7
 const tier_names = Object.freeze(['best', 'better', 'basic', 'cheap'])
@@ -26,7 +27,9 @@ const pipeline_role_defaults = Object.freeze({
 	'cross-check': 'better',
 	learn: 'basic',
 })
-const switch_names = Object.freeze(['target-doc', 'workspace-dir', 'cli-provider', 'auto-reply', 'lang', 'streams', 'ask-names', 'allow-ag', 'metrics', 'large-work-minutes'])
+const switch_names = Object.freeze(['target-doc', 'workspace-dir', 'cli-provider', 'auto-reply', 'lang', 'streams', 'ask-names', 'allow-ag', 'metrics', 'large-work-minutes', 'completion-cleanup', 'completion-cleanup-interval-days'])
+const optional_switch_names = Object.freeze(['completion-cleanup', 'completion-cleanup-interval-days'])
+const completion_cleanup_defaults = Object.freeze({ 'completion-cleanup': 'off', 'completion-cleanup-interval-days': 7 })
 const changeable_switch_names = Object.freeze(switch_names.filter(key => key !== 'target-doc'))
 
 const host_markers = Object.freeze({
@@ -118,96 +121,142 @@ const family_for_host = host => host === 'codex' ? 'codex' : host === 'claude' ?
 const opposite_host = host => host === 'codex' ? 'claude' : host === 'claude' ? 'codex' : ''
 
 const host_template_values = {
-	codex: {
-		'schema-version': schema_version,
-		switches: {
-			'target-doc': 'devlog.md',
-			'cli-provider': 'off',
-			'auto-reply': 'on',
-			lang: 'en',
-			streams: 'ask',
-			'ask-names': 'on',
-			'allow-ag': 'on',
-			metrics: 'off',
-			'large-work-minutes': 120,
-		},
-		'pipeline-roles': pipeline_role_defaults,
-		'external-workers': [
-			{
-				id: 'codex-default',
-				command: ['codex', 'exec'],
-				priority: 3,
-				family: 'codex',
-				tiers: {
-					best: 'gpt-5.6-sol/low',
-					better: 'gpt-5.6-terra/high',
-					basic: 'gpt-5.6-luna/max',
-					cheap: 'gpt-5.4/medium',
-				},
-			},
-			{
-				id: 'claude-default',
-				command: ['claude', '-p'],
-				priority: 3,
-				family: 'claude',
-				tiers: {
-					best: 'claude-opus-5/high',
-					better: 'claude-opus-4-6/high',
-					basic: 'claude-sonnet-5/high',
-					cheap: 'haiku/high',
-				},
-			},
-		],
-	},
-	claude: {
-		'schema-version': schema_version,
-		switches: {
-			'target-doc': 'devlog.md',
-			'cli-provider': 'off',
-			'auto-reply': 'on',
-			lang: 'en',
-			streams: 'ask',
-			'ask-names': 'on',
-			'allow-ag': 'ask',
-			metrics: 'off',
-			'large-work-minutes': 120,
-		},
-		'pipeline-roles': pipeline_role_defaults,
-		'external-workers': [
-			{
-				id: 'claude-default',
-				command: ['claude', '-p'],
-				priority: 3,
-				family: 'claude',
-				tiers: {
-					best: 'claude-opus-5/high',
-					better: 'claude-opus-4-6/high',
-					basic: 'claude-sonnet-5/high',
-					cheap: 'haiku/high',
-				},
-			},
-			{
-				id: 'codex-default',
-				command: ['codex', 'exec'],
-				priority: 3,
-				family: 'codex',
-				tiers: {
-					best: 'gpt-5.6-sol/medium',
-					better: 'gpt-5.6-terra/high',
-					basic: 'gpt-5.6-luna/max',
-					cheap: 'gpt-5.4/medium',
-				},
-			},
-		],
-	},
+  codex: {
+    'schema-version': schema_version,
+    switches: {
+      'target-doc': '.agentflow/devlog.md',
+      'workspace-dir': '.agentflow',
+      'cli-provider': 'on',
+      'auto-reply': 'off',
+      lang: 'en',
+      streams: 'off',
+      'ask-names': 'on',
+      'allow-ag': 'on',
+      metrics: 'off',
+      'large-work-minutes': 120,
+      'completion-cleanup': completion_cleanup_defaults['completion-cleanup'],
+      'completion-cleanup-interval-days':
+        completion_cleanup_defaults['completion-cleanup-interval-days'],
+    },
+    'pipeline-roles': pipeline_role_defaults,
+    'external-workers': [
+      {
+        id: 'codex-default',
+        command: ['codex', 'exec'],
+        priority: 3,
+        family: 'codex',
+        tiers: {
+          best: 'gpt-6-astra/xhigh',
+          better: 'gpt-5.6-sol/low',
+          basic: 'gpt-5.6-luna/xhigh',
+          cheap: 'gpt-5.6-luna/low',
+        },
+      },
+      {
+        id: 'claude-default',
+        command: ['claude', '-p'],
+        priority: 3,
+        family: 'claude',
+        tiers: {
+          best: 'claude-opus-5/high',
+          better: 'claude-opus-4-6/high',
+          basic: 'claude-sonnet-5/high',
+          cheap: 'haiku/high',
+        },
+      },
+    ],
+  },
+  claude: {
+    'schema-version': schema_version,
+    switches: {
+      'target-doc': '.agentflow/devlog.md',
+      'workspace-dir': '.agentflow',
+      'cli-provider': 'on',
+      'auto-reply': 'off',
+      lang: 'en',
+      streams: 'off',
+      'ask-names': 'on',
+      'allow-ag': 'on',
+      metrics: 'off',
+      'large-work-minutes': 120,
+      'completion-cleanup': completion_cleanup_defaults['completion-cleanup'],
+      'completion-cleanup-interval-days':
+        completion_cleanup_defaults['completion-cleanup-interval-days'],
+    },
+    'pipeline-roles': pipeline_role_defaults,
+    'external-workers': [
+      {
+        id: 'claude-default',
+        command: ['claude', '-p'],
+        priority: 3,
+        family: 'claude',
+        tiers: {
+          best: 'claude-opus-5/high',
+          better: 'claude-opus-4-6/high',
+          basic: 'claude-sonnet-5/high',
+          cheap: 'haiku/high',
+        },
+      },
+      {
+        id: 'codex-default',
+        command: ['codex', 'exec'],
+        priority: 3,
+        family: 'codex',
+        tiers: {
+          best: 'gpt-6-astra/xhigh',
+          better: 'gpt-5.6-sol/low',
+          basic: 'gpt-5.6-luna/xhigh',
+          cheap: 'gpt-5.6-luna/low',
+        },
+      },
+    ],
+  },
 }
 
 const make_template = host => clone_value(host_template_values[normalise_host(host)])
 const template_for_host = make_template
 
+const normalise_initial_language = value => {
+	if (typeof value !== 'string' || !value.trim()) return null
+	const tag = value.trim().split(/[.@]/u)[0].replaceAll('_', '-')
+	if (/^(?:C|POSIX)$/iu.test(tag)) return null
+	try {
+		const locale = new Intl.Locale(tag)
+		if (locale.language === 'und') return null
+		if (locale.language === 'zh') return locale.maximize().script === 'Hant' ? 'zh-tw' : 'zh-cn'
+		return locale.baseName.toLowerCase()
+	} catch { return null }
+}
+
+const detect_initial_language = (options = {}) => {
+	const env = options.env || process.env
+	// macOS terminal locales often describe shell formatting, not the user's UI language.
+	if ((options.platform || process.platform) === 'darwin') {
+		const read = options.exec_file_sync || node_child_process.execFileSync
+		for (const key of ['AppleLanguages', 'AppleLocale']) {
+			try {
+				const value = read('/usr/bin/defaults', ['read', '-g', key], {
+					encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 1000, maxBuffer: 4096,
+				})
+				const first = key === 'AppleLanguages' ? value.match(/^\s*\(\s*"?([A-Za-z0-9_-]+)"?\s*(?:,|\))/u)?.[1] : value
+				const language = normalise_initial_language(first)
+				if (language) return language
+			} catch { /* Missing desktop preferences fall back to the process locale. */ }
+		}
+	}
+	for (const key of ['LC_ALL', 'LC_MESSAGES', 'LANG']) {
+		const language = normalise_initial_language(env[key])
+		if (language) return language
+	}
+	try {
+		const locale = (options.intl_locale || (() => new Intl.DateTimeFormat().resolvedOptions().locale))()
+		return normalise_initial_language(locale) || 'en'
+	} catch { return 'en' }
+}
+
 const sorted_keys = object => Object.keys(object).sort()
 
-const check_exact_object = (value, expected, label, errors, warnings = []) => {
+const check_exact_object = (value, expected, label, errors, warnings = [], optional = []) => {
 	if (!is_plain_object(value)) {
 		errors.push(`${label} must be an object`)
 		return false
@@ -218,7 +267,7 @@ const check_exact_object = (value, expected, label, errors, warnings = []) => {
 	}
 
 	for (const key of sorted_keys(value)) {
-		if (!expected.includes(key)) warnings.push(`warning: ${label}.${key} is unknown and ignored`)
+		if (!expected.includes(key) && !optional.includes(key)) warnings.push(`warning: ${label}.${key} is unknown and ignored`)
 	}
 
 	return true
@@ -264,11 +313,16 @@ const workspace_dir_errors = (value, repo_root) => {
 	return path_is_inside_real_root(node_path.resolve(repo_root), resolved) ? [] : ['switches.workspace-dir resolves through a symlink outside the repository']
 }
 
-const workspace_dir_for = config => config && config.switches && typeof config.switches['workspace-dir'] === 'string' ? config.switches['workspace-dir'] : ''
+const workspace_dir_for = config => {
+	const workspace = config?.switches?.['workspace-dir']
+	const errors = workspace_dir_errors(workspace)
+	if (errors.length) throw new SettingsError(errors.join('; '), { code: 'AG_WORKSPACE_INVALID' })
+	return workspace
+}
 
 const workspace_paths = config => {
 	const workspace = workspace_dir_for(config)
-	const prefix = workspace ? `${workspace}/` : ''
+	const prefix = `${workspace}/`
 	return {
 		workspace,
 		notebook: `${prefix}devlog.md`,
@@ -551,11 +605,9 @@ const active_host_error = (config, options, errors) => {
 }
 
 const validate_switches = (config, options, expected_switches, provider_values, errors, warnings) => {
-	const before = errors.length
-	const switches_ok = check_exact_object(config.switches, expected_switches, 'configuration.switches', errors, warnings)
-	const missing_workspace = 'configuration.switches.workspace-dir is required'
-	const missing_index = errors.indexOf(missing_workspace, before)
-	if (missing_index >= 0) errors.splice(missing_index, 1)
+	const required_switches = expected_switches.filter(key => !optional_switch_names.includes(key))
+	const optional_switches = expected_switches.filter(key => optional_switch_names.includes(key))
+	const switches_ok = check_exact_object(config.switches, required_switches, 'configuration.switches', errors, warnings, optional_switches)
 	if (!switches_ok) return
 	if (has_own(config.switches, 'workspace-dir')) errors.push(...workspace_dir_errors(config.switches['workspace-dir'], options.repo_root))
 	const target_errors = target_doc_errors(config.switches['target-doc'], options.repo_root)
@@ -567,13 +619,15 @@ const validate_switches = (config, options, expected_switches, provider_values, 
 		'ask-names': ['on', 'off'],
 		'allow-ag': ['on', 'off', 'ask'],
 		metrics: ['off', 'on'],
+		'completion-cleanup': ['off', 'on'],
 	}
 	for (const [key, values] of Object.entries(legal_switches)) {
-		if (expected_switches.includes(key) && !values.includes(config.switches[key])) errors.push(`configuration.switches.${key} must be one of ${values.join(', ')}`)
+		if (expected_switches.includes(key) && has_own(config.switches, key) && !values.includes(config.switches[key])) errors.push(`configuration.switches.${key} must be one of ${values.join(', ')}`)
 	}
 	if (typeof config.switches.lang !== 'string' || config.switches.lang.trim().length === 0) errors.push('configuration.switches.lang must be a non-empty string')
 	else if (is_control_text(config.switches.lang)) errors.push('configuration.switches.lang must not contain control characters')
 	if (!Number.isInteger(config.switches['large-work-minutes']) || config.switches['large-work-minutes'] < 1 || config.switches['large-work-minutes'] > 10080) errors.push('configuration.switches.large-work-minutes must be an integer from 1 through 10080')
+	if (has_own(config.switches, 'completion-cleanup-interval-days') && (!Number.isInteger(config.switches['completion-cleanup-interval-days']) || config.switches['completion-cleanup-interval-days'] < 1 || config.switches['completion-cleanup-interval-days'] > 365)) errors.push('configuration.switches.completion-cleanup-interval-days must be an integer from 1 through 365')
 }
 
 const validate_current_config = (config, options = {}) => {
@@ -770,7 +824,9 @@ const write_text_atomic = (file_path, text, options = {}) => {
 			try { fs_api.closeSync(descriptor) } catch (close_error) { /* preserve the original write error */ }
 		}
 		try { fs_api.unlinkSync(temp_path) } catch (unlink_error) { /* the old file remains the recovery copy */ }
-		throw new SettingsError(`${node_path.basename(file_path)} could not be written atomically`, { code: 'AG_CONFIG_WRITE' })
+		const denied = ['EACCES', 'EPERM', 'EROFS'].includes(error.code)
+		const remedy = denied ? ` (${error.code}): file or sandbox permission denied. Do not retry unchanged; ask the owner to install the hook outside the restricted session or grant the required write permission.` : ''
+		throw new SettingsError(`${node_path.basename(file_path)} could not be written atomically${remedy}`, { code: 'AG_CONFIG_WRITE' })
 	}
 }
 
@@ -787,6 +843,8 @@ const canonical_config = config => ({
 		'allow-ag': config.switches['allow-ag'],
 		metrics: config.switches.metrics,
 		'large-work-minutes': config.switches['large-work-minutes'],
+		...(has_own(config.switches, 'completion-cleanup') ? { 'completion-cleanup': config.switches['completion-cleanup'] } : {}),
+		...(has_own(config.switches, 'completion-cleanup-interval-days') ? { 'completion-cleanup-interval-days': config.switches['completion-cleanup-interval-days'] } : {}),
 	},
 	'pipeline-roles': Object.fromEntries(pipeline_role_names.map(role => [role, config['pipeline-roles'][role]])),
 	'external-workers': config['external-workers'].map(profile => ({
@@ -874,9 +932,26 @@ const ensure_configuration = (options = {}) => {
 
 	const active_host = detect_host(options)
 	const config = make_template(active_host)
+	config.switches.lang = detect_initial_language(options)
 	config.switches['target-doc'] = relative_notebook_path(repo_root, notebook_path)
 	write_config_atomic(config_path, config, { ...options, repo_root, active_host })
 	return { config, config_path, created: true, active_host }
+}
+
+const format_ask_heading = (ask, { config, repo_root = process.cwd(), notebook_path } = {}) => {
+	if (!config && notebook_path) {
+		const config_path = active_config_path(repo_root, notebook_path)
+		if (node_fs.existsSync(config_path)) config = read_json_config(config_path)
+	}
+	const heading = `# → Ask / ${ask}`
+	if (config?.switches?.['ask-names'] !== 'on') return heading
+	const result = node_child_process.spawnSync('git', ['config', 'user.name'], { cwd: repo_root, encoding: 'utf8', timeout: 1000, maxBuffer: 4096 })
+	let name = result.status === 0 ? result.stdout.trim() : ''
+	if (!name) {
+		try { name = require('node:os').userInfo().username } catch {}
+	}
+	name = String(name).replace(/[()\u0000-\u001f\u007f]/gu, ' ').replace(/\s+/gu, ' ').trim()
+	return name ? `${heading} (${name})` : heading
 }
 
 const initialize_project = (options = {}) => {
@@ -895,12 +970,13 @@ const initialize_project = (options = {}) => {
 	}
 
 	const config = template
+	config.switches.lang = detect_initial_language(options)
 	config.switches['target-doc'] = relative_notebook_path(repo_root, notebook_path)
 	const status = format_status({
 		project: options.project || node_path.basename(repo_root),
 		notebook: config.switches['target-doc'],
 		notebook_kind: 'root',
-		current_commit: 'initialization pending',
+		current_commit: 'none yet; the first Agentflow closeout will create it',
 		tests_scenarios: 'none',
 		config_path: display_path(config_path, repo_root),
 		host: active_host,
@@ -912,7 +988,7 @@ const initialize_project = (options = {}) => {
 		archived_eras: 'none',
 		streams: [],
 	})
-	const notebook = `${status}\n---\n\n# → Ask / A-001\n\n+ \n`
+	const notebook = `${status}\n---\n\n${format_ask_heading('A-001', { config, repo_root })}\n\n+ \n`
 	write_text_atomic(notebook_abs, notebook, options)
 	try {
 		write_config_atomic(config_path, config, { ...options, repo_root, active_host })
@@ -1083,7 +1159,7 @@ const rename_target_document = (options = {}) => {
 
 	let moved_config
 	try {
-		const date = options.date || new Date().toISOString().slice(0, 10)
+		const date = options.date || format_local_timestamp().slice(0, 10)
 		const moved_status = update_renamed_status(fs_api.readFileSync(new_abs, 'utf8'), old_notebook, new_notebook, notebook_kind, new_config_rel, active_host, date)
 		const moved_status_validation = validate_status_projection(moved_status)
 		if (!moved_status_validation.valid) throw new SettingsError(`target-document rename produced an invalid STATUS: ${moved_status_validation.errors.join('; ')}`, { code: 'AG_RENAME_STATUS' })
@@ -1105,10 +1181,17 @@ const rename_target_document = (options = {}) => {
 				second_paths.push(backlink_rel)
 			}
 		}
+		const commit_paths = second_paths.filter(file => {
+			if (fs_api.existsSync(node_path.resolve(repo_root, file))) return true
+			try {
+				git_run(['ls-files', '--with-tree=HEAD', '--error-unmatch', '--', file])
+				return true
+			} catch { return false }
+		})
 		git_run(['add', '-u', '--', '.'])
 		const add_paths = second_paths.filter(file => fs_api.existsSync(node_path.resolve(repo_root, file)))
 		if (add_paths.length > 0) git_run(['add', '--', ...add_paths])
-		git_run(['commit', '--only', '-m', 'devlog: finish target notebook rename', '--', ...second_paths])
+		git_run(['commit', '--only', '-m', 'devlog: finish target notebook rename', '--', ...commit_paths])
 	} catch (error) {
 		throw new SettingsError(`target-document rename is between commits and needs recovery: ${error.message || error}; do not create defaults; finish or restore the dedicated rename state`, { code: 'AG_RENAME_INCOMPLETE' })
 	}
@@ -1129,36 +1212,6 @@ const rename_target_document = (options = {}) => {
 }
 
 const rename_target_doc = rename_target_document
-
-const migrate_workspace = (options = {}) => {
-	const repo_root = node_path.resolve(options.repo_root || process.cwd())
-	const fs_api = options.fs || node_fs
-	const git_run = args => (options.git_runner ? options.git_runner(args) : git_command(repo_root, args))
-	try { git_run(['rev-parse', '--show-toplevel']) } catch { throw new SettingsError('workspace migration requires a Git repository', { code: 'AG_WORKSPACE_GIT' }) }
-	if (String(git_run(['status', '--porcelain'])).trim()) throw new SettingsError('workspace migration requires a clean working tree', { code: 'AG_WORKSPACE_DIRTY' })
-	const config_path = node_path.join(repo_root, 'ag.json')
-	const active_host = options.active_host || options.explicit_host || detect_host(options)
-	const config = read_json_config(config_path, { ...options, repo_root, active_host })
-	const paths = workspace_paths(config)
-	if (!paths.workspace) throw new SettingsError('workspace migration requires workspace-dir to be set first', { code: 'AG_WORKSPACE_MISSING' })
-	if (config.switches['target-doc'] !== 'devlog.md') throw new SettingsError('workspace migration requires the legacy root target-doc=devlog.md', { code: 'AG_WORKSPACE_SCOPE' })
-	const moves = [['devlog.md', paths.notebook], ['devlog.archive.md', paths.archive], ['.devlog.audit.md', paths.audit], ['artifacts', paths.artifacts], ['features', paths.features], ['planned', `${paths.workspace}/planned`]].filter(([from]) => fs_api.existsSync(node_path.join(repo_root, from)))
-	if (moves.length === 0) throw new SettingsError('workspace migration found no Agentflow-owned root records to move', { code: 'AG_WORKSPACE_EMPTY' })
-	for (const [, to] of moves) if (fs_api.existsSync(node_path.join(repo_root, to))) throw new SettingsError(`workspace migration destination already exists: ${to}`, { code: 'AG_WORKSPACE_DESTINATION' })
-	for (const [from, to] of moves) {
-		fs_api.mkdirSync(node_path.dirname(node_path.join(repo_root, to)), { recursive: true })
-		try { git_run(['mv', '--', from, to]) } catch (error) { throw new SettingsError(`workspace migration could not move ${from}; only tracked Agentflow records may be migrated: ${error.message || error}`, { code: 'AG_WORKSPACE_MOVE' }) }
-	}
-	const notebook = node_path.join(repo_root, paths.notebook)
-	const status = update_renamed_status(fs_api.readFileSync(notebook, 'utf8'), 'devlog.md', paths.notebook, 'root', 'ag.json', active_host, options.date || new Date().toISOString().slice(0, 10))
-	if (!validate_status_projection(status).valid) throw new SettingsError('workspace migration produced an invalid STATUS record', { code: 'AG_WORKSPACE_STATUS' })
-	fs_api.writeFileSync(notebook, status, 'utf8')
-	config.switches['target-doc'] = paths.notebook
-	write_config_atomic(config_path, config, { ...options, repo_root, active_host })
-	git_run(['add', '--', 'ag.json', paths.notebook])
-	git_run(['commit', '-m', 'agentflow: migrate workspace', '--', 'ag.json', ...moves.flatMap(([from, to]) => [from, to])])
-	return { workspace: paths.workspace, moves }
-}
 
 const profile_change_key_pattern = /^([A-Za-z0-9_-]+)\.([a-z0-9_-]+)$/u
 const pipeline_role_change_key_pattern = /^pipeline-roles\.([a-z][a-z0-9-]*)$/u
@@ -1202,7 +1255,7 @@ const parse_change_lines = (changes, options = {}) => {
 			errors.push(`unsupported setting change: ${key}`)
 			continue
 		}
-		if (key === 'large-work-minutes') value = Number(value)
+		if (key === 'large-work-minutes' || key === 'completion-cleanup-interval-days') value = Number(value)
 		if (has_own(parsed, key)) errors.push(`setting change repeats ${key}`)
 		parsed[key] = value
 	}
@@ -1234,7 +1287,7 @@ const apply_changes = (config, changes, options = {}) => {
 			next['pipeline-roles'][pipeline_key[1]] = value
 			continue
 		}
-		if (!has_own(next.switches, key) && key !== 'workspace-dir') { errors.push(`unsupported setting change: ${key}`); continue }
+		if (!has_own(next.switches, key) && key !== 'workspace-dir' && !optional_switch_names.includes(key)) { errors.push(`unsupported setting change: ${key}`); continue }
 		old_values[key] = next.switches[key]
 		next.switches[key] = value
 	}
@@ -1316,7 +1369,9 @@ const status_field_order = ['Project:', 'Notebook:', 'Current commit:', 'Tests/s
 
 const status_stream_pattern = /^stream:\s+([a-z0-9][a-z0-9-]*)\s+—\s+active\s+—\s+([^\s]+\.devlog\.md)$/u
 const status_rename_pattern = /^Renamed:\s+([^\s—]+\.md)\s+→\s+([^\s—]+\.md)\s+\((\d{4}-\d{2}-\d{2})\)\.?$/u
-const status_configuration_pattern = new RegExp(`^Configuration:\\s+((?:[A-Za-z0-9_-]+\\/)*ag\\.json)\\s+—\\s+schema v${schema_version};\\s+(validated|blocked|invalid|missing|unvalidated)\\s+for\\s+(codex|claude)\\s+this round\\.$`, 'u')
+const status_configuration_pattern = new RegExp(`^Configuration:\\s+((?:\\.?[A-Za-z0-9_-]+\\/)*ag\\.json)\\s+—\\s+schema v${schema_version};\\s+(validated|blocked|invalid|missing|unvalidated)\\s+for\\s+(codex|claude)\\s+this round\\.$`, 'u')
+const status_backlink_pattern = /^Backlink: main notebook `[^`\s]+\.md` \(main checkout\)$/u
+const status_feature_pattern = /^Feature: [a-z0-9][a-z0-9-]*(?: — active — .+| — closed)$/u
 
 const status_field_value = (line, field) => line.slice(field.length).trim()
 
@@ -1327,36 +1382,53 @@ const validate_status_projection = devlog_text => {
 	} catch (error) {
 		return { valid: false, errors: ['STATUS block is missing'] }
 	}
-	const lines = region.body.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-	const errors = []
+	const errors = [], warnings = []
+	const lines = region.body.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(original => {
+		let line = original.replace(/^[-*+]\s+/u, '').replace(/\*\*/gu, '')
+		const field = status_field_order.find(name => line.toLowerCase().startsWith(name.toLowerCase()))
+		if (field) line = field + line.slice(field.length)
+		if (/^(?:Notebook:|Configuration:|Archived eras:|Streams:\s+none$)/u.test(line) && !line.endsWith('.')) line += '.'
+		if (line !== original) warnings.push('STATUS field Markdown, capitalization or punctuation differs from the standard presentation')
+		return line
+	})
 	const first_ask = /^# → Ask \/ A-\d+/m.exec(devlog_text)
-	if (first_ask !== null && !/\r?\n---[ \t]*\r?\n(?:\r?\n)?$/u.test(devlog_text.slice(0, first_ask.index))) errors.push('STATUS must end with a --- separator before the first Ask')
+	if (first_ask !== null && !/\r?\n---[ \t]*\r?\n(?:\r?\n)?$/u.test(devlog_text.slice(0, first_ask.index))) warnings.push('STATUS must end with a --- separator before the first Ask')
 	const seen = new Set()
 	let expected_index = 0
 	let stream_section = false
 	let stream_none = false
 	let rename_seen = false
-	let notebook_path = null
-	let notebook_kind = null
+	const notebook_line = lines.find(line => line.startsWith('Notebook:')) || ''
+	const notebook_identity = /^Notebook:\s+([^\s—]+\.md)\s+—\s+(root|stream)\.$/u.exec(notebook_line)
+	let notebook_path = notebook_identity?.[1] || null
+	let notebook_kind = notebook_identity?.[2] || null
+	let backlink_seen = false
+	let feature_seen = false
 
 	for (const line of lines) {
 		if (/(?:^|\s)Settings:\s*/i.test(line)) errors.push('STATUS must not emit an authoritative Settings: line')
-		if (/^Language(?: detection| note)?\s*:/i.test(line)) errors.push('STATUS must not emit a language-detection line')
-		if (/(?:gpt-5\.6|claude-(?:opus|sonnet)-5)\/\w+/i.test(line)) errors.push('STATUS must not emit concrete worker model labels')
+		if (/^Language(?: detection| note)?\s*:/i.test(line)) { warnings.push('STATUS should omit a language-detection line'); continue }
+		if (/(?:gpt-5\.6|claude-(?:opus|sonnet)-5)\/\w+/i.test(line)) warnings.push('STATUS must not emit concrete worker model labels')
 
-		if (stream_section) {
-			if (line.startsWith('Streams:')) {
-				errors.push('STATUS contains duplicate Streams: fields')
+		const field = status_field_order.find(candidate => line.startsWith(candidate))
+		if ((stream_section || /^(?:stream:|Backlink:|Feature:)/u.test(line)) && !field && !line.startsWith('Renamed:')) {
+			if (notebook_kind === 'stream' && !backlink_seen && status_backlink_pattern.test(line)) {
+				if (!stream_section || feature_seen) warnings.push('STATUS backlink is out of order')
+				backlink_seen = true
 				continue
 			}
-			if (line === 'Streams: none.') {
-				if (stream_none) errors.push('STATUS repeats Streams: none.')
-				stream_none = true
+			if (notebook_kind === 'stream' && !feature_seen && status_feature_pattern.test(line)) {
+				if (!backlink_seen) warnings.push('STATUS feature is out of order')
+				feature_seen = true
 				continue
 			}
 			const stream_match = status_stream_pattern.exec(line)
-			if (!stream_match) errors.push(`STATUS has a malformed stream pointer: ${line}`)
+			if (!stream_match) {
+				if (/^[A-Za-z][A-Za-z0-9 /_-]*\s*:/u.test(line)) errors.push(`STATUS has a malformed stream pointer: ${line}`)
+				else warnings.push(`STATUS contains extra presentation content: ${line}`)
+			}
 			else if (notebook_path !== null && notebook_kind !== null) {
+				if (!stream_section) warnings.push('STATUS stream pointers should follow the Streams: field')
 				const taskkey = stream_match[1]
 				const stream_path = stream_match[2]
 				const workspace = notebook_kind === 'root' ? node_path.posix.dirname(notebook_path) : ''
@@ -1365,27 +1437,21 @@ const validate_status_projection = devlog_text => {
 					: notebook_path
 				if (stream_path !== expected_path) errors.push(`STATUS stream pointer is outside its configured workspace: ${line}`)
 			}
-			if (stream_none) errors.push('STATUS cannot add stream pointers after Streams: none.')
-			continue
-		}
-
-		if (line.startsWith('stream:')) {
-			errors.push('STATUS stream pointers must follow the Streams: field')
+			if (stream_match && lines.includes('Streams: none.')) errors.push('STATUS cannot add stream pointers after Streams: none.')
 			continue
 		}
 
 		if (line.startsWith('Renamed:')) {
 			if (rename_seen) errors.push('STATUS contains duplicate Renamed: fields')
-			if (expected_index < 2) errors.push('STATUS Renamed: field is out of order')
+			if (expected_index < 2) warnings.push('STATUS Renamed: field is out of order')
 			if (!status_rename_pattern.test(line)) errors.push('STATUS Renamed: field has an invalid format')
 			rename_seen = true
 			continue
 		}
 
-		const field = status_field_order.find(candidate => line.startsWith(candidate))
 		if (!field) {
 			if (/^[A-Za-z][A-Za-z0-9 /_-]*\s*:/u.test(line)) errors.push(`STATUS contains an unexpected authoritative field: ${line.split(':', 1)[0]}`)
-			else errors.push(`STATUS contains unexpected content: ${line}`)
+			else warnings.push(`STATUS contains unexpected content: ${line}`)
 			continue
 		}
 
@@ -1394,7 +1460,7 @@ const validate_status_projection = devlog_text => {
 			errors.push(`STATUS contains duplicate ${field}`)
 			continue
 		}
-		if (field_index < expected_index) errors.push(`STATUS field ${field} is out of order`)
+		if (field_index < expected_index) warnings.push(`STATUS field ${field} is out of order`)
 		seen.add(field)
 		expected_index = Math.max(expected_index, field_index + 1)
 
@@ -1405,6 +1471,7 @@ const validate_status_projection = devlog_text => {
 			const notebook_match = /^Notebook:\s+([^\s—]+\.md)\s+—\s+(root|stream)\.$/u.exec(line)
 			if (notebook_match === null) errors.push('STATUS Notebook: has an invalid format')
 			else {
+				if (node_path.posix.isAbsolute(notebook_match[1]) || notebook_match[1].includes('\\') || notebook_match[1].split('/').some(part => ['', '.', '..'].includes(part))) errors.push('STATUS Notebook: has an unsafe path')
 				notebook_path = notebook_match[1]
 				notebook_kind = notebook_match[2]
 			}
@@ -1421,8 +1488,8 @@ const validate_status_projection = devlog_text => {
 	}
 
 	for (const field of status_field_order) if (!seen.has(field)) errors.push(`STATUS is missing ${field}`)
-	if (stream_section && !stream_none && lines[lines.length - 1] === 'Streams:') errors.push('STATUS Streams: has no stream pointer or none value')
-	return { valid: errors.length === 0, errors }
+	if (stream_section && !stream_none && !lines.some(line => status_stream_pattern.test(line))) errors.push('STATUS Streams: has no stream pointer or none value')
+	return { valid: errors.length === 0, errors, ...(warnings.length ? { warnings: [...new Set(warnings)] } : {}) }
 }
 
 const normalise_role = role => {
@@ -1642,7 +1709,7 @@ const format_settings_display = (config, options = {}) => {
 		`host: ${host}`,
 		'',
 		'Switches:',
-		...switch_names.map(key => `- ${key}: ${config.switches[key]}`),
+		...switch_names.map(key => `- ${key}: ${has_own(config.switches, key) ? config.switches[key] : completion_cleanup_defaults[key] ?? config.switches[key]}`),
 		'',
 		'Pipeline roles:',
 		...pipeline_role_names.map(role => `- pipeline-roles.${role}: ${config['pipeline-roles'][role]}`),
@@ -1666,7 +1733,9 @@ const format_settings_display = (config, options = {}) => {
 		'- allow-ag: on, off, or ask; use allow-ag: <value>',
 		'- metrics: off or on; use metrics: <value>',
 		'- large-work-minutes: integer from 1 through 10080; use large-work-minutes: <value>',
-		'- pipeline roles: requirements, codewalk, explore, spike, spec, implementation, security-scan, acceptance, or learn; use pipeline-roles.<stage>: off or <tier>',
+		'- completion-cleanup: off or on; use completion-cleanup: <value>',
+		'- completion-cleanup-interval-days: integer from 1 through 365; use completion-cleanup-interval-days: <value>',
+		'- pipeline roles: requirements, codewalk, explore, spike, spec, implementation, security-scan, acceptance, cross-check, or learn; use pipeline-roles.<stage>: off or <tier>',
 		'- worker profiles: id, literal command array, priority 1 through 5, optional family, required best/better/basic/cheap tiers, and lowercase custom tiers; use <profile-id>.best: <value> or <profile-id>.<custom-tier>: <value>',
 		'- profile model/effort values: parser-valid <model>/<effort>; model family is selected separately by cli-provider',
 		'- target-doc: use the dedicated rename-target-document operation; it is not a generic atomic setting change',
@@ -1677,7 +1746,7 @@ const format_settings_display = (config, options = {}) => {
 
 const settings_display = format_settings_display
 
-const cli_usage = `usage: node ag-settings.js <init|validate|show|change|tier|rename|migrate-workspace> [options]\n\noptions:\n  --repo <path>       repository root (default: current directory)\n  --notebook <path>   applicable notebook (default: devlog.md)\n  --host <codex|claude>  explicit coordinator host for tests or integration\n  --set <key: value>  one setting change; may be repeated\n\nchange also accepts key: value arguments after the repository options.\nrename accepts --from <old-notebook> and --to <new-notebook> and performs the required two commits.\nmigrate-workspace moves tracked legacy Agentflow records after workspace-dir is set.`
+const cli_usage = `usage: node ag-settings.js <init|validate|show|change|tier|rename> [options]\n\noptions:\n  --repo <path>       repository root (default: current directory)\n  --notebook <path>   applicable notebook (default: devlog.md)\n  --host <codex|claude>  explicit coordinator host for tests or integration\n  --set <key: value>  one setting change; may be repeated\n\nchange also accepts key: value arguments after the repository options.\nsupported cleanup switches: completion-cleanup (off|on; default off), completion-cleanup-interval-days (integer 1 through 365; default 7).\nrename accepts --from <old-notebook> and --to <new-notebook> and performs the required two commits.`
 
 const option_value = (args, index, name) => {
 	if (index + 1 >= args.length) throw new SettingsError(`${name} requires a value`, { code: 'AG_CLI_INVALID' })
@@ -1744,11 +1813,6 @@ const cli_main = (argv, io = {}) => {
 		output(`renamed ${result.old_notebook} → ${result.new_notebook} in two commits`)
 		return 0
 	}
-	if (parsed.command === 'migrate-workspace') {
-		const result = migrate_workspace({ ...common })
-		output(`migrated Agentflow records to ${result.workspace}`)
-		return 0
-	}
 	if (parsed.command === 'tier') {
 		if (parsed.options.rest.length !== 1) throw new SettingsError('worker selection by kind is unsupported; provide one role', { code: 'AG_CLI_INVALID' })
 		const role = parsed.options.rest[0]
@@ -1768,11 +1832,14 @@ module.exports = {
 	pipeline_role_names,
 	mandatory_pipeline_roles,
 	switch_names,
+	optional_switch_names,
+	completion_cleanup_defaults,
 	host_markers,
 	role_tiers,
 	role_aliases,
 	host_template_values,
 	make_template,
+	detect_initial_language,
 	template_for_host,
 	detect_host_info,
 	detect_host,
@@ -1804,6 +1871,7 @@ module.exports = {
 	status_region,
 	ensure_configuration,
 	initialize_project,
+	format_ask_heading,
 	copy_for_notebook,
 	copy_configuration,
 	relocate_configuration,
@@ -1813,7 +1881,6 @@ module.exports = {
 	carry_forward_card,
 	rename_target_document,
 	rename_target_doc,
-	migrate_workspace,
 	parse_change_lines,
 	apply_changes,
 	change_configuration,

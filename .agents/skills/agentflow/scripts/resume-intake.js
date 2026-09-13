@@ -6,13 +6,17 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const crypto = require('node:crypto')
+const { isDeepStrictEqual } = require('node:util')
 const { execFileSync } = require('node:child_process')
 const settings = require('./ag-settings.js')
+const { parse_fast_lane } = require('./fast-lane.js')
 
 const MAX_NOTEBOOK_BYTES = 64 * 1024
 const MAX_ASK_BYTES = 16 * 1024
 const MAX_STATUS_BYTES = 32 * 1024
 const MAX_CURRENT_ROUND_BYTES = 64 * 1024
+const STREAM_DECISION_REASONS = Object.freeze(['none', 'owner_input_only', 'bootstrap_files_only', 'foreign_or_parallel_work', 'not_git_repository'])
 
 const git = (repo_root, args) => {
   try {
@@ -30,6 +34,26 @@ const bounded_git = (repo_root, args) => {
     return null
   }
 }
+
+const file_identity = file => {
+  try {
+    const stat = fs.lstatSync(file, { bigint: true })
+    if (!stat.isFile() || stat.isSymbolicLink()) return null
+    return {
+      dev: String(stat.dev),
+      ino: String(stat.ino),
+      size: String(stat.size),
+      mode: String(stat.mode),
+      mtime: String(stat.mtimeNs),
+      ctime: String(stat.ctimeNs),
+      sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+    }
+  } catch {
+    return null
+  }
+}
+
+const same_file_identity = (expected, actual) => Boolean(expected && actual) && Object.keys(expected).every(key => String(expected[key]) === String(actual[key]))
 
 const read_bounded = file => {
   const stat = fs.statSync(file)
@@ -49,16 +73,21 @@ const read_bounded = file => {
   }
 }
 
+// Git checkouts with core.autocrlf, and any editor on Windows, leave the
+// notebook CRLF. status_block() looks for a literal '\n---\n' separator, so a
+// CRLF notebook aborts intake outright rather than degrading; normalize once
+// here so every consumer below sees LF. No offset from this text escapes
+// collect_intake, so normalizing cannot shift a reported span.
+const normalize_newlines = text => text.replaceAll('\r\n', '\n')
+
 const status_block = text => {
   const end = text.indexOf('\n---\n')
   if (end < 0) throw new Error('notebook has no STATUS separator')
   return text.slice(0, end).trimEnd()
 }
 
-const normalize_newlines = text => text.replaceAll('\r\n', '\n')
-
 const final_ask_span = text => {
-  const matches = [...text.matchAll(/^# → Ask \/ (A-\d+)$/gmu)]
+  const matches = [...text.matchAll(/^# → Ask \/ (A-\d+)(?: \([^\)\r\n]*\))?[ \t]*\r?$/gmu)]
   if (matches.length === 0) return null
   const match = matches[matches.length - 1]
   const body_start = match.index + match[0].length
@@ -120,7 +149,91 @@ const expected_large_owner_input = ({ repo_root, notebook_path, current_ask, cha
   return changes.length === expected.length && changes.every((line, index) => line === expected[index])
 }
 
-const collect_intake = ({ repo_root = process.cwd(), notebook_path, active_host = 'codex' } = {}) => {
+const expected_unborn_owner_input = ({ repo_root, notebook_path, notebook_text, current_ask, changed, active_host, config }) => {
+  if (bounded_git(repo_root, ['rev-parse', '--verify', 'HEAD']) !== null || current_ask === null || current_ask.text === '+') return false
+  if (JSON.stringify(changed) !== JSON.stringify([notebook_path, '.gitignore', 'ag.json'].sort())) return false
+
+  const expected_config = settings.make_template(active_host)
+  expected_config.switches.lang = settings.detect_initial_language()
+  expected_config.switches['workspace-dir'] = '.agentflow'
+  expected_config.switches['target-doc'] = notebook_path
+  if (!isDeepStrictEqual(config, expected_config)) return false
+  if (fs.readFileSync(path.join(repo_root, '.gitignore'), 'utf8') !== '.claude/\n.codex/\n.worktrees/\n') return false
+
+  const expected_status = settings.format_status({
+    project: path.basename(repo_root),
+    notebook: notebook_path,
+    notebook_kind: 'root',
+    current_commit: 'none yet; the first Agentflow closeout will create it',
+    tests_scenarios: 'none',
+    config_path: 'ag.json',
+    host: active_host,
+    validation: 'validated',
+    proven: 'the host template was initialized',
+    open: 'none',
+    next: 'await the first request',
+    artifacts: 'none',
+    archived_eras: 'none',
+    streams: [],
+  })
+  const expected_notebook = `${expected_status}\n---\n\n${settings.format_ask_heading('A-001', { config, repo_root })}\n\n+ \n`
+  const expected_span = final_ask_span(expected_notebook)
+  const working_span = final_ask_span(notebook_text)
+  return expected_span !== null && working_span !== null &&
+    notebook_text.slice(0, working_span.body_start) === expected_notebook.slice(0, expected_span.body_start) &&
+    notebook_text.slice(working_span.body_start).trim() === current_ask.text
+}
+
+const default_branch = repo_root => {
+  const remote = bounded_git(repo_root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])?.trim()
+  if (remote && /^origin\/[^\s]+$/u.test(remote)) return remote.slice('origin/'.length)
+  const branches = bounded_git(repo_root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
+  if (!branches) return null
+  return ['main', 'master'].find(branch => branches.split(/\r?\n/u).includes(branch)) || null
+}
+
+const has_active_stream = status => /^stream:\s+[^\r\n]+\s+—\s+active\s+—\s+[^\r\n]+$/mu.test(status)
+
+const bootstrap_paths_match = ({ repo_root, changed, bootstrap_provenance }) => {
+  if (!Array.isArray(bootstrap_provenance) || bootstrap_provenance.length === 0 || changed.length === 0) return false
+  const records = new Map()
+  for (const record of bootstrap_provenance) {
+    if (record === null || typeof record !== 'object' || typeof record.path !== 'string' || records.has(record.path)) return false
+    records.set(record.path, record)
+  }
+  if (changed.some(relative => !records.has(relative))) return false
+  return changed.every(relative => {
+    const record = records.get(relative)
+    const after = file_identity(path.join(repo_root, relative))
+    return same_file_identity(record.after, after) && JSON.stringify(record.before ?? null) !== JSON.stringify(record.after ?? null)
+  })
+}
+
+const stream_decision = ({ repo_root, branch, status, changed, expected_owner, expected_unborn, bootstrap_provenance, interrupted_start = false }) => {
+  const reasons = []
+  const default_ref = default_branch(repo_root)
+	if (default_ref !== null && branch !== default_ref) reasons.push(`branch ${branch} is not the default branch ${default_ref}`)
+	if (default_ref === null && !['main', 'master'].includes(branch)) reasons.push(`branch ${branch} has no proven default branch`)
+  if (has_active_stream(status)) reasons.push('STATUS contains an active stream')
+  if (interrupted_start && changed.length > 0) reasons.push('startup did not return a completed transaction result')
+
+  if (reasons.length === 0 && expected_owner) {
+    return { reason: 'owner_input_only', required_next_rulebook: null, evidence: ['the final empty Ask changed into the current owner message only'] }
+  }
+  if (reasons.length === 0 && bootstrap_paths_match({ repo_root, changed, bootstrap_provenance })) {
+    return { reason: 'bootstrap_files_only', required_next_rulebook: null, evidence: ['every changed path matches the current startup transaction identities'] }
+  }
+  if (reasons.length === 0 && expected_unborn) {
+    return { reason: 'owner_input_only', required_next_rulebook: null, evidence: ['the exact canonical unborn bootstrap contains one unresolved first Ask'] }
+  }
+  if (changed.length === 0 && reasons.length === 0) {
+    return { reason: 'none', required_next_rulebook: null, evidence: [] }
+  }
+  if (reasons.length === 0 && changed.length > 0) reasons.push('changed paths are not proven to be current owner input or current startup files')
+  return { reason: 'foreign_or_parallel_work', required_next_rulebook: 'references/streams.md', evidence: reasons }
+}
+
+const collect_intake = ({ repo_root = process.cwd(), notebook_path, active_host = 'codex', bootstrap_provenance, interrupted_start = false } = {}) => {
 	const root = fs.realpathSync(repo_root)
 	const root_config_path = path.join(root, 'ag.json')
 	const root_config = settings.read_json_config(root_config_path, { repo_root: root, active_host })
@@ -132,22 +245,56 @@ const collect_intake = ({ repo_root = process.cwd(), notebook_path, active_host 
   const config = settings.read_json_config(config_path, { repo_root: root, notebook_path: relative_notebook, active_host })
   const bounded = read_bounded(notebook)
   const text = normalize_newlines(bounded.complete ? bounded.text : bounded.tail)
+  const status_source = bounded.complete ? text : normalize_newlines(bounded.head)
   const current_ask = final_ask(text)
+  const fast_lane = parse_fast_lane(current_ask?.text)
   if (!bounded.complete && current_ask === null) throw new Error(`current round exceeds the ${MAX_CURRENT_ROUND_BYTES}-byte fast-intake limit or has no complete final Ask boundary`)
+  if (bounded_git(root, ['rev-parse', '--show-toplevel']) === null) return {
+    repository: root,
+    notebook: relative_notebook,
+    configuration: { valid: true, path: settings.display_path(config_path, root), language: config.switches.lang },
+    branch: null,
+    changed_paths: [],
+    expected_owner_input: false,
+    stream_decision: { reason: 'not_git_repository', required_next_rulebook: null, open_new_stream: false, evidence: ['plain folder; Git change tracking and streams are unavailable'] },
+    status: status_block(status_source),
+    current_ask,
+    ...(fast_lane ? { fast_lane } : {}),
+  }
   const changed = changed_paths(root)
   const expected = bounded.complete
     ? expected_owner_input({ repo_root: root, notebook_path: relative_notebook, notebook_text: text, current_ask, changed })
     : expected_large_owner_input({ repo_root: root, notebook_path: relative_notebook, current_ask, changed })
+  const expected_unborn = bounded.complete && expected_unborn_owner_input({
+    repo_root: root,
+    notebook_path: relative_notebook,
+    notebook_text: text,
+    current_ask,
+    changed,
+    active_host,
+    config,
+  })
+  const status = status_block(status_source)
   return {
     repository: root,
     notebook: relative_notebook,
     configuration: { valid: true, path: settings.display_path(config_path, root), language: config.switches.lang },
     branch: git(root, ['branch', '--show-current']).trim() || 'detached',
     changed_paths: changed,
-    expected_owner_input: expected,
-    stream_rulebook_required: changed.length > 0 && !expected,
-    status: status_block(bounded.complete ? text : normalize_newlines(bounded.head)),
+    expected_owner_input: expected || expected_unborn,
+    stream_decision: { ...stream_decision({
+      repo_root: root,
+      branch: git(root, ['branch', '--show-current']).trim() || 'detached',
+      status,
+      changed,
+      expected_owner: expected,
+      expected_unborn,
+      bootstrap_provenance,
+      interrupted_start,
+    }), ...(fast_lane ? { open_new_stream: false } : {}) },
+    status,
     current_ask,
+    ...(fast_lane ? { fast_lane } : {}),
   }
 }
 
@@ -169,7 +316,7 @@ const main = argv => {
   process.stdout.write(`${JSON.stringify(collect_intake(parse_args(argv)), null, 2)}\n`)
 }
 
-module.exports = { collect_intake, final_ask, expected_owner_input, status_block }
+module.exports = { collect_intake, final_ask, final_ask_span, expected_owner_input, expected_unborn_owner_input, status_block, file_identity, stream_decision, STREAM_DECISION_REASONS }
 
 if (require.main === module) {
   try {

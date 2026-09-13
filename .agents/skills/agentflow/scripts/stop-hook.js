@@ -31,8 +31,11 @@ const parse_json = text => {
   }
 };
 
+let capturing_prompt = false;
+
 const main = () => {
   const input = parse_json(read_stdin());
+  capturing_prompt = input.hook_event_name === 'UserPromptSubmit';
 
   // Loop guard comes before host validation so a correcting turn launched by an
   // older, host-neutral installed command can still escape the one-retry cycle.
@@ -54,7 +57,7 @@ const main = () => {
 
   // CLAUDE_PROJECT_DIR is Claude-Code-only; every host passes cwd on stdin.
   const project_dir = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
-  let notebook_path = 'devlog.md';
+  let notebook_path = '.agentflow/devlog.md';
   let config_path = node_path.join(project_dir, 'ag.json');
   const project_name = node_path.basename(project_dir);
   const in_named_worktree = node_path.basename(node_path.dirname(project_dir)) === '.worktrees' && /^[a-z0-9][a-z0-9-]*$/u.test(project_name);
@@ -79,7 +82,25 @@ const main = () => {
   // Not a devlog session — nothing to referee.
   if (!node_fs.existsSync(devlog_path)) return 0;
 
+  if (input.hook_event_name === 'UserPromptSubmit') {
+    const result = require('./notebook-write.js').append_input({
+      root: project_dir, notebook: notebook_path, text: input.prompt,
+      host: active_host,
+      message_id: input.turn_id ? `${input.session_id || ''}:${input.turn_id}` : undefined,
+    });
+    const round = parse_devlog(node_fs.readFileSync(devlog_path, 'utf8')).rounds.at(-1);
+    const fast_lane = require('./fast-lane.js').parse_fast_lane(round?.owner_text);
+    const route_notice = fast_lane ? ` Fast-lane ${fast_lane.state}: work directly without AG, delegation, new streams, external review, or pipeline approval/artifact requirements. Keep host self-review, necessary tests, trackers, timed WIP checkpoints, detailed reports, and integrity checks. ${fast_lane.state === 'pending' ? 'Wait for the task; leave this Ask open without a Reply or closeout.' : 'This applies through this task’s closeout, then expires.'}` : '';
+    if (result.inserted) process.stdout.write(JSON.stringify({ hookSpecificOutput: {
+      hookEventName: 'UserPromptSubmit',
+      additionalContext: `The user's instruction was saved in ${notebook_path}, ${result.ask}. Read the current Ask and address all its instructions together. Do not record this hook notice as user input.${route_notice}`,
+    } }) + '\n');
+    return 0;
+  }
+
   const devlog_text = node_fs.readFileSync(devlog_path, 'utf8');
+  const rounds = parse_devlog(devlog_text).rounds;
+  if (rounds.length === 1 && ['', '+'].includes(rounds[0].ask_text.trim()) && !rounds[0].reply_text.trim() && !rounds[0].wip_text.trim()) return 0;
   const context = collect({
     project_root: project_dir,
     notebook_path,
@@ -92,7 +113,11 @@ const main = () => {
   });
   const result = lint_round(context);
 
-  if (result.ok) return 0;
+  if (result.ok) {
+    const cleanup = require('./completion-cleanup').sweep_completion_records({ project_root: project_dir, notebook_path, config_path });
+    if (cleanup.status === 'error') process.stderr.write('Agentflow completion cleanup skipped: ' + cleanup.reason + '\n');
+    return 0;
+  }
 
   const parsed = parse_devlog(devlog_text);
   const current_round = parsed.rounds.filter(round => round.text === parsed.last_round).at(-1);
@@ -116,7 +141,9 @@ let exit_code = 0;
 try {
   exit_code = main();
 } catch (error) {
-  exit_code = 0;
+  // A failed capture must be visible; never let a prompt silently disappear.
+  process.stderr.write(`Agentflow hook error: ${error.message}\n`);
+  exit_code = capturing_prompt ? 2 : 0;
 }
 
 process.exit(exit_code);

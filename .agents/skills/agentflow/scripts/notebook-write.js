@@ -4,8 +4,11 @@
 const node_crypto = require('node:crypto');
 const node_fs = require('node:fs');
 const node_path = require('node:path');
-const { lint_round_boundaries, parse_devlog } = require('./round-linter');
+const { spawnSync } = require('node:child_process');
+const { TextDecoder } = require('node:util');
+const { lint_round_boundaries, parse_devlog, record_heading_has_valid_local_timestamp } = require('./round-linter');
 const ag_settings = require('./ag-settings');
+const { format_local_timestamp } = require('./local-time.js');
 
 const MAX_FILE_BYTES = 1024 * 1024;
 const LOCK_WAIT_MS = 5000;
@@ -18,13 +21,12 @@ const wip_like_pattern = /^[ \t]*## \[WIP-[^\r\n]*$/gmu;
 const existing_wip_heading_pattern = /^## \[WIP-(\d{3})\] Checkpoint\b[^\r\n]*$/gmu;
 const run_like_pattern = /^[ \t]*## \[RUN-[^\r\n]*$/gmu;
 const existing_run_heading_pattern = /^## \[RUN-(\d{3})\] Event\b[^\r\n]*$/gmu;
-const draft_run_heading_pattern = /^## \[RUN-(\d{3})\] Event\b[^\r\n]*\(during round (A-\d+)\)[ \t]*$/gmu;
-const draft_wip_heading_pattern = /^## \[WIP-(\d{3})\] Checkpoint\b[^\r\n]*\(during round (A-\d+)\)[ \t]*$/gmu;
+const draft_run_heading_pattern = /^## \[RUN-(\d{3})\] Event\b[^\r\n]*?(?:\((?:during round )?(A-\d+)\))?[ \t]*$/gmu;
+const draft_wip_heading_pattern = /^## \[WIP-(\d{3})\] Checkpoint\b[^\r\n]*?(?:\((?:during round )?(A-\d+)\))?[ \t]*$/gmu;
 const draft_reply_heading_pattern = /^# ← Reply \/ (A-\d{3})[ \t]*\r?$/gmu;
-const checkpoint_footers = new Set([
-  '- **Checks:** [x] tracker.md | [x] devlog RUN | [x] scope matches tracker',
-  'Checks: [x] tracker.md | [x] devlog RUN | [x] scope matches tracker',
-  '[x] tracker.md | [x] devlog RUN | [x] scope matches tracker'
+const close_round_status_fields = Object.freeze([
+  'project', 'notebook', 'notebook_kind', 'current_commit', 'tests_scenarios', 'config_path',
+  'host', 'validation', 'proven', 'open', 'next', 'artifacts', 'archived_eras', 'streams'
 ]);
 
 const fail = message => {
@@ -88,7 +90,8 @@ const resolve_path = (root, value, label) => {
   return absolute;
 };
 
-const read_regular_file = (file, label) => {
+// A streaming consumer retains only its own state; ordinary whole-file reads stay capped.
+const read_regular_file = (file, label, consume) => {
   let checked;
   try {
     checked = node_fs.lstatSync(file, { bigint: true });
@@ -97,11 +100,16 @@ const read_regular_file = (file, label) => {
   }
   if (checked.isSymbolicLink()) fail(`${label} must be a regular non-symbolic-link file`);
   if (!checked.isFile()) fail(`${label} must be a regular non-symbolic-link file`);
-  if (checked.size > BigInt(MAX_FILE_BYTES)) fail(`${label} is oversized; maximum is ${MAX_FILE_BYTES} bytes`);
+  if (!consume && checked.size > BigInt(MAX_FILE_BYTES)) fail(`${label} is oversized; maximum is ${MAX_FILE_BYTES} bytes`);
 
   let descriptor = null;
   let content;
   let close_error = null;
+  const hash = node_crypto.createHash('sha256');
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+  const decode = (bytes, stream) => {
+    try { return decoder.decode(bytes, { stream }); } catch { fail(`${label} is not valid UTF-8`); }
+  };
   try {
     descriptor = node_fs.openSync(file, descriptor_flags());
     const opened = node_fs.fstatSync(descriptor, { bigint: true });
@@ -112,20 +120,28 @@ const read_regular_file = (file, label) => {
     const chunks = [];
     let total = 0;
     while (true) {
-      const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_FILE_BYTES + 1 - total));
+      const buffer = Buffer.allocUnsafe(consume ? 64 * 1024 : Math.min(64 * 1024, MAX_FILE_BYTES + 1 - total));
       const bytes_read = node_fs.readSync(descriptor, buffer, 0, buffer.length, null);
       if (bytes_read === 0) break;
       total += bytes_read;
-      if (total > MAX_FILE_BYTES) fail(`${label} is oversized; maximum is ${MAX_FILE_BYTES} bytes`);
-      chunks.push(buffer.subarray(0, bytes_read));
+      if (!consume && total > MAX_FILE_BYTES) fail(`${label} is oversized; maximum is ${MAX_FILE_BYTES} bytes`);
+      const bytes = buffer.subarray(0, bytes_read);
+      hash.update(bytes);
+      const text = decode(bytes, true);
+      if (consume) consume(text);
+      else chunks.push(bytes);
     }
+    const ending = decode(undefined, false);
+    if (consume) consume(ending);
 
     const final_stat = node_fs.fstatSync(descriptor, { bigint: true });
     if (!final_stat.isFile() || !same_identity(stat_identity(opened), stat_identity(final_stat)) || total !== Number(opened.size)) {
       fail(`${label} changed while reading`);
     }
-    content = Buffer.concat(chunks, total);
-    if (!Buffer.from(content.toString('utf8'), 'utf8').equals(content)) fail(`${label} is not valid UTF-8`);
+    if (consume && !same_identity(stat_identity(checked), stat_identity(node_fs.lstatSync(file, { bigint: true })))) {
+      fail(`${label} identity changed while reading`);
+    }
+    if (!consume) content = Buffer.concat(chunks, total);
   } catch (error) {
     if (error instanceof Error && error.message) throw error;
     fail(`${label} is unreadable`);
@@ -142,10 +158,10 @@ const read_regular_file = (file, label) => {
 
   return {
     content,
-    text: content.toString('utf8'),
+    text: content?.toString('utf8'),
     identity: stat_identity(checked),
     mode: Number(checked.mode & 0o7777n),
-    hash: node_crypto.createHash('sha256').update(content).digest('hex')
+    hash: hash.digest('hex')
   };
 };
 
@@ -190,14 +206,15 @@ const parse_draft = (draft_text, ask_id, expected_number) => {
   if (headings[0].index !== 0) fail('draft must start with its WIP heading');
 
   const [heading] = headings;
+  if (!record_heading_has_valid_local_timestamp(heading[0], Date.now(), true)) fail('draft WIP heading must have a real current YYYY-MM-DD HH:MM:SS ±HHMM timestamp');
   const number = Number(heading[1]);
-  const declared_round = heading[2];
+  const declared_round = heading[2] ?? ask_id;
   if (declared_round !== ask_id) fail(`draft declared round ${declared_round} does not match ${ask_id}`);
   if (number !== expected_number) fail(`draft WIP number must be WIP-${String(expected_number).padStart(3, '0')}`);
 
   const lines = normalized_lines(draft_text);
   const final_line = lines.at(-1);
-  if (!checkpoint_footers.has(final_line)) fail('draft must end with the exact checkpoint verification line');
+  // Footer wording is advisory in the shared completion check, not a write gate.
   if (lines.length === 0 || final_line === undefined) fail('draft is empty');
   return { number };
 };
@@ -223,7 +240,8 @@ const parse_run_draft = (draft_text, ask_id, expected_number) => {
   const headings = [...draft_text.matchAll(draft_run_heading_pattern)];
   if (candidates.length !== 1 || headings.length !== 1) fail('draft must contain exactly one complete RUN heading');
   if (headings[0].index !== 0) fail('draft must start with its RUN heading');
-  if (headings[0][2] !== ask_id) fail(`draft declared round ${headings[0][2]} does not match ${ask_id}`);
+  if (!record_heading_has_valid_local_timestamp(headings[0][0], Date.now(), true)) fail('draft RUN heading must have a real current YYYY-MM-DD HH:MM:SS ±HHMM timestamp');
+  if (headings[0][2] !== undefined && headings[0][2] !== ask_id) fail(`draft declared round ${headings[0][2]} does not match ${ask_id}`);
   if (Number(headings[0][1]) !== expected_number) fail(`draft RUN number must be RUN-${String(expected_number).padStart(3, '0')}`);
   if (draft_text.slice(headings[0][0].length).trim().length === 0) fail('RUN event body is empty');
 };
@@ -250,15 +268,17 @@ const inspect_notebook = (notebook_text, ask_id) => {
   if (target_body.trim() === '' || target_body.trim() === '+') fail(`Ask ${ask_id} is empty`);
   if (reply_like_pattern.test(target_body)) fail(`Ask ${ask_id} is closed because it already has a Reply`);
 
-  const existing_candidates = [...target_body.matchAll(wip_like_pattern)];
-  const existing_headings = [...target_body.matchAll(existing_wip_heading_pattern)];
+  const target_round = parsed.rounds[target_index];
+  const record_text = target_round?.wip_text || '';
+  const existing_candidates = [...record_text.matchAll(wip_like_pattern)];
+  const existing_headings = [...record_text.matchAll(existing_wip_heading_pattern)];
   if (existing_candidates.length !== existing_headings.length) fail(`Ask ${ask_id} has an ambiguous WIP heading`);
   const numbers = existing_headings.map(match => Number(match[1]));
   if (numbers.some(number => number === 0)) fail(`Ask ${ask_id} contains invalid WIP-000`);
   if (new Set(numbers).size !== numbers.length) fail(`Ask ${ask_id} contains duplicate WIP numbers`);
   if (numbers.some((number, index) => index > 0 && number < numbers[index - 1])) fail(`Ask ${ask_id} WIPs are out of physical order`);
-  const run_candidates = [...target_body.matchAll(run_like_pattern)];
-  const run_headings = [...target_body.matchAll(existing_run_heading_pattern)];
+  const run_candidates = [...record_text.matchAll(run_like_pattern)];
+  const run_headings = [...record_text.matchAll(existing_run_heading_pattern)];
   if (run_candidates.length !== run_headings.length) fail(`Ask ${ask_id} has an ambiguous RUN heading`);
   const run_numbers = run_headings.map(match => Number(match[1]));
   if (run_numbers.some(number => number === 0)) fail(`Ask ${ask_id} contains invalid RUN-000`);
@@ -286,6 +306,11 @@ const build_candidate = (notebook, draft) => {
   return Buffer.concat([notebook.content, Buffer.from(separator), draft.content, Buffer.from(ending)]);
 };
 
+const lock_wait_ms = () => {
+  const value = Number(process.env.AGF_TEST_LOCK_WAIT_MS);
+  return Number.isFinite(value) && value >= 0 ? value : LOCK_WAIT_MS;
+};
+
 const acquire_lock = lock_path => {
   const started = Date.now();
   while (true) {
@@ -293,10 +318,215 @@ const acquire_lock = lock_path => {
       return node_fs.openSync(lock_path, node_fs.constants.O_CREAT | node_fs.constants.O_EXCL | node_fs.constants.O_WRONLY, 0o600);
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      if (Date.now() - started >= LOCK_WAIT_MS) fail('another notebook writer is still active');
+      if (Date.now() - started >= lock_wait_ms()) fail('another notebook writer is still active');
       if (typeof Atomics.wait === 'function') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_POLL_MS);
     }
   }
+};
+
+const acquire_close_round_lock = lock_path => {
+  const descriptor = acquire_lock(lock_path);
+  return { descriptor, identity: node_fs.fstatSync(descriptor), path: lock_path };
+};
+
+const release_close_round_lock = lock => {
+  try {
+    node_fs.closeSync(lock.descriptor);
+  } finally {
+    let current = null;
+    try {
+      current = node_fs.lstatSync(lock.path);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if (current !== null && same_object(lock.identity, current)) remove_if_present(lock.path);
+  }
+};
+
+const close_status_text = (status, notebook_text) => {
+  if (status === null || typeof status !== 'object' || Array.isArray(status)) fail('close-round STATUS must be a fields object');
+  const unsupported = Object.keys(status).filter(name => !close_round_status_fields.includes(name));
+  if (unsupported.length) fail(`close-round STATUS has unsupported fields: ${unsupported.join(', ')}`);
+  const missing = close_round_status_fields.filter(name => status[name] === undefined);
+  if (missing.length > 0) fail(`close-round STATUS is missing ${missing.join(', ')}`);
+  const options = Object.fromEntries(close_round_status_fields.map(name => [name, status[name]]));
+  const generated = ag_settings.format_status(options);
+  return generated.replace(/\r\n?/gu, line_ending_for(Buffer.from(notebook_text)));
+};
+
+const replace_status = (notebook_text, status_text) => {
+  let region;
+  try { region = ag_settings.status_region(notebook_text); } catch (error) { fail(error.message); }
+  const heading = /^# STATUS[ \t]*\r?$/mu.exec(notebook_text);
+  if (heading === null || !status_text.startsWith('# STATUS')) fail('close-round replacement must start with # STATUS');
+  return `${notebook_text.slice(0, heading.index)}${status_text}${notebook_text.slice(region.body_end)}`;
+};
+
+const parse_close_document = (document, notebook_text, ask, root) => {
+  if (document === null || typeof document !== 'object' || Array.isArray(document)) fail('close-round input must be a JSON object');
+  for (const field of ['ask_id', 'runs', 'status_fields']) if (Object.hasOwn(document, field)) fail(`close-round unsupported field: ${field}`);
+  const document_ask = document.ask;
+  if (document_ask !== ask) fail(`close-round input Ask ${document_ask || '(missing)'} does not match ${ask}`);
+  const runs = document.run_events;
+  if (!Array.isArray(runs) || !runs.every(run => typeof run === 'string')) fail('close-round run_events must be an ordered array of text events');
+  if (typeof document.reply !== 'string') fail('close-round reply must be complete text');
+  return {
+    runs,
+    reply: render_reply(document.reply, ask, root),
+    status: close_status_text(document.status, notebook_text),
+  };
+};
+
+const render_record = (text, ask, kind, number) => {
+  if (!text.trim() || /^#/u.test(text.trimStart())) return text;
+  return `## [${kind}-${String(number).padStart(3, '0')}] ${kind === 'RUN' ? 'Event' : 'Checkpoint'} — ${format_local_timestamp()} (${ask})\n\n${text.trim()}\n`;
+};
+
+const render_reply = (text, ask, root = process.cwd()) => {
+  if (!text.trim()) return text;
+  const identity = require('./reply-identity').detect_reply_identity({ root });
+  if (/^[ \t]*(?:# ← Reply \/|## Reply \/)/mu.test(text)) {
+    return text.replace(/^(#{1,2} (?:← )?Reply \/[^\n]+\r?\n)(?:\s*\* _[^\n]+_\r?\n)?/u, `$1\n* _${format_local_timestamp()} (${identity})_\n`);
+  }
+  const questions = /^#{1,6}\s+\[?Questions\b/imu.test(text) ? '' : '\n\n## Questions (batched — each with a suggested default)\n\n- None.\n';
+  return `# ← Reply / ${ask}\n\n* _${format_local_timestamp()} (${identity})_\n\n${text.trimEnd()}${questions}\n`;
+};
+
+const prepare_close_candidate = ({ notebook, input, root = process.cwd(), notebook_path } = {}) => {
+  if (input === undefined) fail('close-round input is missing');
+  const document = typeof input === 'string' ? JSON.parse(input) : input;
+  const ask = document?.ask;
+  if (typeof ask !== 'string' || !/^A-\d{3}$/u.test(ask)) fail('close-round Ask must use the exact A-NNN form');
+  if (ask === 'A-999') fail('A-999 cannot be closed because the next Ask identifier is unavailable');
+
+  const inspected = inspect_notebook(notebook.text, ask);
+  const parsed = parse_close_document(document, notebook.text, ask, root);
+  if (root && notebook_path) parsed.reply = require('./completion-record').publish_reply(parsed.reply, { project_root: root, notebook_path, ask });
+  const runs = [];
+  const run_texts = new Set();
+  let expected_number = inspected.next_run_number;
+  for (const content of parsed.runs) {
+    const run = render_record(content, ask, 'RUN', expected_number);
+    const trimmed = run.trimEnd();
+    const run_id = /^## \[(RUN-\d{3})\]/u.exec(trimmed)?.[1] || 'RUN';
+    if (run_texts.has(trimmed)) fail(`close-round ${run_id} appears more than once in run_events`);
+    if (notebook.text.includes(trimmed)) fail(`close-round ${run_id} is already present in the notebook; remove it from run_events`);
+    parse_run_draft(run, ask, expected_number);
+    run_texts.add(trimmed);
+    runs.push(run);
+    expected_number += 1;
+  }
+  parse_reply_draft(parsed.reply, ask);
+
+  const newline = line_ending_for(notebook.content);
+  let candidate_text = replace_status(notebook.text, parsed.status);
+  for (const run of runs) candidate_text = build_candidate({ content: Buffer.from(candidate_text), mode: notebook.mode }, { content: Buffer.from(run) }).toString('utf8');
+  candidate_text = build_candidate({ content: Buffer.from(candidate_text), mode: notebook.mode }, { content: Buffer.from(parsed.reply) }).toString('utf8');
+  const next_id = `A-${String(Number(ask.slice(2)) + 1).padStart(3, '0')}`;
+  const next_heading = ag_settings.format_ask_heading(next_id, { repo_root: root, notebook_path });
+  candidate_text += `${newline}---${newline}${newline}${next_heading}${newline}${newline}+${newline}`;
+  const boundary_check = lint_round_boundaries(candidate_text);
+  if (boundary_check.status === 'fail') fail(`candidate round-boundary check failed: ${boundary_check.detail}`);
+  if (!candidate_text.endsWith(`${next_heading}${newline}${newline}+${newline}`)) fail('candidate notebook did not end with the exact next empty Ask scaffold');
+  const status_check = ag_settings.validate_status_projection(candidate_text);
+  if (!status_check.valid) fail(`candidate STATUS validation failed: ${status_check.errors.join('; ')}`);
+
+  return {
+    ask,
+    runs,
+    reply: parsed.reply,
+    status: parsed.status,
+    next_ask: next_id,
+    candidate: Buffer.from(candidate_text),
+    candidate_text,
+  };
+};
+
+const count_exact = (text, fragment) => {
+  if (fragment.length === 0) return 0;
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const found = text.indexOf(fragment, offset);
+    if (found < 0) return count;
+    count += 1;
+    offset = found + fragment.length;
+  }
+};
+
+const match_closed_close = ({ notebook_text, input, project_root, notebook_path } = {}) => {
+  const document = typeof input === 'string' ? JSON.parse(input) : input;
+  const ask = document?.ask;
+  const runs = document?.run_events;
+  if (typeof ask !== 'string' || !/^A-\d{3}$/u.test(ask) || ask === 'A-999') return null;
+  if (!Array.isArray(runs) || !runs.every(run => typeof run === 'string') || typeof document.reply !== 'string') return null;
+
+  const asks = [...notebook_text.matchAll(ask_heading_pattern)];
+  const target = asks.filter(match => match[1] === ask);
+  if (target.length !== 1) return null;
+  const target_index = asks.indexOf(target[0]);
+  const next_ask = `A-${String(Number(ask.slice(2)) + 1).padStart(3, '0')}`;
+  if (target_index >= asks.length - 1) return null;
+  const next = asks[target_index + 1];
+  if (next[1] !== next_ask || target_index + 2 !== asks.length) return null;
+  const span_end = next.index;
+  const target_span = notebook_text.slice(target[0].index, span_end);
+  let expected_reply = document.reply;
+  if (project_root && notebook_path) {
+    try { expected_reply = require('./completion-record').publish_reply(expected_reply, { project_root, notebook_path, ask, read_only: true }); } catch { return null; }
+  }
+  // Retry compares authored content; the writer-owned stamp is frozen in the saved Reply.
+  const without_stamp = text => text.replace(/^(#{1,2} (?:← )?Reply \/[^\n]+)\r?\n(?:[ \t]*\r?\n)*\* _[^\n]+_\r?\n(?:[ \t]*\r?\n)*/mu, '$1\n\n');
+  if (count_exact(without_stamp(target_span), without_stamp(expected_reply).trimEnd()) !== 1) return null;
+  if (runs.some(run => count_exact(target_span, run.trimEnd()) !== 1)) return null;
+  if (!/^\r?\n\r?\n\+\r?\n$/u.test(notebook_text.slice(next.index + next[0].length))) return null;
+
+  let expected_status;
+  try {
+    expected_status = close_status_text(document.status, notebook_text);
+    const region = ag_settings.status_region(notebook_text);
+    if (notebook_text.slice(0, region.body_end) !== expected_status) return null;
+  } catch (error) {
+    return null;
+  }
+  return { ask, next_ask, status: expected_status };
+};
+
+const close_round = ({ root = process.cwd(), notebook: notebook_path, input } = {}) => {
+  const repository_root = node_fs.realpathSync(root);
+  const notebook_file = resolve_path(repository_root, notebook_path, 'notebook');
+  const notebook = read_regular_file(notebook_file, 'notebook');
+  const document = typeof input === 'string' ? JSON.parse(input) : input;
+  let prepared;
+
+  const lock_path = `${notebook_file}.close-round.lock`;
+  let close_lock = null;
+  try {
+    close_lock = acquire_close_round_lock(lock_path);
+    verify_notebook_unchanged(notebook_file, notebook);
+    prepared = prepare_close_candidate({ notebook, input: document, root: repository_root, notebook_path });
+      const { validate_candidate } = require('./completion-context');
+      const repository_notebook = node_path.relative(repository_root, notebook_file).split(node_path.sep).join('/');
+      const config_file = ag_settings.active_config_path(repository_root, repository_notebook);
+      const candidate_result = validate_candidate({
+      devlog_text: prepared.candidate_text,
+      context: {
+        project_root: repository_root,
+        notebook_path: repository_notebook,
+        config_path: node_fs.existsSync(config_file) ? config_file : undefined,
+        require_status_projection: true,
+        ignore_paths: [node_path.relative(repository_root, lock_path)],
+      },
+    });
+    const blocking = candidate_result.checks.filter(check => check.status === 'fail');
+    if (blocking.length > 0) fail(`candidate completion check failed: ${blocking.map(check => `${check.id}: ${check.detail}`).join('; ')}`);
+    atomic_replace(notebook_file, prepared.candidate, notebook.mode);
+  } finally {
+    if (close_lock !== null) release_close_round_lock(close_lock);
+  }
+
+  const replaced = read_regular_file(notebook_file, 'notebook');
+  return { notebook: notebook_path, ask: prepared.ask, runs_inserted: prepared.runs.length, reply_inserted: true, status_replaced: true, next_ask: prepared.next_ask, identity: replaced.identity };
 };
 
 const remove_if_present = file => {
@@ -332,6 +562,12 @@ const consume_unchanged_draft = (file, original) => {
   node_fs.unlinkSync(file);
 };
 
+// Windows has no POSIX permission bits. chmod there only toggles the read-only
+// attribute, so a requested 0o600 always reads back as 0o666 and the assertion
+// below fails every receipt and notebook write while proving nothing.
+// Confidentiality on Windows comes from the ACL the file inherits instead.
+const posix_modes_enforceable = process.platform !== 'win32';
+
 const atomic_replace = (file, content, mode) => {
   const temporary = `${file}.${process.pid}.${Date.now()}.${node_crypto.randomBytes(8).toString('hex')}.tmp`;
   let descriptor = null;
@@ -343,8 +579,10 @@ const atomic_replace = (file, content, mode) => {
     node_fs.closeSync(descriptor);
     descriptor = null;
     node_fs.chmodSync(temporary, mode);
-    const temporary_stat = node_fs.lstatSync(temporary, { bigint: true });
-    if (Number(temporary_stat.mode & 0o7777n) !== mode) fail('temporary notebook mode could not be preserved');
+    if (posix_modes_enforceable) {
+      const temporary_stat = node_fs.lstatSync(temporary, { bigint: true });
+      if (Number(temporary_stat.mode & 0o7777n) !== mode) fail('temporary notebook mode could not be preserved');
+    }
     node_fs.renameSync(temporary, file);
     renamed = true;
   } finally {
@@ -353,6 +591,188 @@ const atomic_replace = (file, content, mode) => {
     }
     if (!renamed) remove_if_present(temporary);
   }
+};
+
+const format_owner_input = text => text.replace(/\r\n?/gu, '\n').trim().split(/\n(?:[\t ]*\n)+/gu)
+  .map(paragraph => `+ ${paragraph.replace(/^\+ /u, '').split('\n').join('\n  ')}`).join('\n\n');
+
+const input_receipt_path = (root, notebook, host) => {
+  if (!['codex', 'claude'].includes(host)) fail('input receipt host must be codex or claude');
+  const key = node_crypto.createHash('sha256').update(notebook).digest('hex');
+  return node_path.join(root, `.${host}`, `agentflow-input-${key}.json`);
+};
+
+const input_receipts = (root, notebook, host, ask) => {
+  if (!['codex', 'claude'].includes(host)) fail('input receipt host must be codex or claude');
+  const directory = node_path.join(root, `.${host}`);
+  try { node_fs.mkdirSync(directory, { mode: 0o700 }); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+  ensure_path_components(root, directory, 'input receipts');
+  const file = input_receipt_path(root, notebook, host);
+  let saved;
+  let present = false;
+  try { node_fs.lstatSync(file); present = true; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (present) saved = JSON.parse(read_regular_file(file, 'input receipts').text);
+  if (saved && (typeof saved.ask !== 'string' || !saved.entries || typeof saved.entries !== 'object' || Array.isArray(saved.entries))) fail('input receipts are malformed');
+  return { file, data: saved?.ask === ask ? saved : { ask, entries: {} } };
+};
+
+const scope_git = (root, args) => {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: MAX_FILE_BYTES });
+  return result.status === 0 ? result.stdout : null;
+};
+
+const scope_path_identity = (root, relative) => {
+  let descriptor;
+  try {
+    const parts = valid_relative_path(relative, 'scope');
+    let current = root;
+    let missing = false;
+    for (const part of parts) {
+      current = node_path.join(current, part);
+      let stat;
+      try { stat = node_fs.lstatSync(current); } catch (error) {
+        if (error.code !== 'ENOENT') return null;
+        missing = true;
+        break;
+      }
+      if (stat.isSymbolicLink()) return null;
+    }
+    const index = scope_git(root, ['ls-files', '--stage', '-z', '--', relative]);
+    if (index === null) return null;
+    const hash = node_crypto.createHash('sha256');
+    if (missing) return hash.update('missing\0').update(index).digest('hex');
+    const file = resolve_path(root, relative, 'scope');
+    const before = node_fs.lstatSync(file, { bigint: true });
+    if (!before.isFile()) return null;
+    descriptor = node_fs.openSync(file, descriptor_flags());
+    const opened = node_fs.fstatSync(descriptor, { bigint: true });
+    if (!same_identity(stat_identity(before), stat_identity(opened))) return null;
+    hash.update(String(Number(opened.mode & 0o7777n))).update('\0').update(index);
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let count;
+    while ((count = node_fs.readSync(descriptor, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, count));
+    if (!same_identity(stat_identity(opened), stat_identity(node_fs.fstatSync(descriptor, { bigint: true })))) return null;
+    resolve_path(root, relative, 'scope');
+    if (!same_identity(stat_identity(opened), stat_identity(node_fs.lstatSync(file, { bigint: true })))) return null;
+    if (scope_git(root, ['ls-files', '--stage', '-z', '--', relative]) !== index) return null;
+    return hash.digest('hex');
+  } catch { return null; } finally {
+    if (descriptor !== undefined) node_fs.closeSync(descriptor);
+  }
+};
+
+const snapshot_scope_paths = (root, paths) => Object.fromEntries(paths.map(relative =>
+  [relative, scope_path_identity(root, relative)]).filter(([, identity]) => identity !== null));
+
+const save_close_scope = (root, notebook, host, ask, commit, notebook_hash, paths) => {
+  const receipt = input_receipts(root, notebook, host, ask);
+  const saved = receipt.data;
+  if (!saved.scope || saved.repository !== root || saved.notebook !== notebook || saved.host !== host || saved.scope.close) return;
+  const receipt_path = node_path.relative(root, receipt.file).split(node_path.sep).join('/');
+  const retained = Object.fromEntries(Object.entries(paths).filter(([relative, identity]) =>
+    relative !== notebook && relative !== receipt_path && !Object.hasOwn(saved.scope.paths, relative) && scope_path_identity(root, relative) === identity));
+  saved.scope.close = { commit, notebook_hash, paths: retained };
+  atomic_replace(receipt.file, Buffer.from(JSON.stringify(saved) + '\n'), 0o600);
+};
+
+const capture_input_scope = (root, notebook, host, ask) => {
+  const receipt = input_receipts(root, notebook, host, ask);
+  if (receipt.data.scope) return receipt;
+  const records = (scope_git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']) || '').split('\0');
+  const paths = {};
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i];
+    if (record.length < 4) continue;
+    const relative = record.slice(3);
+    const identity = scope_path_identity(root, relative);
+    if (identity !== null) paths[relative] = identity;
+    if (/[RC]/u.test(record.slice(0, 2))) i += 1;
+  }
+  Object.assign(receipt.data, { repository: root, notebook, host,
+    scope: { head: scope_git(root, ['rev-parse', '--verify', 'HEAD'])?.trim() || null, paths } });
+  atomic_replace(receipt.file, Buffer.from(JSON.stringify(receipt.data) + '\n'), 0o600);
+  return receipt;
+};
+
+const read_input_scope = (root, notebook, host, ask) => {
+  if (!['codex', 'claude'].includes(host)) return null;
+  try {
+    const file = input_receipt_path(root, notebook, host);
+    ensure_path_components(root, file, 'input receipts');
+    const saved = JSON.parse(read_regular_file(file, 'input receipts').text);
+    if (saved.ask !== ask || saved.repository !== root || saved.notebook !== notebook || saved.host !== host) return null;
+    const head = saved.scope?.head;
+    if (head !== null && (!/^[0-9a-f]{40}$/u.test(head) || scope_git(root, ['merge-base', '--is-ancestor', head, 'HEAD']) === null)) return null;
+    const paths = saved.scope.paths;
+    if (!paths || typeof paths !== 'object' || Array.isArray(paths)) return null;
+    const ignored_paths = Object.entries(paths).filter(([relative, identity]) =>
+      /^[0-9a-f]{64}$/u.test(identity) && scope_path_identity(root, relative) === identity).map(([relative]) => relative);
+    const closed = saved.scope.close;
+    if (closed && /^[0-9a-f]{40}$/u.test(closed.commit) && /^[0-9a-f]{64}$/u.test(closed.notebook_hash) &&
+        closed.paths && typeof closed.paths === 'object' && !Array.isArray(closed.paths) &&
+        scope_git(root, ['merge-base', '--is-ancestor', closed.commit, 'HEAD']) !== null) {
+      const committed = scope_git(root, ['show', `${closed.commit}:${notebook}`]);
+      const message = scope_git(root, ['log', '-1', '--format=%B', closed.commit]);
+      if (committed !== null && /^Agentflow-Close-Id: [a-f0-9]{64}$/mu.test(message || '') &&
+          node_crypto.createHash('sha256').update(committed).digest('hex') === closed.notebook_hash &&
+          read_regular_file(resolve_path(root, notebook, 'notebook'), 'notebook').hash === closed.notebook_hash) {
+        ignored_paths.push(...Object.entries(closed.paths).filter(([relative, identity]) =>
+          relative !== notebook && !Object.hasOwn(paths, relative) && /^[0-9a-f]{64}$/u.test(identity) && scope_path_identity(root, relative) === identity).map(([relative]) => relative));
+      }
+    }
+    return { head, ignored_paths, file: node_path.relative(root, file) };
+  } catch { return null; }
+};
+
+const append_input = ({ root = process.cwd(), notebook: notebook_path, text, message_id, host = 'codex' } = {}) => {
+  if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > 65536) fail('owner input must contain 1–65536 bytes');
+  const repository_root = node_fs.realpathSync(root);
+  const file = resolve_path(repository_root, notebook_path, 'notebook');
+  const lock = acquire_close_round_lock(`${file}.close-round.lock`);
+  try {
+    const original = read_regular_file(file, 'notebook');
+    const round = parse_devlog(original.text).rounds.at(-1);
+    if (!round || round.reply_text.trim()) fail('owner input requires a current open Ask');
+    if (/^\/?godev$/iu.test(text.trim())) return { notebook: notebook_path, ask: round.id, inserted: false, reason: 'activation_only' };
+    const id = node_crypto.createHash('sha256').update(String(message_id || '') + '\0' + text).digest('hex');
+    const marker = `<!-- agentflow-input: ${id} -->`;
+    // Plain list paragraphs keep pasted headings and dividers inside owner input.
+    const listed = format_owner_input(text);
+    const ask_content = `\n\n${round.ask_text.trim()}\n\n`;
+    const scope_receipt = capture_input_scope(repository_root, notebook_path, host, round.id);
+    const receipts = message_id ? scope_receipt : null;
+    const prior = receipts?.data.entries[id];
+    const delivered = prior && Number.isSafeInteger(prior.start) && prior.start >= 0
+      && round.ask_text.slice(prior.start, prior.start + listed.length) === listed;
+    if (round.ask_text.includes(marker) || delivered || (!message_id && (ask_content.includes(`\n\n${listed}\n\n`) || round.ask_text.trim() === text.trim()))) return { notebook: notebook_path, ask: round.id, inserted: false, reason: 'already_present' };
+    // Manual/startup capture may precede the hook's submission ID. Adopt an
+    // unclaimed copy once; another real submission ID still records a repeat.
+    if (receipts) {
+      const needle = '\n\n' + listed + '\n\n';
+      for (let match = ask_content.indexOf(needle); match >= 0; match = ask_content.indexOf(needle, match + 1)) {
+        const start = round.ask_text.length - round.ask_text.trimStart().length + match;
+        if (Object.values(receipts.data.entries).some(entry =>
+          entry.start < start + listed.length && start < entry.start + (Number.isSafeInteger(entry.length) ? entry.length : Infinity))) continue;
+        receipts.data.entries[id] = { start, length: listed.length };
+        atomic_replace(receipts.file, Buffer.from(JSON.stringify(receipts.data) + '\n'), 0o600);
+        return { notebook: notebook_path, ask: round.id, inserted: false, reason: 'already_present' };
+      }
+    }
+    const ask_start = round.start + round.text.length - round.body.length;
+    const divider = /(?:^|\n)---(?:\r?\n)?$/u.exec(round.ask_text);
+    const offset = ask_start + (divider ? divider.index : round.ask_text.length);
+    const prefix = original.text.slice(0, round.ask_text.trim() === '+' ? ask_start : offset);
+    const candidate = `${prefix.trimEnd()}\n\n${listed}\n\n${original.text.slice(offset).trimStart()}`.trimEnd() + '\n';
+    verify_notebook_unchanged(file, original);
+    if (receipts) {
+      // Save the expected position first. A retry counts it only if the notebook
+      // actually contains that submission there, even after a failed replacement.
+      receipts.data.entries[id] = { start: parse_devlog(candidate).rounds.at(-1).ask_text.lastIndexOf(listed), length: listed.length };
+      atomic_replace(receipts.file, Buffer.from(JSON.stringify(receipts.data) + '\n'), 0o600);
+    }
+    atomic_replace(file, Buffer.from(candidate.endsWith('\n') ? candidate : candidate + '\n'), original.mode);
+    return { notebook: notebook_path, ask: round.id, inserted: true, reason: 'owner_input_saved' };
+  } finally { release_close_round_lock(lock); }
 };
 
 const append_wip = ({ root = process.cwd(), notebook: notebook_path, ask, input: draft_path, input_stdin = false } = {}) => {
@@ -367,15 +787,16 @@ const append_wip = ({ root = process.cwd(), notebook: notebook_path, ask, input:
   if (typeof ask !== 'string' || !/^A-\d{3}$/u.test(ask)) fail('Ask must use the exact A-NNN form');
 
   const inspected = inspect_notebook(notebook.text, ask);
-  parse_draft(draft.text, ask, inspected.next_number);
-  const candidate = build_candidate(notebook, draft);
+  const rendered = render_record(draft.text, ask, 'WIP', inspected.next_number);
+  parse_draft(rendered, ask, inspected.next_number);
+  const candidate = build_candidate(notebook, { ...draft, content: Buffer.from(rendered) });
   const candidate_text = candidate.toString('utf8');
   const candidate_parse = parse_devlog(candidate_text);
-  if (!candidate_parse.last_round.includes(draft.text.trimEnd())) fail('candidate notebook did not preserve the complete WIP draft');
+  if (!candidate_parse.last_round.includes(rendered.trimEnd())) fail('candidate notebook did not preserve the complete WIP draft');
   const candidate_boundary_check = lint_round_boundaries(candidate_text);
   if (candidate_boundary_check.status === 'fail') fail(`candidate round-boundary check failed: ${candidate_boundary_check.detail}`);
 
-  const lock_path = `${notebook_file}.append-wip.lock`;
+  const lock_path = `${notebook_file}.close-round.lock`;
   let lock_descriptor = null;
   try {
     lock_descriptor = acquire_lock(lock_path);
@@ -400,11 +821,15 @@ const append_run = ({ root = process.cwd(), notebook: notebook_path, ask, input:
   if (!input_stdin && same_object(notebook.identity, draft.identity)) fail('notebook and draft refer to the same file identity');
   if (typeof ask !== 'string' || !/^A-\d{3}$/u.test(ask)) fail('Ask must use the exact A-NNN form');
   const inspected = inspect_notebook(notebook.text, ask);
-  parse_run_draft(draft.text, ask, inspected.next_run_number);
-  const candidate = build_candidate(notebook, draft);
+  const rendered = render_record(draft.text, ask, 'RUN', inspected.next_run_number);
+  parse_run_draft(rendered, ask, inspected.next_run_number);
+  const candidate_draft = inspected.next_run_number === 1
+    ? { ...draft, content: Buffer.from(`---${line_ending_for(notebook.content).repeat(2)}${rendered}`) }
+    : { ...draft, content: Buffer.from(rendered) };
+  const candidate = build_candidate(notebook, candidate_draft);
   const boundary_check = lint_round_boundaries(candidate.toString('utf8'));
   if (boundary_check.status === 'fail') fail(`candidate round-boundary check failed: ${boundary_check.detail}`);
-  const lock_path = `${notebook_file}.append-run.lock`;
+  const lock_path = `${notebook_file}.close-round.lock`;
   let lock_descriptor = null;
   try {
     lock_descriptor = acquire_lock(lock_path);
@@ -433,26 +858,35 @@ const append_reply = ({ root = process.cwd(), notebook: notebook_path, ask, inpu
 
   inspect_notebook(notebook.text, ask);
   parse_reply_draft(draft.text, ask);
+  draft.text = render_reply(draft.text, ask, repository_root);
+  draft.content = Buffer.from(draft.text);
+  parse_reply_draft(draft.text, ask);
   const newline = line_ending_for(notebook.content);
   const base = build_candidate(notebook, draft);
   const next_id = `A-${String(Number(ask.slice(2)) + 1).padStart(3, '0')}`;
-  const scaffold = `${newline}---${newline}${newline}# → Ask / ${next_id}${newline}${newline}+${newline}`;
-  const candidate = Buffer.concat([base, Buffer.from(scaffold)]);
-  const candidate_text = candidate.toString('utf8');
+  const next_heading = ag_settings.format_ask_heading(next_id, { repo_root: repository_root, notebook_path });
+  const scaffold = `${newline}---${newline}${newline}${next_heading}${newline}${newline}+${newline}`;
+  let candidate = Buffer.concat([base, Buffer.from(scaffold)]);
+  let candidate_text = candidate.toString('utf8');
   const boundary_check = lint_round_boundaries(candidate_text);
   if (boundary_check.status === 'fail') fail(`candidate round-boundary check failed: ${boundary_check.detail}`);
-  if (!candidate_text.endsWith(`# → Ask / ${next_id}${newline}${newline}+${newline}`)) {
+  if (!candidate_text.endsWith(`${next_heading}${newline}${newline}+${newline}`)) {
     fail('candidate notebook did not end with the exact next empty Ask scaffold');
   }
 
-  const lock_path = `${notebook_file}.append-reply.lock`;
+  const lock_path = `${notebook_file}.close-round.lock`;
   let lock_descriptor = null;
   try {
     lock_descriptor = acquire_lock(lock_path);
     verify_notebook_unchanged(notebook_file, notebook);
+    const linked = require('./completion-record').publish_reply(draft.text, { project_root: repository_root, notebook_path, ask });
+    candidate = Buffer.concat([build_candidate(notebook, { ...draft, content: Buffer.from(linked), text: linked }), Buffer.from(scaffold)]);
+    candidate_text = candidate.toString('utf8');
     const { validate_candidate } = require('./completion-context');
     const repository_notebook = node_path.relative(repository_root, notebook_file).split(node_path.sep).join('/');
     const config_file = ag_settings.active_config_path(repository_root, repository_notebook);
+    const draft_relative = input_stdin ? null : node_path.relative(repository_root, draft_file);
+    const untracked_draft = draft_relative !== null && spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z', '--', draft_relative], { cwd: repository_root, encoding: 'utf8' }).stdout === `${draft_relative}\0`;
     const candidate_result = validate_candidate({
       devlog_text: candidate_text,
       context: node_fs.existsSync(config_file)
@@ -460,7 +894,7 @@ const append_reply = ({ root = process.cwd(), notebook: notebook_path, ask, inpu
           project_root: repository_root,
           notebook_path: repository_notebook,
           config_path: config_file,
-          ignore_paths: [node_path.relative(repository_root, lock_path)]
+          ignore_paths: [node_path.relative(repository_root, lock_path), ...(untracked_draft ? [draft_relative] : [])]
         }
         : {}
     });
@@ -479,8 +913,8 @@ const append_reply = ({ root = process.cwd(), notebook: notebook_path, ask, inpu
 
 const parse_args = argv => {
   const command = argv[0];
-  const usage = 'usage: node skills/agentflow/scripts/notebook-write.js <append-run|append-wip|append-reply> --notebook <path> --ask <A-NNN> --input-stdin; fallback only after --input-stdin fails: --input <draft>';
-  if (!['append-run', 'append-wip', 'append-reply'].includes(command)) fail(usage);
+  const usage = 'usage: node skills/agentflow/scripts/notebook-write.js <append-input|append-run|append-wip|append-reply|close-round> --notebook <path> --ask <A-NNN> --input-stdin; append-input needs no --ask; fallback only after --input-stdin fails: --input <draft>';
+  if (!['append-run', 'append-wip', 'append-reply', 'append-input', 'close-round'].includes(command)) fail(usage);
   const values = {};
   for (let index = 1; index < argv.length;) {
     const flag = argv[index];
@@ -496,7 +930,7 @@ const parse_args = argv => {
     values[flag] = value;
     index += 2;
   }
-  if (!Object.hasOwn(values, '--notebook') || !Object.hasOwn(values, '--ask')) fail(usage);
+  if (!Object.hasOwn(values, '--notebook') || !['close-round', 'append-input'].includes(command) && !Object.hasOwn(values, '--ask')) fail(usage);
   if (Boolean(values['--input']) === Boolean(values['--input-stdin'])) fail(`${usage}; --input and --input-stdin are mutually exclusive`);
   return { command, notebook: values['--notebook'], ask: values['--ask'], input: values['--input'], input_stdin: values['--input-stdin'] === true };
 };
@@ -504,8 +938,17 @@ const parse_args = argv => {
 const run = argv => {
   try {
     const args = parse_args(argv);
-    const result = args.command === 'append-reply' ? append_reply(args) : args.command === 'append-run' ? append_run(args) : append_wip(args);
-    console.log(`${result.notebook} updated`);
+    if (args.command === 'append-input') {
+      const text = args.input_stdin ? read_standard_input().text : read_regular_file(resolve_path(node_fs.realpathSync(process.cwd()), args.input, 'input'), 'input').text;
+      console.log(JSON.stringify(append_input({ notebook: args.notebook, text })));
+    } else if (args.command === 'close-round') {
+      const input = args.input_stdin ? read_standard_input().text : read_regular_file(resolve_path(node_fs.realpathSync(process.cwd()), args.input, 'input'), 'input').text;
+      const result = close_round({ root: process.cwd(), notebook: args.notebook, input });
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      const result = args.command === 'append-reply' ? append_reply(args) : args.command === 'append-run' ? append_run(args) : append_wip(args);
+      console.log(`${result.notebook} updated`);
+    }
     return 0;
   } catch (error) {
     const message = String(error?.message ?? error).replace(/[\r\n]+/gu, ' ');
@@ -514,6 +957,27 @@ const run = argv => {
   }
 };
 
-module.exports = { append_run, append_wip, append_reply, parse_args, run };
+module.exports = {
+  format_owner_input,
+  append_input,
+  append_run,
+  append_wip,
+  append_reply,
+  capture_input_scope,
+  read_input_scope,
+  snapshot_scope_paths,
+  save_close_scope,
+  close_round,
+  parse_args,
+  run,
+  prepare_close_candidate,
+  match_closed_close,
+  resolve_path,
+  read_regular_file,
+  acquire_close_round_lock,
+  release_close_round_lock,
+  verify_notebook_unchanged,
+  atomic_replace,
+};
 
 if (require.main === module) process.exitCode = run(process.argv.slice(2));

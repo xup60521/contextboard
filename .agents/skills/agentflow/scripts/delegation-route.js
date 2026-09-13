@@ -30,7 +30,7 @@ const parse_threeways_trigger = ask_text => {
 
 const safe_work_root = value => typeof value === 'string' && value.length > 0 && !value.includes('\\') && !value.split('/').includes('..') && !value.startsWith('/')
 const bounded_text = value => typeof value === 'string' && value.length > 0 && Buffer.byteLength(value, 'utf8') <= 1024 * 1024
-const report_stamp = /^\* _\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \([^\r\n]+\)_$/u
+const report_stamp = /^\* _\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: [+-]\d{4})? \([^\r\n]+\)_$/u
 const report_self_check = /^Self-check:\s+\S.*$/u
 const required_brief_sections = ['Original Ask:', 'Evidence:', 'Normal journey:', 'Material uncertainties:', 'Forbidden scope:']
 const required_resolution_sections = ['Selected design:', 'Rejected alternatives:', 'Evidence:', 'Model-family limitation:', 'Next human decision:']

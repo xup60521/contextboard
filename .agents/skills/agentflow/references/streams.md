@@ -2,21 +2,23 @@
 
 # Streams and worktrees
 
+`stream(branch/worktree)` is the compact name for an isolated feature workspace: a Git branch in a separate worktree, together with the stream notebook and adjacent configuration. A non-code notebook-only request is the explicit exception: it can create a stream file and root pointer without a branch, even when Git exists. Ordinary notebook work can continue in a no-Git folder, but `new-feature:` needs a repository before it can create a Git worktree. The owner/session worktree is distinct from a delegated worker's disposable no-remote clone.
+
 Read this file whenever a stream trigger in `SKILL.md` fires. Its rules apply even when it is not otherwise loaded: feature triggers preempt resume; only the main checkout writes the configured main notebook and STATUS; foreign uncommitted files belong to the other session (I-018/I-031/I-035).
 
 Rule-editing guard: `— I-NNN` marks a failure-born rule. Read its narrative in `docs/incidents-log.md` before changing or removing it.
 
 ## Paths, triggers, and ownership
 
-An active stream uses `$workspace_dir/features/<taskkey>/<taskkey>.devlog.md` and `$workspace_dir/features/<taskkey>/artifacts/<work-key>/`; a non-stream item uses `$workspace_dir/artifacts/<work-key>/`. Planned files live only in that work root's `planned/`. The configured main STATUS lists active streams as `stream: <taskkey> — active — <path>`; closed, delivered, and ditched streams remain in their own records, not this current-state list.
+Use `SKILL.md` → Task artifact locations for notebook, task-root, and queue paths. The configured main STATUS lists active streams as `stream: <taskkey> — active — <path>`; closed, delivered, and ditched streams remain in their own records, not this current-state list.
 
-The stream notebook is its own owner surface. Never add a branch-key directory.
+The stream notebook is its own owner surface. Never add a branch-key directory. Completion metadata is stored separately with no generated link or hash in new Replies: `$workspace_dir/.tmp/features/<taskkey>/A-NNN/completion.json` prevents Ask-ID collisions and is not a tracked stream artifact. Legacy links remain readable.
 
 Triggers are `new-feature: <name>`, plain feature-starting words, parallel-work evidence (another active stream, non-default branch, teammates, or foreign files), `merge-back`, `cleanup:<taskkey>`, any trigger on a non-default branch, a leftover `.worktrees/<key>`, or an active root pointer whose stream STATUS is closed. A changed target notebook alone is not foreign work when `resume-intake.js` proves that HEAD ended in its empty final Ask and the working copy changes only that final Ask into one unresolved owner request. Any other notebook edit, or any second changed path, remains foreign work.
 
 Revalidate adjacent `ag.json` first. `streams: always` proceeds for plain feature/parallel triggers; `ask` batches the same question; `off` reports the signal but neither asks to open a stream nor opens one. `off` does not remove path-ownership or concurrent-work safety rules. Explicit `new-feature:` is always immediate authorization.
 
-`new-feature:` runs exactly `node <skill-dir>/scripts/agf.js new "<name>" [taskkey]`. The CLI validates config, creates the worktree, copies stream configuration, writes STATUS, commits stream-open files, pushes when a remote exists, and leaves the owner in the worktree. It never writes the configured main notebook; the agent adds at most one main-notebook pointer. If the exact script is unavailable, report it and stop; do not substitute manual Git.
+`new-feature:` runs exactly `agf new "<name>" [taskkey]`. The CLI validates config, creates the worktree, copies stream configuration, writes STATUS, commits stream-open files, pushes when a remote exists, and leaves the owner in the worktree. It never writes the configured main notebook; the agent adds at most one main-notebook pointer. If `agf` is unavailable, report it and stop; do not substitute manual Git.
 
 After opening, tell the owner to exit and run the shell-quoted absolute continuation command from the CLI result. If no work request followed the feature name, close the stream-open round with an empty Ask scaffold; do not invent work. A plain notebook-only request creates one stream file plus its root pointer, without branching; never offer it instead of `new-feature:` for code work.
 
@@ -30,15 +32,15 @@ Every worktree is `.worktrees/<taskkey>` inside the repository and is ignored by
 
 Run only in the matching stream worktree; elsewhere report nothing to merge. The exact sequence is:
 
-1. `node <skill-dir>/scripts/agf.js finish --prep [taskkey]` integrates the default branch into the stream, aborts conflicts, pushes the stream when a remote exists, and stops before delivery.
+1. `agf finish --prep [taskkey]` integrates the default branch into the stream, aborts conflicts, pushes the stream when a remote exists, and stops before delivery.
 2. Write the stream closing Reply, set STATUS to closed, replace the active state with `Feature: <taskkey> — closed`, commit that record, and push it when a remote exists. The notebook must be tracked at the clean stream HEAD and the remote branch must equal it.
-3. `node <skill-dir>/scripts/agf.js finish --deliver [taskkey]` captures that immutable commit, verifies the main checkout is on the default branch, fetches, and fast-forwards locally and remotely when applicable. It refuses untracked/ignored paths that delivery would replace, and reports partial/rejected outcomes with recovery text.
+3. `agf finish --deliver [taskkey]` captures that immutable commit, verifies the main checkout is on the default branch, fetches, and fast-forwards locally and remotely when applicable. It refuses untracked/ignored paths that delivery would replace, and reports partial/rejected outcomes with recovery text.
 
 If step 1 reports a merge conflict, it has already run `git merge --abort`; no half-merged state remains. Recover in this order:
 
 1. Stay in the stream worktree and inspect the default-branch changes that conflict with the stream.
 2. Reconcile those changes on the stream branch by editing or otherwise integrating the intended result, then commit the resolved stream state.
-3. Run `node <skill-dir>/scripts/agf.js finish --prep [taskkey]` again. Do not continue while it still reports a conflict.
+3. Run `agf finish --prep [taskkey]` again. Do not continue while it still reports a conflict.
 4. After preparation succeeds, write and commit the closed stream notebook, push it when a remote exists, and run `finish --deliver` as step 3 above.
 
 Do not run `git merge --continue` after the refusal because the CLI aborted that merge. Do not skip directly to delivery.
@@ -49,7 +51,7 @@ After success, give the owner the CLI's copy-ready command to exit and return to
 
 ## `cleanup:<taskkey>`
 
-Run `node <skill-dir>/scripts/agf.js cleanup <taskkey>` from the main checkout. It merges, deletes the branch/worktree, and leaves the stream notebook and artifacts. It refuses from inside the target worktree because deleting the running host's current folder prevents its end-of-turn hook from starting; exit that session and use the copy-ready main-checkout command it prints. — I-058.
+Run `agf cleanup <taskkey>` from the main checkout. It merges, deletes the branch/worktree, and leaves the stream notebook and artifacts. It refuses from inside the target worktree because deleting the running host's current folder prevents its end-of-turn hook from starting; exit that session and use the copy-ready main-checkout command it prints. — I-058.
 
 The resolved main checkout must be on the default branch. The key must match exactly one stream pointer, folder, worktree, or branch; no match, ambiguity, branch-without-stream, or stream-without-branch stops with facts and no guess.
 

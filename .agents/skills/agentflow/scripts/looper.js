@@ -7,6 +7,8 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawn: node_spawn, spawnSync: node_spawn_sync } = require('node:child_process')
 const { StringDecoder } = require('node:string_decoder')
+const { contain_nested_processes, find_nested_processes, read_process_table } = require('./process-tree')
+const { format_local_timestamp } = require('./local-time')
 const agentflow_settings = require('./ag-settings')
 const queue_contract = require('./queue-contract')
 
@@ -98,6 +100,7 @@ const looper_error = (message, options = {}) => {
   error.interruption = options.interruption === true
   error.reported = options.reported === true
   error.ownership_lost = options.ownership_lost === true
+  error.nested_worker = options.nested_worker || null
   return error
 }
 
@@ -107,7 +110,7 @@ const error_message = (error) => {
   return String(error)
 }
 
-const now = () => new Date().toISOString()
+const now = () => format_local_timestamp()
 
 const format_path = (value) => path.resolve(String(value))
 
@@ -442,7 +445,10 @@ const recovery_message = (context, message) => {
   const stop = context.stop_file || path.join(context.tasks_dir, STOP_NAME)
   const attempt = context.attempt_file || 'the protected attempt path shown after the plan directory can be opened safely'
   const done = context.done_dir || path.join(context.tasks_dir, 'done')
-  return `${message}\n\nWhat to do next:\n1. Inspect ${task ? `${task}, ` : ''}${context.completion_path}, and the checkout's Git changes.\n2. Inspect the stop marker at ${stop}.\n3. Inspect the protected attempt record at ${attempt}.\n4. If another host truly finished the plan, move that reviewed plan into ${done}; otherwise leave it pending.\n5. Preserve any evidence you need, clear only the reviewed stop and attempt records, then run agf-looper again.\nRun agf-looper --help for the command summary.`
+  const nesting = context.nested_worker?.detected
+    ? `\n\nNested-worker warning: a nested model or Agentflow process was detected and contained. Parent output and authorized source changes were preserved; nested-derived evidence is quarantined. Inspect ${attempt} for the detected executable and PID, then arrange a fresh coordinator-controlled review before accepting the implementation. Process-tree visibility is limited to what the host exposed.`
+    : ''
+  return `${message}${nesting}\n\nWhat to do next:\n1. Inspect ${task ? `${task}, ` : ''}${context.completion_path}, and the checkout's Git changes.\n2. Inspect the stop marker at ${stop}.\n3. Inspect the protected attempt record at ${attempt}.\n4. If another host truly finished the plan, move that reviewed plan into ${done}; otherwise leave it pending.\n5. Preserve any evidence you need, clear only the reviewed stop and attempt records, then run agf-looper again.\nRun agf-looper --help for the command summary.`
 }
 
 const milestone_detail = (line) => String(line || '')
@@ -678,6 +684,7 @@ const make_context = (options) => {
     current_attempt: null,
     current_plan: null,
     active_child: null,
+    nested_worker: { visible: false, detected: false, processes: [], containment: { attempted: false, actions: [] }, poll_count: 0 },
     interruption: null,
     no_later_launch: false,
     listeners: [],
@@ -1140,7 +1147,7 @@ const build_prompt = (context, task) => {
       tasks_dir: context.tasks_dir,
       root: context.root,
     }))
-  const request = `godev: execute ${relative_task}\n\nYou are the plan worker already launched by agf-looper. Execute the named plan directly. Do not invoke agf-looper or start another plan worker. Complete the Agentflow notebook record for this plan. A completed round must contain its exact \`# ← Reply / A-NNN\` heading and must end with the next sequential scaffold in exactly this form, including the bare plus line: \`# → Ask / A-NNN\n\n+\`. Do not treat a summary, final report, commit, or bare completion signal as a completed notebook round without the Reply heading and that full next-Ask scaffold. When the plan and its record are safely complete, your entire final response must be exactly: ${context.completion_line}`
+  const request = `Execute the frozen plan directly: ${relative_task}\n\nYou are the plan worker already launched by agf-looper. Execute the named plan directly and complete the product work yourself. Do not invoke agf-looper or start another plan worker. Do not invoke Agentflow, codex, claude, another model CLI, a subagent, a delegate, or an independent review process. Complete the Agentflow notebook record for this plan. A completed round must contain its exact \`# ← Reply / A-NNN\` heading and must end with the next sequential scaffold in exactly this form, including the bare plus line: \`# → Ask / A-NNN\n\n+\`. Do not treat a summary, final report, commit, or bare completion signal as a completed notebook round without the Reply heading and that full next-Ask scaffold. When the plan and its record are safely complete, your entire final response must be exactly: ${context.completion_line}`
   if (!context.generated_queue_authority) return request
   return `${request}\n\nThis frozen plan is owned by looper. Execute the plan's product and record work only. Do not move, rename, delete, or archive the plan or any other file under ${context.tasks_dir}; do not create queue control markers. Leave queue transitions to looper after your exact final completion response.`
 }
@@ -1369,6 +1376,19 @@ const capture_child = (context, child, expected_line, opened_dumps = null) => ne
   let settled = false
   let close_seen = false
   const started_at = Date.now()
+  const nested_worker = {
+    visible: false,
+    detected: false,
+    processes: [],
+    containment: { attempted: false, actions: [] },
+    poll_count: 0,
+    recovery: {
+      preserved_output: ['stdout', 'stderr', 'plan_source'],
+      evidence_status: 'not_applicable',
+      source_changes_preserved: true,
+      fresh_review_required: false,
+    },
+  }
   const interval_ms = context.options.milestone_interval_ms || MILESTONE_INTERVAL_MS
   const set_interval = context.options.set_interval || setInterval
   const clear_interval = context.options.clear_interval || clearInterval
@@ -1381,11 +1401,35 @@ const capture_child = (context, child, expected_line, opened_dumps = null) => ne
       // Progress reporting must never change the worker result.
     }
   }, interval_ms)
+  const nested_poll_ms = context.options.nested_poll_ms === undefined ? 50 : context.options.nested_poll_ms
+  const observe_nested = () => {
+    try {
+      const table = typeof context.options.list_processes === 'function' ? context.options.list_processes() : read_process_table()
+      const observed = find_nested_processes(child && child.pid, table)
+      nested_worker.poll_count += 1
+      nested_worker.visible = nested_worker.visible || observed.visible
+      if (!nested_worker.detected && observed.processes.length > 0) {
+        nested_worker.detected = true
+        nested_worker.processes = observed.processes
+        nested_worker.containment = contain_nested_processes(observed.processes)
+        nested_worker.recovery.evidence_status = 'quarantined'
+        nested_worker.recovery.fresh_review_required = true
+        context.nested_worker = nested_worker
+        notify(context, 'nested-worker-detected', { processes: observed.processes })
+      }
+    } catch {
+      // Process-tree visibility is advisory; an unreadable table is retained as a limit.
+    }
+  }
+  const nested_timer = set_interval(observe_nested, nested_poll_ms > 0 ? nested_poll_ms : 50)
+  if (nested_timer && typeof nested_timer.unref === 'function') nested_timer.unref()
   if (milestone_timer && typeof milestone_timer.unref === 'function') milestone_timer.unref()
   const finish = (value) => {
     if (settled) return
     settled = true
     clear_interval(milestone_timer)
+    clear_interval(nested_timer)
+    context.nested_worker = nested_worker
     capture.finish_stream('stdout')
     capture.finish_stream('stderr')
     if (dumps) {
@@ -1393,12 +1437,13 @@ const capture_child = (context, child, expected_line, opened_dumps = null) => ne
       context.file_system.closeSync(dumps.stderr)
       dumps = null
     }
-    resolve({ ...value, matches: capture.matches, diagnostic_tail: capture.diagnostic_tail })
+    resolve({ ...value, matches: capture.matches, diagnostic_tail: capture.diagnostic_tail, nested_worker })
   }
   const fail = (error) => {
     if (settled) return
     settled = true
     clear_interval(milestone_timer)
+    clear_interval(nested_timer)
     if (dumps) {
       try { context.file_system.closeSync(dumps.stdout) } catch {}
       try { context.file_system.closeSync(dumps.stderr) } catch {}
@@ -1410,6 +1455,7 @@ const capture_child = (context, child, expected_line, opened_dumps = null) => ne
     fail(looper_error('child did not provide capturable stdout and stderr'))
     return
   }
+  observe_nested()
   const consume = (stream_name, chunk) => {
     try {
       if (dumps) write_all_sync(context.file_system, dumps[stream_name], chunk)
@@ -1616,9 +1662,16 @@ const run_plan = async (context, task) => {
       signal: child_result.signal,
       completion_matches: child_result.matches,
       diagnostic_tail,
+      nested_worker: child_result.nested_worker,
     })
     show_worker_output(context, diagnostic_tail)
     maybe_crash(context, 'child-exited')
+
+    if (child_result.nested_worker?.detected) {
+      throw looper_error('nested worker violation: the controlled worker launched another model or Agentflow process; authorized source changes remain preserved, nested-derived evidence is quarantined, and a fresh coordinator-controlled review is required', {
+        nested_worker: child_result.nested_worker,
+      })
+    }
 
     if (child_result.exit_code !== 0)
       throw looper_error(`child exited with code ${child_result.exit_code}`)
@@ -1699,6 +1752,7 @@ const run_plan = async (context, task) => {
     throw fail_plan(context, error, {
       task: task.name,
       ...(identity || {}),
+      ...(error && error.nested_worker ? { nested_worker: error.nested_worker } : {}),
       ...(error && error.recovery_path ? { recovery_path: error.recovery_path } : {}),
     })
   }

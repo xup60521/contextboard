@@ -15,7 +15,7 @@ const template = `# Tracker
 
 - **Goal:** <goal>.
 
-- **Last update:** <YYYY-MM-DD HH:MM:SS Asia/Taipei>.
+- **Last update:** <YYYY-MM-DD HH:MM:SS ±HHMM>.
 
 - **Evidence commit:** uncommitted.
 
@@ -92,7 +92,32 @@ const validation_facts = ({ repo, tracker }) => {
   };
 };
 
-const validate = options => require('./round-linter.js').lint_tracker(validation_facts(options));
+const refresh_counts = text => {
+  const section = /^#{1,6} Accepted task checklist\r?\n([\s\S]*?)(?=^#{1,6} |$(?![\s\S]))/imu.exec(text)?.[1] || '';
+  const tasks = [...section.matchAll(/^[-*+] \[([ xX])\] (?:\*\*)?T-\d+:(?:\*\*)? \S.*$/gmu)];
+  const counts = { Total: tasks.length, Completed: tasks.filter(task => task[1].toLowerCase() === 'x').length, Remaining: tasks.filter(task => task[1] === ' ').length };
+  const rendered = text.replace(/(^#{1,6} Overall state\r?\n)([\s\S]*?)(?=^#{1,6} |$(?![\s\S]))/imu, (_all, heading, body) => heading + body.replace(/(^[-*+] (?:\*\*)?(Total|Completed|Remaining):(?:\*\*)? )[^\r\n]*$/gmu, (_line, prefix, name) => `${prefix}${counts[name]}.`));
+  return { text: rendered, counts };
+};
+
+const validate = options => {
+  if (!options.refresh) return require('./round-linter.js').lint_tracker(validation_facts(options));
+  const writer = require('./notebook-write.js');
+  const repo = node_fs.realpathSync(options.repo);
+  const relative = node_path.relative(node_path.resolve(options.repo), node_path.resolve(options.tracker)).split(node_path.sep).join('/');
+  const file = writer.resolve_path(repo, relative, 'tracker');
+  const lock = writer.acquire_close_round_lock(`${file}.close-round.lock`);
+  try {
+    const original = writer.read_regular_file(file, 'tracker');
+    const refreshed = refresh_counts(original.text);
+    const facts = validation_facts({ repo, tracker: file });
+    const result = require('./round-linter.js').lint_tracker({ ...facts, text: refreshed.text });
+    if (result.status === 'fail') return result;
+    writer.verify_notebook_unchanged(file, original);
+    if (refreshed.text !== original.text) writer.atomic_replace(file, Buffer.from(refreshed.text), original.mode);
+    return { ...result, counts: refreshed.counts };
+  } finally { writer.release_close_round_lock(lock); }
+};
 
 const run = () => {
   const args = process.argv.slice(2);
@@ -106,15 +131,15 @@ const run = () => {
     if (repo_index < 0 || tracker_index < 0 || !args[repo_index + 1] || !args[tracker_index + 1]) {
       throw new Error('Usage: tracker-contract.js validate --repo <repo> --tracker <tracker>');
     }
-    const result = validate({ repo: args[repo_index + 1], tracker: args[tracker_index + 1] });
-    process.stdout.write(`${result.status.toUpperCase()}: ${result.detail}\n`);
-    process.exitCode = result.status === 'pass' ? 0 : 1;
+    const result = validate({ repo: args[repo_index + 1], tracker: args[tracker_index + 1], refresh: args.includes('--refresh') });
+    process.stdout.write(`${result.status.toUpperCase()}: ${result.detail}${result.counts ? `; ${result.counts.Completed}/${result.counts.Total} tasks complete, ${result.counts.Remaining} remaining` : ''}\n`);
+    process.exitCode = result.status === 'fail' ? 1 : 0;
     return;
   }
   throw new Error('Usage: tracker-contract.js template | validate --repo <repo> --tracker <tracker>');
 };
 
-module.exports = { template, validate, validation_facts };
+module.exports = { template, validate, validation_facts, refresh_counts };
 
 if (require.main === module) {
   try { run(); } catch (error) { console.error(error.message); process.exitCode = 1; }

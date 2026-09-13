@@ -94,6 +94,11 @@ test('simple-only make-plans publishes with allow_ag off and no accepted contrac
 		assert.deepEqual(result.blocked_jobs, [])
 		const frozen = queue_contract.read_frozen_queue(queue.tasks_dir)
 		assert.equal(frozen.envelope.schema_version, 2)
+		assert.equal(frozen.envelope.plans.length, 1)
+		assert.equal(frozen.envelope.plans[0].route, 'simple')
+		assert.equal(frozen.envelope.plans[0].final_integration, true)
+		assert.deepEqual(frozen.envelope.plans[0].dependencies, [])
+		assert.match(fs.readFileSync(path.join(queue.tasks_dir, 'plan-001.md'), 'utf8'), /Run the complete relevant checks/)
 		assert.equal(frozen.envelope.authorities.some(authority => 'requirements_sha256' in authority), false)
 	} finally {
 		dispose(queue.root)
@@ -183,7 +188,7 @@ test('schema-v2 authority rejects source changes, duplicate authority, cycles, a
 test('shared readiness keeps final integration last and rejects stale authority', () => {
 	const queue = make_directory()
 	try {
-		queue_contract.plan_jobs(base_input(queue.tasks_dir))
+		queue_contract.plan_jobs(base_input(queue.tasks_dir, { jobs: [complex_job()], complex_contract: accepted_contract() }))
 		const first = queue_contract.select_frozen_ready_plans(queue.tasks_dir)
 		assert.deepEqual(first.ready_plan_names, ['plan-001.md'])
 		fs.renameSync(path.join(queue.tasks_dir, 'plan-001.md'), path.join(queue.tasks_dir, 'done', 'plan-001.md'))

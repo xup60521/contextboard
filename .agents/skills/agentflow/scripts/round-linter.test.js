@@ -19,9 +19,32 @@ const {
   lint_tracker,
   lint_checkpoint_verification,
   lint_checkpoint_still_to_do,
-  read_context_json
+  read_context_json,
+  resolve_commit_prefix
 } = require('./round-linter');
 const tracker_contract = require('./tracker-contract.js');
+
+node_test.test('tracker refresh derives counts without changing tasks or claiming completion', () => {
+  const original = valid_tracker('active');
+  const stale = original.replace('- **Total:** 2.', '- **Total:** 99.').replace('- **Remaining:** 1.', '- **Remaining:** 98.');
+  const refreshed = tracker_contract.refresh_counts(stale);
+  node_assert.equal(refreshed.text, original);
+  node_assert.deepEqual(refreshed.counts, { Total: 2, Completed: 1, Remaining: 1 });
+  node_assert.equal(lint_tracker(tracker_facts(refreshed.text)).status, 'pass');
+});
+
+node_test.test('tracker refresh CLI saves only derived counts and exposes remaining work', t => {
+  const root = node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'agf-tracker-refresh-'));
+  t.after(() => node_fs.rmSync(root, { recursive: true, force: true }));
+  const work = node_path.join(root, 'artifacts', 'A-001-x');
+  node_fs.mkdirSync(work, { recursive: true });
+  const file = node_path.join(work, 'tracker.md');
+  const original = valid_tracker('active');
+  node_fs.writeFileSync(file, original.replace('- **Total:** 2.', '- **Total:** 99.'));
+  const output = node_child_process.execFileSync(process.execPath, [node_path.join(__dirname, 'tracker-contract.js'), 'validate', '--refresh', '--repo', root, '--tracker', file], { encoding: 'utf8' });
+  node_assert.match(output, /PASS:.*1\/2 tasks complete, 1 remaining/);
+  node_assert.equal(node_fs.readFileSync(file, 'utf8'), original);
+});
 
 node_test.test('tracker command prints the one canonical seven-section shape', () => {
   const output = node_child_process.execFileSync('node', [node_path.join(__dirname, 'tracker-contract.js'), 'template'], { encoding: 'utf8' });
@@ -41,38 +64,53 @@ node_test.test('format-only tracker validation never claims trusted proof', () =
 });
 
 node_test.test('round boundaries reject a checkpoint stored under another Ask', () => {
-  const text = `# → Ask / A-001\n\n+ first\n\n# → Ask / A-002\n\n+ second\n\n## [WIP-002] Checkpoint — 2026-08-30 09:19 (during round A-001)\n`;
+  const text = `# → Ask / A-001\n\n+ first\n\n# → Ask / A-002\n\n+ second\n\n## [WIP-002] Checkpoint — 2026-08-30 09:19:00 +0800 (during round A-001)\n`;
   const result = lint_round_boundaries(text);
   node_assert.strictEqual(result.status, 'fail');
   node_assert.match(result.detail, /A-001.*A-002/);
 });
 
 node_test.test('round boundaries pass physically ordered checkpoints', () => {
-  const text = `# → Ask / A-001\n\n+ first\n\n## [WIP-001] Checkpoint — 2026-08-30 09:00 (during round A-001)\n\n# → Ask / A-002\n\n+ second\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00 (during round A-002)\n`;
+  const text = `# → Ask / A-001\n\n+ first\n\n## [WIP-001] Checkpoint — 2026-08-30 09:00:00 +0800 (during round A-001)\n\n# → Ask / A-002\n\n+ second\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00:00 +0800 (during round A-002)\n`;
   node_assert.strictEqual(lint_round_boundaries(text).status, 'pass');
 });
 
 node_test.test('round boundaries accept RUN and WIP records in one active round and reject wrong RUN ownership', () => {
-  const valid = `# → Ask / A-001\n\n+ work\n\n## [RUN-001] Event — 2026-08-30 08:59 (during round A-001)\n\n- Started.\n\n## [WIP-001] Checkpoint — 2026-08-30 09:00 (during round A-001)\n`;
+  const valid = `# → Ask / A-001\n\n+ work\n\n## [RUN-001] Event — 2026-08-30 08:59:00 +0800 (during round A-001)\n\n- Started.\n\n## [WIP-001] Checkpoint — 2026-08-30 09:00:00 +0800 (during round A-001)\n`;
   node_assert.strictEqual(lint_round_boundaries(valid).status, 'pass');
   node_assert.strictEqual(lint_round_boundaries(valid.replace('during round A-001)\n\n- Started', 'during round A-002)\n\n- Started')).status, 'fail');
 });
 
 node_test.test('round boundaries reject malformed RUN-like headings', () => {
-  const text = `# → Ask / A-001\n\n+ work\n\n## [RUN-bad] Event — malformed\n\n+ later owner text\n`;
+  const text = `# → Ask / A-001\n\n+ work\n\n---\n\n## [RUN-bad] Event — malformed\n\n+ later owner text\n`;
   const result = lint_round_boundaries(text);
   node_assert.strictEqual(result.status, 'fail');
   node_assert.match(result.detail, /malformed RUN/i);
 });
 
+node_test.test('current WIP and RUN records require real local numeric-offset timestamps with seconds', () => {
+  const valid = `# → Ask / A-001\n\n+ work\n\n## [RUN-001] Event — 2026-09-06 09:57:00 +0800 (during round A-001)\n\n- Started.\n\n## [WIP-001] Checkpoint — 2026-09-06 09:58:00 +0800 (during round A-001)\n`;
+  node_assert.strictEqual(lint_round_boundaries(valid).status, 'pass');
+  for (const bad of [
+    valid.replace(' — 2026-09-06 09:57:00 +0800', ''),
+    valid.replace('09:57:00 +0800', '09:57'),
+    valid.replace('2026-09-06 09:58:00 +0800', '2026-02-30 09:58:00 +0800'),
+    valid.replace('09:58:00 +0800', '09:58:00 UTC'),
+  ]) {
+    const result = lint_round_boundaries(bad);
+    node_assert.strictEqual(result.status, 'fail');
+    node_assert.match(result.detail, /timestamp|Asia\/Taipei/i);
+  }
+});
+
 node_test.test('round boundaries reject agent records after a bare empty-scaffold marker', () => {
-  const text = `# → Ask / A-001\n\n+ done\n\n# → Ask / A-002\n\n+\n\n---\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00 (during round A-002)\n`;
+  const text = `# → Ask / A-001\n\n+ done\n\n# → Ask / A-002\n\n+\n\n---\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00:00 +0800 (during round A-002)\n`;
   node_assert.strictEqual(lint_round_boundaries(text).status, 'fail');
 });
 
-node_test.test('round boundaries reject a checkpoint without a declared round', () => {
-  const text = `# → Ask / A-001\n\n+ first\n\n## [WIP-001] Checkpoint — 2026-08-30 09:00\n`;
-  node_assert.strictEqual(lint_round_boundaries(text).status, 'fail');
+node_test.test('round boundaries infer a checkpoint round without a suffix', () => {
+  const text = `# → Ask / A-001\n\n+ first\n\n## [WIP-001] Checkpoint — 2026-08-30 09:00:00 +0800\n`;
+  node_assert.strictEqual(lint_round_boundaries(text).status, 'pass');
 });
 
 node_test.test('round boundaries reject any record after the empty-scaffold marker', () => {
@@ -88,7 +126,7 @@ const valid_tracker = state => {
   const total = complete ? 1 : 2;
   const completed = 1;
   const remaining = complete ? 0 : 1;
-  return `# Tracker\n\n## Identity\n\n- **Work key:** A-001-x.\n\n- **Active Ask:** A-001.\n\n- **Goal:** Keep the accepted work visible.\n\n- **Last update:** 2026-08-30 12:00:00 Asia/Taipei.\n\n- **Evidence commit:** ${complete ? 'a'.repeat(40) : 'uncommitted'}.\n\n## Overall state\n\n- **State:** ${state}.\n\n- **Reason:** ${complete ? 'All accepted work is proven complete.' : 'Work remains.'}\n\n- **Total:** ${total}.\n\n- **Completed:** ${completed}.\n\n- **Remaining:** ${remaining}.\n\n## Accepted task checklist\n\n${checklist}\n## Accepted scope changes\n\n- None.\n\n## Current recovery\n\n- **Current item:** ${complete ? 'None.' : 'T-2.'}\n\n- **Last proven result:** E-1 passed.\n\n- **Active blocker or running process:** None.\n\n- **Next safe action:** ${complete ? 'None.' : 'Run T-2.'}\n\n- **Expected changed files:** round-linter.js and round-linter.test.js.\n\n## Completion proof\n\n- **All accepted tasks checked:** ${complete ? 'yes' : 'no'}.\n\n- **Blocking accepted decision:** none.\n\n- **Operation running:** ${complete ? 'no' : 'yes'}.\n\n- **Next action remaining:** ${complete ? 'none' : 'T-2'}.\n\n- **Evidence status:** ${complete ? 'complete' : 'current'}.\n\n- **Judgment:** ${state}.\n\n## Update meaning\n\n- Saving this tracker is a recovery checkpoint, not a stop signal.\n\n- Work continues with the next unfinished item unless an independent stop condition applies.\n`;
+  return `# Tracker\n\n## Identity\n\n- **Work key:** A-001-x.\n\n- **Active Ask:** A-001.\n\n- **Goal:** Keep the accepted work visible.\n\n- **Last update:** 2026-08-30 12:00:00 +0800.\n\n- **Evidence commit:** ${complete ? 'a'.repeat(40) : 'uncommitted'}.\n\n## Overall state\n\n- **State:** ${state}.\n\n- **Reason:** ${complete ? 'All accepted work is proven complete.' : 'Work remains.'}\n\n- **Total:** ${total}.\n\n- **Completed:** ${completed}.\n\n- **Remaining:** ${remaining}.\n\n## Accepted task checklist\n\n${checklist}\n## Accepted scope changes\n\n- None.\n\n## Current recovery\n\n- **Current item:** ${complete ? 'None.' : 'T-2.'}\n\n- **Last proven result:** E-1 passed.\n\n- **Active blocker or running process:** None.\n\n- **Next safe action:** ${complete ? 'None.' : 'Run T-2.'}\n\n- **Expected changed files:** round-linter.js and round-linter.test.js.\n\n## Completion proof\n\n- **All accepted tasks checked:** ${complete ? 'yes' : 'no'}.\n\n- **Blocking accepted decision:** none.\n\n- **Operation running:** ${complete ? 'no' : 'yes'}.\n\n- **Next action remaining:** ${complete ? 'none' : 'T-2'}.\n\n- **Evidence status:** ${complete ? 'complete' : 'current'}.\n\n- **Judgment:** ${state}.\n\n## Update meaning\n\n- Saving this tracker is a recovery checkpoint, not a stop signal.\n\n- Work continues with the next unfinished item unless an independent stop condition applies.\n`;
 };
 
 const tracker_facts = (text, overrides = {}) => ({
@@ -148,7 +186,7 @@ node_test.test('tracker validates counts, sources, proof, scope changes, recover
   const malformed_count = valid_tracker('active').replace('- **Total:** 2.', '- **Total:** 2 tasks.');
   node_assert.strictEqual(lint_tracker(tracker_facts(malformed_count)).status, 'fail');
 
-  const impossible_date = valid_tracker('active').replace('2026-08-30 12:00:00 Asia/Taipei', '2026-02-30 12:00:00 Asia/Taipei');
+  const impossible_date = valid_tracker('active').replace('2026-08-30 12:00:00 +0800', '2026-02-30 12:00:00 +0800');
   node_assert.strictEqual(lint_tracker(tracker_facts(impossible_date)).status, 'fail');
 
   const empty_goal = valid_tracker('active').replace('- **Goal:** Keep the accepted work visible.\n\n', '- **Goal:**\n\n');
@@ -213,14 +251,21 @@ node_test.test('tracker passes active continuation and proven completion', () =>
 
 node_test.test('checkpoint verification requires current tracker, RUN, and scope evidence', () => {
   const footer = '- **Checks:** [x] tracker.md | [x] devlog RUN | [x] scope matches tracker';
-  const text = `# → Ask / A-001\n\n+ work\n\n## [RUN-001] Event — 2026-08-30 09:59 (during round A-001)\n\n- **Scope check:** Changed paths match the tracker.\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00 (during round A-001)\n\n${footer}\n`;
+  const text = `# → Ask / A-001\n\n+ work\n\n## [RUN-001] Event — 2026-08-30 09:59:00 +0800 (during round A-001)\n\n- **Scope check:** Changed paths match the tracker.\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00:00 +0800 (during round A-001)\n\n${footer}\n`;
   const facts = { required: true, tracker_current: true, run_current: true, progress_current: true, scope_checked: true };
   node_assert.strictEqual(lint_checkpoint_verification(text, facts).status, 'pass');
   for (const key of ['tracker_current', 'run_current', 'scope_checked']) {
     node_assert.strictEqual(lint_checkpoint_verification(text, { ...facts, [key]: false }).status, 'fail');
   }
-  node_assert.strictEqual(lint_checkpoint_verification(text.replace(footer, '- **Checks:** [x] tracker.md | [x] runlog.md | [x] scope matches tracker'), facts).status, 'fail');
-  node_assert.strictEqual(lint_checkpoint_verification(text.replace(`${footer}\n`, `${footer}\n\n- late record\n`), facts).status, 'fail');
+  node_assert.strictEqual(lint_checkpoint_verification(text.replace(footer, '- **Checks:** [x] tracker.md | [x] runlog.md | [x] scope matches tracker'), facts).status, 'warn');
+  node_assert.strictEqual(lint_checkpoint_verification(text.replace(`${footer}\n`, `${footer}\n\n- late record\n`), facts).status, 'warn');
+});
+
+node_test.test('checkpoint verification ends a WIP segment at a later RUN boundary', () => {
+  const footer = '- **Checks:** [x] tracker.md | [x] devlog RUN | [x] scope matches tracker';
+  const text = `# → Ask / A-001\n\n+ work\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00:00 +0800 (during round A-001)\n\n${footer}\n\n## [RUN-002] Event — 2026-08-30 10:01:00 +0800 (during round A-001)\n\n- Resumed.\n`;
+  const facts = { required: true, tracker_current: true, run_current: true, progress_current: true, scope_checked: true };
+  node_assert.strictEqual(lint_checkpoint_verification(text, facts).status, 'pass');
 });
 
 const ag_settings = require('./ag-settings');
@@ -249,7 +294,7 @@ const devlog_with_ask = ask_id => `# STATUS
 `;
 
 const artifact_text = ({
-  stamp = '2026-08-15 12:00:00',
+  stamp = '2026-08-15 12:00:00 +0800',
   model = 'test-model',
   effort = 'medium',
   body = 'content',
@@ -390,7 +435,7 @@ const run_cli_with_context = context_setup => {
 };
 
 const artifact_at_byte_size = byte_size => {
-	const opening = '* _2026-08-15 12:00:00 (test-model/medium)_\n';
+	const opening = '* _2026-08-15 12:00:00 +0800 (test-model/medium)_\n';
 	const closing = '\nSelf-check: pass\n';
 	const body_size = byte_size - Buffer.byteLength(opening) - Buffer.byteLength(closing);
 
@@ -404,23 +449,23 @@ node_test.test('parse_devlog returns Ask ids, last round, and last-round stamps 
 
 # → Ask / A-028
 old round
-* _2026-08-15 08:00:00 (old-model)_
+* _2026-08-15 08:00:00 +0800 (old-model)_
 
 ---
 
 # → Ask / A-031 (owner)
 last round
-* _2026-08-15 10:00:00 (new-model)_
-## Progress checkpoint — 2026-08-15 10:30:00
+* _2026-08-15 10:00:00 +0800 (new-model)_
+## Progress checkpoint — 2026-08-15 10:30:00 +0800
 `;
   const parsed = parse_devlog(devlog_text);
 
   node_assert.deepStrictEqual(parsed.ask_ids, ['A-028', 'A-031']);
-  node_assert.deepStrictEqual(parsed.stamps, ['2026-08-15 10:00:00', '2026-08-15 10:30:00']);
+  node_assert.deepStrictEqual(parsed.stamps, ['2026-08-15 10:00:00 +0800', '2026-08-15 10:30:00 +0800']);
   node_assert.strictEqual(parsed.last_round, `# → Ask / A-031 (owner)
 last round
-* _2026-08-15 10:00:00 (new-model)_
-## Progress checkpoint — 2026-08-15 10:30:00
+* _2026-08-15 10:00:00 +0800 (new-model)_
+## Progress checkpoint — 2026-08-15 10:30:00 +0800
 `);
 });
 
@@ -431,14 +476,14 @@ node_test.test('parse_devlog extracts the timestamp from the current [WIP-NNN] C
 
 # → Ask / A-045 (owner)
 last round
-* _2026-08-17 10:00:00 (new-model)_
-## [WIP-001] Checkpoint — 2026-08-17 10:30 (during round A-045)
+* _2026-08-17 10:00:00 +0800 (new-model)_
+## [WIP-001] Checkpoint — 2026-08-17 10:30:00 +0800 (during round A-045)
 
 - did the thing
 `;
   const parsed = parse_devlog(devlog_text);
 
-  node_assert.deepStrictEqual(parsed.stamps, ['2026-08-17 10:00:00', '2026-08-17 10:30']);
+  node_assert.deepStrictEqual(parsed.stamps, ['2026-08-17 10:00:00 +0800', '2026-08-17 10:30:00 +0800']);
 });
 
 node_test.test('timestamps_sane fails for a future timestamp in the [WIP-NNN] Checkpoint heading', () => {
@@ -449,8 +494,8 @@ node_test.test('timestamps_sane fails for a future timestamp in the [WIP-NNN] Ch
 # → Ask / A-045
 
 # ← Reply / A-045
-* _2026-08-15 10:00:00 (test-model)_
-## [WIP-001] Checkpoint — 2026-08-15 16:00 (during round A-045)
+* _2026-08-15 10:00:00 +0800 (test-model)_
+## [WIP-001] Checkpoint — 2026-08-15 16:00:00 +0800 (during round A-045)
 `;
   const result = lint_round({ devlog_text, now_ms: fixed_now_ms });
 
@@ -474,7 +519,7 @@ node_test.test('terminal_one_line warns for a multi-line terminal dump without b
 
 node_test.test('timestamps_sane passes for a recent fixed timestamp', () => {
   const result = lint_round({
-    devlog_text: devlog_with_stamp('2026-08-15 11:00:00'),
+    devlog_text: devlog_with_stamp('2026-08-15 11:00:00 +0800'),
     now_ms: fixed_now_ms
   });
 
@@ -483,7 +528,7 @@ node_test.test('timestamps_sane passes for a recent fixed timestamp', () => {
 
 node_test.test('timestamps_sane fails for a timestamp far in the future', () => {
   const result = lint_round({
-    devlog_text: devlog_with_stamp('2026-08-15 16:00:00'),
+    devlog_text: devlog_with_stamp('2026-08-15 16:00:00 +0800'),
     now_ms: fixed_now_ms
   });
 
@@ -804,7 +849,7 @@ node_test.test('pipeline_artifacts closes its descriptor after a successful read
 node_test.test('pipeline_artifacts keeps the primary validation error when descriptor close fails', () => {
   const artifact_dir = node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'round-linter-descriptor-close-error-'));
   const candidate = node_path.join(artifact_dir, 'requirements.md');
-  node_fs.writeFileSync(candidate, '* _2026-08-15 12:00:00 (test-model/medium)_\ninvalid\n');
+  node_fs.writeFileSync(candidate, '* _2026-08-15 12:00:00 +0800 (test-model/medium)_\ninvalid\n');
   const original_close = node_fs.closeSync;
   let close_calls = 0;
   node_fs.closeSync = (descriptor) => {
@@ -877,19 +922,20 @@ node_test.test('pipeline_artifacts accepts the 128-character model and 32-charac
 
 [
   ['missing opening stamp', 'content\nSelf-check: pass\n'],
-  ['malformed opening stamp', '* _2026-08-15 12:00:00 (test-model)_\ncontent\nSelf-check: pass\n'],
-  ['opening stamp after the first line', 'content\n* _2026-08-15 12:00:00 (test-model/medium)_\nSelf-check: pass\n'],
-  ['missing final boundary', '* _2026-08-15 12:00:00 (test-model/medium)_\ncontent\n'],
-  ['duplicate final boundary', '* _2026-08-15 12:00:00 (test-model/medium)_\ncontent\nSelf-check: pass\nSelf-check: pass\n'],
-  ['malformed final boundary', '* _2026-08-15 12:00:00 (test-model/medium)_\ncontent\nSelf-check\n'],
-  ['content after final boundary', '* _2026-08-15 12:00:00 (test-model/medium)_\ncontent\nSelf-check: pass\ntrailer\n'],
-  ['stale Asia/Taipei timestamp', artifact_text({ stamp: '2026-08-15 11:00:00' })],
-  ['malformed timestamp', artifact_text({ stamp: '2026-99-99 12:00:00' })]
+  ['malformed opening stamp', '* _2026-08-15 12:00:00 +0800 (test-model)_\ncontent\nSelf-check: pass\n'],
+  ['opening stamp after the first line', 'content\n* _2026-08-15 12:00:00 +0800 (test-model/medium)_\nSelf-check: pass\n'],
+  ['missing final boundary', '* _2026-08-15 12:00:00 +0800 (test-model/medium)_\ncontent\n'],
+  ['duplicate final boundary', '* _2026-08-15 12:00:00 +0800 (test-model/medium)_\ncontent\nSelf-check: pass\nSelf-check: pass\n'],
+  ['malformed final boundary', '* _2026-08-15 12:00:00 +0800 (test-model/medium)_\ncontent\nSelf-check\n'],
+  ['content after final boundary', '* _2026-08-15 12:00:00 +0800 (test-model/medium)_\ncontent\nSelf-check: pass\ntrailer\n'],
+  ['stale numeric-offset timestamp', artifact_text({ stamp: '2026-08-15 11:00:00 +0800' })],
+  ['malformed timestamp', artifact_text({ stamp: '2026-99-99 12:00:00 +0800' })]
 ].forEach(([name, file_text]) => {
-  node_test.test(`pipeline_artifacts rejects ${name}`, () => {
+  const presentation_only = ['opening stamp after the first line', 'content after final boundary'].includes(name);
+  node_test.test(`pipeline_artifacts ${presentation_only ? 'warns about' : 'rejects'} ${name}`, () => {
     const result = lint_single_artifact(file_text);
 
-    node_assert.strictEqual(status_for(result, 'pipeline_artifacts').status, 'fail');
+    node_assert.strictEqual(status_for(result, 'pipeline_artifacts').status, presentation_only ? 'warn' : 'fail');
   });
 });
 
@@ -905,13 +951,13 @@ for (const [name, file_text] of [
 }
 
 node_test.test('pipeline_artifacts keeps malformed boundaries blocking when model identity also differs', () => {
-  const result = lint_single_artifact('* _2026-08-15 12:00:00 (other-model/medium)_\ncontent\n');
+  const result = lint_single_artifact('* _2026-08-15 12:00:00 +0800 (other-model/medium)_\ncontent\n');
   node_assert.strictEqual(status_for(result, 'pipeline_artifacts').status, 'fail');
   node_assert.match(status_for(result, 'pipeline_artifacts').detail, /missing final Self-check/i);
 });
 
 node_test.test('pipeline_artifacts rejects a future artifact timestamp outside the fresh window', () => {
-  const result = lint_single_artifact(artifact_text({ stamp: '2026-08-15 12:06:00' }));
+  const result = lint_single_artifact(artifact_text({ stamp: '2026-08-15 12:06:00 +0800' }));
 
   node_assert.strictEqual(status_for(result, 'pipeline_artifacts').status, 'fail');
 });
@@ -931,12 +977,12 @@ node_test.test('pipeline_artifacts accepts separately stamped artifacts during l
     Date.parse('2026-08-15T10:04:00+08:00')
   );
   node_fs.writeFileSync(node_path.join(artifact_dir, 'requirements.md'), artifact_text({
-    stamp: '2026-08-15 10:00:00',
+    stamp: '2026-08-15 10:00:00 +0800',
     model: 'worker-one',
     effort: 'medium'
   }));
   node_fs.writeFileSync(node_path.join(artifact_dir, 'spec.md'), artifact_text({
-    stamp: '2026-08-15 10:04:00',
+    stamp: '2026-08-15 10:04:00 +0800',
     model: 'worker-two',
     effort: 'high'
   }));
@@ -980,7 +1026,7 @@ node_test.test('pipeline_artifacts rejects an object requirement without a verif
 node_test.test('pipeline_artifacts rejects an artifact outside its own freshness window', () => {
   const generation_reference_ms = Date.parse('2026-08-15T10:00:00+08:00');
   const result = lint_single_artifact(
-    artifact_text({ stamp: '2026-08-15 09:54:00' }),
+    artifact_text({ stamp: '2026-08-15 09:54:00 +0800' }),
     artifact_requirement('requirements.md', 'test-model', 'medium', generation_reference_ms),
     { now_ms: Date.parse('2026-08-15T12:00:00+08:00') }
   );
@@ -1273,7 +1319,11 @@ node_test.test('queue contract validation accepts a published make-plans contrac
     created_at: '2026-08-23T12:16:00.000Z',
     completion_path: 'devlog.md'
   };
-  const built = queue_contract.build_queue(input);
+  const build = value => queue_contract.build_queue({ ...value, schema_version: 2, authorities: [
+    { id: 'work', route: 'complex', original_request_sha256: value.contract.original_request_sha256, requirements_sha256: value.contract.requirements_sha256, specification_sha256: value.contract.specification_sha256 },
+    { id: 'integration', route: 'integration', included_authority_ids: ['work'] }
+  ], plans: value.plans.map(plan => ({ ...plan, route: plan.final_integration ? 'integration' : 'complex', authority_id: plan.final_integration ? 'integration' : 'work' })) });
+  const built = build(input);
   const valid = lint_queue_contract({
     operation: 'make-plans',
     contract: input.contract,
@@ -1292,7 +1342,7 @@ node_test.test('queue contract validation accepts a published make-plans contrac
     ...input,
     contract: { ...input.contract, original_request_sha256: 'd'.repeat(64) }
   };
-  const other_built = queue_contract.build_queue(other_input);
+  const other_built = build(other_input);
   const mismatched = lint_queue_contract({
     operation: 'make-plans',
     contract: input.contract,
@@ -1330,17 +1380,54 @@ node_test.test('executor decision validation prefers direct or supported interna
   node_assert.strictEqual(internal.status, 'pass');
 });
 
-node_test.test('executor decision rejects coordinator execution for substantive delegated-capable work', () => {
+node_test.test('executor decision allows host execution when delegation-capable work is cheaper to finish locally', () => {
   const result = lint_executor_decision({
     stage_id: 'coding',
     executor_class: 'direct_coordinator',
     substantive_delegated_capable: true,
     material_risks: [],
-    reason: 'the coordinator attempted product implementation'
+    reason: 'the host can finish and verify this bounded fix before a worker handoff would pay off'
   });
 
-  node_assert.strictEqual(result.status, 'fail');
-  node_assert.match(result.detail, /substantive|external-runner-v1/i);
+  node_assert.strictEqual(result.status, 'pass', result.detail);
+});
+
+node_test.test('host executor discretion retains reason, fact type, and transport validation', () => {
+  const record = {
+    stage_id: 'coding',
+    executor_class: 'direct_coordinator',
+    substantive_delegated_capable: true,
+    material_risks: [],
+    reason: 'the host already has the context for a small verified edit'
+  };
+  for (const [field, value, detail] of [
+    ['reason', '', /plain-language string/],
+    ['substantive_delegated_capable', 'true', /actual boolean/],
+    ['adapter_id', 'disguised-worker', /must not contain adapter_id/],
+    ['executor_class', 'unsupported-worker', /unsupported/]
+  ]) {
+    const result = lint_executor_decision({ ...record, [field]: value });
+    node_assert.strictEqual(result.status, 'fail', field);
+    node_assert.match(result.detail, detail);
+  }
+});
+
+node_test.test('host execution does not waive an independently required review', () => {
+  const result = lint_round({
+    devlog_text: devlog_ending_in_scaffold(valid_reply_body),
+    executor_decision: {
+      stage_id: 'coding',
+      executor_class: 'direct_coordinator',
+      substantive_delegated_capable: true,
+      material_risks: [],
+      reason: 'the host can efficiently complete the bounded implementation'
+    },
+    review_decision: { status: 'required', reason: 'the change still needs independent review' }
+  });
+
+  node_assert.strictEqual(status_for(result, 'executor_decision').status, 'pass');
+  node_assert.strictEqual(status_for(result, 'cross_check').status, 'fail');
+  node_assert.match(status_for(result, 'cross_check').detail, /external review report path/);
 });
 
 node_test.test('executor decision validation rejects unjustified different-family external review', () => {
@@ -1574,7 +1661,7 @@ node_test.test('configuration_valid passes when the adjacent schema-v7 ag.json m
     executables: ['codex', 'claude']
   });
   const result = lint_round({
-    devlog_text: devlog_with_stamp('2026-08-15 11:00:00'),
+    devlog_text: devlog_with_stamp('2026-08-15 11:00:00 +0800'),
     project_root,
     active_host: 'codex',
     executables: ['codex', 'claude']
@@ -1599,7 +1686,7 @@ node_test.test('refresh configuration_valid rejects a schema-v3 ag.json without 
   node_fs.writeFileSync(node_path.join(project_root, 'ag.json'), before);
 
   const result = lint_round({
-    devlog_text: devlog_with_stamp('2026-08-15 11:00:00'),
+    devlog_text: devlog_with_stamp('2026-08-15 11:00:00 +0800'),
     project_root,
     active_host: 'codex',
     executables: ['codex', 'claude']
@@ -1614,7 +1701,7 @@ node_test.test('configuration_valid fails when ag.json is malformed', () => {
   const project_root = node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'round-linter-configured-'));
   node_fs.writeFileSync(node_path.join(project_root, 'ag.json'), '{');
   const result = lint_round({
-    devlog_text: devlog_with_stamp('2026-08-15 11:00:00'),
+    devlog_text: devlog_with_stamp('2026-08-15 11:00:00 +0800'),
     project_root,
     active_host: 'codex',
     executables: ['codex', 'claude']
@@ -1628,7 +1715,7 @@ node_test.test('configuration_valid reports malformed JSON before ambiguous host
   const project_root = node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'round-linter-configured-'));
   node_fs.writeFileSync(node_path.join(project_root, 'ag.json'), '{');
   const result = lint_round({
-    devlog_text: devlog_with_stamp('2026-08-15 11:00:00'),
+    devlog_text: devlog_with_stamp('2026-08-15 11:00:00 +0800'),
     project_root,
     env: { CODEX_SESSION_ID: 'x', CLAUDE_CODE: '1' },
     executables: ['codex', 'claude']
@@ -1659,19 +1746,19 @@ Implemented the requested cross-check command.
 ## Questions (batched — each with a suggested default)
 
 - None.
-`, '2026-08-16 12:00:00').replace('+ do the thing', '+ cross-check: implement the requested change');
+`, '2026-08-16 12:00:00 +0800').replace('+ do the thing', '+ cross-check: implement the requested change');
   const result = lint_round({ devlog_text, project_root: process.cwd(), review_decision: { status: 'required', reason: 'source changed', changed_implementation: true } });
   node_assert.strictEqual(status_for(result, 'cross_check').status, 'fail');
   node_assert.match(status_for(result, 'cross_check').detail, /review report path/i);
 });
 
 node_test.test('cross-check follows the host-recorded decision instead of words in the Ask', () => {
-  const discussed = devlog_ending_in_scaffold(`## [SUMMARY]\n\n- Discussion completed.\n\n## Questions (batched — each with a suggested default)\n\n- None.`, '2026-08-16 12:00:00')
+  const discussed = devlog_ending_in_scaffold(`## [SUMMARY]\n\n- Discussion completed.\n\n## Questions (batched — each with a suggested default)\n\n- None.`, '2026-08-16 12:00:00 +0800')
     .replace('+ do the thing', '+ What should cross-check do in a future implementation?');
   const skipped = lint_round({
     devlog_text: discussed,
     project_root: process.cwd(),
-    review_decision: { status: 'not-requested', reason: 'no source, test, configuration, or user-document change', changed_files: ['.agentflow/devlog.md'], record_roots: ['.agentflow/'] }
+    review_decision: { status: 'not-requested', reason: 'record only', changed_files: ['.agentflow/devlog.md'], record_files: ['.agentflow/devlog.md'] }
   });
   node_assert.strictEqual(status_for(skipped, 'cross_check').status, 'pass');
 
@@ -1696,8 +1783,47 @@ node_test.test('cross-check rejects missing or conflicting recorded decisions wh
   node_assert.match(status_for(conflict, 'cross_check').detail, /conflict|implementation changed/i);
 });
 
+node_test.test('cross-check accepts no review for a standalone creative document', () => {
+  const result = lint_round({
+    devlog_text: devlog_ending_in_scaffold(valid_reply_body),
+    review_decision: { status: 'not-requested', reason: 'standalone poem', changed_files: ['poem.md'], document_effects: [{ path: 'poem.md', effect: 'informational', reason: 'creative text only' }] }
+  });
+
+  node_assert.strictEqual(status_for(result, 'cross_check').status, 'pass');
+});
+
+node_test.test('cross-check gives a document-only route to the required classification', () => {
+  const result = lint_round({
+    devlog_text: devlog_ending_in_scaffold(valid_reply_body),
+    review_decision: { status: 'required', reason: 'unclassified Markdown changed', changed_files: ['poem.md'] }
+  });
+
+  node_assert.strictEqual(status_for(result, 'cross_check').status, 'fail');
+  node_assert.match(status_for(result, 'cross_check').detail, /poem\.md/);
+  node_assert.match(status_for(result, 'cross_check').detail, /if poem\.md is informational or non-behavioral rather than operating instruction/);
+  node_assert.match(status_for(result, 'cross_check').detail, /Informational document: <path> — <reason>/);
+});
+
+node_test.test('cross-check excludes named canonical bootstrap files beside a standalone creative document', () => {
+  const result = lint_round({
+    devlog_text: devlog_ending_in_scaffold(valid_reply_body),
+    review_decision: {
+      status: 'not-requested',
+      reason: 'no review-eligible change detected from Git',
+      changed_files: ['ag.json', '.gitignore', '.agentflow/devlog.md', 'poem.md'],
+      record_files: ['.agentflow/devlog.md'],
+      record_roots: ['.agentflow/'],
+      configuration_files: ['ag.json'],
+      bootstrap_files: ['ag.json', '.gitignore'],
+      document_effects: [{ path: 'poem.md', effect: 'informational', reason: 'creative text only' }]
+    }
+  });
+
+  node_assert.strictEqual(status_for(result, 'cross_check').status, 'pass');
+});
+
 node_test.test('cross-check keeps an unfinished round open before judging its derived decision', () => {
-  const devlog_text = '# → Ask / A-001\n\n+ implement the change\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00 (during round A-001)\n';
+  const devlog_text = '# → Ask / A-001\n\n+ implement the change\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00:00 +0800 (during round A-001)\n';
   for (const review_decision of [
     { status: 'required', reason: 'source changed' },
     { status: 'not-requested', reason: 'no change', changed_files: ['src/app.js'], record_roots: ['.agentflow/'] },
@@ -1785,7 +1911,7 @@ node_test.test('cross-check exempts first-time Agentflow bookkeeping when the re
       bootstrap_bookkeeping_only: true
     }
   });
-  node_assert.strictEqual(status_for(result, 'cross_check').status, 'pass');
+  node_assert.strictEqual(status_for(result, 'cross_check').status, 'fail', 'a supplied bookkeeping boolean cannot exempt unverified configuration');
 
   const product_changed = lint_round({
     devlog_text: devlog_ending_in_scaffold(valid_reply_body),
@@ -1804,9 +1930,13 @@ node_test.test('cross-check exempts first-time Agentflow bookkeeping when the re
 
 node_test.test('cross-check accepts one valid PASS report and allows pipeline acceptance to satisfy the gate', () => {
   const project_root = node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'round-linter-cross-check-'));
+  const git = args => node_child_process.execFileSync('git', args, { cwd: project_root, encoding: 'utf8' }).trim();
+  git(['init', '-q']);
+  git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-qm', 'review target']);
+  const target = git(['rev-parse', 'HEAD']);
   const report_path = node_path.join(project_root, 'artifacts', 'A-001-cross-check', 'acceptance-report.md');
   node_fs.mkdirSync(node_path.dirname(report_path), { recursive: true });
-  node_fs.writeFileSync(report_path, `* _2026-08-16 12:00:00 (reviewer/high)_\n\nOutcome: PASS\n\nMinimality: PASS\n\nConformance: PASS\n\nVerdict: PASS\n\nReviewed implementation commit: 0123456789abcdef0123456789abcdef01234567\n\nSelf-check: I reviewed the final implementation read-only.\n`);
+  node_fs.writeFileSync(report_path, `* _2026-08-16 12:00:00 +0800 (reviewer/high)_\n\nOutcome: PASS\n\nMinimality: PASS\n\nConformance: PASS\n\nVerdict: PASS\n\nReviewed implementation commit: 0123456789abcdef0123456789abcdef01234567\n\nSelf-check: I reviewed the final implementation read-only.\n`);
   const devlog_text = devlog_ending_in_scaffold(`## [SUMMARY]
 
 The implementation passed review.
@@ -1818,17 +1948,29 @@ Cross-check implementation: 0123456789abcdef0123456789abcdef01234567
 ## Questions (batched — each with a suggested default)
 
 - None.
-`, '2026-08-16 12:01:00').replace('+ do the thing', '+ please run cross-check after implementation');
-  const result = lint_round({ devlog_text, project_root, review_decision: { status: 'required', reason: 'source changed', changed_implementation: true } });
+`, '2026-08-16 12:01:00 +0800').replace('+ do the thing', '+ please run cross-check after implementation');
+  node_fs.writeFileSync(report_path, node_fs.readFileSync(report_path, 'utf8').replaceAll('0123456789abcdef0123456789abcdef01234567', target));
+  const result = lint_round({ devlog_text: devlog_text.replaceAll('0123456789abcdef0123456789abcdef01234567', target), project_root, review_decision: { status: 'required', reason: 'source changed' } });
   node_assert.strictEqual(status_for(result, 'cross_check').status, 'pass');
   node_assert.match(status_for(result, 'cross_check').detail, /acceptance-report\.md/);
+  const exact_report = node_fs.readFileSync(report_path, 'utf8');
+  node_fs.writeFileSync(report_path, '# Review\n\n' + exact_report + '\nA trailing explanatory note.\n');
+  const moved = lint_round({ devlog_text: devlog_text.replaceAll('0123456789abcdef0123456789abcdef01234567', target), project_root, review_decision: { status: 'required', reason: 'source changed' } });
+  node_assert.strictEqual(status_for(moved, 'cross_check').status, 'warn');
+  node_fs.writeFileSync(report_path, ('# Review\n\n' + exact_report).replace('Verdict: PASS', 'Verdict: BLOCKING'));
+  const blocking = lint_round({ devlog_text: devlog_text.replaceAll('0123456789abcdef0123456789abcdef01234567', target), project_root, review_decision: { status: 'required', reason: 'source changed' } });
+  node_assert.strictEqual(status_for(blocking, 'cross_check').status, 'fail');
+  const stamp_end = exact_report.indexOf('\n');
+  node_fs.writeFileSync(report_path, exact_report.slice(0, stamp_end) + '\n\n```text\n' + exact_report.slice(stamp_end + 1) + '\n```\n');
+  const example = lint_round({ devlog_text: devlog_text.replaceAll('0123456789abcdef0123456789abcdef01234567', target), project_root, review_decision: { status: 'required', reason: 'source changed' } });
+  node_assert.strictEqual(status_for(example, 'cross_check').status, 'fail');
 });
 
 node_test.test('cross-check rejects a report for a different implementation commit', () => {
   const project_root = node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'round-linter-cross-check-stale-'));
   const report_path = node_path.join(project_root, 'artifacts', 'A-001-cross-check', 'cross-check-report.md');
   node_fs.mkdirSync(node_path.dirname(report_path), { recursive: true });
-  node_fs.writeFileSync(report_path, `* _2026-08-16 12:00:00 (reviewer/high)_\n\nOutcome: PASS\n\nMinimality: PASS\n\nConformance: PASS\n\nVerdict: PASS\n\nReviewed implementation commit: 0123456789abcdef0123456789abcdef01234567\n\nSelf-check: I reviewed the named implementation.\n`);
+  node_fs.writeFileSync(report_path, `* _2026-08-16 12:00:00 +0800 (reviewer/high)_\n\nOutcome: PASS\n\nMinimality: PASS\n\nConformance: PASS\n\nVerdict: PASS\n\nReviewed implementation commit: 0123456789abcdef0123456789abcdef01234567\n\nSelf-check: I reviewed the named implementation.\n`);
   const devlog_text = devlog_ending_in_scaffold(`## [SUMMARY]
 
 The implementation claims review.
@@ -1840,7 +1982,7 @@ Cross-check implementation: fedcba9876543210fedcba9876543210fedcba98
 ## Questions (batched — each with a suggested default)
 
 - None.
-`, '2026-08-16 12:01:00').replace('+ do the thing', '+ cross-check this implementation');
+`, '2026-08-16 12:01:00 +0800').replace('+ do the thing', '+ cross-check this implementation');
   const result = lint_round({ devlog_text, project_root, review_decision: { status: 'required', reason: 'source changed', changed_implementation: true } });
   node_assert.strictEqual(status_for(result, 'cross_check').status, 'fail');
   node_assert.match(status_for(result, 'cross_check').detail, /does not match/i);
@@ -1850,7 +1992,7 @@ node_test.test('cross-check rejects a report that contains both blocking and pas
   const project_root = node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'round-linter-cross-check-verdict-'));
   const report_path = node_path.join(project_root, 'artifacts', 'A-001-cross-check', 'cross-check-report.md');
   node_fs.mkdirSync(node_path.dirname(report_path), { recursive: true });
-  node_fs.writeFileSync(report_path, `* _2026-08-16 12:00:00 (reviewer/high)_\n\nOutcome: PASS\n\nMinimality: PASS\n\nConformance: PASS\n\nVerdict: BLOCKING\n\nVerdict: PASS\n\nReviewed implementation commit: 0123456789abcdef0123456789abcdef01234567\n\nSelf-check: I recorded contradictory verdicts.\n`);
+  node_fs.writeFileSync(report_path, `* _2026-08-16 12:00:00 +0800 (reviewer/high)_\n\nOutcome: PASS\n\nMinimality: PASS\n\nConformance: PASS\n\nVerdict: BLOCKING\n\nVerdict: PASS\n\nReviewed implementation commit: 0123456789abcdef0123456789abcdef01234567\n\nSelf-check: I recorded contradictory verdicts.\n`);
   const devlog_text = devlog_ending_in_scaffold(`## [SUMMARY]
 
 The implementation claims review.
@@ -1862,7 +2004,7 @@ Cross-check implementation: 0123456789abcdef0123456789abcdef01234567
 ## Questions (batched — each with a suggested default)
 
 - None.
-`, '2026-08-16 12:01:00').replace('+ do the thing', '+ cross-check this implementation');
+`, '2026-08-16 12:01:00 +0800').replace('+ do the thing', '+ cross-check this implementation');
   const result = lint_round({ devlog_text, project_root, review_decision: { status: 'required', reason: 'source changed', changed_implementation: true } });
   node_assert.strictEqual(status_for(result, 'cross_check').status, 'fail');
   node_assert.match(status_for(result, 'cross_check').detail, /exactly one verdict/i);
@@ -1872,7 +2014,7 @@ node_test.test('cross-check rejects a PASS report that omits a required independ
   const project_root = node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'round-linter-cross-check-triad-'));
   const report_path = node_path.join(project_root, 'artifacts', 'A-001-cross-check', 'cross-check-report.md');
   node_fs.mkdirSync(node_path.dirname(report_path), { recursive: true });
-  node_fs.writeFileSync(report_path, `* _2026-08-16 12:00:00 (reviewer/high)_\n\nOutcome: PASS\n\nConformance: PASS\n\nVerdict: PASS\n\nReviewed implementation commit: 0123456789abcdef0123456789abcdef01234567\n\nSelf-check: I missed the minimality verdict.\n`);
+  node_fs.writeFileSync(report_path, `* _2026-08-16 12:00:00 +0800 (reviewer/high)_\n\nOutcome: PASS\n\nConformance: PASS\n\nVerdict: PASS\n\nReviewed implementation commit: 0123456789abcdef0123456789abcdef01234567\n\nSelf-check: I missed the minimality verdict.\n`);
   const devlog_text = devlog_ending_in_scaffold(`## [SUMMARY]
 
 The implementation claims review.
@@ -1884,7 +2026,7 @@ Cross-check implementation: 0123456789abcdef0123456789abcdef01234567
 ## Questions (batched — each with a suggested default)
 
 - None.
-`, '2026-08-16 12:01:00').replace('+ do the thing', '+ cross-check this implementation');
+`, '2026-08-16 12:01:00 +0800').replace('+ do the thing', '+ cross-check this implementation');
   const result = lint_round({ devlog_text, project_root, review_decision: { status: 'required', reason: 'source changed', changed_implementation: true } });
   node_assert.strictEqual(status_for(result, 'cross_check').status, 'fail');
   node_assert.match(status_for(result, 'cross_check').detail, /Minimality: PASS/i);
@@ -1911,7 +2053,7 @@ node_test.test('status_projection_valid accepts the fixed field order and reject
   node_assert.strictEqual(status_for(fail, 'status_projection_valid').status, 'fail');
 });
 
-node_test.test('status_projection_valid requires the canonical separator before the first round', () => {
+node_test.test('status_projection_valid advises the canonical separator before the first round', () => {
   const fixed_status = ag_settings.format_status({
     project: 'sample — fixture',
     notebook: 'devlog.md',
@@ -1929,13 +2071,13 @@ node_test.test('status_projection_valid requires the canonical separator before 
   const pass = lint_round({ devlog_text: `${fixed_status}\n---\n\n# → Ask / A-001\n`, require_status_projection: true });
   node_assert.strictEqual(status_for(pass, 'status_projection_valid').status, 'pass');
   const fail = lint_round({ devlog_text: `${fixed_status}\n# → Ask / A-001\n`, require_status_projection: true });
-  node_assert.strictEqual(status_for(fail, 'status_projection_valid').status, 'fail');
+  node_assert.strictEqual(status_for(fail, 'status_projection_valid').status, 'warn');
   node_assert.match(status_for(fail, 'status_projection_valid').detail, /separator/i);
 });
 
 // A completed Reply always appends a fresh empty next-Ask scaffold; the linter
 // must grade the Reply, not the scaffold.
-const devlog_ending_in_scaffold = (reply_body, stamp = '2026-08-15 11:00:00') => `# STATUS
+const devlog_ending_in_scaffold = (reply_body, stamp = '2026-08-15 11:00:00 +0800') => `# STATUS
 
 ---
 
@@ -2012,26 +2154,26 @@ const reporting_reporting_facts = (overrides = {}) => ({
   },
   first_substantive_action_at: Date.parse('2026-08-15T10:00:00+08:00'),
   checkpoints: [
-    reporting_checkpoint('WIP-001', '2026-08-15 09:55'),
-    reporting_checkpoint('WIP-002', '2026-08-15 10:05'),
-    reporting_checkpoint('WIP-003', '2026-08-15 10:15')
+    reporting_checkpoint('WIP-001', '2026-08-15 09:55:00 +0800'),
+    reporting_checkpoint('WIP-002', '2026-08-15 10:05:00 +0800'),
+    reporting_checkpoint('WIP-003', '2026-08-15 10:15:00 +0800')
   ],
-  material_milestones: [{ id: 'milestone-1', timestamp: '2026-08-15 10:05', checkpoint_id: 'WIP-002' }],
-  material_incidents: [{ id: 'incident-1', timestamp: '2026-08-15 10:15', checkpoint_id: 'WIP-003' }],
+  material_milestones: [{ id: 'milestone-1', timestamp: '2026-08-15 10:05:00 +0800', checkpoint_id: 'WIP-002' }],
+  material_incidents: [{ id: 'incident-1', timestamp: '2026-08-15 10:15:00 +0800', checkpoint_id: 'WIP-003' }],
   completed_at: Date.parse('2026-08-15T10:20:00+08:00'),
   ...overrides
 });
 
 const reporting_substantial_devlog = (reply_body = reporting_reply_body, checkpoints = [
-  '## [WIP-001] Checkpoint — 2026-08-15 09:55 (during round A-001)',
+  '## [WIP-001] Checkpoint — 2026-08-15 09:55:00 +0800 (during round A-001)',
   '',
   '- the initial record exists before work',
   '',
-  '## [WIP-002] Checkpoint — 2026-08-15 10:05 (during round A-001)',
+  '## [WIP-002] Checkpoint — 2026-08-15 10:05:00 +0800 (during round A-001)',
   '',
   '- the milestone is recorded',
   '',
-  '## [WIP-003] Checkpoint — 2026-08-15 10:15 (during round A-001)',
+  '## [WIP-003] Checkpoint — 2026-08-15 10:15:00 +0800 (during round A-001)',
   '',
   '- the incident is recorded',
   ''
@@ -2044,7 +2186,7 @@ const reporting_substantial_devlog = (reply_body = reporting_reply_body, checkpo
 ${checkpoints.join('\n')}
 
 # ← Reply / A-001
-* _2026-08-15 10:20:00 (test-model)_
+* _2026-08-15 10:20:00 +0800 (test-model)_
 * _state: code and devlog: this commit_
 
 ${reply_body}
@@ -2062,7 +2204,7 @@ const checkpoint_fixture = body => `# STATUS
 
 # → Ask / A-001
 
-## [WIP-001] Checkpoint — 2026-08-15 10:00 (during round A-001)
+## [WIP-001] Checkpoint — 2026-08-15 10:00:00 +0800 (during round A-001)
 
 - **Finished:**
 
@@ -2103,11 +2245,11 @@ node_test.test('checkpoint Still to do grades only the current round', () => {
 
 # → Ask / A-000
 
-## [WIP-001] Checkpoint — 2026-08-14 10:00 (during round A-000)
+## [WIP-001] Checkpoint — 2026-08-14 10:00:00 +0800 (during round A-000)
 
 - **Still to do:**\n\n    2. historical malformed item\n\n# → Ask / A-001
 
-## [WIP-002] Checkpoint — 2026-08-15 10:00 (during round A-001)
+## [WIP-002] Checkpoint — 2026-08-15 10:00:00 +0800 (during round A-001)
 
 - **Finished:**
 
@@ -2199,13 +2341,13 @@ const expect_manual_fact_failure = (context, check_id) => {
 node_test.test('review_attempts allows a third worker start and rejects a fourth', () => {
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
-    review_stages: [{ id: 'acceptance', worker_starts: 3, attempts: 3 }]
+    review_stages: [{ stable_id: 'acceptance', worker_starts: 3, total_attempts: 3 }]
   });
 
   node_assert.strictEqual(status_for(result, 'review_attempts')?.status, 'pass');
   const fourth = lint_round({
     devlog_text: devlog_with_ask('A-001'),
-    review_stages: [{ id: 'acceptance', worker_starts: 4, attempts: 4 }]
+    review_stages: [{ stable_id: 'acceptance', worker_starts: 4, total_attempts: 4 }]
   });
   node_assert.strictEqual(status_for(fourth, 'review_attempts')?.status, 'fail');
 });
@@ -2214,11 +2356,11 @@ node_test.test('review_attempts rejects a renamed stage whose attempt count was 
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review_stages: [{
-      id: 'acceptance',
+      stable_id: 'acceptance',
       renamed_from: 'final-review',
       count_reset: true,
       worker_starts: 1,
-      attempts: 1
+      total_attempts: 1
     }]
   });
 
@@ -2229,9 +2371,9 @@ node_test.test('review_attempts allows one free preflight failure before any pro
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review_stages: [{
-      id: 'acceptance',
+      stable_id: 'acceptance',
       worker_starts: 0,
-      attempts: 0,
+      total_attempts: 0,
       preflight_failures: [{ worker_started: false }]
     }]
   });
@@ -2243,9 +2385,9 @@ node_test.test('review_attempts charges a failure after process start and allows
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review_stages: [{
-      id: 'acceptance',
+      stable_id: 'acceptance',
       worker_starts: 1,
-      attempts: 3,
+      total_attempts: 3,
       preflight_failures: [{ worker_started: true }],
       failures_after_start: 1
     }]
@@ -2258,7 +2400,7 @@ node_test.test('review_attempts does not double-count overlapping starts and pos
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review_stages: [{
-      id: 'acceptance',
+      stable_id: 'acceptance',
       worker_starts: 2,
       failures_after_start: 2,
       total_attempts: 2
@@ -2271,37 +2413,37 @@ node_test.test('review_attempts does not double-count overlapping starts and pos
 node_test.test('review_attempts rejects contradictory top-level review aliases before selecting one', () => {
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
-    review: { stages: [{ id: 'acceptance', worker_starts: 3, total_attempts: 3 }] },
-    review_stages: [{ id: 'acceptance', worker_starts: 2, total_attempts: 2 }]
+    review: { stages: [{ stable_id: 'acceptance', worker_starts: 3, total_attempts: 3 }] },
+    review_stages: [{ stable_id: 'acceptance', worker_starts: 2, total_attempts: 2 }]
   });
 
   node_assert.strictEqual(status_for(result, 'review_attempts')?.status, 'fail');
 });
 
-node_test.test('review_attempts accepts agreeing wrapped and direct top-level review aliases', () => {
-  const stages = [{ id: 'acceptance', worker_starts: 2, total_attempts: 2 }];
+node_test.test('review_attempts rejects agreeing retired top-level review aliases', () => {
+  const stages = [{ stable_id: 'acceptance', worker_starts: 2, total_attempts: 2 }];
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review: { stages },
     review_stages: stages
   });
 
-  node_assert.strictEqual(status_for(result, 'review_attempts')?.status, 'pass');
+  node_assert.strictEqual(status_for(result, 'review_attempts')?.status, 'fail');
 });
 
-node_test.test('review_attempts preserves single review and review_stages PASS and FAIL results', () => {
-  const pass = [{ id: 'acceptance', worker_starts: 2, total_attempts: 2 }];
-  const fail = [{ id: 'acceptance', worker_starts: 4, total_attempts: 4 }];
+node_test.test('review_attempts preserves canonical review_stages PASS and FAIL results', () => {
+  const pass = [{ stable_id: 'acceptance', worker_starts: 2, total_attempts: 2 }];
+  const fail = [{ stable_id: 'acceptance', worker_starts: 4, total_attempts: 4 }];
 
-  for (const name of ['review', 'review_stages']) {
+  for (const name of ['review_stages']) {
     node_assert.strictEqual(manual_fact_result({ [name]: pass }, 'review_attempts')?.status, 'pass');
     node_assert.strictEqual(manual_fact_result({ [name]: fail }, 'review_attempts')?.status, 'fail');
   }
 });
 
 node_test.test('review_attempts rejects an internally contradictory wrapper masked by an agreeing direct form', () => {
-  const safe = [{ id: 'acceptance', worker_starts: 2, total_attempts: 2 }];
-  const bad = [{ id: 'acceptance', worker_starts: 3, total_attempts: 3 }];
+  const safe = [{ stable_id: 'acceptance', worker_starts: 2, total_attempts: 2 }];
+  const bad = [{ stable_id: 'acceptance', worker_starts: 3, total_attempts: 3 }];
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review: { stages: safe, review_stages: bad },
@@ -2315,7 +2457,7 @@ node_test.test('review_attempts rejects a malformed raw review even when the dir
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review: { stages: 'malformed' },
-    review_stages: [{ id: 'acceptance', worker_starts: 2, total_attempts: 2 }]
+    review_stages: [{ stable_id: 'acceptance', worker_starts: 2, total_attempts: 2 }]
   });
 
   node_assert.strictEqual(status_for(result, 'review_attempts')?.status, 'fail');
@@ -2325,28 +2467,28 @@ node_test.test('review_attempts rejects unavailable and passing raw forms as dis
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review: { available: false },
-    review_stages: [{ id: 'acceptance', worker_starts: 2, total_attempts: 2 }]
+    review_stages: [{ stable_id: 'acceptance', worker_starts: 2, total_attempts: 2 }]
   });
 
   node_assert.strictEqual(status_for(result, 'review_attempts')?.status, 'fail');
 });
 
-node_test.test('review_attempts preserves SKIP for two semantically unavailable raw forms', () => {
+node_test.test('review_attempts rejects a retired review alias even when both forms are unavailable', () => {
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review: { available: false },
     review_stages: { facts_available: 'UNKNOWN' }
   });
 
-  node_assert.strictEqual(status_for(result, 'review_attempts')?.status, 'skip');
+  node_assert.strictEqual(status_for(result, 'review_attempts')?.status, 'fail');
 });
 
-node_test.test('review_attempts preserves agreeing wrapped and direct PASS plus every single-form result', () => {
-  const pass = [{ id: 'acceptance', worker_starts: 2, total_attempts: 2 }];
-  const fail = [{ id: 'acceptance', worker_starts: 4, total_attempts: 4 }];
+node_test.test('review_attempts rejects the old wrapper while preserving canonical results', () => {
+  const pass = [{ stable_id: 'acceptance', worker_starts: 2, total_attempts: 2 }];
+  const fail = [{ stable_id: 'acceptance', worker_starts: 4, total_attempts: 4 }];
 
-  node_assert.strictEqual(manual_fact_result({ review: { stages: pass }, review_stages: pass }, 'review_attempts')?.status, 'pass');
-  for (const name of ['review', 'review_stages']) {
+  node_assert.strictEqual(manual_fact_result({ review: { stages: pass }, review_stages: pass }, 'review_attempts')?.status, 'fail');
+  for (const name of ['review_stages']) {
     node_assert.strictEqual(manual_fact_result({ [name]: pass }, 'review_attempts')?.status, 'pass');
     node_assert.strictEqual(manual_fact_result({ [name]: fail }, 'review_attempts')?.status, 'fail');
     node_assert.strictEqual(manual_fact_result({ [name]: { available: false } }, 'review_attempts')?.status, 'skip');
@@ -2357,7 +2499,7 @@ node_test.test('review_attempts rejects post-start failures omitted from a low t
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     review_stages: [{
-      id: 'acceptance',
+      stable_id: 'acceptance',
       worker_starts: 2,
       failures_after_start: 2,
       total_attempts: 1
@@ -2474,7 +2616,7 @@ node_test.test('manual-context checks skip when live facts are unavailable', () 
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     preflight: { available: false },
-    review: { available: false },
+    review_stages: { available: false },
     progress: { available: false },
     security: { available: false },
     acceptance: { available: false }
@@ -2523,7 +2665,7 @@ node_test.test('large_work_route keeps ordinary coherent work on the normal rout
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     large_work: {
-      request_is_coherent: true,
+      one_coherent_accepted_item: true,
       estimated_active_hours: 2,
       master_plan: null,
       queue_plans: []
@@ -2550,7 +2692,7 @@ node_test.test('large_work_route rejects a master plan for ordinary work', () =>
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     large_work: {
-      request_is_coherent: true,
+      one_coherent_accepted_item: true,
       estimated_active_hours: 2,
       master_plan: { controller_only: true },
       queue_plans: []
@@ -2564,7 +2706,7 @@ node_test.test('large_work_route ignores an asserted qualification for coherent 
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     large_work: {
-      request_is_coherent: true,
+      one_coherent_accepted_item: true,
       one_coherent_accepted_item: true,
       qualifies: true,
       estimated_active_hours: 2,
@@ -2597,7 +2739,7 @@ node_test.test('large_work_route accepts a controller-only master and one self-c
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     large_work: {
-      request_is_coherent: false,
+      one_coherent_accepted_item: false,
       estimated_active_hours: 5,
       master_plan: {
         controller_only: true,
@@ -2628,7 +2770,7 @@ node_test.test('large_work_route rejects controller-only state exposed through a
   const result = lint_round({
     devlog_text: devlog_with_ask('A-001'),
     large_work: {
-      request_is_coherent: false,
+      one_coherent_accepted_item: false,
       estimated_active_hours: 5,
       master_plan: {
         controller_only: true,
@@ -2662,8 +2804,8 @@ node_test.test('formal_repair accepts one fixed span only after byte proof and a
     formal_repair: {
       span: 'path label',
       replacement_source: 'trusted execution evidence',
-      before_identity: 'before-digest',
-      after_identity: 'after-digest',
+      before_content_identity: 'before-digest',
+      after_content_identity: 'after-digest',
       source_authoritative: true,
       outside_bytes_unchanged: true,
       complete_gate_rerun: true,
@@ -2691,9 +2833,9 @@ node_test.test('formal_repair rejects judgment-bearing or byte-changing correcti
 
 [
   ['an empty supplied group', {}],
-  ['a string coherent value', { request_is_coherent: 'true', estimated_active_hours: 2, queue_plans: [] }],
-  ['a numeric-string estimate', { request_is_coherent: true, estimated_active_hours: '2', queue_plans: [] }],
-  ['a negative estimate', { request_is_coherent: true, estimated_active_hours: -1, queue_plans: [] }]
+  ['a string coherent value', { one_coherent_accepted_item: 'true', estimated_active_hours: 2, queue_plans: [] }],
+  ['a numeric-string estimate', { one_coherent_accepted_item: true, estimated_active_hours: '2', queue_plans: [] }],
+  ['a negative estimate', { one_coherent_accepted_item: true, estimated_active_hours: -1, queue_plans: [] }]
 ].forEach(([label, large_work]) => {
   node_test.test(`large_work_route fails closed for ${label}`, () => {
     expect_manual_fact_failure({ large_work }, 'large_work_route');
@@ -2732,16 +2874,16 @@ node_test.test('formal_repair rejects judgment-bearing or byte-changing correcti
 });
 
 [
-  ['a numeric-string start count', { id: 'security', worker_starts: '1', total_attempts: 1, preflight_failures: [] }],
-  ['a numeric-string total count', { id: 'security', worker_starts: 1, total_attempts: '1', preflight_failures: [] }],
-  ['a wrong-typed reset flag', { id: 'security', worker_starts: 1, total_attempts: 1, preflight_failures: [], count_reset: 'false' }],
+  ['a numeric-string start count', { stable_id: 'security', worker_starts: '1', total_attempts: 1, preflight_failures: [] }],
+  ['a numeric-string total count', { stable_id: 'security', worker_starts: 1, total_attempts: '1', preflight_failures: [] }],
+  ['a wrong-typed reset flag', { stable_id: 'security', worker_starts: 1, total_attempts: 1, preflight_failures: [], count_reset: 'false' }],
   ['a wrong-typed process-start flag', {
-    id: 'security',
+    stable_id: 'security',
     worker_starts: 1,
     total_attempts: 1,
     preflight_failures: [{ worker_started: 'true' }]
   }],
-  ['a wrong-typed exhaustion flag', { id: 'security', worker_starts: 1, total_attempts: 1, preflight_failures: [], exhausted: 'false' }]
+  ['a wrong-typed exhaustion flag', { stable_id: 'security', worker_starts: 1, total_attempts: 1, preflight_failures: [], exhausted: 'false' }]
 ].forEach(([label, stage]) => {
   node_test.test(`review_attempts fails closed for ${label}`, () => {
     expect_manual_fact_failure({ review_stages: [stage] }, 'review_attempts');
@@ -2813,7 +2955,7 @@ node_test.test('formal_repair fails closed for wrong-typed optional judgment fla
 [
   ['large_work', 'large_work_route'],
   ['preflight', 'review_preflight'],
-  ['review', 'review_attempts'],
+  ['review_stages', 'review_attempts'],
   ['progress', 'progress_boundaries'],
   ['security', 'security_disposition'],
   ['acceptance', 'acceptance_disposition']
@@ -2836,7 +2978,7 @@ node_test.test('manual-context checks preserve documented unavailable string ali
 });
 
 const valid_large_work_facts = () => ({
-  request_is_coherent: true,
+  one_coherent_accepted_item: true,
   estimated_active_hours: 2,
   master_plan: null,
   queue_plans: []
@@ -2860,13 +3002,13 @@ const valid_progress_facts = () => ({
 });
 
 [
-  ['large-work coherence', { large_work: { ...valid_large_work_facts(), one_coherent_accepted_item: true, request_is_coherent: false } }, 'large_work_route'],
+  ['large-work coherence', { large_work: { ...valid_large_work_facts(), one_coherent_accepted_item: true, one_coherent_accepted_item: false } }, 'large_work_route'],
   ['large-work estimate', { large_work: { ...valid_large_work_facts(), estimated_active_hours: 4, estimated_hours: 5 } }, 'large_work_route'],
   ['preflight capability', { preflight: { ...valid_preflight_facts(), working_directory: true, working_dir: false } }, 'review_preflight'],
   ['preflight launch state', { preflight: { ...valid_preflight_facts(), launch_started: false, worker_started: true } }, 'review_preflight'],
-  ['review worker starts', { review_stages: [{ id: 'security', worker_starts: 1, attempts_started: 3, total_attempts: 1 }] }, 'review_attempts'],
-  ['review total attempts', { review_stages: [{ id: 'security', worker_starts: 1, total_attempts: 1, attempts: 3 }] }, 'review_attempts'],
-  ['review failure process start', { review_stages: [{ id: 'security', worker_starts: 1, total_attempts: 1, preflight_failures: [{ worker_started: false, process_started: true }] }] }, 'review_attempts'],
+  ['review worker starts', { review_stages: [{ stable_id: 'security', worker_starts: 1, attempts_started: 3, total_attempts: 1 }] }, 'review_attempts'],
+  ['review total attempts', { review_stages: [{ stable_id: 'security', worker_starts: 1, total_attempts: 1, attempts: 3 }] }, 'review_attempts'],
+  ['review failure process start', { review_stages: [{ stable_id: 'security', worker_starts: 1, total_attempts: 1, preflight_failures: [{ worker_started: false, process_started: true }] }] }, 'review_attempts'],
   ['progress estimate', { progress: { ...valid_progress_facts(), estimated_active_hours: 4, estimated_hours: 5, warning_recorded: false, split_assessment_recorded: false } }, 'progress_boundaries'],
   ['progress warning', { progress: { ...valid_progress_facts(), warning_recorded: true, visible_warning: false } }, 'progress_boundaries'],
   ['progress split assessment', { progress: { ...valid_progress_facts(), split_assessment_recorded: true, split_assessment: false } }, 'progress_boundaries'],
@@ -2886,21 +3028,21 @@ node_test.test('manual-context checks reject conflicting available and unavailab
   expect_manual_fact_failure({ progress: { available: true, facts_available: 'unknown' } }, 'progress_boundaries');
 });
 
-node_test.test('large_work_route preserves agreeing duplicate primitive aliases', () => {
+node_test.test('large_work_route rejects agreeing retired primitive aliases', () => {
   const result = manual_fact_result({
     large_work: {
       ...valid_large_work_facts(),
       one_coherent_accepted_item: true,
-      request_is_coherent: true,
+      one_coherent_accepted_item: true,
       estimated_active_hours: 2,
       estimated_hours: 2
     }
   }, 'large_work_route');
 
-  node_assert.strictEqual(result?.status, 'pass');
+  node_assert.strictEqual(result?.status, 'fail');
 });
 
-node_test.test('review_attempts preserves agreeing identity and history aliases', () => {
+node_test.test('review_attempts rejects retired identity and history aliases', () => {
   const result = manual_fact_result({
     review_stages: [{
       stable_id: 'security',
@@ -2912,7 +3054,7 @@ node_test.test('review_attempts preserves agreeing identity and history aliases'
     }]
   }, 'review_attempts');
 
-  node_assert.strictEqual(result?.status, 'pass');
+  node_assert.strictEqual(result?.status, 'fail');
 });
 
 node_test.test('manual-context checks preserve semantically agreeing unavailable aliases', () => {
@@ -3041,7 +3183,7 @@ node_test.test('parse_devlog anchors on the completed round, not the trailing em
 
   node_assert.match(parsed.last_round, /# ← Reply \/ A-001/);
   node_assert.doesNotMatch(parsed.last_round, /# → Ask \/ A-002/);
-  node_assert.deepStrictEqual(parsed.stamps, ['2026-08-15 11:00:00']);
+  node_assert.deepStrictEqual(parsed.stamps, ['2026-08-15 11:00:00 +0800']);
   node_assert.deepStrictEqual(parsed.ask_ids, ['A-001', 'A-002']);
 });
 
@@ -3056,7 +3198,7 @@ node_test.test('a completed Reply fails when the next empty Ask scaffold is miss
 
 node_test.test('timestamps_sane reads the completed Reply behind the empty scaffold', () => {
   const result = lint_round({
-    devlog_text: devlog_ending_in_scaffold(valid_reply_body, '2026-08-15 16:00:00'),
+    devlog_text: devlog_ending_in_scaffold(valid_reply_body, '2026-08-15 16:00:00 +0800'),
     now_ms: fixed_now_ms
   });
 
@@ -3100,7 +3242,7 @@ None.`;
   node_assert.strictEqual(status_for(result, 'reply_structure').status, 'pass');
 });
 
-node_test.test('reply_structure fails when the headings are out of order', () => {
+node_test.test('reply_structure warns when the headings are out of order', () => {
   const body = `## Questions (batched — each with a suggested default)
 
 - None.
@@ -3110,11 +3252,11 @@ node_test.test('reply_structure fails when the headings are out of order', () =>
 - did the thing`;
   const result = lint_round({ devlog_text: devlog_ending_in_scaffold(body) });
 
-  node_assert.strictEqual(status_for(result, 'reply_structure').status, 'fail');
+  node_assert.strictEqual(status_for(result, 'reply_structure').status, 'warn');
   node_assert.match(status_for(result, 'reply_structure').detail, /out of order/);
 });
 
-node_test.test('reply_structure fails for the old level-three heading form', () => {
+node_test.test('reply_structure warns for the old level-three heading form', () => {
   const body = `### [SUMMARY]
 
 - did the thing
@@ -3124,8 +3266,8 @@ node_test.test('reply_structure fails for the old level-three heading form', () 
 None.`;
   const result = lint_round({ devlog_text: devlog_ending_in_scaffold(body) });
 
-  node_assert.strictEqual(status_for(result, 'reply_structure').status, 'fail');
-  node_assert.match(status_for(result, 'reply_structure').detail, /missing "## \[SUMMARY\]"/);
+  node_assert.strictEqual(status_for(result, 'reply_structure').status, 'warn');
+  node_assert.match(status_for(result, 'reply_structure').detail, /expected "## \[SUMMARY\]"/);
 });
 
 node_test.test('reply_structure fails when a mandatory heading has an empty body', () => {
@@ -3155,14 +3297,14 @@ node_test.test('reply_structure skips when the last round has no completed Reply
   node_assert.strictEqual(result.ok, true);
 });
 
-node_test.test('reply_structure fails when a checkpointed round lacks a standalone final report', () => {
+node_test.test('reply_structure warns when a checkpointed round lacks a standalone final report', () => {
 	const devlog_text = `# STATUS
 
 ---
 
 # → Ask / A-001
 
-## [WIP-001] Checkpoint — 2026-08-15 10:00 (during round A-001)
+## [WIP-001] Checkpoint — 2026-08-15 10:00:00 +0800 (during round A-001)
 
 - implementation is running
 
@@ -3177,7 +3319,17 @@ ${valid_reply_body}
 + `;
 	const result = lint_round({ devlog_text });
 
-	node_assert.strictEqual(status_for(result, 'reply_structure').status, 'fail');
+	node_assert.strictEqual(status_for(result, 'reply_structure').status, 'warn');
+	node_assert.match(status_for(result, 'reply_structure').detail, /missing "## \[FINAL REPORT\]"/);
+});
+
+node_test.test('reply_structure names substantial facts as the reason a final report is required', () => {
+	const body = valid_reply_body.replace(/## Detail[\s\S]*?(?=## Questions)/u, '');
+	const result = lint_round({
+		devlog_text: reporting_substantial_devlog(body),
+		...reporting_reporting_facts({ substantial: true }),
+	});
+
 	node_assert.match(status_for(result, 'reply_structure').detail, /missing "## \[FINAL REPORT\]"/);
 });
 
@@ -3189,7 +3341,7 @@ node_test.test('reply_structure accepts a standalone final report after a checkp
 
 # → Ask / A-001
 
-## [WIP-001] Checkpoint — 2026-08-15 10:00 (during round A-001)
+## [WIP-001] Checkpoint — 2026-08-15 10:00:00 +0800 (during round A-001)
 
 - implementation is running
 
@@ -3207,7 +3359,7 @@ ${body}
 	node_assert.strictEqual(status_for(result, 'reply_structure').status, 'pass');
 });
 
-node_test.test('checkpointed rounds fail on the obsolete unbracketed final-report heading', () => {
+node_test.test('checkpointed rounds warn on the obsolete unbracketed final-report heading', () => {
 	const body = valid_reply_body.replace('## Detail', '## Final report');
 	const devlog_text = `# STATUS
 
@@ -3215,7 +3367,7 @@ node_test.test('checkpointed rounds fail on the obsolete unbracketed final-repor
 
 # → Ask / A-001
 
-## [WIP-001] Checkpoint — 2026-08-15 10:00 (during round A-001)
+## [WIP-001] Checkpoint — 2026-08-15 10:00:00 +0800 (during round A-001)
 
 - implementation is running
 
@@ -3230,7 +3382,7 @@ ${body}
 + `;
 	const result = lint_round({ devlog_text });
 
-	node_assert.strictEqual(status_for(result, 'reply_structure').status, 'fail');
+	node_assert.strictEqual(status_for(result, 'reply_structure').status, 'warn');
 	node_assert.match(status_for(result, 'reply_structure').detail, /FINAL REPORT/);
 });
 
@@ -3249,14 +3401,14 @@ node_test.test('substantial reporting requires WIP-001 before the first substant
 node_test.test('substantial reporting requires milestone, incident, and ten-minute checkpoints', () => {
   const result = lint_round({
     devlog_text: reporting_substantial_devlog(undefined, [
-      '## [WIP-001] Checkpoint — 2026-08-15 09:55 (during round A-001)',
+      '## [WIP-001] Checkpoint — 2026-08-15 09:55:00 +0800 (during round A-001)',
       '',
       '- the initial record exists before work',
       ''
     ]),
     ...reporting_reporting_facts({
-      checkpoints: [reporting_checkpoint('WIP-001', '2026-08-15 09:55')],
-      material_milestones: [{ id: 'milestone-1', timestamp: '2026-08-15 10:05' }],
+      checkpoints: [reporting_checkpoint('WIP-001', '2026-08-15 09:55:00 +0800')],
+      material_milestones: [{ id: 'milestone-1', timestamp: '2026-08-15 10:05:00 +0800' }],
       material_incidents: [],
       completed_at: Date.parse('2026-08-15T10:20:00+08:00')
     })
@@ -3266,13 +3418,13 @@ node_test.test('substantial reporting requires milestone, incident, and ten-minu
   node_assert.match(status_for(result, 'round_reporting')?.detail, /checkpoint|ten minutes|milestone/i);
 });
 
-node_test.test('substantial reporting requires the exact final report placement and complete standalone content', () => {
+node_test.test('substantial reporting advises the exact final report placement and complete standalone content', () => {
   const result = lint_round({
     devlog_text: reporting_substantial_devlog(reporting_reply_body.replace('## [FINAL REPORT]', '## Final report')),
     ...reporting_reporting_facts()
   });
 
-  node_assert.strictEqual(status_for(result, 'reply_structure')?.status, 'fail');
+  node_assert.strictEqual(status_for(result, 'reply_structure')?.status, 'warn');
   node_assert.match(status_for(result, 'reply_structure')?.detail, /FINAL REPORT|final report/i);
 });
 
@@ -3463,8 +3615,8 @@ node_test.test('narrow formal correction requires trusted source and content ide
     formal_repair: {
       span: 'path label',
       replacement_source: 'trusted execution evidence',
-      before_identity: 'before-digest',
-      after_identity: 'after-digest',
+      before_content_identity: 'before-digest',
+      after_content_identity: 'after-digest',
       source_authoritative: true,
       outside_bytes_unchanged: true,
       complete_gate_rerun: true,
@@ -3917,6 +4069,25 @@ node_test.test('quality_gate accepts the exact consequential gate with current o
   node_assert.strictEqual(result.status, 'pass');
 });
 
+node_test.test('Design Go resolves a unique seven-character commit prefix and rejects missing or ambiguous prefixes', () => {
+  const root = node_fs.realpathSync(node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'agentflow-prefix-')));
+  const git = args => node_child_process.execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+  try {
+    git(['init', '-q']);
+    git(['config', 'user.email', 'prefix@example.test']);
+    git(['config', 'user.name', 'Prefix Test']);
+    node_fs.writeFileSync(node_path.join(root, 'tracked.txt'), 'prefix\n');
+    git(['add', 'tracked.txt']);
+    git(['commit', '-qm', 'prefix']);
+    const full = git(['rev-parse', 'HEAD']);
+    node_assert.equal(resolve_commit_prefix(full.slice(0, 7), root), full);
+    node_assert.throws(() => resolve_commit_prefix('deadbee', root), /does not resolve/i);
+    node_assert.throws(() => resolve_commit_prefix(full.slice(0, 6), root), /exactly seven/i);
+  } finally {
+    node_fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 node_test.test('quality_gate accepts exact current-Ask away authority only after all normal evidence passes', () => {
   const text = quality_devlog({ design_ask: 'away: gates', result_ask: '' });
   const result = quality_result(quality_gate_facts({ away_gates: true }), text);
@@ -4006,7 +4177,7 @@ node_test.test('quality_gate ignores fake Go text in WIP, Reply, and quoted exam
     result_ask: 'Result Go: ' + quality_commits.implementation,
     plan_question: `- the host wrote Design Go: ${quality_commits.plan} in prose`,
     result_question: `- the host wrote Result Go: ${quality_commits.implementation} in prose`,
-    extra: `\n## [WIP-001] Checkpoint — 2026-08-15 12:00 (during round A-003)\n\n- Design Go: ${quality_commits.plan}\n\n- Result Go: ${quality_commits.implementation}\n`
+    extra: `\n## [WIP-001] Checkpoint — 2026-08-15 12:00:00 +0800 (during round A-003)\n\n- Design Go: ${quality_commits.plan}\n\n- Result Go: ${quality_commits.implementation}\n`
   });
   const result = quality_result(quality_gate_facts({ design_decision: 'pending', result_decision: 'pending' }), text);
 
@@ -4067,4 +4238,159 @@ node_test.test('quality_gate requires a repeated concept to return through a new
 
   node_assert.strictEqual(result.status, 'fail');
   node_assert.match(result.detail, /repeated concept|new plan|second.*Blocked concept|Design Go/i);
+});
+
+node_test.test('cosmetic checkpoint labels do not substitute for factual scope evidence', () => {
+  const text = '# → Ask / A-001\n\n+ work\n\n## [WIP-001] Checkpoint — 2026-08-30 10:00:00 +0800 (during round A-001)\n\n- Checked tracker, RUN and scope.\n';
+  const facts = { required: true, tracker_current: true, run_current: true, progress_current: true, scope_label_present: false };
+  node_assert.equal(lint_checkpoint_verification(text, facts).status, 'warn');
+  node_assert.equal(lint_checkpoint_verification(text, { ...facts, scope_checked: false }).status, 'fail');
+  node_assert.equal(lint_checkpoint_verification(text, { ...facts, tracker_current: false }).status, 'fail');
+});
+
+node_test.test('cosmetic Reply heading variants are advisory while empty content still blocks', () => {
+  const variants = [
+    '### Summary\n\nCompleted the requested fix.\n\n### Final report\n\nThe regression passed; no limitation remains.\n\n### Questions\n\n- None.',
+    '## Questions (batched — each with a suggested default)\n\n- None.\n\n## [FINAL REPORT]\n\nThe regression passed.\n\n## [SUMMARY]\n\n- Completed.',
+    'Completed the requested fix; the regression passed. There are no remaining questions.'
+  ];
+  for (const body of variants) {
+    const result = lint_round({ devlog_text: devlog_ending_in_scaffold(body), substantial: true });
+    node_assert.equal(status_for(result, 'reply_structure').status, 'warn', body);
+  }
+  const empty = lint_round({ devlog_text: devlog_ending_in_scaffold('### Summary\n\n### Final report\n\nDone.\n\n### Questions\n\n- None.') });
+  node_assert.equal(status_for(empty, 'reply_structure').status, 'fail');
+});
+
+node_test.test('cosmetic tracker layout and boilerplate do not hide substantive contradictions', () => {
+  const text = valid_tracker('active').replace('## Identity', '### Identity').replaceAll('- **', '* **').replace('not a stop signal', 'work continues');
+  node_assert.equal(lint_tracker(tracker_facts(text)).status, 'warn');
+  node_assert.equal(lint_tracker(tracker_facts(text.replace('**Total:** 2.', '**Total:** 99.'))).status, 'fail');
+  const moved = valid_tracker('active').replace(/## Update meaning[\s\S]*$/u, '');
+  node_assert.equal(lint_tracker(tracker_facts(moved)).status, 'warn');
+});
+
+node_test.test('cosmetic STATUS ordering punctuation and separator are advisory', () => {
+  const original = ag_settings.format_status({ project: 'fixture', notebook: 'devlog.md', current_commit: 'fixture', tests_scenarios: 'none', config_path: 'ag.json', host: 'codex', validation: 'validated', proven: 'none', open: 'none', next: 'none', artifacts: 'none', archived_eras: 'none' });
+  const lines = original.trim().split('\n');
+  const fields = lines.filter(line => line.trim() && !line.startsWith('#'));
+  const text = '# STATUS\n\n' + fields.reverse().map(line => line.replace(/\.$/u, '')).join('\n\n') + '\n\n# → Ask / A-001\n\n+\n';
+  const result = lint_round({ devlog_text: text, require_status_projection: true });
+  node_assert.equal(status_for(result, 'status_projection_valid').status, 'warn', JSON.stringify(result.checks));
+  node_assert.equal(status_for(lint_round({ devlog_text: text.replace('Notebook: devlog.md — root', 'Notebook: ../foreign.md — root'), require_status_projection: true }), 'status_projection_valid').status, 'fail');
+});
+
+node_test.test('cosmetic terminal wording and empty Ask marker do not block saved work', () => {
+  const result = lint_round({ devlog_text: devlog_ending_in_scaffold('## [SUMMARY]\n\n- Done.\n\n## Questions (batched — each with a suggested default)\n\n- None.').replace(/\+\s*$/u, ''), terminal_output: 'Saved the report in devlog.md.', now_ms: fixed_now_ms });
+  node_assert.equal(status_for(result, 'terminal_one_line').status, 'warn');
+  node_assert.equal(status_for(result, 'next_ask_scaffold').status, 'warn');
+  node_assert.equal(result.ok, true, JSON.stringify(result.checks));
+});
+
+node_test.test('cosmetic host-review Markdown keeps the mandatory verdict and conflicting-result checks', () => {
+  const decision = { status: 'skip-review', reason: 'owner request', owner_authorized: true };
+  for (const record of ['* **Host review:** PASS - inspected the diff and passing tests; no blocker.', '- Host review: PASS — inspected the diff and passing tests; no blocker.']) {
+    const text = devlog_ending_in_scaffold('## [SUMMARY]\n\n- Done.\n\n' + record + '\n\n## Questions (batched — each with a suggested default)\n\n- None.');
+    node_assert.notEqual(status_for(lint_round({ devlog_text: text, review_decision: decision }), 'cross_check').status, 'fail');
+    node_assert.equal(status_for(lint_round({ devlog_text: text.replace('## Questions', '* **Host review:** BLOCKING - unresolved issue.\n\n## Questions'), review_decision: decision }), 'cross_check').status, 'fail');
+  }
+});
+
+node_test.test('cosmetic artifact stamp and self-check placement do not invalidate current evidence', () => {
+  const artifact_dir = node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), 'round-linter-cosmetic-'));
+  const text = artifact_text();
+  node_fs.writeFileSync(node_path.join(artifact_dir, 'requirements.md'), '# Requirements\n\n' + text + '\nA harmless trailing note.\n');
+  const result = lint_round({ devlog_text: devlog_with_ask('A-001'), pipeline: artifact_pipeline(artifact_dir), now_ms: fixed_now_ms });
+  node_assert.equal(status_for(result, 'pipeline_artifacts').status, 'warn');
+  node_fs.writeFileSync(node_path.join(artifact_dir, 'requirements.md'), ('# Requirements\n\n' + text).replace('2026-08-15 12:00:00 +0800', '2026-08-14 12:00:00 +0800'));
+  node_assert.equal(status_for(lint_round({ devlog_text: devlog_with_ask('A-001'), pipeline: artifact_pipeline(artifact_dir), now_ms: fixed_now_ms }), 'pipeline_artifacts').status, 'fail');
+});
+
+node_test.test('cosmetic tracker emphasis is optional and refreshed counts preserve the task list', () => {
+  const plain = valid_tracker('active').replaceAll('**', '').replaceAll('- ', '+ ');
+  node_assert.equal(lint_tracker(tracker_facts(plain)).status, 'warn');
+  const refreshed = tracker_contract.refresh_counts(plain.replace('Total: 2.', 'Total: 99.'));
+  node_assert.deepEqual(refreshed.counts, { Total: 2, Completed: 1, Remaining: 1 });
+  node_assert.equal(lint_tracker(tracker_facts(refreshed.text)).status, 'warn');
+});
+
+node_test.test('cosmetic reporting warnings cannot bypass missing trusted coverage', () => {
+  const result = lint_round({ devlog_text: reporting_substantial_devlog(reporting_reply_body.replace('## [FINAL REPORT]', '## Final report')), ...reporting_reporting_facts({ final_report_coverage: { works: true, does_not_work: true, decisions: true, limitations: false, owner_action: true } }) });
+  node_assert.equal(status_for(result, 'round_reporting').status, 'fail');
+  node_assert.match(status_for(result, 'round_reporting').detail, /limitations/);
+});
+
+node_test.test('cosmetic nested report headings retain substantive body content', () => {
+  const body = '## [SUMMARY]\n\n- Done.\n\n## [FINAL REPORT]\n\n### Requested fix\n\nThe requested fix passed its regression.\n\n## Questions (batched — each with a suggested default)\n\n- None.';
+  const result = lint_round({ devlog_text: devlog_ending_in_scaffold(body), substantial: true });
+  node_assert.notEqual(status_for(result, 'reply_structure').status, 'fail');
+});
+
+node_test.test('an example stamp inside a fence cannot establish artifact identity', () => {
+  const result = lint_single_artifact('# Example\n\n```text\n* _2026-08-15 12:00:00 +0800 (test-model/medium)_\n```\n\nSelf-check: pass\n');
+  node_assert.equal(status_for(result, 'pipeline_artifacts').status, 'fail');
+  const self_check_example = lint_single_artifact('* _2026-08-15 12:00:00 +0800 (test-model/medium)_\n\n```text\nSelf-check: pass\n```\n');
+  node_assert.equal(status_for(self_check_example, 'pipeline_artifacts').status, 'fail');
+});
+
+node_test.test('checkpoint without scope evidence reports the unchecked judgment instead of passing', () => {
+  const text = '# → Ask / A-001\n\n+ work\n\n## [WIP-001] Checkpoint — 2026-09-09 10:00:00 +0800 (during round A-001)\n\n- **Checks:** [x] tracker.md | [x] devlog RUN | [x] scope matches tracker\n';
+  const facts = { required: true, tracker_current: true, run_current: true, progress_current: true, scope_label_present: true };
+  const result = lint_checkpoint_verification(text, facts);
+  node_assert.equal(result.status, 'warn');
+  node_assert.match(result.detail, /scope.*(?:unverified|not verified|host)/i);
+});
+
+node_test.test('queue completion accepts current simple authority without a complex contract', () => {
+  const authority = { id: 'simple', route: 'simple', job_id: 'one', owner_request_sha256: 'a'.repeat(64), repository_evidence: [{ path: 'note.md', sha256: 'b'.repeat(64) }] };
+  const built = queue_contract.build_queue({ schema_version: 2, authorities: [authority], plans: [{ order: 1, route: 'simple', authority_id: 'simple', contract_part: 'one', outcome: 'Write note.', dependencies: [], required_work: ['Write note.'], constraints: ['Only note.'], tests_and_evidence: ['Inspect note.'], completion_conditions: ['Note matches.'], final_integration: true }], generation_id: 'simple-one', created_at: '2026-09-09T00:00:00Z', completion_path: '.agentflow/devlog.md' });
+  const result = lint_queue_contract({ operation: 'make-plans', allow_ag: 'off', envelope: built.envelope, plan_bytes: built.plan_bytes, publication: { published: true, implementation_started: false } });
+  node_assert.equal(result.status, 'pass', result.detail);
+});
+
+node_test.test('review and progress facts reject retired aliases even when their values agree', () => {
+  expect_manual_fact_failure({ preflight: { ...valid_preflight_facts(), working_dir: true } }, 'review_preflight');
+  expect_manual_fact_failure({ progress: { ...valid_progress_facts(), estimated_hours: 5 } }, 'progress_boundaries');
+  expect_manual_fact_failure({ security: { pass_count: 1, passes: 1, findings: [] } }, 'security_disposition');
+  expect_manual_fact_failure({ acceptance: { behavior: 'pass', behavior_result: 'pass', record_quality: 'pass' } }, 'acceptance_disposition');
+});
+
+node_test.test('active record timestamps require seconds and an explicit numeric offset', () => {
+  const current = require('./local-time.js').format_local_timestamp();
+  for (const stamp of [current.replace(/ [+-]\d{4}$/u, ''), current.replace(/ [+-]\d{4}$/u, ' Asia/Taipei')]) {
+    const result = lint_round({ devlog_text: `# → Ask / A-001\n\n+ work\n\n# ← Reply / A-001\n\n* _${stamp} (host)_\n\nDone.\n` });
+    node_assert.equal(status_for(result, 'timestamps_sane').status, 'fail', stamp);
+  }
+});
+
+node_test.test('quality_gate checks metadata-fenced cross-check identity and retains structured host inspection', () => {
+  const field = 'Cross-check implementation: ' + quality_commits.implementation;
+  const fenced = '~~~completion-metadata\n' + field + '\n~~~';
+  const text = quality_devlog().replace(field, fenced);
+  node_assert.equal(quality_result(quality_gate_facts(), text).status, 'pass');
+  const mismatch = text.replace(fenced, fenced.replace(quality_commits.implementation, quality_commits.plan));
+  node_assert.match(quality_result(quality_gate_facts(), mismatch).detail, /cross-check implementation commit must match/);
+  node_assert.equal(quality_result(quality_gate_facts({ host_gate: 'blocking' }), text).status, 'fail');
+});
+
+node_test.test('suffix-free RUN and WIP records retain round and timestamp boundaries', () => {
+  for (const [kind, label] of [['RUN', 'Event'], ['WIP', 'Checkpoint']]) {
+    const heading = '## [' + kind + '-001] ' + label + ' — 2026-09-06 09:57:00 +0800';
+    const record = heading + '\n\n- Progress.\n';
+    const first = '# → Ask / A-001\n\n+ first\n\n' + record + '\n# ← Reply / A-001\n\nDone.\n';
+    const second = '# → Ask / A-002\n\n+ second\n\n';
+    const mixed = first.replace(heading, heading + ' (during round A-001)') + second + record;
+    node_assert.equal(lint_round_boundaries(mixed).status, 'pass');
+    node_assert.equal(lint_round_boundaries(first + second + record).status, 'pass');
+    const parsed = parse_devlog(first + second + record);
+    node_assert.deepEqual(parsed.ask_ids, ['A-001', 'A-002']);
+    node_assert.ok(parsed.rounds[1].wip_text.includes(heading));
+    for (const bad of [
+      first + '# → Ask / A-002\n\n+\n\n' + record,
+      first + second + record.replace('09:57:00 +0800', '09:57'),
+      first + second + record.replace('2026-09-06', '2026-02-30'),
+      first + second + record.replace(heading, heading + ' (during round A-001)'),
+      first + second + record.replace(heading, heading + ' (during round A-bad)'),
+    ]) node_assert.equal(lint_round_boundaries(bad).status, 'fail', bad);
+  }
 });

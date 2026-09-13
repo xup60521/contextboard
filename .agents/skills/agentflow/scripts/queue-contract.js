@@ -360,13 +360,6 @@ const normalize_dependencies = value => {
 	return [...value]
 }
 
-const legacy_dependency_line = dependencies => {
-	const names = dependencies.map(name => `\`${name}\``)
-	if (names.length === 1) return `${names[0]}.`
-	if (names.length === 2) return `${names[0]} and ${names[1]}.`
-	return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}.`
-}
-
 const list_text = (value, label) => {
 	if (typeof value === 'string' && value.trim()) return value.trim()
 	if (Array.isArray(value) && value.length > 0 && value.every(item => nonempty_text(item))) return value.map(item => `- ${item}`).join('\n')
@@ -398,7 +391,7 @@ const authority_lines = authority => {
 	fail('v2 plan authority route is invalid', 'AG_QUEUE_SCHEMA')
 }
 
-const build_v2_plan_body = (input, context) => {
+const build_plan_body = (input, context) => {
 	const order = input.order
 	const name = input.path ?? input.name ?? plan_name_for(order)
 	const dependencies = normalize_dependencies(input.dependencies)
@@ -443,52 +436,7 @@ const build_v2_plan_body = (input, context) => {
 	].join('\n')
 }
 
-const build_plan_body = (input, context = {}) => {
-	if (context.schema_version === 2) return build_v2_plan_body(input, context)
-	const order = input.order
-	const name = input.path ?? input.name ?? plan_name_for(order)
-	const dependencies = normalize_dependencies(input.dependencies)
-	const completion_signal = context.completion_signal ?? input.completion_signal
-	if (!is_positive_integer(order) || name !== plan_name_for(order)) fail('plan order and path must match plan-NNN.md', 'AG_QUEUE_SCHEMA')
-	if (!nonempty_text(input.contract_part)) fail(`contract_part is required for ${name}`, 'AG_QUEUE_SCHEMA')
-	if (!nonempty_text(completion_signal)) fail(`completion signal is required for ${name}`, 'AG_QUEUE_SCHEMA')
-	return [
-		`# Plan ${String(order).padStart(3, '0')}`,
-		'',
-		'## Authority',
-		`- original_request_sha256: ${context.original_request_sha256}`,
-		`- requirements_sha256: ${context.requirements_sha256}`,
-		`- specification_sha256: ${context.specification_sha256}`,
-		`- generation_id: ${context.generation_id}`,
-		'',
-		'## Outcome',
-		list_text(input.outcome, 'plan outcome'),
-		'',
-		'## Dependencies',
-		dependencies.length === 0 ? 'None.' : dependencies.map(item => `- ${item}`).join('\n'),
-		'',
-		'## Required work',
-		list_text(input.required_work, 'required work'),
-		'',
-		'## Constraints',
-		list_text(input.constraints, 'plan constraints'),
-		'',
-		'## Tests and evidence',
-		list_text(input.tests_and_evidence, 'tests and evidence'),
-		'',
-		'## Completion conditions',
-		list_text(input.completion_conditions, 'completion conditions'),
-		'',
-		'## Success signal',
-		completion_signal,
-		'',
-		'## Final integration',
-		String(input.final_integration === true),
-		'',
-	].join('\n')
-}
-
-const validate_v2_plan_body = (body, plan, envelope) => {
+const validate_plan_body = (body, plan, envelope) => {
 	const parsed = section_map(body)
 	const errors = []
 	if (parsed.error) errors.push(parsed.error)
@@ -515,73 +463,6 @@ const validate_v2_plan_body = (body, plan, envelope) => {
 	if (!final_value) errors.push(`${plan?.path ?? 'plan'} final integration must start with true or false`)
 	if (plan && final_value !== String(plan.final_integration === true)) errors.push(`${plan.path} final integration does not match the envelope`)
 	return { valid: errors.length === 0, errors, sections: parsed.sections }
-}
-
-const validate_plan_body = (body, plan, context = {}) => {
-	if (context.schema_version === 2) return validate_v2_plan_body(body, plan, context)
-	const parsed = section_map(body)
-	const errors = []
-	if (parsed.error) errors.push(parsed.error)
-	if (parsed.sections) {
-		if (plan?.order !== undefined && !new RegExp(`^# Plan ${String(plan.order).padStart(3, '0')}(?: — .+)?$`).test(parsed.lines[0])) errors.push(`${plan?.path ?? 'plan'} heading does not match its order`)
-		for (const section of PLAN_SECTIONS) if (!nonempty_text(parsed.sections[section])) errors.push(`${plan?.path ?? 'plan'} section ${section} is empty`)
-		const expected_authority = [
-			`- original_request_sha256: ${context.original_request_sha256}`,
-			`- requirements_sha256: ${context.requirements_sha256}`,
-			`- specification_sha256: ${context.specification_sha256}`,
-			`- generation_id: ${context.generation_id}`,
-		]
-		const authority_lines = parsed.sections.Authority.split('\n').map(line => line.trim()).filter(Boolean)
-		const canonical_authority = expected_authority.every((line, index) => authority_lines[index] === line) && authority_lines.length === expected_authority.length
-		const legacy_authority = authority_lines.length === 5
-			&& authority_lines[0] === `Queue generation: \`${context.generation_id}\`.`
-			&& new RegExp('^Original request: .+, SHA-256 `' + context.original_request_sha256 + '`\\.$').test(authority_lines[1])
-			&& new RegExp('^Requirements: .+, SHA-256 `' + context.requirements_sha256 + '`\\.$').test(authority_lines[2])
-			&& new RegExp('^Specification: .+, SHA-256 `' + context.specification_sha256 + '`\\.$').test(authority_lines[3])
-			&& /^Owned contract: .+\.$/.test(authority_lines[4])
-		if (!canonical_authority && !legacy_authority) errors.push(`${plan?.path ?? 'plan'} authority records do not exactly match the frozen envelope`)
-		const expected_dependencies = normalize_dependencies(plan?.dependencies)
-		if (expected_dependencies.length === 0) {
-			if (parsed.sections.Dependencies !== 'None.') errors.push(`${plan?.path ?? 'plan'} must state None. for dependencies`)
-		} else {
-			const dependency_lines = parsed.sections.Dependencies.split('\n').map(line => line.trim()).filter(Boolean)
-			const expected_lines = expected_dependencies.map(dependency => `- ${dependency}`)
-			const canonical_dependencies = expected_lines.every((line, index) => dependency_lines[index] === line) && dependency_lines.length === expected_lines.length
-			const legacy_dependencies = dependency_lines.length === 1 && dependency_lines[0] === legacy_dependency_line(expected_dependencies)
-			if (!canonical_dependencies && !legacy_dependencies) errors.push(`${plan?.path ?? 'plan'} dependencies do not exactly match the frozen envelope`)
-		}
-		const success_value = parsed.sections['Success signal']
-		const legacy_success = `Print exactly one complete line: \`${context.completion_signal}\`.`
-		if (nonempty_text(context.completion_signal) && success_value !== context.completion_signal && success_value !== legacy_success) errors.push(`${plan?.path ?? 'plan'} has the wrong success signal`)
-		const final_match = /^(true|false)(?:\.|$)(?:\s|$)/i.exec(parsed.sections['Final integration'])
-		const final_value = final_match ? final_match[1].toLowerCase() : null
-		if (!final_value) errors.push(`${plan?.path ?? 'plan'} final integration must start with true or false`)
-		if (plan && final_value !== String(plan.final_integration === true)) errors.push(`${plan.path} final integration does not match the envelope`)
-	}
-	return { valid: errors.length === 0, errors, sections: parsed.sections ?? null }
-}
-
-const normalize_plan_input = (input, context, fallback_order) => {
-	if (!is_object(input)) fail('each queue plan must be an object', 'AG_QUEUE_SCHEMA')
-	const order = input.order === undefined ? fallback_order : input.order
-	if (!is_positive_integer(order)) fail('plan order must be a positive integer', 'AG_QUEUE_SCHEMA')
-	const name = input.path ?? input.name ?? plan_name_for(order)
-	if (name !== plan_name_for(order)) fail(`plan path must be ${plan_name_for(order)}`, 'AG_QUEUE_SCHEMA')
-	const dependencies = normalize_dependencies(input.dependencies)
-	const final_integration = input.final_integration === true
-	const content_value = input.content ?? input.body
-	const content = content_value === undefined
-		? build_plan_body({ ...input, order, path: name, dependencies, final_integration }, context)
-		: Buffer.isBuffer(content_value) ? content_value.toString('utf8') : String(content_value)
-	const plan = {
-		path: name,
-		order,
-		sha256: file_digest(Buffer.from(content)),
-		dependencies,
-		contract_part: input.contract_part,
-		final_integration,
-	}
-	return { plan, content: Buffer.from(content) }
 }
 
 const dependency_graph_errors = plans => {
@@ -616,61 +497,6 @@ const dependency_graph_errors = plans => {
 		for (const plan of ordered.slice(0, -1)) if (!reached.has(plan.path)) errors.push(`final integration graph does not reach ${plan.path}`)
 	}
 	return errors
-}
-
-const envelope_keys = Object.freeze(['schema_version', 'state', 'generation_id', 'created_at', 'original_request_sha256', 'requirements_sha256', 'specification_sha256', 'completion_path', 'completion_signal', 'plans'])
-const plan_keys = Object.freeze(['path', 'order', 'sha256', 'dependencies', 'contract_part', 'final_integration'])
-
-const validate_v1_queue_envelope = (envelope, options = {}) => {
-	const errors = []
-	if (!is_object(envelope)) return { valid: false, errors: ['queue envelope must be a JSON object'], envelope: null }
-	for (const key of envelope_keys) if (!has_own(envelope, key)) errors.push(`queue envelope is missing ${key}`)
-	for (const key of Object.keys(envelope)) if (!envelope_keys.includes(key)) errors.push(`queue envelope has unknown field ${key}`)
-	if (envelope.schema_version !== 1) errors.push('queue envelope schema_version must be 1')
-	if (envelope.state !== 'frozen') errors.push('queue envelope state must be frozen')
-	if (!nonempty_text(envelope.generation_id)) errors.push('queue envelope generation_id must be non-empty')
-	if (!nonempty_text(envelope.created_at) || !Number.isFinite(Date.parse(envelope.created_at))) errors.push('queue envelope created_at must be a valid timestamp')
-	for (const name of ['original_request_sha256', 'requirements_sha256', 'specification_sha256']) if (!is_sha256(envelope[name])) errors.push(`queue envelope ${name} must be a SHA-256 digest`)
-	if (!safe_relative_path(envelope.completion_path)) errors.push('queue envelope completion_path must be repository-relative and safe')
-	if (envelope.completion_signal !== `${envelope.completion_path} updated`) errors.push('queue envelope completion_signal must exactly match completion_path updated')
-	if (!Array.isArray(envelope.plans) || envelope.plans.length === 0) errors.push('queue envelope plans must be a non-empty ordered array')
-	const plans = Array.isArray(envelope.plans) ? envelope.plans : []
-	for (const plan of plans) {
-		if (!is_object(plan)) {
-			errors.push('each queue envelope plan entry must be an object')
-			continue
-		}
-		for (const key of plan_keys) if (!has_own(plan, key)) errors.push('queue envelope plan entry is missing ' + key)
-		for (const key of Object.keys(plan)) if (!plan_keys.includes(key)) errors.push(`queue envelope plan entry has unknown field ${key}`)
-		if (!PLAN_PATTERN.test(plan.path || '') || !is_positive_integer(plan.order) || plan.path !== plan_name_for(plan.order)) errors.push('queue envelope plan path and order must match plan-NNN.md')
-		if (!is_sha256(plan.sha256)) errors.push(`${plan.path || 'plan'} sha256 must be a SHA-256 digest`)
-		if (!Array.isArray(plan.dependencies) || !plan.dependencies.every(item => PLAN_PATTERN.test(item))) errors.push(`${plan.path || 'plan'} dependencies must contain plan basenames`)
-		if (!nonempty_text(plan.contract_part)) errors.push(`${plan.path || 'plan'} contract_part must be non-empty`)
-		if (typeof plan.final_integration !== 'boolean') errors.push(`${plan.path || 'plan'} final_integration must be boolean`)
-	}
-	const graph_ready = plans.length > 0 && plans.every(plan => is_object(plan) && nonempty_text(plan.path) && is_positive_integer(plan.order) && Array.isArray(plan.dependencies))
-	if (graph_ready) {
-		const ordered = [...plans].sort((left, right) => left.order - right.order)
-		if (plans.some((plan, index) => plan.order !== ordered[index]?.order)) errors.push('queue envelope plans must be ordered by plan number')
-		errors.push(...dependency_graph_errors(plans))
-	}
-	const plan_bytes = options.plan_bytes
-	if (plan_bytes !== undefined) {
-		const get_bytes = name => plan_bytes instanceof Map ? plan_bytes.get(name) : is_object(plan_bytes) ? plan_bytes[name] : undefined
-		for (const plan of plans) {
-			if (!is_object(plan) || !PLAN_PATTERN.test(plan.path || '')) continue
-			const bytes = get_bytes(plan.path)
-			if (bytes === undefined) errors.push(`plan bytes are missing for ${plan.path}`)
-			else {
-				const normalized = Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes))
-				if (normalized.length > MAX_PLAN_BYTES) errors.push(`${plan.path} exceeds the ${MAX_PLAN_BYTES}-byte limit`)
-				if (file_digest(normalized) !== plan.sha256) errors.push(`${plan.path} digest does not match the frozen envelope`)
-				const body_result = validate_plan_body(normalized.toString('utf8'), plan, envelope)
-				if (!body_result.valid) errors.push(...body_result.errors)
-			}
-		}
-	}
-	return { valid: errors.length === 0, errors, envelope: errors.length === 0 ? envelope : null }
 }
 
 const authority_keys = Object.freeze({
@@ -708,7 +534,7 @@ const validate_v2_authority = authority => {
 	return errors
 }
 
-const validate_v2_queue_envelope = (envelope, options = {}) => {
+const validate_queue_envelope = (envelope, options = {}) => {
 	const errors = []
 	if (!is_object(envelope)) return { valid: false, errors: ['queue envelope must be a JSON object'], envelope: null }
 	const v2_envelope_keys = ['schema_version', 'state', 'generation_id', 'created_at', 'completion_path', 'completion_signal', 'authorities', 'plans']
@@ -756,7 +582,8 @@ const validate_v2_queue_envelope = (envelope, options = {}) => {
 		const finals = ordered.filter(plan => plan.final_integration === true)
 		if (finals.length === 1) {
 			const final = finals[0]
-			if (final.route !== 'integration') errors.push('v2 final integration plan must use the integration route')
+			const single_simple = ordered.length === 1 && final.route === 'simple'
+			if (!single_simple && final.route !== 'integration') errors.push('v2 final integration plan must use the integration route')
 			const nonfinal = ordered.filter(plan => plan !== final)
 			for (const plan of nonfinal) {
 				if (plan.final_integration) errors.push(`${plan.path} cannot be a non-final integration plan`)
@@ -766,7 +593,9 @@ const validate_v2_queue_envelope = (envelope, options = {}) => {
 			const terminal = nonfinal.filter(plan => !nonfinal.some(other => other.dependencies.includes(plan.path))).map(plan => plan.path)
 			if (!same_values(final.dependencies, terminal)) errors.push('v2 final integration dependencies must be the ordered terminal plans')
 			const integration_authority = authorities.find(item => item.id === final.authority_id)
-			if (!integration_authority || integration_authority.route !== 'integration') errors.push('v2 final integration authority must use the integration route')
+			if (single_simple) {
+				if (!integration_authority || integration_authority.route !== 'simple') errors.push('v2 single simple plan must use its simple authority')
+			} else if (!integration_authority || integration_authority.route !== 'integration') errors.push('v2 final integration authority must use the integration route')
 			else {
 				const used_nonfinal_authorities = unique(nonfinal.map(plan => plan.authority_id))
 				if (!same_values(integration_authority.included_authority_ids, used_nonfinal_authorities)) errors.push('v2 integration authority must include every non-final authority in order')
@@ -794,10 +623,6 @@ const validate_v2_queue_envelope = (envelope, options = {}) => {
 	return { valid: errors.length === 0, errors, envelope: errors.length === 0 ? envelope : null }
 }
 
-const validate_queue_envelope = (envelope, options = {}) => envelope?.schema_version === 2
-	? validate_v2_queue_envelope(envelope, options)
-	: validate_v1_queue_envelope(envelope, options)
-
 const assert_queue_envelope = (envelope, options = {}) => {
 	const result = validate_queue_envelope(envelope, options)
 	if (!result.valid) fail(result.errors.join('; '), 'AG_QUEUE_ENVELOPE')
@@ -806,42 +631,8 @@ const assert_queue_envelope = (envelope, options = {}) => {
 
 const build_queue = input => {
 	if (!is_object(input)) fail('queue build input must be an object', 'AG_QUEUE_SCHEMA')
-	if (input.schema_version === 2 || Array.isArray(input.authorities)) return build_v2_queue(input)
-	const contract = assert_contract_gate(input.contract === undefined ? input : { ...input, contract: input.contract })
-	const { completion_path, completion_signal } = completion_path_for(input)
-	if (!nonempty_text(input.generation_id)) fail('generation_id must be non-empty', 'AG_QUEUE_SCHEMA')
-	if (!nonempty_text(input.created_at) || !Number.isFinite(Date.parse(input.created_at))) fail('created_at must be a valid timestamp', 'AG_QUEUE_SCHEMA')
-	if (!Array.isArray(input.plans) || input.plans.length === 0) fail('plans must be a non-empty array', 'AG_QUEUE_SCHEMA')
-	const start_order = input.start_order ?? 1
-	if (!is_positive_integer(start_order)) fail('start_order must be a positive integer', 'AG_QUEUE_SCHEMA')
-	const context = {
-		original_request_sha256: contract.original_request_sha256,
-		requirements_sha256: contract.requirements_sha256,
-		specification_sha256: contract.specification_sha256,
-		generation_id: input.generation_id,
-		completion_signal,
-	}
-	const normalized = input.plans.map((plan, index) => normalize_plan_input(plan, context, start_order + index))
-	const plans = normalized.map(item => item.plan).sort((left, right) => left.order - right.order)
-	const plan_bytes = Object.fromEntries(normalized.map(item => [item.plan.path, item.content]))
-	const envelope = {
-		schema_version: 1,
-		state: 'frozen',
-		generation_id: input.generation_id,
-		created_at: input.created_at,
-		original_request_sha256: contract.original_request_sha256,
-		requirements_sha256: contract.requirements_sha256,
-		specification_sha256: contract.specification_sha256,
-		completion_path,
-		completion_signal,
-		plans,
-	}
-	assert_queue_envelope(envelope, { plan_bytes })
-	return { envelope, plan_bytes, plans, contract }
-}
-
-const build_v2_queue = input => {
-	if (!is_object(input)) fail('queue build input must be an object', 'AG_QUEUE_SCHEMA')
+	if (input.schema_version !== undefined && input.schema_version !== 2) fail('queue schema_version must be 2', 'AG_QUEUE_SCHEMA')
+	if (input.contract !== undefined) assert_contract_gate(input)
 	const { completion_path, completion_signal } = completion_path_for(input)
 	if (!nonempty_text(input.generation_id)) fail('generation_id must be non-empty', 'AG_QUEUE_SCHEMA')
 	if (!nonempty_text(input.created_at) || !Number.isFinite(Date.parse(input.created_at))) fail('created_at must be a valid timestamp', 'AG_QUEUE_SCHEMA')
@@ -1011,19 +802,6 @@ const compare_authority_result = (expected, actual) => {
 	return true
 }
 
-const existing_envelope = (tasks_dir, options) => {
-	const envelope_path = path.join(tasks_dir, ENVELOPE_NAME)
-	if (!path_exists(envelope_path)) return null
-	const envelope_bytes = read_regular_bytes(envelope_path, 'queue envelope')
-	const envelope = parse_json_bytes(envelope_bytes, 'queue envelope')
-	if (!Array.isArray(envelope.plans)) fail(`queue envelope plans are not an array: ${envelope_path}`, 'AG_QUEUE_SCHEMA')
-	assert_queue_envelope(envelope)
-	const plan_bytes = {}
-	for (const plan of envelope.plans || []) plan_bytes[plan.path] = read_frozen_plan_bytes(tasks_dir, plan.path)
-	assert_queue_envelope(envelope, { plan_bytes })
-	return { envelope, plan_bytes, bytes: envelope_bytes, sha256: file_digest(envelope_bytes), path: envelope_path, identity: stat_identity(fs.lstatSync(envelope_path)) }
-}
-
 const publication_failure_result = (error, staging_path, moved_paths = []) => ({
 	published: false,
 	authority_published: false,
@@ -1036,104 +814,6 @@ const publication_failure_result = (error, staging_path, moved_paths = []) => ({
 const publish_queue = input => {
 	if (!is_object(input)) fail('queue publication input must be an object', 'AG_QUEUE_SCHEMA')
 	if (String(input.operation ?? 'make-plans').toLowerCase() !== 'make-plans') fail('queue publication requires the make-plans operation', 'AG_QUEUE_ROUTE')
-	if (input.schema_version === 2 || Array.isArray(input.authorities)) return publish_v2_queue(input)
-	const contract = assert_contract_gate(input.contract === undefined ? input : { ...input, contract: input.contract })
-	const tasks_dir = ensure_directory(input.tasks_dir ?? input.tasks_dir_path, 'tasks directory')
-	const state = inspect_queue_state(tasks_dir, input)
-	const done_dir = state.done_dir
-	if (!path_exists(done_dir)) fs.mkdirSync(done_dir, { mode: 0o700 })
-	const existing = existing_envelope(tasks_dir, input)
-	const starting_order = Math.max(0, ...plan_numbers(tasks_dir), ...(existing?.envelope.plans || []).map(plan => plan.order)) + 1
-	const plan_input = input.plans
-	if (!Array.isArray(plan_input) || plan_input.length === 0) fail('plans must be a non-empty array', 'AG_QUEUE_SCHEMA')
-	const generation_id = input.generation_id
-	if (!nonempty_text(generation_id)) fail('generation_id must be non-empty', 'AG_QUEUE_SCHEMA')
-	if (existing && (existing.envelope.original_request_sha256 !== contract.original_request_sha256 || existing.envelope.requirements_sha256 !== contract.requirements_sha256 || existing.envelope.specification_sha256 !== contract.specification_sha256)) fail('existing frozen queue contract identities do not match the accepted contract', 'AG_QUEUE_CONFLICT')
-	if (existing && existing.envelope.generation_id === generation_id) fail('new queue generation_id must be unique from the existing frozen queue', 'AG_QUEUE_CONFLICT')
-	if (existing?.envelope.plans.some(plan => plan.final_integration === true)) fail('an existing frozen queue already has its final integration plan; it cannot be extended', 'AG_QUEUE_CONFLICT')
-	const built = build_queue({ ...input, tasks_dir, contract, plans: plan_input.map((plan, index) => ({ ...plan, order: plan.order ?? starting_order + index })), start_order: starting_order, generation_id })
-	if (existing) {
-		for (const plan of built.plans) if (plan.order <= Math.max(...existing.envelope.plans.map(item => item.order))) fail('new plan numbers must be higher than every existing plan', 'AG_QUEUE_CONFLICT')
-	}
-	ensure_destination_free(tasks_dir, done_dir, built.plans)
-	const combined_plans = existing ? [...existing.envelope.plans, ...built.plans] : built.plans
-	const combined_bytes = existing ? { ...existing.plan_bytes, ...built.plan_bytes } : built.plan_bytes
-	const envelope = existing ? {
-		...built.envelope,
-		plans: combined_plans,
-	} : built.envelope
-	assert_queue_envelope(envelope, { plan_bytes: combined_bytes })
-
-	const stage_parent = input.staging_parent ? ensure_directory(input.staging_parent, 'staging parent') : path.dirname(tasks_dir)
-	if (path_is_within(stage_parent, tasks_dir) || path_is_within(tasks_dir, stage_parent) && stage_parent === tasks_dir) fail('staging area must be outside the executable tasks directory', 'AG_QUEUE_UNSAFE_PATH')
-	const staging_path = fs.mkdtempSync(path.join(stage_parent, `.queue-stage-${process.pid}-`))
-	fs.chmodSync(staging_path, 0o700)
-	const moved_paths = []
-	try {
-		for (const plan of built.plans) {
-			const staged_plan = path.join(staging_path, plan.path)
-			write_exclusive(staged_plan, combined_bytes[plan.path])
-			const staged_bytes = read_regular_bytes(staged_plan, `staged plan ${plan.path}`)
-			if (file_digest(staged_bytes) !== plan.sha256) fail(`staged plan digest changed: ${plan.path}`, 'AG_QUEUE_CHANGED')
-		}
-		const envelope_bytes = Buffer.from(`${JSON.stringify(envelope)}\n`)
-		const staged_envelope = path.join(staging_path, ENVELOPE_NAME)
-		write_exclusive(staged_envelope, envelope_bytes)
-		const staged_envelope_value = parse_json_bytes(read_regular_bytes(staged_envelope, 'staged queue envelope'), 'staged queue envelope')
-		assert_queue_envelope(staged_envelope_value, { plan_bytes: combined_bytes })
-		if (input.crash_at === 'before-envelope' || input.crash_at === 'before_envelope' || input.before_envelope === true) {
-			return publication_failure_result(new QueueContractError('injected crash before envelope publication', 'AG_QUEUE_PUBLICATION_CRASH'), staging_path, moved_paths)
-		}
-		for (const plan of built.plans) {
-			const destination = path.join(tasks_dir, plan.path)
-			if (path_exists(destination)) fail(`queue destination collision: ${destination}`, 'AG_QUEUE_COLLISION')
-			move_without_overwrite(path.join(staging_path, plan.path), destination)
-			const final_bytes = read_regular_bytes(destination, `published plan ${plan.path}`)
-			if (file_digest(final_bytes) !== plan.sha256) fail(`published plan digest mismatch: ${plan.path}`, 'AG_QUEUE_CHANGED')
-			moved_paths.push(destination)
-		}
-		if (input.crash_at === 'after-plans' || input.crash_at === 'after-plan-moves' || input.after_plan_moves === true) {
-			return publication_failure_result(new QueueContractError('injected crash before envelope publication', 'AG_QUEUE_PUBLICATION_CRASH'), staging_path, moved_paths)
-		}
-		if (typeof input.before_envelope_publish === 'function') input.before_envelope_publish({ envelope, tasks_dir, moved_paths: [...moved_paths] })
-		const envelope_path = path.join(tasks_dir, ENVELOPE_NAME)
-		if (existing) {
-			const temporary = `${envelope_path}.${process.pid}.${Date.now()}.tmp`
-			write_exclusive(temporary, envelope_bytes)
-			const current_bytes = read_regular_bytes(envelope_path, 'existing queue envelope')
-			const current_identity = stat_identity(fs.lstatSync(envelope_path))
-			if (!same_identity(current_identity, existing.identity) || file_digest(current_bytes) !== existing.sha256) {
-				try { fs.unlinkSync(temporary) } catch {}
-				fail(`existing queue envelope changed before extension: ${envelope_path}`, 'AG_QUEUE_CHANGED')
-			}
-			fs.renameSync(temporary, envelope_path)
-		} else {
-			if (path_exists(envelope_path)) fail(`queue envelope collision: ${envelope_path}`, 'AG_QUEUE_COLLISION')
-			move_without_overwrite(staged_envelope, envelope_path)
-		}
-		const final_envelope = parse_json_bytes(read_regular_bytes(envelope_path, 'published queue envelope'), 'published queue envelope')
-		assert_queue_envelope(final_envelope, { plan_bytes: combined_bytes })
-		try { fs.rmdirSync(staging_path) } catch {}
-			return {
-				published: true,
-				authority_published: true,
-				implementation_started: false,
-				staging_path: null,
-			moved_paths,
-			envelope_path,
-			envelope: final_envelope,
-		}
-	} catch (error) {
-		if (error instanceof QueueContractError && error.code === 'AG_QUEUE_PUBLICATION_CRASH') return publication_failure_result(error, staging_path, moved_paths)
-		error.staging_path = staging_path
-		error.moved_paths = moved_paths
-		throw error
-	}
-}
-
-const publish_v2_queue = input => {
-	if (!is_object(input)) fail('queue publication input must be an object', 'AG_QUEUE_SCHEMA')
-	if (String(input.operation ?? 'make-plans').toLowerCase() !== 'make-plans') fail('queue publication requires the make-plans operation', 'AG_QUEUE_ROUTE')
 	const tasks_dir = ensure_directory(input.tasks_dir ?? input.tasks_dir_path, 'tasks directory')
 	const state = inspect_queue_state(tasks_dir, input)
 	const done_dir = state.done_dir
@@ -1141,7 +821,7 @@ const publish_v2_queue = input => {
 	if (path_exists(existing_envelope_path)) fail(`queue envelope collision: ${existing_envelope_path}`, 'AG_QUEUE_COLLISION')
 	const start_order = Math.max(0, ...plan_numbers(tasks_dir)) + 1
 	const plans = Array.isArray(input.plans) ? input.plans.map((plan, index) => ({ ...plan, order: plan.order ?? start_order + index })) : input.plans
-	const built = build_v2_queue({ ...input, tasks_dir, plans })
+	const built = build_queue({ ...input, tasks_dir, plans })
 	ensure_destination_free(tasks_dir, done_dir, built.plans)
 	if (!path_exists(done_dir)) fs.mkdirSync(done_dir, { mode: 0o700 })
 	const stage_parent = input.staging_parent ? ensure_directory(input.staging_parent, 'staging parent') : path.dirname(tasks_dir)
@@ -1359,15 +1039,21 @@ const plan_jobs = input => {
 		route: 'integration',
 		included_authority_ids: unique(ordered_selected.map(job => authority_for_job.get(job.job_id).id)),
 	}
-	authorities.push(integration_authority)
 	const plan_inputs = ordered_selected.map((job, index) => make_job_plan(job, nonfinal_plans[index], authority_for_job.get(job.job_id), completion.completion_signal))
-	plan_inputs.push(make_integration_plan({
+	if (ordered_selected.length === 1 && ordered_selected[0].classification === 'simple') {
+		plan_inputs[0].final_integration = true
+		plan_inputs[0].tests_and_evidence.push('Run the complete relevant checks before completing this self-contained job.')
+		plan_inputs[0].completion_conditions.push('The final integration check passes; do not claim completion for blocked or unpublished work.')
+	} else {
+		authorities.push(integration_authority)
+		plan_inputs.push(make_integration_plan({
 		order: nonfinal_plans.length + 1,
 		path: plan_name_for(nonfinal_plans.length + 1),
 		dependencies: terminal_plans.map(plan => plan.path),
 	}, integration_authority, ordered_selected.map(job => job.job_id), completion.completion_signal))
+	}
 	const generation_kind = selected.every(job => job.classification === 'simple') ? 'simple' : selected.every(job => job.classification === 'complex') ? 'complex' : 'mixed'
-	const publication = publish_v2_queue({
+	const publication = publish_queue({
 		...input,
 		schema_version: 2,
 		completion_path: completion.completion_path,
@@ -1394,15 +1080,6 @@ const read_frozen_queue = (tasks_dir, options = {}) => {
 	const expected_contract = options.contract ?? options.expected_contract
 	if (expected_contract !== undefined) {
 		if (!is_object(expected_contract)) fail('expected queue contract identities must be an object', 'AG_QUEUE_CONTRACT')
-		if (envelope.schema_version === 1) for (const [field, aliases] of [
-			['original_request_sha256', ['original_request_sha256', 'original_request_hash']],
-			['requirements_sha256', ['requirements_sha256', 'requirements_hash']],
-			['specification_sha256', ['specification_sha256', 'specification_hash']],
-		]) {
-			const expected = hash_field(expected_contract, aliases)
-			if (!is_sha256(expected)) fail(`expected ${field} must be a SHA-256 digest`, 'AG_QUEUE_CONTRACT')
-			if (envelope[field] !== expected) fail(`frozen queue ${field} does not match the accepted contract identity`, 'AG_QUEUE_CONFLICT')
-		}
 		if (envelope.schema_version === 2) {
 			const complex_authority = envelope.authorities.find(authority => authority.route === 'complex')
 			if (complex_authority) for (const [field, aliases] of [
@@ -1419,9 +1096,7 @@ const read_frozen_queue = (tasks_dir, options = {}) => {
 	const plan_bytes = {}
 	for (const plan of envelope.plans || []) plan_bytes[plan.path] = read_frozen_plan_bytes(queue, plan.path)
 	const expected_plan_names = new Set(envelope.plans.map(plan => plan.path))
-	const plan_directories = envelope.schema_version === 2
-		? [[queue, 'open plan directory'], [path.join(queue, 'done'), 'completed plan directory']]
-		: [[queue, 'open plan directory']]
+	const plan_directories = [[queue, 'open plan directory'], [path.join(queue, 'done'), 'completed plan directory']]
 	for (const [directory, label] of plan_directories) for (const name of frozen_plan_names(directory, label)) {
 		if (!expected_plan_names.has(name)) fail(`plan is not bound by the frozen queue envelope: ${name}`, 'AG_QUEUE_AUTHORITY')
 	}

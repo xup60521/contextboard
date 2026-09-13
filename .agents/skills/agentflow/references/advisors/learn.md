@@ -10,7 +10,7 @@ For every lesson state what happened, what was expected, observed evidence, corr
 
 ## Output contract
 
-- **Identity boundary:** Line one is exactly `* _YYYY-MM-DD HH:MM:SS (<Model>/<Effort>)_`, with fresh Asia/Taipei time and the brief's exact single-line model (1–128 characters) and effort (1–32).
+- **Identity boundary:** Line one is exactly `* _YYYY-MM-DD HH:MM:SS ±HHMM (<Model>/<Effort>)_`, with fresh machine-local time and the brief's exact single-line model (1–128 characters) and effort (1–32).
 - **Final boundary:** Include exactly one Self-check: line as final content; a trailing newline is allowed. Any boundary violation fails.
 
 Write one Markdown report to the exact output path. Use stable proposal IDs `P-<n>`. Each proposal has this exact shape, with an exact unique current-target excerpt in `before` (or empty for insertion):

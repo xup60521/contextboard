@@ -447,3 +447,41 @@ Format: `## I-NNN — <date> — <title>` then source, F-code when one exists, t
 - Source: project `003` devlog A-001 and root devlog A-344. Cited by: SKILL.md § Completing a round (notebook writes and closeout stop rule).
 
 - Narrative: During a small string-reverser closeout, the coordinator created `.agentflow/reply-A-001.md` even though `notebook-write.js --input-stdin` could accept the Reply directly. It then reran the unchanged JavaScript implementation tests after changing only the devlog STATUS. Both actions added calls and delay without increasing safety. Notebook writes now use standard input first and use a named draft only after that path fails. After implementation tests pass, later record-only corrections run only the mechanical completion check and do not repeat those tests.
+
+## I-074 — 2026-09-06 — recent WIP and RUN headings lost their timestamps
+
+- Source: root devlog A-348 through A-350. Cited by: SKILL.md progress-record rules; scripts/notebook-write.js; scripts/round-linter.js.
+
+- Narrative: The prompt still described fresh Taipei times, but the notebook writer accepted WIP and RUN headings without enforcing a timestamp. All RUN headings in A-348 and A-349 therefore lost the time completely, which made the recovery record unable to show when each material transition happened. New WIP and RUN headings must contain a real current `YYYY-MM-DD HH:MM:SS Asia/Taipei` value. The writer rejects missing or invalid values before writing, and the completion checker applies the same contract to the current round without rewriting append-only history.
+
+## I-075 — 2026-09-06 — local time and nested-worker recovery were not enforceable
+
+- Source: root devlog A-351 and its approved implementation design. Cited by: SKILL.md terminal-worker rule; references/delegation.md nested-worker rule; scripts/local-time.js, scripts/process-tree.js, scripts/notebook-write.js, scripts/round-linter.js, scripts/external-runner.js, and scripts/looper.js.
+
+- Narrative: A Taipei-specific timestamp contract made records misleading on machines in other zones, a worker could launch another model or Agentflow process without preserving a recoverable parent-owned result, and quoted RUN/WIP examples before the real record divider could be mistaken for live records. Design Go also displayed a full hash where a short human-checkable identity was required. New timestamps now use the machine's local wall clock plus numeric offset and reject impossible dates or offsets; nested processes are detected when visible, contained, and reported as recoverable violations while preserving parent output, plan source, and authorized source changes and quarantining nested evidence for fresh review; only records after the true divider are parsed; and Design Go uses a uniquely resolved seven-character prefix while internal facts retain full hashes.
+
+## I-076 — 2026-09-08 — the bare `godev` fast lane ignored a written Ask
+
+- Source: project `/Users/jlu/jxtmp/001` A-001 and root A-360. Cited by: SKILL.md startup result rule.
+
+- Narrative: The owner wrote `hihi` in the final Ask and then typed bare `godev` to resume it. Startup correctly returned `message.reason: already_present`, but the always-loaded skill treated every bare `godev` as activation-only, prohibited the notebook read, and required only the readiness reply. The request was therefore ignored even though both owner guides said that this workflow means “go read it.” The startup rule now uses `activation_only` and `activation_placeholder_repaired` only for an empty-Ask fast lane; `already_present` requires reading the current Ask and completing its normal recorded round.
+
+## I-077 — 2026-09-08 — hand-built startup and closeout calls caused three avoidable retries
+
+- Source: project `/Users/jlu/jxtmp/001` A-001 through A-004. Cited by: SKILL.md startup, RUN-record, Reply-shape, and close-manifest rules.
+
+- Narrative: The coordinator first invoked startup without sending the owner's `godev` message. That empty call created the new setup files, so the corrected retry could no longer prove that the files belonged to the current startup and required the stream-safety rulebook. During closeout, the coordinator then replaced the literal RUN heading word `Event` with a description and, after correcting that error, placed the next Ask scaffold inside the manifest's `reply` field because the prompt described the completed notebook shape without distinguishing it from manifest input. All three calls stopped safely, but they added avoidable delay. The prompt now requires the first and only startup call to carry the owner message, keeps `Event` literal with descriptions in the body, distinguishes final notebook output from the manifest's `reply` value, and requires one in-memory shape check before the single close call.
+
+- Follow-up: Project `/Users/jlu/jxtmp/003` showed that the same hand-built-text risk remained in STATUS. The close command already accepted structured fields, but the skill still showed a text-shaped placeholder and told the coordinator to reproduce exact wording. The skill now requires the structured object, and JavaScript owns the fixed field order, punctuation, schema wording, and empty-stream wording.
+
+## I-078 — 2026-09-08 — first uncommitted Ask and implied Reply headings caused unnecessary work
+
+- Source: project `/Users/jlu/jxtmp/002` A-001 and A-002. Cited by: SKILL.md Reply template; scripts/resume-intake.js canonical unborn bootstrap check.
+
+- Narrative: The owner used the normal first-run flow: Agentflow created a new notebook, the owner wrote the first Ask without committing the bootstrap files, and then typed `godev`. Startup could prove bootstrap ownership only inside the process that created the files, so the later activation treated the unchanged canonical bootstrap plus the owner's Ask as possible parallel work and unnecessarily loaded the stream rulebook. The same round's closeout instructions named SUMMARY and Questions without showing their exact required headings, so the coordinator guessed twice and the validator rejected both guesses. Startup now recognizes only the exact canonical unborn bootstrap files plus one unresolved first Ask; any changed configuration, earlier notebook content, or extra path remains foreign. The always-loaded skill now includes one literal Reply template with both validator-required headings.
+
+## I-079 — 2026-09-08 — a standalone poem triggered an unnecessary external review
+
+- Source: project `/Users/jlu/jxtmp/003` A-001 and the owner follow-up in the same session. Cited by: SKILL.md § Completing a round (review boundary and closeout stop rule).
+
+- Narrative: The owner asked Agentflow to save a Traditional Chinese poem. The coordinator treated the poem as a broad “user document” and announced that an independent external review was required, even though the poem changed no software behavior and created no material safety, legal, financial, or operational risk. The owner had to stop the review and ask which rule caused it. Review eligibility now depends on the effect of the changed file. Standalone creative and informational artifacts do not require review by default, and the coordinator must name both the exact path and the qualifying condition before announcing or dispatching a review.

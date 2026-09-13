@@ -14,6 +14,16 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"D:\\code\\side_project\\contextboard\\.agents\\skills\\agentflow\\scripts\\stop-hook.js\" --host claude"
+          }
+        ]
+      }
     ]
   }
 }

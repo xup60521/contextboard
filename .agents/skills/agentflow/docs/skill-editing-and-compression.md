@@ -32,4 +32,4 @@ This guide does not create a general repository-writing process. It does not req
 
 ## Writing Style and Format
 
-Format prompts for readability. Add paragraph breaks between distinct ideas or rule groups, roughly every 2–4 sentences where natural. Preserve all wording, meaning, order, punctuation, identifiers, and Markdown exactly otherwise. Do not summarize, rewrite, simplify, or add content.
+For formatting-only tasks, format prompts for readability. Add paragraph breaks between distinct ideas or rule groups, roughly every 2–4 sentences where natural. Preserve all wording, meaning, order, punctuation, identifiers, and Markdown exactly otherwise. Do not summarize, rewrite, simplify, or add content in formatting-only tasks. For authorized compression or rewriting, follow the Safe compression rules above.

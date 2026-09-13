@@ -43,6 +43,18 @@ test('broad size and trust boundaries select full review', () => {
 	assert.equal(select_cross_check_plan(facts({ changed_files: Array.from({ length: 10 }, (_, index) => `docs/${index}.md`) })).level, 'full')
 })
 
+test('every review depth reuses current suite evidence and bounds additional execution', () => {
+	for (const input of [facts(), facts({ behavior_change: true }), facts({ trust_boundary: true })]) {
+		const result = select_cross_check_plan(input)
+		assert.equal(result.valid, true)
+		const checks = result.reviewer_checks.join('\n')
+		assert.match(checks, /reuse.*current.*suite evidence/i)
+		assert.match(checks, /rerun only.*missing.*failed.*invalidated/i)
+		assert.doesNotMatch(checks, /rerun the complete relevant suite plus/i)
+		assert.match(result.coordinator_checks.join('\n'), /smallest complete relevant suite.*once/i)
+	}
+})
+
 test('stronger owner control escalates one level', () => {
 	assert.equal(select_cross_check_plan(facts({ owner_control: 'stronger' })).level, 'targeted')
 	assert.equal(select_cross_check_plan(facts({ changed_files: ['src/a.js'], behavior_change: true, owner_control: 'stronger' })).level, 'full')
@@ -103,6 +115,8 @@ test('cross-check reviewers reconstruct outcome, inspect the journey, account fo
 	assert.match(checks, /reconstruct the outcome.*original Ask/i)
 	assert.match(checks, /inspect the (?:normal[- ]user )?journey/i)
 	assert.match(checks, /account for (?:every )?added concept/i)
+	assert.match(checks, /attempt.*simplif|delet|combin|reuse/i)
+	assert.match(checks, /Minimality: BLOCKING.*smaller design.*satisf/i)
 	assert.match(checks, /perform this review directly/i)
 	assert.match(checks, /do not invoke Agentflow/i)
 	assert.match(checks, /do not delegate or launch another reviewer/i)
@@ -119,4 +133,13 @@ test('low-risk cross-checks keep their existing exemptions while requiring the v
 	assert.match(checks, /Outcome: PASS\|BLOCKING/)
 	assert.match(checks, /Minimality: PASS\|BLOCKING/)
 	assert.match(checks, /Conformance: PASS\|BLOCKING/)
+})
+
+test('consequential review accepts only canonical fact names', () => {
+  for (const alias of ['consequential', 'original_ask', 'normal_journey', 'journey_path']) {
+    const canonical = alias === 'consequential' ? 'consequential_change' : alias === 'original_ask' ? 'original_ask_path' : 'normal_journey_path'
+    const input = consequential_facts()
+    input[alias] = input[canonical]
+    assert.equal(select_cross_check_plan(input).valid, false, alias)
+  }
 })

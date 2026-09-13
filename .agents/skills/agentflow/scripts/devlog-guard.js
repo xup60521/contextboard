@@ -19,7 +19,7 @@ const git = (args) => {
 }
 
 // null = allow; a string = block with that message.
-const verdict = ({ branch, def, staged, has_stream_doc, root_notebook = 'devlog.md', feature_root = 'features' }) => {
+const verdict = ({ branch, def, staged, has_stream_doc, root_notebook = '.agentflow/devlog.md', feature_root = '.agentflow/features' }) => {
 	if (!branch || branch === 'HEAD' || !def || branch === def) return null
 	const root_authoritative_files = staged.filter(file => file === root_notebook || file === 'ag.json')
 	if (root_authoritative_files.length === 0) return null
@@ -45,7 +45,7 @@ const main = () => {
 			|| ['main', 'master'].find((b) => git(['rev-parse', '--verify', '--quiet', `refs/heads/${b}`]) !== null)
 			|| ''
 		const staged = (git(['diff', '--cached', '--name-only']) || '').split('\n').filter(Boolean)
-		let paths = { notebook: 'devlog.md', features: 'features' }
+		let paths = { notebook: '.agentflow/devlog.md', features: '.agentflow/features' }
 		try { paths = settings.workspace_paths(JSON.parse(fs.readFileSync(path.join(top, 'ag.json'), 'utf8'))) } catch {}
 		const has_stream_doc = branch ? fs.existsSync(path.join(top, paths.features, branch, `${branch}.devlog.md`)) : false
 		const message = verdict({ branch, def, staged, has_stream_doc, root_notebook: paths.notebook, feature_root: paths.features })

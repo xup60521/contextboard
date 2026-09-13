@@ -65,7 +65,8 @@ const make_queue = () => {
 
 const dispose = root => fs.rmSync(root, { recursive: true, force: true })
 
-const make_input = (overrides = {}) => ({
+const make_input = (overrides = {}) => {
+ const input = {
 	tasks_dir: overrides.tasks_dir,
 	contract: make_contract(overrides.contract),
 	plans: overrides.plans || [
@@ -77,67 +78,12 @@ const make_input = (overrides = {}) => ({
 	created_at: '2026-08-23T12:16:00.000Z',
 	...overrides,
 	contract: make_contract(overrides.contract),
-})
-
-const legacy_plan_body = (plan, envelope) => {
-	const dependency_names = plan.dependencies.map(name => `\`${name}\``)
-	const dependencies = dependency_names.length === 0
-		? 'None.'
-		: dependency_names.length === 1
-			? `${dependency_names[0]}.`
-			: dependency_names.length === 2
-				? `${dependency_names[0]} and ${dependency_names[1]}.`
-				: `${dependency_names.slice(0, -1).join(', ')}, and ${dependency_names.at(-1)}.`
-	return [
-		`# Plan ${String(plan.order).padStart(3, '0')} — descriptive frozen title`,
-		'',
-		'## Authority',
-		'',
-		`Queue generation: \`${envelope.generation_id}\`.`,
-		'',
-		`Original request: \`artifacts/request.md\`, SHA-256 \`${envelope.original_request_sha256}\`.`,
-		'',
-		`Requirements: \`artifacts/requirements.md\`, SHA-256 \`${envelope.requirements_sha256}\`.`,
-		'',
-		`Specification: \`artifacts/spec.md\`, SHA-256 \`${envelope.specification_sha256}\`.`,
-		'',
-		`Owned contract: ${plan.contract_part}.`,
-		'',
-		'## Outcome',
-		'',
-		'Complete the bound contract part.',
-		'',
-		'## Dependencies',
-		'',
-		dependencies,
-		'',
-		'## Required work',
-		'',
-		'- Do the required work.',
-		'',
-		'## Constraints',
-		'',
-		'- Keep the declared boundary.',
-		'',
-		'## Tests and evidence',
-		'',
-		'- Run the declared checks.',
-		'',
-		'## Completion conditions',
-		'',
-		'- All checks pass.',
-		'',
-		'## Success signal',
-		'',
-		`Print exactly one complete line: \`${envelope.completion_signal}\`.`,
-		'',
-		'## Final integration',
-		'',
-		`${plan.final_integration ? 'True' : 'False'}. The frozen plan can include its bounded explanation here.`,
-		'',
-		'- Bound owner preferences remain part of the exact plan bytes.',
-		'',
-	].join('\n')
+ }
+ input.schema_version = 2
+ const { original_request_sha256, requirements_sha256, specification_sha256 } = input.contract
+ input.authorities = [{ id: 'work', route: 'complex', original_request_sha256, requirements_sha256, specification_sha256 }, { id: 'integration', route: 'integration', included_authority_ids: ['work'] }]
+ input.plans = input.plans.map(plan => ({ ...plan, route: plan.final_integration ? 'integration' : 'complex', authority_id: plan.final_integration ? 'integration' : 'work' }))
+ return input
 }
 
 test('contract gate rejects unresolved material decisions before publication', () => {
@@ -200,30 +146,11 @@ test('exact plan bodies and the final dependency graph validate against one enve
 	assert.match(heading_result.errors.join('; '), /heading|order/i)
 })
 
-test('trusted descriptive frozen plans retain exact legacy authority and execution facts', () => {
-	const queue = make_queue()
-	try {
-		const built = queue_contract.build_queue(make_input({ tasks_dir: queue.tasks_dir }))
-		const plan_bytes = {}
-		for (const plan of built.envelope.plans) {
-			plan_bytes[plan.path] = Buffer.from(legacy_plan_body(plan, built.envelope))
-			plan.sha256 = queue_contract.file_digest(plan_bytes[plan.path])
-			fs.writeFileSync(path.join(queue.tasks_dir, plan.path), plan_bytes[plan.path])
-		}
-		fs.writeFileSync(path.join(queue.tasks_dir, '.queue-generation.json'), `${JSON.stringify(built.envelope, null, 2)}\n`)
-		assert.equal(queue_contract.read_frozen_queue(queue.tasks_dir, { contract: make_contract() }).plans.length, 2)
-
-		const final_plan = built.envelope.plans[1]
-		const final_body = plan_bytes[final_plan.path].toString('utf8')
-		for (const changed of [
-			final_body.replace(built.envelope.requirements_sha256, digest('wrong requirements')),
-			final_body.replace('`plan-001.md`.', 'None.'),
-			final_body.replace('`devlog.md updated`', '`other.md updated`'),
-			final_body.replace('True. The frozen plan', 'False. The frozen plan'),
-		]) assert.equal(queue_contract.validate_plan_body(changed, final_plan, built.envelope).valid, false)
-	} finally {
-		dispose(queue.root)
-	}
+test('legacy prose authority cannot replace canonical v2 authority', () => {
+ const built = queue_contract.build_queue(make_input())
+ const plan = built.plans[0]
+ const body = built.plan_bytes[plan.path].toString().replace(/## Authority[\s\S]*?## Outcome/, '## Authority\nQueue generation: test-generation-001.\n\n## Outcome')
+ assert.equal(queue_contract.validate_plan_body(body, plan, built.envelope).valid, false)
 })
 
 test('brownfield codewalk reuse needs one marked current record with complete discovery facts', () => {
@@ -369,12 +296,12 @@ test('frozen queue reads completed plan bytes from done and rejects duplicate lo
 	}
 })
 
-test('frozen queue rejects unbound open plans but permits unrelated historical completed plans', () => {
+test('frozen queue rejects unbound plans in both open and completed directories', () => {
 	const queue = make_queue()
 	try {
 		queue_contract.publish_queue(make_input(queue))
 		fs.writeFileSync(path.join(queue.tasks_dir, 'done', 'plan-900.md'), 'historical completed plan\n')
-		assert.equal(queue_contract.read_frozen_queue(queue.tasks_dir).plans.length, 2)
+		assert.throws(() => queue_contract.read_frozen_queue(queue.tasks_dir), /not bound|authority/i)
 		fs.writeFileSync(path.join(queue.tasks_dir, 'plan-901.md'), 'unbound executable-looking plan\n')
 		assert.throws(() => queue_contract.read_frozen_queue(queue.tasks_dir), /not bound|authority/i)
 	} finally {
@@ -399,10 +326,16 @@ test('plan authority and dependencies require exact records, not matching prose'
 	const plan = built.envelope.plans[1]
 	const original = built.plan_bytes[plan.path].toString('utf8')
 	const hidden_authority = original.replace(
-		`- original_request_sha256: ${built.envelope.original_request_sha256}`,
-		`- note: the request digest is ${built.envelope.original_request_sha256}`,
+		'- id: integration',
+		'- note: the integration authority is mentioned only as prose',
 	)
 	assert.equal(queue_contract.validate_plan_body(hidden_authority, plan, built.envelope).valid, false)
 	const hidden_dependency = original.replace('- plan-001.md', '- note: use plan-001.md after review')
 	assert.equal(queue_contract.validate_plan_body(hidden_dependency, plan, built.envelope).valid, false)
+})
+
+test('queue v1 is rejected instead of built or accepted as frozen authority', () => {
+  assert.throws(() => queue_contract.build_queue({ ...make_input(), schema_version: 1 }), /schema.*2|schema.*1.*unsupported/i)
+  const old = { schema_version: 1, state: 'frozen', generation_id: 'old', created_at: '2026-09-09T00:00:00Z', original_request_sha256: digest('request'), requirements_sha256: digest('requirements'), specification_sha256: digest('specification'), completion_path: 'devlog.md', completion_signal: 'devlog.md updated', plans: [{ path: 'plan-001.md', order: 1, sha256: digest('plan'), dependencies: [], contract_part: 'all', final_integration: true }] }
+  assert.equal(queue_contract.validate_queue_envelope(old).valid, false)
 })

@@ -13,7 +13,54 @@ node_test.test('external runner has no elapsed-time deadline by default', () => 
   node_assert.equal(runner.DEFAULT_TIMEOUT_MS, 0)
 })
 
+node_test.test('external runner exposes a recoverable nested-worker violation without rejecting clone changes', async () => {
+  const source = make_source_repo()
+  const disposable = make_temp_dir('agentflow-external-runner-nested-')
+  const nested_executable = node_path.join(disposable, 'codex')
+  node_fs.symlinkSync(process.execPath, nested_executable)
+  try {
+    const result = await runner.run_external_command(make_run_options(source, disposable, 'nested', {
+      env: { FAKE_NESTED_EXECUTABLE: nested_executable },
+      nested_poll_ms: 20,
+    }))
+
+    node_assert.equal(result.status, 'nested_worker_violation')
+    node_assert.equal(result.nested_worker.detected, true)
+    node_assert.ok(result.nested_worker.processes.some(process_info => process_info.executable === nested_executable))
+    node_assert.equal(result.nested_worker.containment.attempted, true)
+    node_assert.equal(result.clone.changed, false)
+    node_assert.equal(result.acceptance.accepted, false)
+    node_assert.match(result.acceptance.reason, /nested/i)
+  } finally {
+    remove_temp_dir(source)
+    remove_temp_dir(disposable)
+  }
+})
+
 const fixture_path = node_path.join(__dirname, 'fixtures', 'external-worker.js')
+
+node_test.test('default polling bounds process-table work and still contains a nested worker', async () => {
+  const source = make_source_repo()
+  const disposable = make_temp_dir('agentflow-external-runner-default-poll-')
+  const nested_executable = node_path.join(disposable, 'codex')
+  node_fs.symlinkSync(process.execPath, nested_executable)
+  try {
+    const result = await runner.run_external_command(make_run_options(source, disposable, 'nested-hold', {
+      env: { FAKE_NESTED_EXECUTABLE: nested_executable },
+    }))
+    node_assert.equal(result.status, 'nested_worker_violation')
+    node_assert.equal(result.nested_worker.containment.attempted, true)
+    node_assert.ok(result.nested_worker.poll_count <= 8, `unexpected process-table polling: ${result.nested_worker.poll_count}`)
+    for (const nested of result.nested_worker.processes) {
+      node_assert.throws(() => process.kill(nested.pid, 0), { code: 'ESRCH' })
+    }
+    node_assert.equal(result.process.exit_code, 0)
+    node_assert.equal(result.acceptance.accepted, false)
+  } finally {
+    remove_temp_dir(source)
+    remove_temp_dir(disposable)
+  }
+})
 
 const make_temp_dir = prefix => node_fs.realpathSync(node_fs.mkdtempSync(node_path.join(node_os.tmpdir(), prefix)))
 const remove_temp_dir = directory => node_fs.rmSync(directory, { recursive: true, force: true })
@@ -368,28 +415,45 @@ node_test.test('external runner disables stall detection by default and records 
   }
 })
 
-node_test.test('external runner confirms a quiet stall before two-stage local group shutdown', async () => {
+node_test.test('external runner keeps a quiet worker alive until its explicit deadline', async () => {
   const source = make_source_repo()
   const disposable = make_temp_dir('agentflow-external-runner-stall-')
   try {
     const result = await runner.run_external_command(make_run_options(source, disposable, 'timeout', {
-      timeout_ms: 2_000,
-      stall_timeout_ms: 100,
+      timeout_ms: 400,
       termination_grace_ms: 50,
     }))
 
-    node_assert.equal(result.status, 'stalled')
-    node_assert.equal(result.timed_out, false)
-    node_assert.equal(result.stalled, true)
-    node_assert.equal(result.activity.state, 'confirmed_stall')
+    node_assert.equal(result.status, 'timed_out')
+    node_assert.equal(result.timed_out, true)
+    node_assert.equal(result.stalled, false)
+    node_assert.equal(result.activity.state, 'disabled')
     node_assert.ok(result.activity.sample_count >= 2)
-    node_assert.equal(result.shutdown.trigger, 'stall')
+    node_assert.equal(result.shutdown.trigger, 'deadline')
     node_assert.equal(result.shutdown.attempted, true)
     node_assert.equal(result.assurance.remote_provider_cancellation, 'not_proven')
   } finally {
     remove_temp_dir(source)
     remove_temp_dir(disposable)
   }
+})
+
+node_test.test('retired quiet-time option is rejected before cloning, not silently reinterpreted', async () => {
+  await node_assert.rejects(runner.run_external_command({ source_directory: process.cwd(), command: [process.execPath, '--version'], stall_timeout_ms: 100 }), /quiet-time termination is no longer supported/)
+})
+
+node_test.test('snapshot detects further content changes in an already dirty tracked file', () => {
+  const source = make_source_repo()
+  try {
+    const file = node_path.join(source, 'tracked.txt')
+    node_fs.writeFileSync(file, 'baseline\n')
+    git(source, ['add', 'tracked.txt'])
+    git(source, ['commit', '-qm', 'snapshot baseline'])
+    node_fs.writeFileSync(file, 'change one\n')
+    const before = runner.clone_snapshot(source)
+    node_fs.writeFileSync(file, 'change two\n')
+    node_assert.notEqual(runner.clone_snapshot(source).identity, before.identity)
+  } finally { remove_temp_dir(source) }
 })
 
 node_test.test('external runner rejects invalid stall timeout values before cloning', async () => {

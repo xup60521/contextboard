@@ -1133,3 +1133,6 @@ In the color palettes switcher
 1. Don't separate light and dark. They should be set simultaneously
 2. The palettes are not good. You should search the internet to find better presets.
 3. Leave the space for color customization
+
++ godev
+  I have updated the skill. commit and push to main

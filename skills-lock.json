@@ -2,10 +2,10 @@
   "version": 1,
   "skills": {
     "agentflow": {
-      "source": "agfnow/agentflow",
+      "source": "xup60521/agentflow",
       "sourceType": "github",
       "skillPath": "skills/agentflow/SKILL.md",
-      "computedHash": "73d8b55f8724262cff168d1233af347e2997131d92f016ba2b7ddb8855b95521"
+      "computedHash": "c23765ad4fae9c6f7c39d13bb9dcdc6e1bd8e7e860703d5f41a36e823c45647c"
     },
     "convex": {
       "source": "get-convex/agent-skills",

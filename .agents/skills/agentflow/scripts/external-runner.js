@@ -1,17 +1,17 @@
 'use strict'
 
-const { send_tree_signal } = require('./process-tree.js')
-
 const node_child_process = require('node:child_process')
 const node_crypto = require('node:crypto')
 const node_fs = require('node:fs')
 const node_os = require('node:os')
 const node_path = require('node:path')
+const { contain_nested_processes, find_nested_processes, read_process_table, send_tree_signal } = require('./process-tree.js')
 
 const MAX_OUTPUT_BYTES = 4096
 const DEFAULT_TIMEOUT_MS = 0
 const DEFAULT_TERMINATION_GRACE_MS = 200
 const DEFAULT_ACTIVITY_SAMPLE_MS = 50
+const DEFAULT_NESTED_POLL_MS = 250
 
 const is_object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const nonempty_text = value => typeof value === 'string' && value.trim().length > 0
@@ -190,8 +190,8 @@ const untracked_identities = (root, paths) => paths.map(relative_path => {
 
 const clone_snapshot = root => {
   const status = git_or_empty(root, ['status', '--porcelain=v1', '--untracked-files=all'])
-  const raw_diff = git_or_empty(root, ['diff', '--raw', 'HEAD'])
-  const staged_diff = git_or_empty(root, ['diff', '--cached', '--raw'])
+  const raw_diff = git_or_empty(root, ['diff', '--binary', 'HEAD'])
+  const staged_diff = git_or_empty(root, ['diff', '--cached', '--binary'])
   const untracked_listing = git_or_empty(root, ['ls-files', '--others', '--exclude-standard', '-z'])
   const untracked_paths = untracked_listing.split('\0').filter(Boolean)
   const untracked = untracked_identities(root, untracked_paths)
@@ -239,6 +239,9 @@ const process_group_is_alive = pid => {
   }
 }
 
+// Signalling only child.pid on Windows leaves the worker's descendants alive,
+// so a cancelled or timed-out run keeps burning a paid CLI session. Delegate to
+// the tree kill, which is a process-group signal everywhere else.
 const send_process_signal = (child, signal) => {
   try {
     send_tree_signal(child, signal)
@@ -291,7 +294,7 @@ const worker_environment = (command, requested_env) => {
   return environment
 }
 
-const run_child = ({ command, cwd, timeout_ms, stall_timeout_ms, termination_grace_ms, max_output_bytes, env, result_file_path }) => new Promise(resolve => {
+const run_child = ({ command, cwd, timeout_ms, stall_timeout_ms, nested_poll_ms, list_processes, termination_grace_ms, max_output_bytes, env, result_file_path }) => new Promise(resolve => {
   const stdout_capture = make_capture(max_output_bytes)
   const stderr_capture = make_capture(max_output_bytes)
   let child
@@ -314,6 +317,7 @@ const run_child = ({ command, cwd, timeout_ms, stall_timeout_ms, termination_gra
       stalled: false,
       activity: { state: stall_timeout_ms > 0 ? 'not_observed' : 'disabled', stall_timeout_ms, sample_count: 0, elapsed_ms: 0, last_change_elapsed_ms: null, last_change_signs: [] },
       process_group_timeout: { trigger: 'none', attempted: false, signals: [], terminated: false, group_after: 'unknown', proof: 'not_needed' },
+      nested_worker: { visible: false, detected: false, processes: [], containment: { attempted: false, actions: [] }, poll_count: 0 },
     })
     return
   }
@@ -328,12 +332,25 @@ const run_child = ({ command, cwd, timeout_ms, stall_timeout_ms, termination_gra
   let timeout_cleanup = null
   let finished = false
   let timeout_handle
-  let activity_handle
+  let nested_handle
   const started_at = Date.now()
   let sample_count = 0
   let last_sample = null
   let last_change_at = started_at
   let last_change_signs = []
+  const nested_worker = { visible: false, detected: false, processes: [], containment: { attempted: false, actions: [] }, poll_count: 0 }
+
+  const observe_nested = () => {
+    const table = typeof list_processes === 'function' ? list_processes() : read_process_table()
+    const observed = find_nested_processes(child.pid, table)
+    nested_worker.poll_count += 1
+    nested_worker.visible = nested_worker.visible || observed.visible
+    if (!nested_worker.detected && observed.processes.length > 0) {
+      nested_worker.detected = true
+      nested_worker.processes = observed.processes
+      nested_worker.containment = contain_nested_processes(observed.processes)
+    }
+  }
 
   const observe = () => {
     const sample = {
@@ -357,12 +374,14 @@ const run_child = ({ command, cwd, timeout_ms, stall_timeout_ms, termination_gra
   }
 
   observe()
+  observe_nested()
 
   const finish = () => {
     if (finished || !close_result || ((timed_out || stalled) && timeout_cleanup === null)) return
     finished = true
     clearTimeout(timeout_handle)
-    clearInterval(activity_handle)
+    clearInterval(nested_handle)
+    observe_nested()
     observe()
     const elapsed_ms = Date.now() - started_at
     resolve({
@@ -373,7 +392,7 @@ const run_child = ({ command, cwd, timeout_ms, stall_timeout_ms, termination_gra
       timed_out,
       stalled,
       activity: {
-        state: stalled ? 'confirmed_stall' : stall_timeout_ms > 0 ? 'observed' : 'disabled',
+        state: 'disabled',
         stall_timeout_ms,
         sample_count,
         elapsed_ms,
@@ -382,6 +401,7 @@ const run_child = ({ command, cwd, timeout_ms, stall_timeout_ms, termination_gra
         ...(last_sample || {}),
       },
       process_group_timeout: timeout_cleanup || { trigger: 'none', attempted: false, signals: [], terminated: false, group_after: 'not_alive', proof: 'not_needed' },
+      nested_worker,
     })
   }
 
@@ -401,16 +421,10 @@ const run_child = ({ command, cwd, timeout_ms, stall_timeout_ms, termination_gra
     finish()
   }, timeout_ms)
 
-  if (stall_timeout_ms > 0) {
-    activity_handle = setInterval(async () => {
-      if (finished || close_result || timed_out || stalled) return
-      observe()
-      if (Date.now() - last_change_at < stall_timeout_ms) return
-      stalled = true
-      timeout_cleanup = await terminate_process_group(child, termination_grace_ms, 'stall')
-      finish()
-    }, Math.min(DEFAULT_ACTIVITY_SAMPLE_MS, Math.max(10, Math.floor(stall_timeout_ms / 2))))
-  }
+  nested_handle = setInterval(() => {
+    if (finished || close_result) return
+    observe_nested()
+  }, nested_poll_ms > 0 ? nested_poll_ms : DEFAULT_NESTED_POLL_MS)
 })
 
 const path_has_symlink_component = (file_path, root) => {
@@ -541,8 +555,10 @@ const make_result = async (options, clone, command, before_snapshot, child_resul
   const result_value = declared_result_file ? declared_result_file.value : parsed_stdout.value
   const result_parse_error = declared_result_file ? declared_result_file.parse_error : parsed_stdout.parse_error
   const after_snapshot = clone_snapshot(clone.root)
-  const status = child_result.timed_out
-    ? 'timed_out'
+  const status = child_result.nested_worker.detected
+    ? 'nested_worker_violation'
+    : child_result.timed_out
+      ? 'timed_out'
     : child_result.stalled
       ? 'stalled'
     : child_result.launch_error
@@ -598,11 +614,22 @@ const make_result = async (options, clone, command, before_snapshot, child_resul
       changed: before_snapshot.identity !== after_snapshot.identity,
     },
     process_group_timeout: child_result.process_group_timeout,
+    nested_worker: {
+      ...child_result.nested_worker,
+      recovery: {
+        preserved_output: ['stdout', 'stderr', 'clone_diff_identity'],
+        evidence_status: child_result.nested_worker.detected ? 'quarantined' : 'not_applicable',
+        source_changes_preserved: true,
+        fresh_review_required: child_result.nested_worker.detected,
+      },
+    },
     activity: child_result.activity,
     shutdown: child_result.process_group_timeout,
     acceptance: {
       accepted: false,
-      reason: 'Process exit and captured output do not prove coordinator acceptance.',
+      reason: child_result.nested_worker.detected
+        ? 'Nested worker launch was detected and contained; parent output and source changes are preserved, but nested-derived evidence is quarantined pending fresh coordinator-controlled review.'
+        : 'Process exit and captured output do not prove coordinator acceptance.',
     },
     assurance: {
       os_level_confinement: 'not_proven',
@@ -611,6 +638,7 @@ const make_result = async (options, clone, command, before_snapshot, child_resul
     limitations: [
       'The disposable clone does not prove OS-level confinement.',
       'Local process termination does not prove remote-provider cancellation.',
+      'Process-tree visibility is limited to descendants exposed by the local process table.',
     ],
   }
 }
@@ -623,17 +651,20 @@ const run_external_command = async options => {
   const termination_grace_ms = values.termination_grace_ms === undefined ? DEFAULT_TERMINATION_GRACE_MS : values.termination_grace_ms
   const stall_timeout_ms = values.stall_timeout_ms === undefined ? 0 : values.stall_timeout_ms
   const max_output_bytes = values.max_output_bytes === undefined ? MAX_OUTPUT_BYTES : values.max_output_bytes
+  const nested_poll_ms = values.nested_poll_ms === undefined ? DEFAULT_NESTED_POLL_MS : values.nested_poll_ms
   if (!is_nonnegative_safe_integer(timeout_ms)) throw new Error('timeout_ms must be a non-negative safe integer')
   if (!is_positive_integer(termination_grace_ms)) throw new Error('termination_grace_ms must be a positive integer')
   if (!is_nonnegative_safe_integer(stall_timeout_ms)) throw new Error('stall_timeout_ms must be a non-negative safe integer')
+  if (stall_timeout_ms !== 0) throw new Error('quiet-time termination is no longer supported; use an explicit deadline only when authorized')
   if (!is_positive_integer(max_output_bytes)) throw new Error('max_output_bytes must be a positive integer')
+  if (!is_nonnegative_safe_integer(nested_poll_ms)) throw new Error('nested_poll_ms must be a non-negative safe integer')
 
   const clone = prepare_clone(values)
   const result_file_path = normalize_result_file(values.result_file, clone.root)
   const output_collision = declared_result_output_collision(command, clone.root, result_file_path)
   if (output_collision !== null) throw new Error(`Codex ${output_collision.option} must not be used when a declared result path is configured`)
   const before_snapshot = clone_snapshot(clone.root)
-  const child_result = await run_child({ command, cwd: clone.root, timeout_ms, stall_timeout_ms, termination_grace_ms, max_output_bytes, env: values.env, result_file_path })
+  const child_result = await run_child({ command, cwd: clone.root, timeout_ms, stall_timeout_ms, nested_poll_ms, list_processes: values.list_processes, termination_grace_ms, max_output_bytes, env: values.env, result_file_path })
   return make_result({ ...values, max_output_bytes }, clone, command, before_snapshot, child_result, result_file_path)
 }
 
@@ -641,6 +672,7 @@ module.exports = {
   MAX_OUTPUT_BYTES,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_TERMINATION_GRACE_MS,
+  DEFAULT_NESTED_POLL_MS,
   normalize_command,
   inspect_git_clone,
   prepare_clone,

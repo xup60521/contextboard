@@ -27,6 +27,7 @@ const node_fs = require('node:fs');
 const node_os = require('node:os');
 const node_path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const ag_settings = require('./ag-settings.js');
 
 const hook_command_for = host => `node "${node_path.join(__dirname, 'stop-hook.js')}" --host ${host}`;
 
@@ -125,8 +126,8 @@ const backup = config_path => {
   return backup_path;
 };
 
-const add_hook = (config, host, { scope = 'project', cwd = process.cwd() } = {}) => {
-  const stop_entries = Array.isArray(config.hooks && config.hooks.Stop) ? config.hooks.Stop : [];
+const add_hook = (config, host, { scope = 'project', cwd = process.cwd(), event = 'Stop' } = {}) => {
+  const stop_entries = Array.isArray(config.hooks && config.hooks[event]) ? config.hooks[event] : [];
   const desired_command = hook_command_for(host);
   const owned = command => is_our_command(command, host)
     || (scope === 'project' && is_project_worktree_command(command, host, cwd));
@@ -144,15 +145,15 @@ const add_hook = (config, host, { scope = 'project', cwd = process.cwd() } = {})
   if (!kept_one) next_entries.push({ hooks: [{ type: 'command', command: desired_command }] });
   const next_config = {
     ...config,
-    hooks: { ...(config.hooks || {}), Stop: next_entries }
+    hooks: { ...(config.hooks || {}), [event]: next_entries }
   };
   return JSON.stringify(next_config) === JSON.stringify(config)
     ? { config, changed: false }
     : { config: next_config, changed: true };
 };
 
-const remove_hook = (config, host, { scope = 'project', cwd = process.cwd() } = {}) => {
-  const stop_entries = Array.isArray(config.hooks && config.hooks.Stop) ? config.hooks.Stop : [];
+const remove_hook = (config, host, { scope = 'project', cwd = process.cwd(), event = 'Stop' } = {}) => {
+  const stop_entries = Array.isArray(config.hooks && config.hooks[event]) ? config.hooks[event] : [];
   let changed = false;
   const kept = [];
 
@@ -180,9 +181,9 @@ const remove_hook = (config, host, { scope = 'project', cwd = process.cwd() } = 
   const next_hooks = { ...(config.hooks || {}) };
 
   if (kept.length === 0) {
-    delete next_hooks.Stop;
+    delete next_hooks[event];
   } else {
-    next_hooks.Stop = kept;
+    next_hooks[event] = kept;
   }
 
   const next_config = { ...config, hooks: next_hooks };
@@ -197,19 +198,24 @@ const remove_hook = (config, host, { scope = 'project', cwd = process.cwd() } = 
 const apply_to_host = (host, scope, off, say, cwd = process.cwd()) => {
   const config_path = config_path_for(host, scope, cwd);
   const config = read_config(config_path);
-  const { config: next_config, changed } = off ? remove_hook(config, host, { scope, cwd }) : add_hook(config, host, { scope, cwd });
+  let next_config = config;
+  let changed = false;
+  for (const event of ['Stop', 'UserPromptSubmit']) {
+    const result = (off ? remove_hook : add_hook)(next_config, host, { scope, cwd, event });
+    next_config = result.config;
+    changed = changed || result.changed;
+  }
 
   if (!changed) {
-    say(`${host}: no change — the Stop hook was already ${off ? 'absent from' : 'present in'} ${config_path}`);
+    say(`${host}: no change — the Agentflow hooks were already ${off ? 'absent from' : 'present in'} ${config_path}`);
     return;
   }
 
   const backup_path = backup(config_path);
 
-  node_fs.mkdirSync(node_path.dirname(config_path), { recursive: true });
-  node_fs.writeFileSync(config_path, `${JSON.stringify(next_config, null, 2)}\n`);
+  ag_settings.write_text_atomic(config_path, `${JSON.stringify(next_config, null, 2)}\n`);
 
-  say(`${host}: ${off ? 'removed' : 'added'} the Agentflow Stop hook ${off ? 'from' : 'in'} ${config_path}`);
+  say(`${host}: ${off ? 'removed' : 'added'} the Agentflow Stop and UserPromptSubmit hooks ${off ? 'from' : 'in'} ${config_path}. Restart the host to load this change.`);
 
   if (backup_path) {
     say(`${host}: backup of the previous file: ${backup_path}`);
@@ -246,8 +252,8 @@ const apply_guard = (off, say, cwd = process.cwd()) => {
   }
 
   if (!hook_stat) {
-    node_fs.mkdirSync(hooks_dir, { recursive: true });
-    node_fs.writeFileSync(hook_path, guard_script, { mode: 0o755 });
+    ag_settings.write_text_atomic(hook_path, guard_script);
+    node_fs.chmodSync(hook_path, 0o755);
     say(`git: added the pre-commit devlog guard at ${hook_path}`);
   } else if (existing === guard_script) {
     say('git: no change — the pre-commit devlog guard is already present');
@@ -285,7 +291,7 @@ const inspect = ({ cwd = process.cwd(), scope = 'project', hosts = HOSTS } = {})
   for (const host of hosts) {
     const config_path = config_path_for(host, scope, cwd);
     const config = read_config(config_path);
-    if (remove_hook(config, host, { scope, cwd }).changed) {
+    if (['Stop', 'UserPromptSubmit'].some(event => remove_hook(config, host, { scope, cwd, event }).changed)) {
       found.push(`remove the verified Agentflow Stop hook from ${config_path}`);
     }
   }
