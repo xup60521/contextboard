@@ -1136,3 +1136,13 @@ In the color palettes switcher
 
 + godev
   I have updated the skill. commit and push to main
+
+---
+
+## [RUN-001] Event — 2026-09-13 14:41:08 +0800 (A-009)
+
+- Local commits `3d2fdbd` and `39188ca` are complete but not pushed; `origin/main` had no incoming commits before the commit.
+- JavaScript syntax check passed for all 70 files. The focused runtime batch passed 95 of 111 tests and failed 16.
+- Full cross-check returned BLOCKING. Direct inspection confirms `ag-settings.js` now emits `gpt-6-astra/xhigh` and `gpt-5.6-luna/low`, while committed tests still require `gpt-6-astra/low` and `gpt-5.4-mini/medium`. The script guide also omits the new public completion-cleanup controls.
+- The Claude hook finding is not a current-checkout defect: its absolute path resolves to this laptop main checkout, and `install-hook.js` intentionally installs the same handler for Stop and UserPromptSubmit. It remains non-portable until setup is rerun after a move or clone.
+- Push is held because the committed skill and its tests disagree. Generated `.setup-checked`, stale `agentflow-skill.zip`, line-ending-only `.gitignore`, active stream work, and `tmp/` remain uncommitted.
