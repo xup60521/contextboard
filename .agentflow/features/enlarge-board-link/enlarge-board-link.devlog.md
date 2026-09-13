@@ -128,4 +128,14 @@ No migration of existing links. Resizing shapes the owner already placed would m
 
 # → Ask / A-003
 
-+
+keep working on `enlarge-board-link`
+
+now the whiteboard link title is enlarged. but the shape itself has not adjusted to the change, so it looks awkward
+
+fix that
+
+(clarifying answer, on which awkwardness: "1. But enlarge the box size first. I can be resized manually though. I want the default size larger." — option 1 was the big empty void inside the box)
+
+## [RUN-001] Event — route and change (during round A-003)
+
+Route: direct. The Ask is two constants and one flex class on a surface the previous round already reviewed end to end. Both creation paths plus the shape util moved together, as the earlier cross-check required. Default frame 384x208 -> 480x256; resize floor 240x132 -> 320x152; the title row now takes `flex-1 items-center` instead of the container using `justify-between`, so the title block centres in the free space and the footer stays on the baseline, removing the ~90px dead band the owner saw. Title 26px -> 28px and badge 40px -> 44px to keep the type in proportion with the larger frame. Changed paths: apps/web/src/integrations/local/operations.ts, packages/application/src/canvas/services.ts, packages/web-ui/src/components/whiteboard/SubwhiteboardLinkShape.tsx — matches the expected set exactly.

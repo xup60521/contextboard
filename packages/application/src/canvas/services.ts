@@ -43,8 +43,8 @@ import { planReferences } from "./plan/references";
 import { planRestoreOrAdoptCardItem } from "./plan/restore-or-adopt-card-item";
 
 const DEFAULT_CARD_WIDTH = 576;
-const DEFAULT_SUBWHITEBOARD_WIDTH = 384;
-const DEFAULT_SUBWHITEBOARD_HEIGHT = 208;
+const DEFAULT_SUBWHITEBOARD_WIDTH = 480;
+const DEFAULT_SUBWHITEBOARD_HEIGHT = 256;
 const DEFAULT_ROOT_TITLE = "Untitled whiteboard";
 
 type ServiceOptions = {

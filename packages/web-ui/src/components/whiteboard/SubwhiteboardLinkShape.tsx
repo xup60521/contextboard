@@ -106,9 +106,9 @@ function SubwhiteboardLinkComponent({
 
 	return (
 		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
-			<div className="flex h-full w-full flex-col justify-between rounded-md border border-[var(--border)] bg-[var(--card)] px-6 py-5 text-[var(--card-foreground)] shadow-sm">
-				<div className="flex items-center gap-3 text-[26px] font-bold leading-8">
-					<span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[var(--accent)] text-[22px] text-[var(--lagoon-deep)]">
+			<div className="flex h-full w-full flex-col rounded-md border border-[var(--border)] bg-[var(--card)] px-6 py-5 text-[var(--card-foreground)] shadow-sm">
+				<div className="flex flex-1 items-center gap-3 text-[28px] font-bold leading-9">
+					<span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[var(--accent)] text-[24px] text-[var(--lagoon-deep)]">
 						-&gt;
 					</span>
 					<input
@@ -181,8 +181,8 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 
 	override getDefaultProps(): SubwhiteboardLinkShape["props"] {
 		return {
-			w: 384,
-			h: 208,
+			w: 480,
+			h: 256,
 			label: "Sub-whiteboard",
 			subwhiteboardId: makeSubwhiteboardId(),
 		};
@@ -220,7 +220,7 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 		shape: SubwhiteboardLinkShape,
 		info: TLResizeInfo<SubwhiteboardLinkShape>,
 	) {
-		return resizeBox(shape, info, { minWidth: 240, minHeight: 132 });
+		return resizeBox(shape, info, { minWidth: 320, minHeight: 152 });
 	}
 
 	override onDropShapesOver(shape: SubwhiteboardLinkShape, shapes: TLShape[]) {
