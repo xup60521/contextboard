@@ -1,0 +1,11 @@
+Outcome: PASS
+
+The actual canvas path omits dimensions, then both persistence backends now create links at 384×208: [useItemCreation.ts](/C:/Users/User/AppData/Local/Temp/agentflow-external-runner-LC66Kp/clone/packages/web-ui/src/components/whiteboard/hooks/useItemCreation.ts:52), [services.ts](/C:/Users/User/AppData/Local/Temp/agentflow-external-runner-LC66Kp/clone/packages/application/src/canvas/services.ts:378), and [operations.ts](/C:/Users/User/AppData/Local/Temp/agentflow-external-runner-LC66Kp/clone/apps/web/src/integrations/local/operations.ts:678). `getDefaultProps` is not the sole creation source, but its direct helper path now matches at [SubwhiteboardLinkShape.tsx](/C:/Users/User/AppData/Local/Temp/agentflow-external-runner-LC66Kp/clone/packages/web-ui/src/components/whiteboard/SubwhiteboardLinkShape.tsx:156). The title is now 26px in the enlarged frame, so it reads at card scale. I did not run focused tests because this checkout has no `node_modules`; coordinator evidence covers them.
+
+Minimality: PASS
+
+The change adds no product prop or option. `DEFAULT_SUBWHITEBOARD_HEIGHT` owns the formerly borrowed card-height default at [services.ts](/C:/Users/User/AppData/Local/Temp/agentflow-external-runner-LC66Kp/clone/packages/application/src/canvas/services.ts:45); the remaining changes are the matching local defaults and link styling/minimums.
+
+Conformance: PASS
+
+The 240×132 minimum fits the link’s 40px header, 20px footer, and 48px horizontal/40px vertical padding without clipping; long text intentionally truncates at [SubwhiteboardLinkShape.tsx](/C:/Users/User/AppData/Local/Temp/agentflow-external-runner-LC66Kp/clone/packages/web-ui/src/components/whiteboard/SubwhiteboardLinkShape.tsx:83) and [SubwhiteboardLinkShape.tsx](/C:/Users/User/AppData/Local/Temp/agentflow-external-runner-LC66Kp/clone/packages/web-ui/src/components/whiteboard/SubwhiteboardLinkShape.tsx:197). Existing stored frames remain unchanged: hydration copies each item’s persisted `w` and `h` at [whiteboard-canvas-helpers.ts](/C:/Users/User/AppData/Local/Temp/agentflow-external-runner-LC66Kp/clone/packages/web-ui/src/components/whiteboard/whiteboard-canvas-helpers.ts:254), with no migration or automatic resize.

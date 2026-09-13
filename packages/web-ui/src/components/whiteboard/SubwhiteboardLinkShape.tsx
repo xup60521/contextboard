@@ -106,9 +106,9 @@ function SubwhiteboardLinkComponent({
 
 	return (
 		<HTMLContainer style={getShapeContainerStyle(shape.props.w, shape.props.h)}>
-			<div className="flex h-full w-full flex-col justify-between rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[var(--card-foreground)] shadow-sm">
-				<div className="flex items-center gap-2 text-[15px] font-bold leading-5">
-					<span className="grid h-7 w-7 shrink-0 place-items-center rounded bg-[var(--accent)] text-[16px] text-[var(--lagoon-deep)]">
+			<div className="flex h-full w-full flex-col justify-between rounded-md border border-[var(--border)] bg-[var(--card)] px-6 py-5 text-[var(--card-foreground)] shadow-sm">
+				<div className="flex items-center gap-3 text-[28px] font-bold leading-9">
+					<span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[var(--accent)] text-[24px] text-[var(--lagoon-deep)]">
 						-&gt;
 					</span>
 					<input
@@ -163,7 +163,7 @@ function SubwhiteboardLinkComponent({
 						}}
 					/>
 				</div>
-				<div className="truncate font-mono text-[11px] leading-4 text-[var(--muted-foreground)]">
+				<div className="truncate font-mono text-[14px] leading-5 text-[var(--muted-foreground)]">
 					{shape.props.cardCount !== undefined
 						? `${shape.props.cardCount} cards · ${shape.props.childWhiteboardCount ?? 0} boards`
 						: shape.props.depth !== undefined
@@ -181,8 +181,8 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 
 	override getDefaultProps(): SubwhiteboardLinkShape["props"] {
 		return {
-			w: 220,
-			h: 84,
+			w: 576,
+			h: 320,
 			label: "Sub-whiteboard",
 			subwhiteboardId: makeSubwhiteboardId(),
 		};
@@ -220,7 +220,7 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 		shape: SubwhiteboardLinkShape,
 		info: TLResizeInfo<SubwhiteboardLinkShape>,
 	) {
-		return resizeBox(shape, info, { minWidth: 180, minHeight: 64 });
+		return resizeBox(shape, info, { minWidth: 320, minHeight: 152 });
 	}
 
 	override onDropShapesOver(shape: SubwhiteboardLinkShape, shapes: TLShape[]) {
