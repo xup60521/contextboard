@@ -4,19 +4,19 @@ Project: contextboard
 
 Notebook: .agentflow/features/enlarge-board-link/enlarge-board-link.devlog.md — stream.
 
-Current commit: 517b7fe294b3637b126739d450b60371214cde48 — the A-003 frame enlargement and layout fix, on top of aa4e2b7 from A-002.
+Current commit: 4a877afacddba29c0acb13c572ce43c87282090e — the 576x320 creation default, size only. The A-003 layout change sits separately in 517b7fe.
 
-Tests/scenarios: `bun run check` 30 of 32 tasks pass, the two failures (`convex-export` missing `node` types, `desktop` unable to resolve `@contextboard/editor`) reproduced on unchanged sources in this worktree; `bun run test` across the three affected packages fails only `apps/web` `operations.test.ts > creates nested whiteboards and cards with consistent counters`, which a stashed baseline fails identically. No browser evidence: no dev server was reachable and repository policy forbids starting one.
+Tests/scenarios: `bun run check` 30 of 32 tasks pass, the one failure (`desktop` unable to resolve `@contextboard/editor` from a test file) reproduced on unchanged sources in this worktree; `bun run test` across the three affected packages is 1 failed / 32 passed on `apps/web` `operations.test.ts > creates nested whiteboards and cards with consistent counters`, which a stashed baseline fails identically. No browser evidence: no dev server was reachable and repository policy forbids starting one.
 
 Configuration: .agentflow/features/enlarge-board-link/ag.json — schema v7; validated for claude this round.
 
-Proven: sub-whiteboard links are created at 480x256 on all three sites that carry a default — the shape util, `services.ts`, and the `apps/web` local operations — with no `384` or `208` creation literal surviving under `apps/` or `packages/`. The title row takes `flex-1 items-center` instead of the container using `justify-between`, so it absorbs the free height and centres in it and the earlier dead band is gone by construction. At the new 320x152 resize floor the title row still has 92px for a 44px badge, so the floor cannot clip its own content. Stored links keep their persisted `w`/`h`; hydration copies them and legacy canvas-record migration excludes them. Targeted cross-check PASS on Outcome, Minimality and Conformance for 517b7fe, Host gate PASS after checking each citation against the source.
+Proven: sub-whiteboard links are created at 576x320 on all three sites that carry a default — the shape util, `services.ts`, and the `apps/web` local operations — with no sub-whiteboard `480` or `256` literal surviving under `apps/` or `packages/`. 576 equals the markdown card default width, and `DEFAULT_CARD_WIDTH` and `DEFAULT_SUBWHITEBOARD_WIDTH` were deliberately left as two constants that coincide rather than one shared constant. Commit 4a877af is size only: six literals, no type, padding, layout, or resize-floor line. The 320x152 floor still clears the shape’s own content. Stored links keep their persisted `w`/`h`; hydration copies them and legacy canvas-record migration excludes them. Targeted cross-check PASS on Outcome, Minimality and Conformance for 4a877af, Host gate PASS after checking the diff and the stale-literal search directly.
 
-Open: the visual result is still unverified in a real browser, so 480x256 is argued from arithmetic rather than seen. PR #36 is still a draft, which `AGENTS.md` says it should not be. The review gate needs two manual workarounds on this Linux box: the `@openai/codex` package sits under `installation/lib` where `codex-worker.js` does not look, and `bwrap` cannot set up loopback so the reviewer needs `-s danger-full-access`.
+Open: the visual result is still unverified in a real browser, so 576x320 is chosen from the card width rather than seen. The A-003 layout change remains mixed into 517b7fe with that round’s size step; isolating it would need a revert-and-reapply pair on top, since the branch is pushed with an open PR. The review gate still needs two manual workarounds on this Linux box: the `@openai/codex` package sits under `installation/lib` where `codex-worker.js` does not look, and `bwrap` cannot set up loopback so the reviewer needs `-s danger-full-access`.
 
 Next: closed — delivery goes through the GitHub PR for branch `enlarge-board-link`, then `cleanup:enlarge-board-link` from the laptop main checkout after it merges.
 
-Artifacts: .agentflow/features/enlarge-board-link/artifacts/A-002-enlarge-board-link/ — the first round’s brief and accepted `review-report-3.md`; .agentflow/features/enlarge-board-link/artifacts/A-003-enlarge-board-link/ — this round’s brief, two sandbox-blocked reports, one correct-verdict report that missed the checker’s file contract, and the accepted `review-report-4.md`.
+Artifacts: .agentflow/features/enlarge-board-link/artifacts/A-002-enlarge-board-link/, A-003-enlarge-board-link/ and A-004-enlarge-board-link/ — each round’s review brief and reports; the accepted ones are `review-report-3.md`, `review-report-4.md` and `review-report.md` respectively.
 
 Archived eras: none.
 
@@ -233,3 +233,78 @@ No. What I mean is the default size on creation is too small. The thing I talk a
 ## [RUN-001] Event — route and change (during round A-004)
 
 Route: direct. The owner corrected the target: the Ask was always the tldraw shape's creation default, not the rendered contents. A-003 delivered 480x256 and that is still too small. Default frame 480x256 -> 576x320 on the same three sites, 576 being the markdown card default width so a link and a card line up flush. Size only, in its own commit 4a877af, on the owner's word that the layout change stays but stays separable from it. No type, padding, or resize-floor change this round. Changed paths: apps/web/src/integrations/local/operations.ts, packages/application/src/canvas/services.ts, packages/web-ui/src/components/whiteboard/SubwhiteboardLinkShape.tsx — matches the expected set exactly.
+
+# ← Reply / A-004
+
+2026-09-13 12:23 CST — Claude Opus 5 (1M context), Linux box, stream worktree `.worktrees/enlarge-board-link`.
+
+## [SUMMARY]
+
+- The sub-whiteboard link's creation default is now 576x320, up from 480x256.
+- 576 is the markdown card's default width, so a link and a card line up flush side by side.
+- Size only. One commit, `4a877af`, six literals, nothing else touched.
+- The A-003 layout change stays where it is, in `517b7fe`, so the two remain separable.
+- Targeted cross-check PASS on all three axes for `4a877af`. Host gate PASS.
+- Still unseen in a browser. The dev server is off limits here.
+
+## [FINAL REPORT]
+
+### 1. Owner correction: the Ask is the tldraw shape's creation default
+
+Understood, and I had it wrong. A-003 read "the shape itself has not adjusted" as being about what is drawn inside the box and spent most of its effort on the internal layout. The Ask was the frame the shape is created at, and has been since A-002.
+
+The creation default is now 576x320. That is 20 percent wider and 25 percent taller than the 480x256 A-003 landed on, and it puts the link at exactly the markdown card's default width, so a link and a card sitting side by side share an edge instead of one overhanging the other.
+
+Three sites carry that default and all three moved, which is the trap from A-002 worth not falling into twice:
+
+- `packages/web-ui/.../SubwhiteboardLinkShape.tsx` — `getDefaultProps`.
+- `packages/application/src/canvas/services.ts` — `DEFAULT_SUBWHITEBOARD_WIDTH` and `DEFAULT_SUBWHITEBOARD_HEIGHT`.
+- `apps/web/src/integrations/local/operations.ts` — the literal fallbacks on the local persistence path.
+
+### 2. Size only, in its own commit
+
+`4a877af` is six changed literals across those three files and nothing else. No type size, no padding, no layout class, no resize floor. I checked the commit's own diff rather than trusting the intent, and the reviewer checked it separately.
+
+That keeps your comparison clean: `517b7fe` is the layout change plus the 384-to-480 step, `4a877af` is the 480-to-576 step alone. Reverting `4a877af` returns the default to 480x256 with the layout intact.
+
+The one thing I did not isolate is the layout change itself, which is still mixed into `517b7fe` alongside that earlier size step. Undoing that mixing now would mean rewriting pushed history, and the branch has an open PR on it. If you want the layout on its own, the cheapest honest route is a small revert commit on top rather than a rebase — say the word and I will make one. Its whole content is `justify-between` on the container and `flex-1 items-center` on the title row.
+
+### 3. `DEFAULT_SUBWHITEBOARD_WIDTH` is now 576, the same as `DEFAULT_CARD_WIDTH`
+
+Two constants in the same file now hold the same number, which invites collapsing them. I left them separate and asked the reviewer to second-guess that specifically. It agreed: cards and sub-whiteboard links are independent concepts that happen to coincide today, and tying them together would mean the next change to either silently moves the other.
+
+### 4. Evidence
+
+- `bun run check`: 30 of 32 tasks pass. The one failure, `desktop` unable to resolve `@contextboard/editor` from a test file, is pre-existing and I reproduced it on unchanged sources in this worktree last round.
+- `bun run test` across the three affected packages: 1 failed, 32 passed, the same `apps/web` counter test that a stashed baseline on unchanged sources failed identically last round. No regression.
+- Cross-check on `4a877af`, level `targeted`: PASS on Outcome, Minimality and Conformance.
+- Host gate: PASS. I verified the claims myself — the commit diff really is six size literals, and no sub-whiteboard `480` or `256` survives anywhere under `apps/` or `packages/`.
+
+Cross-check review: `.agentflow/features/enlarge-board-link/artifacts/A-004-enlarge-board-link/review-report.md`
+Cross-check implementation: 4a877afacddba29c0acb13c572ce43c87282090e
+
+### 5. What is still not proven
+
+The look, again. `AGENTS.md` forbids starting a dev server here and none was reachable, so 576x320 has not been seen on a canvas by anyone. If it is still not big enough, it is three files and one number each, and I would rather change it twice more than guess.
+
+### 6. Deliberately not done
+
+The resize floor is still 320x152 and I left it there on purpose. It is the smallest a link may be dragged to, not the size it arrives at, and shrinking a link below the new default is exactly the manual resizing you said you were happy to do. The floor still clears the shape's own content.
+
+Existing links are untouched, as in both previous rounds. Hydration copies each stored frame and the legacy canvas-record migration excludes these links, so nothing on your boards moves.
+
+## Questions (batched — each with a suggested default)
+
+- Do you want the A-003 layout change pulled out of `517b7fe` into a revert-and-reapply pair, so it sits alone in history?
+- Suggested default: no, leave it; the commit message and this entry already say which hunk is which, and two extra commits of churn buy little.
+- ans:
+
+- Is 576x320 the size, or does it want another step?
+- Suggested default: look at it first; another step is one number per file.
+- ans:
+
+---
+
+# → Ask / A-005
+
++
