@@ -181,8 +181,8 @@ export class SubwhiteboardLinkShapeUtil extends BaseBoxShapeUtil<SubwhiteboardLi
 
 	override getDefaultProps(): SubwhiteboardLinkShape["props"] {
 		return {
-			w: 480,
-			h: 256,
+			w: 576,
+			h: 320,
 			label: "Sub-whiteboard",
 			subwhiteboardId: makeSubwhiteboardId(),
 		};
