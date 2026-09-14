@@ -79,4 +79,20 @@ The ask's scope is what the user wrote plus tests, commits, the notebook, STATUS
 
 ## Report format
 
-Open line one with `* _YYYY-MM-DD HH:MM:SS ±HHMM (<Model>/<Effort>)_` using fresh machine-local time. Follow the writing guidance in `.agents/skills/agentflow/references/writing.md` (read it; you are explicitly authorized to apply it to your report's presentation). End with exactly one final line beginning `Self-check:` and write nothing after it.
+Line one of the file is the stamp: `* _YYYY-MM-DD HH:MM:SS ±HHMM (<Model>/<Effort>)_` using fresh machine-local time. Write no preamble, greeting, or framing sentence before it.
+
+The three verdicts are read by a machine. Each must appear exactly once, on its own line, as bare text with nothing else on that line — no bold markers, no trailing dash, no explanation:
+
+```
+Outcome: PASS
+Minimality: PASS
+Conformance: PASS
+```
+
+Put your reasoning in the lines around them, never on the verdict line itself. `BLOCKING` replaces `PASS` where warranted.
+
+Follow the writing guidance in `.agents/skills/agentflow/references/writing.md` (read it; you are explicitly authorized to apply it to your report's presentation). End with exactly one final line beginning `Self-check:` and write nothing after it.
+
+## Amendment 1
+
+This is the second dispatch of the same stage. The first report reached identical substantive conclusions but wrote its verdicts as `**Outcome: PASS** — …`, which the completion checker cannot read. Review the change independently and on its merits; the earlier run's conclusions are not evidence for yours.
