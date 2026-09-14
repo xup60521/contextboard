@@ -13,6 +13,7 @@ import {
 	itemToShape,
 	registerSubwhiteboardDropHandler,
 	syncRightDragPanPointer,
+	whiteboardShellClass,
 } from "./WhiteboardCanvas";
 import {
 	type ManagedWhiteboardShape,
@@ -550,5 +551,27 @@ describe("sub-whiteboard drop bridge", () => {
 		unregister();
 		dispatchSubwhiteboardDrop(editor, target, shapes);
 		expect(handler).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("whiteboard shell class", () => {
+	test("spaces the board against the sidebar only while it is open", () => {
+		const framed = whiteboardShellClass({ readOnly: false, sidebarOpen: true });
+
+		expect(framed).toContain("bg-[var(--sidebar)]");
+		expect(framed).toContain("p-1 pl-0");
+		expect(
+			whiteboardShellClass({ readOnly: false, sidebarOpen: false }),
+		).not.toContain("p-1 pl-0");
+	});
+
+	test("leaves a preview unframed and keeps each mode's sizing", () => {
+		const preview = whiteboardShellClass({ readOnly: true, sidebarOpen: true });
+
+		expect(preview).toContain("h-full min-h-0");
+		expect(preview).not.toMatch(/border/);
+		expect(
+			whiteboardShellClass({ readOnly: false, sidebarOpen: true }),
+		).toContain("h-dvh min-h-[620px]");
 	});
 });

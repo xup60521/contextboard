@@ -554,6 +554,29 @@ export function colorSchemeToMode(
 	return scheme === "light" || scheme === "dark" ? scheme : "auto";
 }
 
+// ── Layout helpers ────────────────────────────────────────────────────────────
+
+/**
+ * The board wears a thin sidebar-coloured frame only while the sidebar is
+ * showing, so the two surfaces read as one panel. Closed, it stays edge to edge.
+ * A preview never frames: it is already inside a dialog, with no sidebar beside
+ * it to match.
+ */
+export function whiteboardShellClass({
+	readOnly,
+	sidebarOpen,
+}: {
+	readOnly: boolean;
+	sidebarOpen: boolean;
+}): string {
+	const size = readOnly ? "h-full min-h-0" : "h-dvh min-h-[620px]";
+	const frame =
+		sidebarOpen && !readOnly
+			? " p-1 pl-0"
+			: "";
+	return `flex w-full overflow-hidden bg-[var(--sidebar)] transition-all ${size}${frame}`;
+}
+
 // ── Misc ──────────────────────────────────────────────────────────────────────
 
 export function getWhiteboardKey(
