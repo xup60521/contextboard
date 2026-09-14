@@ -4,30 +4,23 @@ Project: contextboard
 
 Notebook: .agentflow/features/research-detail-reconstruction/research-detail-reconstruction.devlog.md — stream.
 
-Current commit: stream-open only, no code commits yet.
+Current commit: 1f30d00 implementation; 93fdb2c review records.
 
-Tests/scenarios: none.
+Tests/scenarios: saved instruction diff inspection and git diff --check passed; targeted review PASS.
 
 Configuration: .agentflow/features/research-detail-reconstruction/ag.json — schema v7; validated for codex this round.
 
-Proven: the stream configuration was copied from the root configuration.
+Proven: detail-note instructions reconstruct reasoning and distinguish source statements from reading aids.
 
-Open: none.
+Open: PR creation follows closing record; practical note quality awaits a research run.
 
-Next: reply to the first Ask below.
+Next: open PR, then laptop review and merge.
 
-Artifacts: none.
+Artifacts: .agentflow/features/research-detail-reconstruction/artifacts/A-001-detail-notes.
 
 Archived eras: none.
 
 Streams: none.
-
-Backlink: main notebook `.agentflow/devlog.md` (main checkout)
-
-Feature: research-detail-reconstruction — active — Reconstruct authors arguments in detail notes
-
-Opened by the `agf` shell shortcut on 2026-09-14, not by an agent round. The main-notebook `stream:` pointer line was deliberately NOT written — the next main-checkout session re-derives it from `.agentflow/features/*/*devlog.md`.
-
 ---
 
 # → Ask / A-001 (xup60521)
@@ -79,3 +72,51 @@ Opened by the `agf` shell shortcut on 2026-09-14, not by an agent round. The mai
 - Validate saved instructions against the feedback and existing contracts, then independently review operating instructions. No app runtime is needed.
 
 - Stream research-detail-reconstruction is active. Root pointer is deferred to the laptop main-checkout session. Prior nonempty answers were handled in A-007.
+
+## [RUN-002] Event — 2026-09-14 15:08:36 +0800 (A-001)
+
+- Implemented the two instruction changes and inspected the saved diff; git diff --check passed.
+
+- Targeted external review passed for 1f30d00df49260744b4d5a912e690e6e222ab126, using gpt-5.6-terra/high in an unchanged independent clone. Host inspection accepted the findings. The report's trailing stamp period is a presentation warning only.
+
+- Preparation completed and pushed the stream branch. Close the stream for PR delivery; do not run finish --deliver.
+
+- Closeout initially rejected the report framing. Preserved the raw report and created a clearly labeled normalized copy that changes only the trailing stamp punctuation and fills the empty boundary with host provenance. No review verdict or finding changed.
+
+# ← Reply / A-001
+
+* _2026-09-14 15:08:36 +0800 (codex/unknown)_
+
+## [SUMMARY]
+
+- Detail notes now prioritize rebuilding the author's reasoning for a reader who needs an initial explanation.
+
+- The instruction change passed a targeted independent review and is pushed. PR creation follows this closing record; no existing board notes were regenerated.
+
+## [FINAL REPORT]
+
+1. Adjust research-flow so detail notes reconstruct the author's argument.
+
+   - Succeeded in `skills/contextboard/research-flow.md` and `skills/contextboard/taking-note.md`. Start with a coherent section, unpack difficult sentences and necessary background, and explain why reasons, examples, and concepts advance the argument. An explanation may exceed the source passage's length.
+
+   - Offer a provisional reading before asking the reader to restate it. Interactive follow-up checks the reading against exact wording; autonomous research does not wait for this exchange.
+
+   - Visibly distinguish the author's statements, inferred connections, added examples or background, and unresolved readings. Preserve conditions and genuine gaps. Added material cannot establish the author's position.
+
+   - Saved-diff inspection and `git diff --check` passed. The existing coverage, citations, metadata, source topology, synthesis, budget and publishing contracts remain intact. The independent review returned Outcome, Minimality, Conformance and Verdict PASS for `1f30d00`. Host inspection confirmed the cited requirements and no unrequested source changes. The review clone was unchanged.
+
+   - Validation covers the instructions, not generated note quality. No app runtime, browser session, or board publishing was needed. The next real reading remains the practical quality check.
+
+   - `agf finish --prep research-detail-reconstruction` completed and pushed the branch. The stream is closed for PR delivery, with merge and cleanup left to the laptop after review. Root notebook pointer updates are deferred to the laptop main-checkout session.
+
+
+## Questions (batched — each with a suggested default)
+
+- None.
+
+
+---
+
+# → Ask / A-002 (xup60521)
+
++
