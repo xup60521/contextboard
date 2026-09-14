@@ -4,19 +4,19 @@ Project: contextboard
 
 Notebook: .agentflow/features/research-detail-reconstruction/research-detail-reconstruction.devlog.md — stream.
 
-Current commit: 1f30d00 implementation; 93fdb2c review records.
+Current commit: instruction implementation remains 1f30d00; trim assessment is notebook-only.
 
-Tests/scenarios: saved instruction diff inspection and git diff --check passed; targeted review PASS.
+Tests/scenarios: read both instruction files and compared duplicate responsibilities; no code tests needed.
 
 Configuration: .agentflow/features/research-detail-reconstruction/ag.json — schema v7; validated for codex this round.
 
-Proven: detail-note instructions reconstruct reasoning and distinguish source statements from reading aids.
+Proven: specific consolidation opportunities and separate policy proposals identified.
 
-Open: PR creation follows closing record; practical note quality awaits a research run.
+Open: trimming is proposed, not applied.
 
-Next: open PR, then laptop review and merge.
+Next: await owner direction on the proposed cuts.
 
-Artifacts: .agentflow/features/research-detail-reconstruction/artifacts/A-001-detail-notes.
+Artifacts: none for A-002; earlier review retained.
 
 Archived eras: none.
 
@@ -118,5 +118,49 @@ Streams: none.
 ---
 
 # → Ask / A-002 (xup60521)
+
++ taking-note and research-flow is a little bit too bloated
+  Is there anything worth trimmed off?
+
+# ← Reply / A-002
+
+* _2026-09-14 15:11:38 +0800 (codex/unknown)_
+
+## [SUMMARY]
+
+- Yes. The largest safe reduction is to give each rule one home. My previous patch added useful reading guidance but repeated it across both files.
+
+- No instruction files were edited. The recommendations below separate deduplication from changes to workflow policy.
+
+## [FINAL REPORT]
+
+1. Identify worthwhile cuts in taking-note and research-flow.
+
+   - Let `taking-note.md` own reading and source-note construction. Replace most of `research-flow.md` section 3 with the invocation, expected output, and research-specific requirements. Move its unique positioning and quotation guidance into taking-note before removing duplicates.
+
+   - Merge taking-note sections 3, 4 and 8 around one section-reading procedure. They repeat what a complete argument contains and when to split or merge cards. Keep one explanation and a short acceptance checklist.
+
+   - Give note topology one home in taking-note section 10. Research-flow should retain only the relationship between layers, their spacing, and synthesis-layer arrangement. Preserve title prefixes and machine-relevant layout rules.
+
+   - Combine the four epistemic status definitions with the mixed-status prose rule in taking-note section 5. Keep visible distinctions between author statements, reconstructed connections, added aids, and uncertainty; remove the second enumeration explaining the same categories.
+
+   - Cut repeated motivational prose about surplus notes, quotation currency, and why agents invent things. Keep operational rules and examples that clarify an actual edge case. The one-citation-per-note diagnostic is not evidence that notes were reverse-engineered and can go.
+
+   - Keep one fidelity checklist in taking-note. Research-flow can name the second pass's scope and when to run it, without restating the checks. Removing the second pass altogether would be a separate policy change.
+
+   - Policy changes worth considering: remove the approximately 40% single-source threshold and mandatory disagreement card per round; require comparison and disagreements where supported. Replace the automatic demotion after two mechanical failures with a bounded repair/report decision, because formatting failure does not make synthesis into a source note. These change behavior, so they are proposals, not silent deduplication.
+
+   - Preserve the new core: coherent-section guidance, explanation of why concepts and examples enter, necessary background, help before user restatement, locatable evidence, qualifications, visible uncertainty, and explicit source coverage. The exact numeric tree limits can be debated separately; they are existing layout policy and should not disappear in a prose cleanup.
+
+   - Recommended first pass: consolidate ownership, merge repeated instructions, and cut rhetorical justification. Keep the reading method explicit and make research-flow a short orchestration document. Inspection covered the two current files in the research-detail-reconstruction worktree; no generated-note evaluation was performed.
+
+## Questions (batched — each with a suggested default)
+
+- None.
+
+
+---
+
+# → Ask / A-003 (xup60521)
 
 +
