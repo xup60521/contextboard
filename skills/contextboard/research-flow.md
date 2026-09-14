@@ -118,6 +118,8 @@ The positioning line is the cheapest context on a research board, because the au
 
 ### Detail note
 
+The primary job is to help a reader reconstruct the author's argument, including when the reader cannot yet make sense of the original. Give a provisional reading they can take back to the text. Expand compressed reasoning and necessary context until the connections are visible; a detail note may be longer than the passage it explains. A list of concepts or a shorter restatement of conclusions is insufficient.
+
 Make a detail note for a natural argumentative section or turn, not for every passage, result, evidence type, or metadata role. A long detail note may carry several claims, reasons, examples, and limits under Markdown headings. Split it only when a branch can be understood independently and the split materially improves navigation or comparison, or when combining it would obscure the argument. Preserve the complete movement from question through claim, reasoning, evidence, and consequential limits. Notes written to fit the synthesis have no surplus, and the surplus is the point: it is what lets the user read what the source actually said, and what lets a later reading go somewhere this one did not. If nearly every note ends up cited exactly once, the notes were reverse-engineered from the conclusions rather than read out of the sources, and the argument layer will have nothing to reason with.
 
 A separate positioning note is worth splitting out when a source's account of earlier work is substantial enough to be cited more than once — a review article is mostly this.
@@ -125,6 +127,8 @@ A separate positioning note is worth splitting out when a source's account of ea
 A detail note must remain intelligible away from the source. In natural prose, it should let a reader answer:
 
 > Who, while addressing what question, used what material to make which bounded claim?
+
+It should also explain why the reasons support that claim, why a new concept is needed at this point, and how the section takes up or leaves a problem for its neighbors. Follow the section-reading and assisted-reading guidance in `taking-note.md`. Do not require the user to understand or summarize the text before receiving help.
 
 It must also:
 
@@ -135,7 +139,7 @@ It must also:
 - preserve qualifications that change the meaning of the claim; and
 - explain enough of its place in the source's argument that it cannot be mistaken for a context-free fact.
 
-End with one visible provenance line linking the source and `Source overview`. Put the complete `Role`, `Status`, `Locator`, `Source`, and `Parent` fields in a Markdown HTML comment. This keeps machine-readable state on the card without forcing the reader through a metadata wall. If one long card mixes epistemic statuses, record its primary status there and mark every reconstructed or uncertain passage visibly in the prose.
+End with one visible provenance line linking the source and `Source overview`. Put the complete `Role`, `Status`, `Locator`, `Source`, and `Parent` fields in a Markdown HTML comment. This keeps machine-readable state on the card without forcing the reader through a metadata wall. If one long card mixes epistemic statuses, record its primary status there and mark every reconstructed, agent-added, or uncertain passage visibly in the prose. Distinguish what the author explicitly says, what the agent infers to connect passages, and what it adds as explanatory background or an example. Added material cannot supply evidence for the author's claim.
 
 Use this as a validation checklist, not a fixed writing template. A detail note borrows the readable movement of an argument card: a claim-bearing title, an opening question or tension, evidence and caveats placed where they change the claim, and a final consequence that carries the reader forward. It remains source-bound and does not need cross-source synthesis or the argument card's five-slot coverage.
 
@@ -149,7 +153,7 @@ For each consequential note:
 
 1. Reopen the cited location and enough surrounding material to recover context.
 2. Check that the note preserves the source's claim, evidence, qualifications, population, time, and level of certainty.
-3. Check that interpretation is marked as interpretation rather than attributed to the source.
+3. Check the explanatory steps against the text: which words support a claimed contrast, how an example supports a conclusion, and whether a concept's stated role is warranted. Preserve unresolved gaps instead of inventing a missing premise. Check that reconstructed connections and added background or examples are visibly distinguished from the author's statements, and that plain-language explanations preserve their conditions and uncertainty.
 4. Correct ordinary errors in the original note.
 5. If the error would change a later conclusion, add a short explanation of why the rejected reading does not hold.
 
