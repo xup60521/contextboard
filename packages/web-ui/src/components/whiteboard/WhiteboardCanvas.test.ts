@@ -555,13 +555,14 @@ describe("sub-whiteboard drop bridge", () => {
 });
 
 describe("whiteboard shell class", () => {
-	test("frames the board only while the sidebar is open", () => {
-		expect(
-			whiteboardShellClass({ readOnly: false, sidebarOpen: true }),
-		).toMatch(/rounded-\S+ border border-\[var\(--sidebar\)\]/);
+	test("spaces the board against the sidebar only while it is open", () => {
+		const framed = whiteboardShellClass({ readOnly: false, sidebarOpen: true });
+
+		expect(framed).toContain("bg-[var(--sidebar)]");
+		expect(framed).toContain("p-1 pl-0");
 		expect(
 			whiteboardShellClass({ readOnly: false, sidebarOpen: false }),
-		).not.toMatch(/border/);
+		).not.toContain("p-1 pl-0");
 	});
 
 	test("leaves a preview unframed and keeps each mode's sizing", () => {

@@ -572,9 +572,9 @@ export function whiteboardShellClass({
 	const size = readOnly ? "h-full min-h-0" : "h-dvh min-h-[620px]";
 	const frame =
 		sidebarOpen && !readOnly
-			? " rounded-xl border border-[var(--sidebar)]"
+			? " p-1 pl-0"
 			: "";
-	return `flex w-full overflow-hidden bg-[var(--background)] ${size}${frame}`;
+	return `flex w-full overflow-hidden bg-[var(--sidebar)] transition-all ${size}${frame}`;
 }
 
 // ── Misc ──────────────────────────────────────────────────────────────────────

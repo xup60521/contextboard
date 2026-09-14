@@ -37,13 +37,13 @@ export function AppSidebarFrame({
 
 	return (
 		<div
-			className={`overflow-hidden transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] ${isOpen ? "w-60" : "w-0"}`}
+			className={`overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${isOpen ? "w-60" : "w-0"}`}
 		>
 			<aside
 				aria-hidden={!isOpen}
-				className="flex h-full w-60 shrink-0 flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-[var(--sidebar-foreground)]"
+				className="flex h-full w-60 shrink-0 flex-col bg-[var(--sidebar)] text-[var(--sidebar-foreground)]"
 			>
-				<header className="flex h-[44px] shrink-0 items-center gap-2 border-b border-[var(--sidebar-border)] px-2.5">
+				<header className="flex h-[44px] shrink-0 items-center gap-2 px-2.5 border-b border-[var(--sidebar-border)]">
 					<span
 						aria-hidden
 						className="flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-[var(--primary)] text-[10px] font-bold text-[var(--primary-foreground)]"
