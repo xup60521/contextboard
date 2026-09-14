@@ -13,6 +13,8 @@ A successful note tree does two jobs:
 
 Readable reconstruction is the product. Traceability is a mandatory acceptance condition. Never silently downgrade a long or damaged source into a summary.
 
+Assume the reader may need help forming an initial understanding. Offer a provisional reading they can compare with the original. Expand the author's compressed steps as far as understanding requires, even when the explanation becomes longer than the source passage. The reader's own knowledge framework and cross-source comparisons come after this source-bound work.
+
 ## 1. Establish source identity and integrity
 
 Accept one canonical web page or one PDF. Record:
@@ -42,6 +44,16 @@ For a source too long for one invocation, finish coherent sections and leave the
 
 ## 3. Read section by section
 
+Read a complete coherent section with enough surrounding text to see its role. First explain the problem it addresses and how its paragraphs advance, qualify, or challenge the argument. Unpack the difficulty where it occurs:
+
+- For tangled sentences, identify the subject, pronoun referents, contrasts, and conditions, then restate the sentence in plain language without strengthening its claim.
+
+- For missing background, explain only what is needed here: whom the author is answering, which explanation is being challenged, and how a term is used in this passage. Distinguish the author's account from added background; cite factual background and keep it within the research source policy and budget.
+
+- For disconnected-seeming claims, show the question, claim, reasons, and how the evidence or example supports the move. Explain why a concept enters here, which earlier difficulty it addresses, and what the account would leave unexplained without it, where the text supports that reading.
+
+Keep the connection to preceding and following passages visible even when cards are organized by dependency. If the text leaves a step unresolved, name the gap or competing readings. Do not repair the author's argument with an invented premise or drift into other theories to make it sound complete.
+
 Read each outline item in context, then revise the provisional structure. Organize by argumentative dependency rather than paragraph boundaries, metadata roles, or simple reading order. Begin with the fewest coherent cards that preserve the source:
 
 ```text
@@ -54,6 +66,12 @@ Source overview and coverage ledger
 A `Detail note` may contain several claims, reasons, evidence items, objections, and limits. Use Markdown `##` headings to make those internal movements scannable. Metadata roles do not create card boundaries.
 
 Split only when a branch can be understood independently and the split materially improves navigation or comparison, or when combining it would make the card's argumentative movement incoherent. Do not split merely because the passage changes from claim to evidence, introduces a qualification, or contains another quotable result. There is no target card count. Excessive fragmentation and overcompressed summary are both failures.
+
+### Assisted reading with the user
+
+When working interactively, offer the section's provisional reading first. Let the user return to the original and question a mismatch; answer by locating the wording and explaining the connection, revising the reading if it does not hold. For example, a claimed rebuttal needs words that establish the contrast, not merely two different claims beside each other.
+
+The user may then restate the argument for correction. Treat that as a check on understanding, never as a prerequisite for help or for completing the notes. Do not require this exchange during an autonomous research run.
 
 ## 4. Preserve complete reading paths
 
@@ -83,7 +101,15 @@ Give it one epistemic status:
 - `note`: a reading aid or judgement added by the agent;
 - `uncertain`: the source supports more than one reading.
 
-A card may contain passages with different epistemic statuses. Record its primary status in metadata, mark every reconstructed or uncertain passage in the visible prose, and cite every passage used in the reconstruction. Later synthesis must not promote it to a direct author claim.
+A card may contain passages with different epistemic statuses. Record its primary status in metadata and distinguish the following in the visible prose where they occur:
+
+- What the author explicitly says, anchored in a quotation and locator.
+
+- What the agent reconstructs to connect the argument, marked as a proposed reading and citing every supporting passage.
+
+- What the agent adds to help understanding, such as background or an illustrative example, marked as a reading aid. Label invented examples as hypothetical and cite factual background. Neither is evidence that the author made the claim.
+
+Mark uncertain readings visibly too, stating what the text leaves undecided. Use natural attribution rather than a fixed set of headings on every card. Later synthesis must preserve these distinctions and must not promote a reconstruction or reading aid to a direct author claim.
 
 Write explanations in the user's language. Keep technical terms and quotations in the source language. Attribute secondary material to the source currently being read, not to the work it describes.
 
@@ -146,9 +172,9 @@ Draft and revise the provisional tree before placing final cards. Before marking
 
 1. Reopen each consequential locator with surrounding context.
 2. Check attribution, wording strength, population, time, certainty, evidence, and qualifications.
-3. Check every root-to-leaf path for a missing premise or boundary.
+3. Check every root-to-leaf path for a missing premise or boundary. The reader should be able to explain why a step follows and what a concept or example does here; a concept list or sequence of conclusions fails even if its quotations are accurate. Preserve genuine gaps in the source explicitly.
 4. Check every outline item has one coverage state.
-5. Check `reconstructed` and `uncertain` cards cite all supporting passages.
+5. Check reconstructed and uncertain passages cite all supporting passages, including inside primarily `stated` cards. Check added background and examples are visibly marked as reading aids and never used to establish the author's position.
 6. Check no card was selected merely because a later synthesis would use it.
 
 Research-flow performs a second, risk-based fidelity pass over all core claims, numbers, figures, limitations, `reconstructed` and `uncertain` cards, plus a sample of ordinary notes.
