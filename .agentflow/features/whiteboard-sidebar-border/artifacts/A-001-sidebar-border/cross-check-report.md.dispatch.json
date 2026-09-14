@@ -1,0 +1,41 @@
+{
+  "dispatch": {
+    "stage": "cross-check",
+    "host": "claude",
+    "profile": "claude-default",
+    "family": "claude",
+    "tier": "better",
+    "model": "claude-opus-4-6",
+    "effort": "high",
+    "marker": "Self-check:",
+    "launch": "native",
+    "worker_args": []
+  },
+  "status": "completed",
+  "exit_code": 0,
+  "timed_out": false,
+  "clone": {
+    "independent": true,
+    "remotes": [],
+    "changed": false
+  },
+  "nested_worker": {
+    "visible": true,
+    "detected": false,
+    "processes": [],
+    "containment": {
+      "attempted": false,
+      "actions": []
+    }
+  },
+  "acceptance": {
+    "accepted": false,
+    "reason": "Process exit and captured output do not prove coordinator acceptance."
+  },
+  "stdout_bytes": 4004,
+  "stdout_truncated": false,
+  "stderr_excerpt": "Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects[\"/tmp/agentflow-external-runner-cwphMx/clone\"].hasTrustDialogAccepted: true in /home/zup/.claude.json.\n",
+  "report_bytes": 4004,
+  "preamble_trimmed_bytes": 0,
+  "report_path": ".agentflow/features/whiteboard-sidebar-border/artifacts/A-001-sidebar-border/cross-check-report.md"
+}

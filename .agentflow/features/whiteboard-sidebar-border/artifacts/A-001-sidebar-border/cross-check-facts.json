@@ -1,0 +1,12 @@
+{
+  "changed_files": [
+    "packages/web-ui/src/components/whiteboard/WhiteboardCanvas.tsx",
+    "packages/web-ui/src/components/whiteboard/whiteboard-canvas-helpers.ts",
+    "packages/web-ui/src/components/whiteboard/WhiteboardCanvas.test.ts"
+  ],
+  "changed_lines": 50,
+  "behavior_change": true,
+  "trust_boundary": false,
+  "broad_change": false,
+  "consequential_change": false
+}
