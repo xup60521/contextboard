@@ -21,6 +21,11 @@ Artifacts: .agentflow/features/whiteboard-sidebar-border/artifacts/A-001-sidebar
 Archived eras: none.
 
 Streams: none.
+
+Backlink: main notebook `.agentflow/devlog.md` (main checkout)
+
+Feature: whiteboard-sidebar-border — closed
+
 ---
 
 # → Ask / A-001 (zup-swift-book)
