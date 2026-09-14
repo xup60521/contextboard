@@ -53,6 +53,7 @@ import {
 } from "./hydration-gate";
 import type { Id } from "./ids";
 import { useWhiteboardNavigation } from "./navigation";
+import { useSidebarContext } from "./SidebarContext";
 import { tldrawAssetUrls } from "./tldraw-assets";
 import {
 	singlePageTldrawComponents,
@@ -71,6 +72,7 @@ import {
 	type BoardItemResult,
 	getWhiteboardKey,
 	type ManagedWhiteboardShape,
+	whiteboardShellClass,
 } from "./whiteboard-canvas-helpers";
 
 export {
@@ -87,6 +89,7 @@ export {
 	isGlobalCardDeleteShortcut,
 	itemToShape,
 	syncRightDragPanPointer,
+	whiteboardShellClass,
 } from "./whiteboard-canvas-helpers";
 
 const whiteboardOptions = {
@@ -121,6 +124,7 @@ export function WhiteboardCanvas({
 	mode?: "edit" | "preview";
 }) {
 	const readOnly = mode === "preview";
+	const { isOpen: sidebarOpen } = useSidebarContext();
 	const navigate = useWhiteboardNavigation();
 	const themeMode = useThemeMode();
 	const whiteboardKey = getWhiteboardKey(whiteboardId);
@@ -533,13 +537,7 @@ export function WhiteboardCanvas({
 	};
 
 	return (
-		<main
-			className={
-				readOnly
-					? "flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)]"
-					: "flex h-dvh min-h-[620px] w-full overflow-hidden bg-[var(--background)]"
-			}
-		>
+		<main className={whiteboardShellClass({ readOnly, sidebarOpen })}>
 			<div className="relative flex-1 overflow-hidden bg-[var(--background)]">
 				<div className="pointer-events-none absolute left-1/2 top-2 z-10 flex max-w-[min(92vw,40rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-sm text-[var(--card-foreground)] shadow-sm">
 					<nav className="pointer-events-auto flex min-w-0 items-center gap-2">
