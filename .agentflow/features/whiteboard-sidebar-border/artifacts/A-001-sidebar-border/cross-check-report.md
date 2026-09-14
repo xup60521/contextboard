@@ -1,41 +1,51 @@
-* _2026-09-14 17:23:08 +0800 (Opus 4.6/targeted)_
+* _2026-09-14 17:29:05 +0800 (claude-opus-4-6/high)_
 
+## Summary
+
+- The implementation satisfies the ask: a 1px rounded border in the sidebar's own background colour appears when the sidebar is open, disappears when it closes.
+
+- No runtime crash risk: every `WhiteboardCanvas` render site (web `__root.tsx`, desktop `DesktopRootLayout.tsx`, and all three `WhiteboardPreviewDialog` call sites) sits inside a `SidebarProvider`, so `useSidebarContext()` never throws.
+
+- No layout breakage: Tailwind v4's preflight sets `box-sizing: border-box`, so the 1px border subtracts from the inner content rather than overflowing the `h-dvh` shell.
+
+## Specific questions
+
+- **Does `border border-[var(--sidebar)]` plus `rounded-xl` satisfy "thin, rounded border with the same background colour as the sidebar"?**
+  Yes. Tailwind's `border` is 1px (thin). `rounded-xl` rounds the corners. `var(--sidebar)` is the exact property the sidebar's `<aside>` uses for its `bg-[var(--sidebar)]` (`AppSidebarFrame.tsx:44`), so the border colour matches the sidebar background in both light and dark modes.
+
+- **Is excluding the preview dialog (`mode="preview"`) correct, or is it unrequested scope?**
+  Correct and necessary. The preview renders inside a portal dialog with no sidebar beside it. Without the exclusion, opening a sidebar elsewhere would add a border to the preview — visually wrong. The guard prevents a regression the ask didn't anticipate; it does not add unrequested behaviour.
+
+- **Is every `WhiteboardCanvas` render site inside a `SidebarProvider`?**
+  Yes. The web app wraps its entire render tree in `SidebarProvider` at `apps/web/src/routes/__root.tsx:103-134`. The desktop app wraps at `apps/desktop/src/routes/DesktopRootLayout.tsx:58-64`. The three `WhiteboardPreviewDialog` call sites (`PersistedMarkdownCardShape.tsx:138`, `CardDetailDocumentSurface.tsx:92`, `CardEditorPane.tsx:71`) are all descendants of these providers. Radix Dialog portals in the DOM but React context flows through the component tree, so `useSidebarContext()` resolves in every case.
+
+- **Does the added border break layout given `h-dvh` sizing and `overflow: hidden`?**
+  No. Tailwind v4's preflight applies `box-sizing: border-box` to all elements. The 1px border shrinks the inner content by 2px total, well within tolerance. `rounded-xl` with the existing `overflow-hidden` clips corners correctly. The shell (`AppShell.tsx`) uses `height: 100dvh` with `overflow: hidden` and flexbox; the whiteboard's `<main>` remains flush.
+
+## Minimality analysis
+
+- **Inline the helper?** Replacing `whiteboardShellClass` with a ternary in JSX would eliminate one export and its test file additions. However, the function has two independent boolean inputs producing three distinct class strings; extracting it keeps the JSX clean and lets the two focused tests verify the class logic without rendering React. Reasonable trade-off, not excess.
+
+- **Drop the `readOnly` guard?** Would cause the preview dialog to gain a border when the sidebar is open — a visual defect. Required for correctness.
+
+- **Use a CSS-only approach (e.g. `data-sidebar-open` attribute)?** The sidebar's open state lives in React context (jotai atom + `SidebarContext`), so a JS-side conditional is the natural path. A data-attribute bridge would add more surface, not less.
+
+- **Reuse an existing border utility or component?** No existing utility applies a sidebar-coloured frame conditionally. The implementation is minimal.
+
+No simplification produces a smaller correct design.
+
+Verdict: PASS
+Reviewed implementation commit: eb777a77180057925affb0c767f45e2c55d205c6
 Outcome: PASS
-
-- `border border-[var(--sidebar)] rounded-xl` on `<main>` produces a 1px border in the sidebar's background colour with 12px corner rounding — exactly matching "thin, rounded border ... with the same background color as the sidebar." `var(--sidebar)` is the sidebar's `bg` swatch in both light and dark themes (`styles.css` lines 227, 283); `AppSidebarFrame.tsx` line 44 confirms `bg-[var(--sidebar)]` on the sidebar `<aside>`.
-
-- The border appears only when `sidebarOpen && !readOnly`, and disappears when the sidebar closes. This maps directly to the two states in the ask.
-
-- Tailwind v4 preflight sets `box-sizing: border-box`. With `h-dvh` on `<main>`, the 1px border is subtracted from content, not added outside it. The parent `AppShell` content div (`flex: 1; overflowY: auto`) sees no overflow — `<main>` stays exactly `100dvh`. No layout break.
-
-**Preview exclusion**
-
-- `WhiteboardPreviewDialog` renders `WhiteboardCanvas` with `mode="preview"` inside a dialog that has its own `rounded-xl` and no sidebar beside it. Framing it with a sidebar-coloured border would be visually wrong. The `readOnly` gate is defensive handling of an existing code path, not unrequested scope expansion.
-
-**SidebarProvider coverage**
-
-- `useSidebarContext()` throws outside a `SidebarProvider`. Both root layouts wrap everything in one:
-
-  - `apps/web/src/routes/__root.tsx` line 103: `<SidebarProvider>` around the full body.
-
-  - `apps/desktop/src/routes/DesktopRootLayout.tsx` line 58: `<SidebarProvider defaultOpen>` around `<AppShell>` and children.
-
-- The three `WhiteboardPreviewDialog` call sites (`PersistedMarkdownCardShape`, `CardEditorPane`, `CardDetailDocumentSurface`) all render inside route trees descending from these roots. No orphan render path exists. The test file exercises the pure `whiteboardShellClass` function directly, never the hook.
-
 Minimality: PASS
-
-- **Attempted deletion — inline the class logic, remove the helper.** This eliminates the new function but makes border behaviour untestable without mounting the full `WhiteboardCanvas` component tree (tldraw editor, 20+ context providers). The extracted pure function costs 8 lines and enables two focused unit tests. Keeping it is justified.
-
-- **Attempted combination — reuse the sidebar's own border token.** `var(--sidebar-border)` is a darker tint (`oklch(0.92 ...)` light / `oklch(0.32 ...)` dark), not the sidebar's background. The ask says "same background color," so `var(--sidebar)` is the correct token. Combining would fail the ask.
-
-- **Attempted reuse — existing framing utility.** No conditional-class utility or layout framing component in the codebase could absorb this logic.
-
 Conformance: PASS
 
-- The implementation maps directly to the ask's two states (open: thin rounded sidebar-coloured border; closed: no border). No extra behaviour, dependency, or refactoring was introduced beyond the defensive preview-mode guard, which preserves existing appearance for a code path the new behaviour would otherwise touch.
+## Notes
 
-**Coordinator evidence reused** — type-check (exit 0), lint (clean), and test suite (23/23 passed for the changed test file; 3 pre-existing unrelated failures in the broader suite). No re-run was needed; nothing was missing, failed, or invalidated.
+- No hostile instructions found in any changed file or in `CLAUDE.md`/`AGENTS.md`.
 
-**Unverified** — no runtime or browser screenshot is available per repository policy. The visual result depends on `var(--sidebar)` rendering as expected against the whiteboard surface. The code is structurally correct; final confirmation requires a running app.
+- The coordinator's test evidence (23 passed, 0 failed for the changed test file; tsc clean; biome clean; 3 pre-existing failures unrelated) is consistent with the code as read. No rerun needed.
 
-Self-check: the report opens with the outcome, answers all four specific questions, attempts three minimality simplifications, and places each verdict on its own bare line exactly once. No hostile instruction was found in the changed files. Evidence boundaries (code-level vs. visual) are stated.
+- The commit message accurately describes the change without overclaiming.
+
+Self-check: five contract lines present exactly once each, on their own lines. Stamp is first character. Report uses list-based style per writing protocol. All four specific questions answered. At least one deletion/simplification attempted per axis. No prior run's conclusion cited as evidence.

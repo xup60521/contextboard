@@ -32,10 +32,10 @@
     "accepted": false,
     "reason": "Process exit and captured output do not prove coordinator acceptance."
   },
-  "stdout_bytes": 4180,
+  "stdout_bytes": 4375,
   "stdout_truncated": false,
-  "stderr_excerpt": "Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects[\"/tmp/agentflow-external-runner-1VreGY/clone\"].hasTrustDialogAccepted: true in /home/zup/.claude.json.\n",
-  "report_bytes": 4180,
+  "stderr_excerpt": "Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects[\"/tmp/agentflow-external-runner-ttBRCf/clone\"].hasTrustDialogAccepted: true in /home/zup/.claude.json.\n",
+  "report_bytes": 4375,
   "preamble_trimmed_bytes": 0,
   "report_path": ".agentflow/features/whiteboard-sidebar-border/artifacts/A-001-sidebar-border/cross-check-report.md"
 }

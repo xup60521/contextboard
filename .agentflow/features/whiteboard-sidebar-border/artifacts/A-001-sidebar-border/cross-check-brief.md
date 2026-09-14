@@ -79,20 +79,24 @@ The ask's scope is what the user wrote plus tests, commits, the notebook, STATUS
 
 ## Report format
 
-Line one of the file is the stamp: `* _YYYY-MM-DD HH:MM:SS ±HHMM (<Model>/<Effort>)_` using fresh machine-local time. Write no preamble, greeting, or framing sentence before it.
+Line one of your output is the stamp: `* _YYYY-MM-DD HH:MM:SS ±HHMM (<Model>/<Effort>)_` using fresh machine-local time. Write no preamble, greeting, apology, or framing sentence before it. If writing the output file is blocked, print the report to standard output instead — its very first character must still be the stamp's `*`, unescaped.
 
-The three verdicts are read by a machine. Each must appear exactly once, on its own line, as bare text with nothing else on that line — no bold markers, no trailing dash, no explanation:
+Your report is read by a machine as well as a human. It must contain these five lines, each exactly once, each alone on its own line as bare text — no bold markers, no leading bullet, no trailing dash or explanation on the same line:
 
 ```
+Verdict: PASS
+Reviewed implementation commit: eb777a77180057925affb0c767f45e2c55d205c6
 Outcome: PASS
 Minimality: PASS
 Conformance: PASS
 ```
 
-Put your reasoning in the lines around them, never on the verdict line itself. `BLOCKING` replaces `PASS` where warranted.
+`Verdict:` is your overall result; the other three are the per-axis results. Replace `PASS` with `BLOCKING` on any line your findings warrant, and keep the commit line exactly as shown. Put all reasoning on the lines around them, never on a contract line, and do not repeat any of these five labels anywhere else in the report — not in a quotation, an example, or a self-check sentence.
 
-Follow the writing guidance in `.agents/skills/agentflow/references/writing.md` (read it; you are explicitly authorized to apply it to your report's presentation). End with exactly one final line beginning `Self-check:` and write nothing after it.
+End with exactly one final line beginning `Self-check:` and write nothing after it.
+
+Follow the writing guidance in `.agents/skills/agentflow/references/writing.md` (read it; you are explicitly authorized to apply it to your report's presentation).
 
 ## Amendment 1
 
-This is the second dispatch of the same stage. The first report reached identical substantive conclusions but wrote its verdicts as `**Outcome: PASS** — …`, which the completion checker cannot read. Review the change independently and on its merits; the earlier run's conclusions are not evidence for yours.
+This is a redispatch of the same stage. Earlier runs reached PASS but did not carry the machine-readable contract above, which is why the brief now states it literally. Review the change independently and on its merits; no earlier run's conclusion is evidence for yours.
