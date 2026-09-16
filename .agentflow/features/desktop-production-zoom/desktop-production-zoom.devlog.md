@@ -32,4 +32,6 @@ Opened by the `agf` shell shortcut on 2026-09-16, not by an agent round. The mai
 
 # → Ask / A-001 (xup60521)
 
-+ 
++ godev
+  go to 'D:\code\side_project\contextboard\.worktrees\desktop-production-zoom'
+  and continue the work
