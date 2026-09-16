@@ -19,9 +19,11 @@ const tauriConfig = JSON.parse(
 		security: {
 			csp: string;
 		};
+		windows: Array<{
+			zoomHotkeysEnabled?: boolean;
+		}>;
 	};
 };
-
 const sharedTokens = [
 	"background",
 	"foreground",
@@ -62,6 +64,10 @@ describe("desktop stylesheet contract", () => {
 			"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 		);
 		expect(csp).toContain("font-src 'self' https://fonts.gstatic.com");
+	});
+
+	test("enables production webview zoom shortcuts", () => {
+		expect(tauriConfig.app.windows[0]?.zoomHotkeysEnabled).toBe(true);
 	});
 
 	test("uses the same body-level rendering classes as the web shell", () => {
