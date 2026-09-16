@@ -21,6 +21,10 @@ Artifacts: .agentflow/features/desktop-production-zoom/artifacts/A-001-desktop-p
 Archived eras: none.
 
 Streams: none.
+
+Backlink: main notebook `.agentflow/devlog.md` (main checkout)
+
+Feature: desktop-production-zoom — closed
 ---
 
 # → Ask / A-001 (xup60521)
