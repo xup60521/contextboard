@@ -12,9 +12,9 @@ Configuration: .agentflow/features/desktop-production-zoom/ag.json — schema v7
 
 Proven: packaged Windows desktop zoom hotkeys enabled with a focused regression assertion; final host review passed.
 
-Open: create the pull request.
+Open: PR #39 is open for review: https://github.com/xup60521/contextboard/pull/39
 
-Next: file the pull request, then await review.
+Next: await PR review and merge, then run cleanup:desktop-production-zoom from the laptop main checkout.
 
 Artifacts: .agentflow/features/desktop-production-zoom/artifacts/A-001-desktop-production-zoom/.
 
