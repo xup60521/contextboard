@@ -1,0 +1,14 @@
+{
+  "changed_files": [
+    "apps/desktop/src-tauri/capabilities/default.json",
+    "apps/desktop/src-tauri/gen/schemas/capabilities.json",
+    "apps/desktop/src-tauri/tauri.conf.json",
+    "apps/desktop/src/desktop-css-contract.test.ts"
+  ],
+  "changed_lines": 26,
+  "behavior_change": true,
+  "trust_boundary": false,
+  "broad_change": false,
+  "consequential_change": false,
+  "owner_control": "default"
+}
